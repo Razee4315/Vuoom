@@ -159,7 +159,8 @@ mod tests {
         let t = &scene.texts[0];
         assert!((t.x - 100.0).abs() < 1e-9);
         assert!((t.y - 200.0).abs() < 1e-9);
-        assert!((t.font_px - 50.0).abs() < 1e-9);
+        // font_size is f32, so allow f32->f64 rounding slack.
+        assert!((t.font_px - 50.0).abs() < 1e-4);
     }
 
     #[test]

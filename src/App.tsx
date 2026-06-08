@@ -1,5 +1,8 @@
-import { createSignal, onMount, For } from "solid-js";
+import { createSignal, onMount, onCleanup, For } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import WindowControls from "./WindowControls";
+import ThemeMenu from "./ThemeMenu";
+import { applyTheme, initialTheme } from "./themes";
 import "./App.css";
 
 type Tool = "select" | "text" | "arrow" | "box" | "crop";
@@ -24,8 +27,17 @@ function App() {
   const [tool, setTool] = createSignal<Tool>("select");
   const [status, setStatus] = createSignal("Ready");
   const [presets, setPresets] = createSignal<GifSettings[]>([]);
+  const [theme, setTheme] = createSignal(initialTheme());
+
+  // Avoid the native browser context menu in app chrome (keep it for text fields).
+  const onContextMenu = (e: MouseEvent) => {
+    const el = e.target as HTMLElement;
+    if (!el.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
+  };
 
   onMount(async () => {
+    applyTheme(theme());
+    document.addEventListener("contextmenu", onContextMenu);
     try {
       const [readme, hq] = await invoke<[GifSettings, GifSettings]>("gif_presets");
       setPresets([readme, hq]);
@@ -34,14 +46,27 @@ function App() {
       setStatus(`Backend error: ${String(e)}`);
     }
   });
+  onCleanup(() => document.removeEventListener("contextmenu", onContextMenu));
 
   return (
     <div class="editor">
-      <header class="topbar">
-        <button class="btn record">● Record</button>
-        <div class="title">Untitled — Vuoom</div>
-        <button class="btn export">Export GIF</button>
+      {/* Custom frameless titlebar (draggable) */}
+      <header class="titlebar" data-tauri-drag-region="">
+        <span class="brand">Vuoom</span>
+        <div class="titlebar-right">
+          <ThemeMenu current={theme()} onSelect={setTheme} />
+          <WindowControls />
+        </div>
       </header>
+
+      {/* Action toolbar */}
+      <div class="toolbar">
+        <button class="btn record">
+          <span class="dot" /> Record
+        </button>
+        <div class="project-title">Untitled</div>
+        <button class="btn export">Export GIF</button>
+      </div>
 
       <div class="workspace">
         <nav class="toolrail">

@@ -63,6 +63,22 @@ correctness is confirmed by **running the app on the Windows machine** — the s
 installing the release. As these land, expect a short "install this build and tell me what you
 see" step.
 
+## Testing the app (the runtime checks)
+
+Once a build with the wired pipeline is installed, the things to verify on a real machine:
+
+1. **Record** → click "Record", interact with your screen (click around), then "Stop". The
+   status bar should report the duration + number of auto-zooms detected.
+2. **Preview/scrub** → drag the timeline slider. The canvas should show the composited frame
+   (background + zoomed-in source) for that moment. *This exercises capture → compositor →
+   WebSocket preview end-to-end.*
+3. **Export GIF** → needs the `gifski` binary on PATH for now (sidecar bundling is a TODO);
+   writes `vuoom-demo.gif`.
+
+Report back: does capture produce frames? does the zoom render correctly? does the preview
+stream smoothly? Those answers drive the next fixes (this layer is compile-verified, not yet
+run-verified).
+
 ## How to get an installable build
 
 The **Release** workflow (manual) builds `.msi` + `.exe` and publishes to

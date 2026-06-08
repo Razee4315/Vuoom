@@ -7,11 +7,15 @@
 //! See `docs/06-Export.md` and `docs/10-Licensing.md`.
 
 mod error;
+mod export;
 mod gifski;
+mod image;
 mod plan;
 mod settings;
 
 pub use error::EncodeError;
+pub use export::export_gif;
 pub use gifski::{build_gifsicle_args, build_gifski_args, run_gifsicle, run_gifski};
+pub use image::{write_png, RgbaImage};
 pub use plan::{estimate_total_bytes, plan_frames, EmittedFrame};
 pub use settings::GifSettings;

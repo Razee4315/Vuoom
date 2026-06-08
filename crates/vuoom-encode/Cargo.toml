@@ -10,6 +10,8 @@ description = "GIF export: frame planning, size estimation, and gifski invoked a
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
+png = "0.17"
+tempfile = "3"
 
 # gifski is AGPL — invoked as a bundled binary via std::process, NEVER linked.
 # See docs/06-Export.md and docs/10-Licensing.md.

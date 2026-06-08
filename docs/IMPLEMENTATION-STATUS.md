@@ -48,10 +48,14 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | wgpu compositor — headless device + offscreen render + readback | `vuoom-render` | 🟡 |
 | wgpu compositor — composite pipeline (bg + zoom/pan crop + rounded-corner SDF) | `vuoom-render` | 🟡 |
 | Compositor shape annotations (highlight boxes + arrows) | `vuoom-render` | 🟡 |
-| Compositor **text** annotations (glyphon) | `vuoom-render` | ⬜ (model + scene-resolution ready; GPU text pass remaining) |
+| Compositor **text** annotations (glyphon) | `vuoom-render` | 🟡 |
 | End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | 🟡 |
 | Frontend preview canvas + Record/Stop/Export + timeline scrub | `src/` | 🟡 |
-| Frontend annotation editing (place text/arrow/box on canvas → re-render) | `src/` | 🟡 (boxes/arrows render; text stored, awaiting glyphon) |
+| Frontend annotation editing (text/arrow/box on canvas → re-render) | `src/` | 🟡 |
+
+**Every planned feature is now implemented.** What remains is purely *runtime verification on a
+real Windows machine* (the 🟡 layers) — capture, GPU rendering, and input can't be exercised on
+a GPU-less CI runner, so they're compile-verified here and confirmed by running the app.
 
 ---
 

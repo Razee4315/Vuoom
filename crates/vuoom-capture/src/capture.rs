@@ -10,7 +10,10 @@ use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
 use windows_capture::monitor::Monitor;
-use windows_capture::settings::{ColorFormat, Settings};
+use windows_capture::settings::{
+    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
+    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+};
 
 /// One captured frame: tightly-packed BGRA8 pixels + dimensions + QPC timestamp.
 pub struct CapturedFrame {
@@ -50,8 +53,9 @@ impl GraphicsCaptureApiHandler for Handler {
     ) -> Result<(), Self::Error> {
         let width = frame.width();
         let height = frame.height();
-        let mut buffer = frame.buffer()?;
-        let bgra = buffer.as_nopadding_buffer()?.to_vec();
+        let buffer = frame.buffer()?;
+        let mut scratch: [Vec<u8>; 1] = [Vec::new()];
+        let bgra = buffer.as_nopadding_buffer(&mut scratch).to_vec();
         let _ = self.tx.send(CapturedFrame {
             width,
             height,
@@ -74,11 +78,11 @@ pub fn run_primary_display(tx: Sender<CapturedFrame>) -> Result<(), CaptureError
     let monitor = Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))?;
     let settings = Settings::new(
         monitor,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
+        CursorCaptureSettings::Default,
+        DrawBorderSettings::Default,
+        SecondaryWindowSettings::Default,
+        MinimumUpdateIntervalSettings::Default,
+        DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
         tx,
     );

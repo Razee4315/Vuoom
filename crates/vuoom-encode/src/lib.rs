@@ -1,9 +1,17 @@
-//! GIF export.
+//! GIF export (v1's only output format).
 //!
-//! v1 exports GIF only. Composited RGBA frames are downscaled, frame-selected to the
-//! target fps, and fed to **gifski**, which ships as a separate bundled binary invoked
-//! out-of-process (gifski is AGPL; invoking it as a separate process keeps Vuoom's own
-//! code Apache-2.0 — NEVER link the gifski crate). Optional `gifsicle` second pass.
-//! Live size estimate via sample-and-extrapolate. See `docs/06-Export.md`, `docs/10-Licensing.md`.
+//! Composited RGBA frames are downscaled and frame-selected to the target fps, then fed
+//! to **gifski**, which ships as a separate bundled binary invoked out-of-process so
+//! Vuoom's own code stays Apache-2.0 (gifski is AGPL — never linked). An optional
+//! gifsicle pass shrinks further. Size is estimated by sample-and-extrapolate.
+//! See `docs/06-Export.md` and `docs/10-Licensing.md`.
 
-// TODO(M4): spawn the gifski sidecar, pipe frames, stream progress via a tauri Channel.
+mod error;
+mod gifski;
+mod plan;
+mod settings;
+
+pub use error::EncodeError;
+pub use gifski::{build_gifsicle_args, build_gifski_args, run_gifsicle, run_gifski};
+pub use plan::{estimate_total_bytes, plan_frames, EmittedFrame};
+pub use settings::GifSettings;

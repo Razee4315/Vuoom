@@ -1,0 +1,47 @@
+//! The simple, core annotation set: text labels, arrows, and highlight boxes.
+//!
+//! Kept deliberately minimal (see `docs/11-Editor-and-Annotations.md`). Each carries a
+//! [`TimeRange`] so it appears/disappears (with fades) on the timeline, and geometry in
+//! normalized output space so it is resolution-independent.
+
+use crate::color::{Color, Rect};
+use crate::timing::TimeRange;
+use glam::DVec2;
+use serde::{Deserialize, Serialize};
+
+/// A text label drawn on the canvas (rendered via glyphon at composite time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextAnnotation {
+    pub id: u32,
+    pub text: String,
+    /// Top-left anchor, normalized.
+    pub pos: DVec2,
+    /// Font size as a fraction of output height (e.g. 0.05 = 5% of height).
+    pub font_size: f32,
+    pub color: Color,
+    pub range: TimeRange,
+}
+
+/// An arrow from `from` to `to` (rendered via lyon at composite time).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ArrowAnnotation {
+    pub id: u32,
+    pub from: DVec2,
+    pub to: DVec2,
+    pub color: Color,
+    /// Stroke thickness as a fraction of output height.
+    pub thickness: f32,
+    pub range: TimeRange,
+}
+
+/// A highlight rectangle (outlined or filled).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HighlightBox {
+    pub id: u32,
+    pub rect: Rect,
+    pub color: Color,
+    /// Outline thickness as a fraction of output height (ignored when `filled`).
+    pub thickness: f32,
+    pub filled: bool,
+    pub range: TimeRange,
+}

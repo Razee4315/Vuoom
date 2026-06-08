@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "GIF export: feeds composited RGBA frames to gifski as an OUT-OF-PROCESS binary (keeps Vuoom Apache-2.0)."
+description = "GIF export: frame planning, size estimation, and gifski invoked as an OUT-OF-PROCESS binary (keeps Vuoom Apache-2.0)."
 
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
+serde.workspace = true
 
 # gifski is AGPL — invoked as a bundled binary via std::process, NEVER linked.
 # See docs/06-Export.md and docs/10-Licensing.md.

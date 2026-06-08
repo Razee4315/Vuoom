@@ -9,4 +9,6 @@
 mod capture;
 
 #[cfg(windows)]
-pub use capture::{run_primary_display, spawn_primary_display, CaptureError, CapturedFrame};
+pub use capture::{
+    run_primary_display, spawn_primary_display, CaptureError, CaptureHandle, CapturedFrame,
+};

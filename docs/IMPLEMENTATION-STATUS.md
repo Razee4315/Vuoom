@@ -36,7 +36,7 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | **Custom frameless titlebar** + min/max/close window controls | ✅ |
 | Tauri UI hardening (drag region, context-menu, anti-flash startup, window permissions) | ✅ |
 | CI/CD pipeline (lint+test+build) + Release pipeline (installers) | ✅ |
-| Published installer | ✅ `v0.1.0` (purple, pre-redesign); a redesigned build follows |
+| Published installer | ✅ **`v0.1.1`** — redesigned black/white UI + custom titlebar (install this one) |
 
 ## Integration (compile-verified; runtime needs your machine)
 
@@ -44,8 +44,10 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 |---|---|---|
 | Global input recorder (low-level hooks + pump thread) | `vuoom-input` | 🟡 |
 | Localhost WebSocket preview server ("latest wins") | `vuoom-preview` | 🟡 |
-| WGC screen capture (windows-capture) | `vuoom-capture` | ⬜ |
-| wgpu compositor (device, shaders, SDF corners, glyphon text, lyon shapes) | `vuoom-render` | ⬜ |
+| WGC screen capture (windows-capture) | `vuoom-capture` | 🟡 |
+| wgpu compositor — headless device + offscreen render + readback | `vuoom-render` | 🟡 |
+| wgpu compositor — composite pipeline (source sampling + SDF corners shader) | `vuoom-render` | ⬜ (shader written; pipeline next) |
+| Compositor text (glyphon) + shapes (lyon) | `vuoom-render` | ⬜ |
 | End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | ⬜ |
 | Frontend preview canvas (WebGPU) + interactive timeline/annotations | `src/` | ⬜ |
 

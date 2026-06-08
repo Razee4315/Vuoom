@@ -1,15 +1,22 @@
 //! Vuoom desktop app shell. The webview is the cockpit; Rust is the engine.
 //!
-//! This thin Tauri layer registers the command surface in [`commands`] and (as they come
-//! online) will own the capture / render / preview / export pipeline. See
+//! This thin Tauri layer manages the recording [`session::Session`] and registers the
+//! command surface in [`commands`] (pure-logic helpers + record/preview/export). See
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod session;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            app.manage(session::Session::new());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::default_zoom_config,
             commands::new_project,
@@ -17,6 +24,11 @@ pub fn run() {
             commands::load_project,
             commands::gif_presets,
             commands::estimate_gif_size,
+            commands::preview_port,
+            commands::start_recording,
+            commands::stop_recording,
+            commands::seek,
+            commands::export_gif,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

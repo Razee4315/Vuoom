@@ -4,6 +4,7 @@
 //! and size estimation). Capture / render / preview / export commands are added as those
 //! crates come online. See `docs/02-Architecture.md`.
 
+use crate::session::{RecordingSummary, Session};
 use vuoom_encode::{estimate_total_bytes, GifSettings};
 use vuoom_project::{Project, SourceInfo, ZoomConfig};
 
@@ -54,4 +55,41 @@ pub fn estimate_gif_size(
     motion_factor: f64,
 ) -> u64 {
     estimate_total_bytes(sample_bytes, sample_frames, total_frames, motion_factor)
+}
+
+// ── Recording / preview / export ──────────────────────────────────────────────
+
+/// The localhost port the webview connects to for the live preview stream.
+#[tauri::command]
+pub fn preview_port(session: tauri::State<'_, Session>) -> u16 {
+    session.preview_port()
+}
+
+/// Begin capturing the primary display + global input.
+#[tauri::command]
+pub fn start_recording(session: tauri::State<'_, Session>) -> Result<(), String> {
+    session.start_recording()
+}
+
+/// Stop capturing and build the editable project; returns a summary for the UI.
+#[tauri::command]
+pub fn stop_recording(session: tauri::State<'_, Session>) -> Result<RecordingSummary, String> {
+    session.stop_recording()
+}
+
+/// Composite the frame at time `t` (seconds) and push it to the preview.
+#[tauri::command]
+pub fn seek(session: tauri::State<'_, Session>, t: f64) -> Result<(), String> {
+    session.seek(t)
+}
+
+/// Export the recording to an optimized GIF at `path`.
+#[tauri::command]
+pub fn export_gif(
+    session: tauri::State<'_, Session>,
+    path: String,
+    fps: u32,
+    width: Option<u32>,
+) -> Result<(), String> {
+    session.export_gif(path, fps, width)
 }

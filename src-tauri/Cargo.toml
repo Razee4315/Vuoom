@@ -20,13 +20,11 @@ tauri-plugin-opener = "2"
 serde.workspace = true
 serde_json.workspace = true
 
-# Engine crates (pure-logic core — verified on CI).
+# Engine crates.
 vuoom-zoom.workspace = true
 vuoom-project.workspace = true
 vuoom-encode.workspace = true
-
-# Wired in as the platform spikes/milestones land:
-# vuoom-input.workspace   = true
-# vuoom-capture.workspace = true
-# vuoom-render.workspace  = true
-# vuoom-preview.workspace = true
+vuoom-input.workspace = true
+vuoom-capture.workspace = true
+vuoom-render.workspace = true
+vuoom-preview.workspace = true

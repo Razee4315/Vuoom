@@ -29,6 +29,9 @@ pub fn run() {
             commands::stop_recording,
             commands::seek,
             commands::export_gif,
+            commands::add_text,
+            commands::add_arrow,
+            commands::add_box,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

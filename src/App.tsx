@@ -77,6 +77,53 @@ function App() {
     }
   };
 
+  // Annotation placement on the preview canvas.
+  let dragStart: { x: number; y: number } | null = null;
+
+  const canvasNorm = (e: MouseEvent): { x: number; y: number } => {
+    const r = (e.currentTarget as HTMLCanvasElement).getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    };
+  };
+
+  const onCanvasDown = async (e: MouseEvent) => {
+    if (!hasClip()) return;
+    const p = canvasNorm(e);
+    const t = playhead();
+    if (tool() === "text") {
+      const text = window.prompt("Text label:");
+      if (text) {
+        await invoke("add_text", { text, x: p.x, y: p.y, t });
+        await scrub(t);
+      }
+    } else if (tool() === "arrow" || tool() === "box") {
+      dragStart = p;
+    }
+  };
+
+  const onCanvasUp = async (e: MouseEvent) => {
+    if (!dragStart || !hasClip()) return;
+    const s = dragStart;
+    dragStart = null;
+    const p = canvasNorm(e);
+    const t = playhead();
+    if (tool() === "arrow") {
+      await invoke("add_arrow", { fx: s.x, fy: s.y, tx: p.x, ty: p.y, t });
+      await scrub(t);
+    } else if (tool() === "box") {
+      const x = Math.min(s.x, p.x);
+      const y = Math.min(s.y, p.y);
+      const w = Math.abs(p.x - s.x);
+      const h = Math.abs(p.y - s.y);
+      if (w > 0.005 && h > 0.005) {
+        await invoke("add_box", { x, y, w, h, t });
+        await scrub(t);
+      }
+    }
+  };
+
   const toggleRecord = async () => {
     try {
       if (!recording()) {
@@ -148,6 +195,8 @@ function App() {
               ref={(el) => (canvasEl = el)}
               class="preview-canvas"
               classList={{ hidden: !hasClip() }}
+              onMouseDown={(e) => void onCanvasDown(e)}
+              onMouseUp={(e) => void onCanvasUp(e)}
             />
             <Show when={!hasClip()}>
               <div class="canvas-placeholder">

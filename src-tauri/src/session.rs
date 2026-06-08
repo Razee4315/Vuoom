@@ -11,12 +11,16 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 
+use glam::DVec2;
 use serde::Serialize;
 use vuoom_capture::{spawn_primary_display, CaptureHandle, CapturedFrame};
 use vuoom_encode::{export_gif as encode_gif, plan_frames, GifSettings, RgbaImage};
 use vuoom_input::{normalize, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
-use vuoom_project::{Background, Color, FrameStyle, Project, SourceInfo, ZoomConfig};
+use vuoom_project::{
+    ArrowAnnotation, Background, Color, FrameStyle, HighlightBox, Project, Rect, SourceInfo,
+    TextAnnotation, TimeRange, ZoomConfig,
+};
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent};
 
@@ -230,6 +234,57 @@ impl Session {
         )
         .map_err(|e| e.to_string())
     }
+
+    /// Add a text label at normalized `(x, y)`, visible for ~3s from time `t`. Returns its id.
+    pub fn add_text(&self, text: String, x: f64, y: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.texts.push(TextAnnotation {
+            id,
+            text,
+            pos: DVec2::new(x, y),
+            font_size: 0.05,
+            color: Color::WHITE,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add an arrow between normalized points, visible for ~3s from time `t`. Returns its id.
+    pub fn add_arrow(&self, fx: f64, fy: f64, tx: f64, ty: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.arrows.push(ArrowAnnotation {
+            id,
+            from: DVec2::new(fx, fy),
+            to: DVec2::new(tx, ty),
+            color: Color::rgb(0.95, 0.25, 0.25),
+            thickness: 0.006,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add a highlight box (normalized rect), visible for ~3s from time `t`. Returns its id.
+    pub fn add_box(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            color: Color::rgb(1.0, 0.82, 0.1),
+            thickness: 0.005,
+            filled: false,
+            range,
+        });
+        Ok(id)
+    }
 }
 
 impl Default for Session {
@@ -258,4 +313,22 @@ fn background_color(frame: &FrameStyle) -> [f32; 4] {
         Background::Image { .. } | Background::Blur { .. } => Color::rgb(0.08, 0.08, 0.09),
     };
     [c.r, c.g, c.b, c.a]
+}
+
+fn next_id(project: &Project) -> u32 {
+    let mut max = 0;
+    for t in &project.texts {
+        max = max.max(t.id);
+    }
+    for a in &project.arrows {
+        max = max.max(a.id);
+    }
+    for h in &project.highlights {
+        max = max.max(h.id);
+    }
+    max + 1
+}
+
+fn default_end(t: f64, duration: f64) -> f64 {
+    (t + 3.0).min(duration.max(t + 0.5))
 }

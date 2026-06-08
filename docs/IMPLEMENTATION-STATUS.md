@@ -47,10 +47,11 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | WGC screen capture (windows-capture) | `vuoom-capture` | 🟡 |
 | wgpu compositor — headless device + offscreen render + readback | `vuoom-render` | 🟡 |
 | wgpu compositor — composite pipeline (bg + zoom/pan crop + rounded-corner SDF) | `vuoom-render` | 🟡 |
-| Compositor text (glyphon) + shapes (lyon) | `vuoom-render` | ⬜ |
+| Compositor shape annotations (highlight boxes + arrows) | `vuoom-render` | 🟡 |
+| Compositor **text** annotations (glyphon) | `vuoom-render` | ⬜ (model + scene-resolution ready; GPU text pass remaining) |
 | End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | 🟡 |
 | Frontend preview canvas + Record/Stop/Export + timeline scrub | `src/` | 🟡 |
-| Frontend interactive annotation editing (place/edit text/arrow/box) | `src/` | ⬜ |
+| Frontend annotation editing (place text/arrow/box on canvas → re-render) | `src/` | 🟡 (boxes/arrows render; text stored, awaiting glyphon) |
 
 ---
 

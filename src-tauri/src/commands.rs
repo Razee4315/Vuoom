@@ -93,3 +93,41 @@ pub fn export_gif(
 ) -> Result<(), String> {
     session.export_gif(path, fps, width)
 }
+
+/// Add a text label at normalized `(x, y)` from time `t`.
+#[tauri::command]
+pub fn add_text(
+    session: tauri::State<'_, Session>,
+    text: String,
+    x: f64,
+    y: f64,
+    t: f64,
+) -> Result<u32, String> {
+    session.add_text(text, x, y, t)
+}
+
+/// Add an arrow between normalized points from time `t`.
+#[tauri::command]
+pub fn add_arrow(
+    session: tauri::State<'_, Session>,
+    fx: f64,
+    fy: f64,
+    tx: f64,
+    ty: f64,
+    t: f64,
+) -> Result<u32, String> {
+    session.add_arrow(fx, fy, tx, ty, t)
+}
+
+/// Add a highlight box (normalized rect) from time `t`.
+#[tauri::command]
+pub fn add_box(
+    session: tauri::State<'_, Session>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    session.add_box(x, y, w, h, t)
+}

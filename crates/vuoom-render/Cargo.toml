@@ -12,11 +12,10 @@ vuoom-zoom.workspace = true
 vuoom-project.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+wgpu = "25"
+bytemuck.workspace = true
+pollster.workspace = true
 
-# The wgpu compositor pipeline deps land with the GPU implementation
-# (docs/05-Compositing-and-Preview.md):
-# wgpu = "25"
-# bytemuck = { workspace = true }
-# pollster = { workspace = true }
+# Text + vector annotation passes land next:
 # glyphon = "0.9"
 # lyon = "1"

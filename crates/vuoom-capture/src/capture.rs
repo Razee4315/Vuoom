@@ -54,7 +54,7 @@ impl GraphicsCaptureApiHandler for Handler {
         let width = frame.width();
         let height = frame.height();
         let buffer = frame.buffer()?;
-        let mut scratch: [Vec<u8>; 1] = [Vec::new()];
+        let mut scratch: Vec<u8> = Vec::new();
         let bgra = buffer.as_nopadding_buffer(&mut scratch).to_vec();
         let _ = self.tx.send(CapturedFrame {
             width,

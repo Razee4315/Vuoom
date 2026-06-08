@@ -6,8 +6,11 @@
 //! → cursor → text (glyphon) + annotations (lyon) into an offscreen RGBA texture, shared
 //! by the preview and GIF-export sinks. See `docs/05-Compositing-and-Preview.md`.
 
+mod compositor;
 mod layout;
 mod scene;
+
+pub use compositor::Compositor;
 
 pub use layout::{
     camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,

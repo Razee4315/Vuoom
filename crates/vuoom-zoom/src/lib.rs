@@ -8,12 +8,14 @@
 
 mod camera;
 mod config;
+mod edit;
 mod event;
 mod keyframe;
 mod planner;
 
 pub use camera::{clamp_camera, simulate, spring_update, CameraState, CameraTrack};
 pub use config::ZoomConfig;
+pub use edit::{insert_sorted, move_to, remove, resize, sort_by_start, MIN_LEN};
 pub use event::{InputEvent, MouseButton};
 pub use keyframe::{ZoomKeyframe, ZoomMode};
 pub use planner::plan_zooms;

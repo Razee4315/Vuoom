@@ -8,11 +8,13 @@
 mod annotation;
 mod color;
 mod frame;
+mod timeline;
 mod timing;
 
 pub use annotation::{ArrowAnnotation, HighlightBox, TextAnnotation};
 pub use color::{Color, Rect};
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
+pub use timeline::{output_duration, output_to_source};
 pub use timing::TimeRange;
 
 // Re-export the zoom types so a Project is self-describing from one crate.

@@ -7,7 +7,9 @@
 //! by the preview and GIF-export sinks. See `docs/05-Compositing-and-Preview.md`.
 
 mod layout;
+mod scene;
 
 pub use layout::{
     camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,
 };
+pub use scene::{build_scene, ResolvedArrow, ResolvedHighlight, ResolvedText, Scene};

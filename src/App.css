@@ -388,3 +388,34 @@ button {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Live preview + recording controls */
+.preview-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
+  display: block;
+}
+.preview-canvas.hidden {
+  display: none;
+}
+.btn.record.active {
+  color: #fff;
+  background: var(--record);
+  border-color: var(--record);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn.export:disabled {
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.scrubber {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

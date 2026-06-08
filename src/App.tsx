@@ -1,8 +1,9 @@
-import { createSignal, onMount, onCleanup, For } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
+import { PreviewClient } from "./preview";
 import "./App.css";
 
 type Tool = "select" | "text" | "arrow" | "box" | "crop";
@@ -13,6 +14,13 @@ interface GifSettings {
   width: number | null;
   quality: number;
   lossy: number | null;
+}
+
+/** Mirrors src-tauri session::RecordingSummary. */
+interface RecordingSummary {
+  duration: number;
+  frames: number;
+  zooms: number;
 }
 
 const TOOLS: { id: Tool; label: string }[] = [
@@ -28,8 +36,14 @@ function App() {
   const [status, setStatus] = createSignal("Ready");
   const [presets, setPresets] = createSignal<GifSettings[]>([]);
   const [theme, setTheme] = createSignal(initialTheme());
+  const [recording, setRecording] = createSignal(false);
+  const [hasClip, setHasClip] = createSignal(false);
+  const [duration, setDuration] = createSignal(0);
+  const [playhead, setPlayhead] = createSignal(0);
 
-  // Avoid the native browser context menu in app chrome (keep it for text fields).
+  const preview = new PreviewClient();
+  let canvasEl: HTMLCanvasElement | undefined;
+
   const onContextMenu = (e: MouseEvent) => {
     const el = e.target as HTMLElement;
     if (!el.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
@@ -38,19 +52,63 @@ function App() {
   onMount(async () => {
     applyTheme(theme());
     document.addEventListener("contextmenu", onContextMenu);
+    if (canvasEl) preview.attach(canvasEl);
     try {
       const [readme, hq] = await invoke<[GifSettings, GifSettings]>("gif_presets");
       setPresets([readme, hq]);
+      const port = await invoke<number>("preview_port");
+      preview.connect(port);
       setStatus("Engine connected");
     } catch (e) {
       setStatus(`Backend error: ${String(e)}`);
     }
   });
-  onCleanup(() => document.removeEventListener("contextmenu", onContextMenu));
+  onCleanup(() => {
+    document.removeEventListener("contextmenu", onContextMenu);
+    preview.disconnect();
+  });
+
+  const scrub = async (t: number) => {
+    setPlayhead(t);
+    try {
+      await invoke("seek", { t });
+    } catch {
+      // no clip yet — ignore
+    }
+  };
+
+  const toggleRecord = async () => {
+    try {
+      if (!recording()) {
+        await invoke("start_recording");
+        setRecording(true);
+        setStatus("Recording… click Stop when done");
+      } else {
+        const summary = await invoke<RecordingSummary>("stop_recording");
+        setRecording(false);
+        setHasClip(true);
+        setDuration(summary.duration);
+        setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} auto-zooms`);
+        await scrub(0);
+      }
+    } catch (e) {
+      setRecording(false);
+      setStatus(`Error: ${String(e)}`);
+    }
+  };
+
+  const onExport = async () => {
+    try {
+      setStatus("Exporting GIF…");
+      await invoke("export_gif", { path: "vuoom-demo.gif", fps: 15, width: 1000 });
+      setStatus("Exported vuoom-demo.gif");
+    } catch (e) {
+      setStatus(`Export failed: ${String(e)}`);
+    }
+  };
 
   return (
     <div class="editor">
-      {/* Custom frameless titlebar (draggable) */}
       <header class="titlebar" data-tauri-drag-region="">
         <span class="brand">Vuoom</span>
         <div class="titlebar-right">
@@ -59,13 +117,14 @@ function App() {
         </div>
       </header>
 
-      {/* Action toolbar */}
       <div class="toolbar">
-        <button class="btn record">
-          <span class="dot" /> Record
+        <button class="btn record" classList={{ active: recording() }} onClick={toggleRecord}>
+          <span class="dot" /> {recording() ? "Stop" : "Record"}
         </button>
         <div class="project-title">Untitled</div>
-        <button class="btn export">Export GIF</button>
+        <button class="btn export" disabled={!hasClip()} onClick={onExport}>
+          Export GIF
+        </button>
       </div>
 
       <div class="workspace">
@@ -85,10 +144,17 @@ function App() {
 
         <main class="canvas">
           <div class="canvas-frame">
-            <div class="canvas-placeholder">
-              <p class="big">Preview</p>
-              <small>Record a clip to begin — auto-zoom is applied automatically.</small>
-            </div>
+            <canvas
+              ref={(el) => (canvasEl = el)}
+              class="preview-canvas"
+              classList={{ hidden: !hasClip() }}
+            />
+            <Show when={!hasClip()}>
+              <div class="canvas-placeholder">
+                <p class="big">Preview</p>
+                <small>Record a clip to begin — auto-zoom is applied automatically.</small>
+              </div>
+            </Show>
           </div>
         </main>
 
@@ -112,7 +178,20 @@ function App() {
 
       <footer class="timeline">
         <div class="timeline-track">
-          <span class="muted">Timeline — trim · zoom blocks · text &amp; annotations</span>
+          <Show
+            when={hasClip()}
+            fallback={<span class="muted">Timeline — record a clip to begin</span>}
+          >
+            <input
+              class="scrubber"
+              type="range"
+              min="0"
+              max={duration()}
+              step="0.01"
+              value={playhead()}
+              onInput={(e) => void scrub(Number(e.currentTarget.value))}
+            />
+          </Show>
         </div>
         <div class="statusbar">{status()}</div>
       </footer>

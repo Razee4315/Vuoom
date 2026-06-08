@@ -46,10 +46,11 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | Localhost WebSocket preview server ("latest wins") | `vuoom-preview` | 🟡 |
 | WGC screen capture (windows-capture) | `vuoom-capture` | 🟡 |
 | wgpu compositor — headless device + offscreen render + readback | `vuoom-render` | 🟡 |
-| wgpu compositor — composite pipeline (source sampling + SDF corners shader) | `vuoom-render` | ⬜ (shader written; pipeline next) |
+| wgpu compositor — composite pipeline (bg + zoom/pan crop + rounded-corner SDF) | `vuoom-render` | 🟡 |
 | Compositor text (glyphon) + shapes (lyon) | `vuoom-render` | ⬜ |
-| End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | ⬜ |
-| Frontend preview canvas (WebGPU) + interactive timeline/annotations | `src/` | ⬜ |
+| End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | 🟡 |
+| Frontend preview canvas + Record/Stop/Export + timeline scrub | `src/` | 🟡 |
+| Frontend interactive annotation editing (place/edit text/arrow/box) | `src/` | ⬜ |
 
 ---
 

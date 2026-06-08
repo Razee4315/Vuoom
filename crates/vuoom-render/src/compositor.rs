@@ -235,10 +235,11 @@ impl Compositor {
         self.read_back(&texture, width, height)
     }
 
-    /// Composite a BGRA source frame into an `out_w`×`out_h` RGBA frame: styled background
-    /// + the zoom/pan-cropped source inside the rounded-corner frame from `layout`.
-    /// Returns tightly-packed RGBA8 bytes.
+    /// Composite a BGRA source frame into an `out_w`×`out_h` RGBA frame: the styled
+    /// background with the zoom/pan-cropped source inside the rounded-corner frame from
+    /// `layout`. Returns tightly-packed RGBA8 bytes.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn composite(
         &self,
         source_bgra: &[u8],

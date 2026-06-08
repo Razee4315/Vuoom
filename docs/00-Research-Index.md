@@ -38,15 +38,16 @@ encoder selection.
 | **Compositor** | GPU, one device, two sinks | **wgpu on DX12 backend**, offscreen render | Vulkan backend | [05](./05-Compositing-and-Preview.md) |
 | **Live preview bridge** | 60fps without JSON IPC | **Offscreen RGBA → localhost binary WebSocket → Web Worker → WebGPU canvas** (Cap's design) | Async custom URI protocol | [05](./05-Compositing-and-Preview.md) |
 | **Rounded corners + shadow** | Resolution-independent | **SDF (signed distance field) shader** | — | [05](./05-Compositing-and-Preview.md) |
-| **MP4 encoding** | HW-accelerated, license-safe | **Windows Media Foundation HW encoder** (`windows-rs`) | `ffmpeg-next` w/ `h264_nvenc`/`qsv`/`amf` | [06](./06-Export.md) |
-| **GIF encoding** | High quality, small | **`gifski`** (mind AGPL — process-isolate) | `gif` + `color_quant` (lower quality) | [06](./06-Export.md), [10](./10-Licensing.md) |
+| **Output format (v1)** | GIF only — no MP4, no audio | **GIF** (programmer demo GIFs) | MP4 deferred to a later version | [06](./06-Export.md) |
+| **GIF encoding** | High quality, small | **`gifski`** as an **out-of-process binary** (keeps Vuoom Apache-2.0) | `gif` + `color_quant` (lower quality) | [06](./06-Export.md), [10](./10-Licensing.md) |
+| **Text + annotations** | Simple, permissive, in-pipeline | **glyphon** (text) + **lyon** (arrows/boxes) | tiny-skia + cosmic-text (CPU) | [11](./11-Editor-and-Annotations.md) |
 | **"Copy GIF"** | Actually works in chat apps | **Copy the file (CF_HDROP)** to clipboard | Custom `image/gif` clipboard format | [06](./06-Export.md) |
 | **Shell / UI** | Lightweight native | **Tauri 2.x** | — | [08-app section in 02](./02-Architecture.md) |
 | **Frontend framework** | Fast 60fps scrub timeline | **SolidJS + Vite + Tailwind** | Svelte 5 | [02](./02-Architecture.md) |
 | **Rust→JS streaming** | Ordered, cheap progress/signals | **`tauri::ipc::Channel`** | events (small only) | [02](./02-Architecture.md) |
-| **Sidecars** | ffmpeg/gifsicle if used | **Tauri `externalBin` + shell plugin** | — | [06](./06-Export.md) |
+| **Sidecars** | gifski (+ optional gifsicle) | **Tauri `externalBin` + shell plugin**, out-of-process | — | [06](./06-Export.md) |
 | **Distribution** | Avoid SmartScreen on a free app | **NSIS installer + Azure Trusted Signing** (cloud HSM) | OV cert (reputation builds over time) | [02](./02-Architecture.md) |
-| **Vuoom's own license** | Free + permissive | **MIT or Apache-2.0** (decision pending) | — | [10](./10-Licensing.md) |
+| **Vuoom's own license** | Free + permissive + patent grant | **Apache-2.0** ✅ | — | [10](./10-Licensing.md) |
 
 ---
 
@@ -60,13 +61,13 @@ encoder selection.
    render → RGBA readback → **localhost binary WebSocket** → Web Worker → WebGPU canvas. Proven by
    Cap at sustained 60fps, ~10–15ms end-to-end. → [`05`](./05-Compositing-and-Preview.md)
 
-3. **Zero-copy capture→GPU→encode** → keep frames as D3D11 textures; bridge to the wgpu DX12
-   compositor via an NT shared handle + keyed mutex; convert RGBA→NV12 **on the GPU** before the
-   hardware encoder. → [`03`](./03-Capture.md), [`05`](./05-Compositing-and-Preview.md)
+3. **Zero-copy capture→GPU→compositor** → keep frames as D3D11 textures; bridge to the wgpu DX12
+   compositor via an NT shared handle + keyed mutex; everything stays **RGBA** end-to-end (GIF-only
+   needs no YUV conversion). → [`03`](./03-Capture.md), [`05`](./05-Compositing-and-Preview.md)
 
-4. **License-safe, patent-safe, fast MP4 export** → use the **OS/GPU hardware encoder** (Media
-   Foundation) so codec patent royalties are the OS/GPU vendor's responsibility and no x264/x265
-   (GPL) is shipped. → [`06`](./06-Export.md), [`10`](./10-Licensing.md)
+4. **Small, high-quality GIF export — license-clean** → GIF-only v1 erases the video-codec patent
+   minefield entirely. Use **gifski** for quality, shipped as an **out-of-process binary** so
+   Vuoom's code stays **Apache-2.0** despite gifski being AGPL. → [`06`](./06-Export.md), [`10`](./10-Licensing.md)
 
 5. **Frame-accurate input↔video sync across mixed-DPI multi-monitor** → one QPC clock for both;
    Per-Monitor-DPI-Aware-V2; store all input in physical virtual-desktop pixels. → [`02`](./02-Architecture.md), [`04`](./04-Input-and-AutoZoom.md)
@@ -75,16 +76,18 @@ encoder selection.
 
 ## Open questions carried forward
 
-These are tracked with full context in [`09-Decisions-and-Open-Questions.md`](./09-Decisions-and-Open-Questions.md):
+**Resolved by the owner (2026-06-08):** ✅ License = **Apache-2.0** · ✅ Output = **GIF-only** (MP4
+dropped from v1) · ✅ **No audio** · ✅ gifski isolated as an out-of-process binary · ✅ **Text +
+basic annotations are core v1 features** with a clean, simple editor.
 
-1. **Vuoom's license** — MIT vs Apache-2.0 (affects how we isolate gifski/AGPL).
-2. **GIF licensing path** — open-source the GIF module, buy gifski's commercial license, or
-   invoke gifski as an out-of-process binary? (Legal sign-off needed.)
-3. **Audio in v1 or deferred?** Architecture supports it now; spec defers it. Confirm.
-4. **Minimum Windows version** — Win10 1809+ vs Win11-only. Borderless capture (no yellow
+Still open — tracked with full context in [`09-Decisions-and-Open-Questions.md`](./09-Decisions-and-Open-Questions.md):
+
+1. **Minimum Windows version** — Win10 1809+ vs Win11-only. Borderless capture (no yellow
    border) and dirty-region APIs need Win11; decide whether those are launch features.
-5. **Preview at 4K** — raw RGBA over WebSocket is ~500 MB/s at 1080p60; for 4K preview, drop to
-   half-res or switch that path to H.264 + WebCodecs. Decide threshold.
+2. **Preview at 4K** — raw RGBA over WebSocket is heavy at 4K60; drop to half-res or switch that
+   path to WebCodecs. Decide the threshold.
+3. **Reserve naming/handles** — `github.com/vuoom`, a `vuoom.app`/`vuoom.dev` domain, social
+   handles (launch blocker, not technical).
 
 ---
 

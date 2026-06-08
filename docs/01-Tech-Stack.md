@@ -14,13 +14,15 @@ and the one-line reason each was chosen. Deep rationale lives in the per-area do
 |---|---|---|---|---|
 | App shell / IPC | `tauri` | 2.x | MIT/Apache-2.0 | Native, lightweight, webview UI + Rust engine |
 | Screen capture | **`windows-capture`** | 2.0.x | MIT | Most mature Rust WGC wrapper; exposes `ID3D11Texture2D` (GPU), cursor exclusion, border control, dirty regions, QPC timestamps. *Cap uses this on Windows.* |
-| OS bindings | `windows` (windows-rs) | 0.60+ | MIT/Apache-2.0 | Raw Input, Media Foundation, DXGI, DPI, clipboard, QPC |
+| OS bindings | `windows` (windows-rs) | 0.60+ | MIT/Apache-2.0 | Raw Input, DXGI, DPI, clipboard (CF_HDROP), QPC |
 | GPU compositing | `wgpu` | 25.x | MIT/Apache-2.0 | Cross-platform GPU; DX12 backend on Windows; shaders for zoom/pan/frame styling |
 | GPU HAL interop | `wgpu-hal` | (matches wgpu) | MIT/Apache-2.0 | `create_texture_from_hal` for shared-handle D3D interop |
 | Image helpers | `image`, `fast_image_resize` | latest | MIT/Apache-2.0 | Downscale frames (Lanczos) for GIF/thumbnails |
-| Color/pixels | `imgref`, `rgb` | latest | MIT/Apache-2.0 | gifski frame interface (`Img<RGBA8>`) |
-| GIF encoder | **`gifski`** | 1.34.x | **AGPL-3.0** ⚠️ | Best-in-class GIF palettes; **process-isolate or relicense** — see [10](./10-Licensing.md) |
-| MP4 (fallback) | `ffmpeg-next` *(or `rsmpeg`)* | latest | LGPL build only | HW encoders (`h264_nvenc`/`qsv`/`amf`); use **LGPL** ffmpeg, never x264/x265 |
+| Color/pixels | `imgref`, `rgb` | latest | MIT/Apache-2.0 | RGBA frame interface for the GIF encoder |
+| **Text rendering** | **`glyphon`** (+ `cosmic-text`) | 0.9.x | Apache-2.0/MIT/zlib | Text labels drawn directly into the wgpu pass; multi-line, color emoji, per-span color |
+| **Vector shapes** | **`lyon`** (`lyon_tessellation`) | latest | MIT/Apache-2.0 | Arrows / highlight boxes / spotlight outlines → triangles for a wgpu pipeline |
+| GIF encoder | **`gifski`** | 1.34.x | **AGPL-3.0** ⚠️ | Best-in-class GIF palettes. **Invoked as an out-of-process binary, NOT linked**, to keep Vuoom Apache-2.0 — see [10](./10-Licensing.md) |
+| CPU 2D fallback | `tiny-skia` | latest | BSD-3 | Optional CPU annotation rasterization fallback |
 | Async runtime | `tokio` | latest | MIT | Tauri async tasks, channels, WebSocket server |
 | WebSocket (preview) | `tokio-tungstenite` | latest | MIT | Localhost binary frame transport to the webview |
 | Serialization | `serde`, `serde_json` | latest | MIT/Apache-2.0 | `.vuoom` project manifest, IPC payloads |
@@ -29,21 +31,20 @@ and the one-line reason each was chosen. Deep rationale lives in the per-area do
 | Window handle | `raw-window-handle` | 0.6 | MIT/Apache-2.0 | HWND for wgpu surface / overlay window |
 | Math | `glam` | latest | MIT/Apache-2.0 | Vectors/matrices for camera transforms & SDF math |
 
-### Encoding: the chosen path
+### Encoding: the chosen path (v1 = GIF only)
 
-- **Primary MP4 path = native Media Foundation** via `windows-rs`
-  (`Win32::Media::MediaFoundation`, `MFTEnumEx` hardware-first). No external libs, copyleft-safe,
-  patent-safe (Windows holds the codec license). Mirrors Cap's `enc-mediafoundation`.
-- **Fallback MP4 path = `ffmpeg-next` bindings** with hardware encoders ordered by detected GPU
-  vendor (`h264_amf` → `h264_mf` → `h264_nvenc` → `h264_qsv`), software `libx264` **last** and
-  only if licensing is accepted. Use a **BtbN `lgpl-shared`** ffmpeg build if linking.
-- **GIF = `gifski`** (collector/writer thread model), optional `gifsicle` second pass.
+- **GIF = `gifski`**, shipped as a **separate bundled binary and invoked out-of-process** (pipe
+  RGBA frames in → optimized `.gif` out). This keeps Vuoom's code Apache-2.0 despite gifski being
+  AGPL. Optional `gifsicle` second pass (also out-of-process) for extra size savings.
+- **No MP4 / H.264 / H.265 / audio in v1.** This removes Media Foundation, ffmpeg, x264/x265, and
+  the entire codec patent/licensing problem. (MP4 is a clean future add — the compositor already
+  emits RGBA frames; the prior Media-Foundation research is preserved in git history.)
 
 ## Tauri plugins
 
 | Plugin | Purpose |
 |---|---|
-| `tauri-plugin-shell` | Spawn ffmpeg/gifsicle **sidecars** with piped stdin/stdout |
+| `tauri-plugin-shell` | Spawn the gifski (+ optional gifsicle) **sidecars** with piped stdin/stdout |
 | `tauri-plugin-global-shortcut` | Start/stop/pause hotkeys |
 | `tauri-plugin-positioner` | Tray-relative window placement |
 | `tauri-plugin-single-instance` | **Register first** — prevent two capture engines |
@@ -68,8 +69,9 @@ System tray is built into Tauri 2 core (`tray-icon` feature) — no separate plu
 
 | Binary | Use | License note |
 |---|---|---|
-| `ffmpeg.exe` (optional) | Fallback encode / WebP / container muxing | Ship **LGPL** build (BtbN `lgpl-shared`); **never** GPL/x264 |
-| `gifsicle.exe` (optional) | Second-pass GIF size optimization | GPL-compatible as a separate invoked process |
+| **`gifski`** (required) | **GIF encoding** | AGPL — shipped **unmodified** and invoked **out-of-process** so Vuoom stays Apache-2.0 |
+| `gifsicle.exe` (optional) | Second-pass GIF size optimization | GPL — fine as a separately invoked process |
+| `ffmpeg.exe` (only if WebP added later) | Animated WebP export | Ship **LGPL** build (BtbN `lgpl-shared`); never GPL/x264 |
 
 Naming: Tauri requires a target-triple suffix, e.g.
 `src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe`. Keep these out of git (see `.gitignore`);

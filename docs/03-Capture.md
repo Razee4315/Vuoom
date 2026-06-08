@@ -62,9 +62,11 @@ bridge per frame via a shared-handle texture pool.**
 
 - Request **`Bgra8`** from WGC (clean BGRA8, no swizzle).
 - In the compositor, sample BGRA, do all styling/zoom in RGBA/linear.
-- For encode, convert **BGRA/RGBA → NV12 on the GPU** (alias NV12 as R8 for Y + R8G8 for UV, or a
-  D3D11 VideoProcessor). **Never** convert at 4K60 on the CPU — Cap's biggest early perf bug was
-  CPU color conversion (15–25 ms/frame) capping them at 40–50fps.
+- Output stays **RGBA** end-to-end (GIF-only v1 needs no NV12/YUV conversion). The compositor's
+  offscreen RGBA texture feeds both the preview WebSocket and the gifski export.
+- **Lesson to keep:** do any pixel conversion **on the GPU**, never on the CPU at 4K60 — Cap's
+  biggest early perf bug was CPU color conversion (15–25 ms/frame) capping them at 40–50fps. (If
+  MP4 ever returns, GPU RGBA→NV12 is the path.)
 
 ## Gotchas & how we handle them
 

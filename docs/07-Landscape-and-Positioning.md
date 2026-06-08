@@ -73,9 +73,9 @@ air.
 
 ## Positioning recommendation
 
-**Table-stakes (to be credible):** reliable WGC capture (multi-monitor, system audio later);
-auto-zoom that "just works"; cursor smoothing + click ripples + keyboard-shortcut overlays;
-backgrounds/padding; MP4 **and** GIF; fast, reasonably-sized exports.
+**Table-stakes (to be credible):** reliable WGC capture (multi-monitor); auto-zoom that "just
+works"; cursor smoothing + click ripples; backgrounds/padding; simple text labels; **small,
+high-quality GIF export** (Vuoom's single output — own this).
 
 **Differentiators (where Vuoom wins):**
 - **Free + permissive + native Windows** — no strong auto-zoom tool combines all three.

@@ -43,11 +43,11 @@ call. Update this file as decisions land.
   fragile on Windows and Option C (shared texture) is impossible on WebView2.
 - **Detail:** [`05`](./05-Compositing-and-Preview.md).
 
-### ADR-007 — MP4 via Media Foundation HW encoder; no x264/x265
-- **Decision:** Native Media Foundation HW encoder primary; `ffmpeg-next` HW fallback; ship no
-  GPL codecs.
-- **Why:** Copyleft-safe **and** patent-safe (vendor holds codec license); fast; mirrors Cap.
-- **Detail:** [`06`](./06-Export.md), [`10`](./10-Licensing.md).
+### ADR-007 — ~~MP4 via Media Foundation HW encoder~~ **(SUPERSEDED by ADR-012 — MP4 is out of v1)**
+- **Original decision (preserved for if MP4 returns):** Native Media Foundation HW encoder primary;
+  `ffmpeg-next` HW fallback; ship no GPL codecs. Copyleft-safe **and** patent-safe; mirrors Cap.
+- **Status:** Not applicable to v1 (GIF-only). Kept here so the chosen MP4 path is on record for a
+  future version. **Detail:** [`06`](./06-Export.md), [`10`](./10-Licensing.md).
 
 ### ADR-008 — GIF via gifski, process-isolated
 - **Decision:** Use gifski for quality; isolate the AGPL obligation (see open question OQ-2).
@@ -62,27 +62,35 @@ call. Update this file as decisions land.
 - **Decision:** Channels (not events) for encode/recording progress and preview signaling.
 - **Why:** Ordered, cheap, purpose-built; events are for small fire-and-forget only.
 
+### ADR-011 — License = Apache-2.0 (resolves former OQ-1)
+- **Decision:** All of Vuoom's own code is **Apache-2.0**.
+- **Why:** Permissive + explicit patent grant + contribution/patent-retaliation clarity. `LICENSE`
+  and `NOTICE` added to the repo. **Detail:** [`10`](./10-Licensing.md).
+
+### ADR-012 — v1 is GIF-only; no MP4; no audio (resolves former OQ-3)
+- **Decision:** v1 exports **GIF only** (gifski). MP4/H.264/H.265 and audio are dropped from v1.
+- **Why:** Sharper product (programmer demo GIFs); erases the entire video-codec patent/licensing
+  minefield; smaller surface area. MP4 stays a clean future add (compositor already emits RGBA).
+- **Detail:** [`06`](./06-Export.md), [spec v1.1 amendments](./Vuoom-Spec.md).
+
+### ADR-013 — gifski shipped out-of-process (resolves former OQ-2)
+- **Decision:** Ship gifski as a **separate, unmodified binary, invoked out-of-process** (mere
+  aggregation) — never linked.
+- **Why:** Keeps Vuoom's source Apache-2.0 despite gifski being AGPL. (Get legal sign-off.)
+- **Detail:** [`10`](./10-Licensing.md).
+
+### ADR-014 — Text + basic annotations are core v1; rendered via glyphon + lyon
+- **Decision:** Text labels (glyphon), arrows + highlight boxes (lyon), optional spotlight/blur,
+  all drawn in the wgpu pass; animation driven by CPU timeline state. Editor stays simple.
+- **Why:** Owner priority; permissive licenses; integrates without a separate render pass.
+- **Detail:** [`11`](./11-Editor-and-Annotations.md), [`05`](./05-Compositing-and-Preview.md).
+
 ---
 
 ## Open questions (need an owner decision)
 
-### OQ-1 — Vuoom's own license: MIT vs Apache-2.0?
-- **Impact:** How we isolate copyleft deps; contributor expectations; patent grant (Apache gives
-  one, MIT doesn't).
-- **Recommendation:** Apache-2.0 if patent clarity matters for codec-adjacent code; MIT for
-  maximum simplicity/adoption. **Owner call.** → [`10`](./10-Licensing.md).
-
-### OQ-2 — gifski AGPL: open the GIF module, buy a commercial license, or invoke the CLI?
-- **Impact:** Determines whether Vuoom can stay closed/permissive.
-- **Options:** (a) keep the GIF path open-source; (b) buy gifski's commercial license; (c) ship
-  the gifski **binary** and invoke out-of-process (mere aggregation). **Needs legal sign-off.**
-- **Recommendation:** (c) or (a) for a free/OSS-leaning project; (b) if going closed-source.
-
-### OQ-3 — Audio in v1 or deferred?
-- **Spec:** defers audio but says "architect for it now." Confirm whether system+mic capture
-  ships in the first public release or M6+.
-- **Recommendation:** Architect the separate-tracks model now; **defer shipping** to keep M2's
-  quality the focus. Revisit at M4.
+> Resolved: OQ-1 (license → Apache-2.0, ADR-011) · OQ-2 (gifski → out-of-process, ADR-013) ·
+> OQ-3 (audio → dropped from v1, ADR-012). Remaining below.
 
 ### OQ-4 — Minimum Windows version: Win10 1809+ or Win11-only?
 - **Impact:** Borderless capture (no yellow border) and WGC dirty-region need **Win11**; Win10

@@ -3,9 +3,33 @@
 > **Vuoom** — screen recordings that zoom where it matters.
 > A free, lightweight, cinematic screen recorder that auto-zooms into your cursor and exports clean MP4/GIF product demos. Built with Tauri + Rust.
 
-**Document status:** v1 spec / build brief
+**Document status:** v1 spec / build brief · **amended v1.1** (see box below)
 **Primary platform:** Windows 10/11 (cross-platform-ready architecture)
 **Intended reader:** the implementing developer (you or a contractor)
+
+---
+
+> ## ⚠️ Scope amendments (v1.1 — 2026-06-08) — these OVERRIDE the sections below
+>
+> Owner decisions that refine v1. Where this box conflicts with later sections, **this box wins.**
+>
+> 1. **GIF-only output.** v1 exports **GIF only** (via gifski). **MP4/H.264/H.265 are dropped
+>    from v1** — ignore all MP4/codec content in §5.3, §6 (Export), §9.1, §9.5. The architecture
+>    still leaves room to add MP4 later, but it is out of v1. This also removes the entire video
+>    codec patent/licensing problem. Product framing: *the simplest way for programmers to make a
+>    demo GIF for a README.*
+> 2. **No audio.** Drop system/mic audio entirely from v1 (GIFs have no audio). Ignore audio
+>    mentions in §5.2 and §6.
+> 3. **Text annotations are a CORE v1 feature** (not "phased"). Plus basic **arrow** and
+>    **highlight box** annotations. Must be **simple and easy** to add/edit. See
+>    [`11-Editor-and-Annotations.md`](./11-Editor-and-Annotations.md).
+> 4. **The editing UI is a first-class priority** — clean, simple, "looks good by default."
+> 5. **License = Apache-2.0** (resolves §13 / open question). gifski stays isolated as an
+>    out-of-process binary so Vuoom's code remains Apache-2.0. See
+>    [`10-Licensing.md`](./10-Licensing.md).
+>
+> Everything else in this spec (auto-zoom as the heart of the product, native Tauri+Rust+wgpu,
+> capture quality, framing/backgrounds, free & no-friction) stands unchanged.
 
 ---
 

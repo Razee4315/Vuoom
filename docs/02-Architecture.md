@@ -24,14 +24,14 @@ vuoom/
 │  ├─ src/lib.rs                #   run(): register plugins, commands, state
 │  ├─ src/commands.rs           #   #[tauri::command] surface
 │  ├─ capabilities/             #   ACL permission files
-│  ├─ binaries/                 #   ffmpeg/gifsicle sidecars (gitignored)
+│  ├─ binaries/                 #   gifski (+ optional gifsicle) sidecars (gitignored)
 │  └─ tauri.conf.json
 └─ crates/                      # The engine (pure Rust, unit-testable)
    ├─ vuoom-capture/            #   WGC/DXGI capture → GPU textures
    ├─ vuoom-input/              #   Raw Input hook → QPC-stamped event log
    ├─ vuoom-zoom/               #   auto-zoom planner + spring camera (NO GPU deps — testable)
-   ├─ vuoom-render/             #   wgpu compositor (shaders, render graph)
-   ├─ vuoom-encode/             #   Media Foundation / ffmpeg / gifski encoders
+   ├─ vuoom-render/             #   wgpu compositor (shaders, render graph, text+annotations)
+   ├─ vuoom-encode/             #   GIF export via gifski (out-of-process binary)
    ├─ vuoom-project/            #   .vuoom manifest (serde types) + timeline model
    └─ vuoom-preview/            #   offscreen readback → localhost WebSocket server
 ```
@@ -118,12 +118,12 @@ binary WebSocket. End-to-end ≈ 10–15 ms, sustained 60fps at 1080p. Full deta
 
 ```
  for each frame:
-   vuoom-render: same compositor, render offscreen  (runs as fast as GPU+encoder allow)
+   vuoom-render: same compositor, render offscreen  (runs as fast as GPU allows)
         ▼
-   GPU RGBA→NV12 conversion (shader)
+   readback RGBA → downscale to target width (Lanczos) → pick every Nth frame for target fps
         ▼
-   vuoom-encode: Media Foundation HW encoder → H.264/H.265 → mux MP4
-                 OR gifski collector ← RGBA (downscaled) → GIF
+   vuoom-encode: feed RGBA frames to gifski (separate out-of-process binary) → optimized GIF
+                 (optional gifsicle "shrink more" pass)
 ```
 
 **Preview and export share one wgpu device and one compositor** — only the sink differs
@@ -160,8 +160,8 @@ A separate transparent, frameless, always-on-top, click-through window:
 
 - **Installer:** NSIS `-setup.exe` (per-user, no admin) is the primary artifact; the updater
   reuses it. MSI optional.
-- **App size:** the Tauri shell is single-digit MB (uses the OS WebView2 runtime). Any bundled
-  ffmpeg sidecar dominates the download — prefer a minimal static build or first-run download.
+- **App size:** the Tauri shell is single-digit MB (uses the OS WebView2 runtime). The gifski
+  binary is small; total download stays modest — a real advantage of GIF-only (no bulky ffmpeg).
 - **SmartScreen (critical for a free download):** unsigned apps get the "unknown publisher"
   block. Recommended path for an indie/free app is **Azure Trusted Signing** (cloud HSM, cheap
   monthly) wired via `bundle.windows.signCommand`. An OV cert works but the warning persists
@@ -180,7 +180,7 @@ A separate transparent, frameless, always-on-top, click-through window:
 | Input thread | Message-only window + Raw Input pump → QPC event queue |
 | Render/compositor | wgpu device, render graph (preview + export) |
 | Preview WS thread | Tokio task: serve `127.0.0.1` WebSocket, "latest frame wins" |
-| Encode thread(s) | Media Foundation / ffmpeg / gifski |
+| Encode (export) | spawn + feed the gifski binary; stream progress via a Channel |
 
 Inter-thread: lock-free/`mpsc` queues; never block the input hook callback (it sits on the
 system-wide input path — stamp QPC, enqueue, return).

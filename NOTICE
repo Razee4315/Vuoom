@@ -1,0 +1,18 @@
+Vuoom
+Copyright 2026 The Vuoom Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+----------------------------------------------------------------------
+Third-party components
+----------------------------------------------------------------------
+
+Vuoom uses gifski (https://github.com/ImageOptim/gifski) for GIF encoding.
+gifski is licensed under the AGPL-3.0-or-later. To keep Vuoom's own source
+under the Apache-2.0 license, gifski is NOT linked into Vuoom; it is shipped
+as a separate, unmodified binary and invoked as an external process (mere
+aggregation). See docs/10-Licensing.md for the full rationale.
+
+A complete, generated list of third-party dependencies and their licenses
+will be produced with `cargo about` / `cargo deny` and bundled in the
+installer and the in-app About → Licenses screen before release.

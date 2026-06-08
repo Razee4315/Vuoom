@@ -1,99 +1,90 @@
 # 10 — Licensing & Legal
 
-The licensing landscape is genuinely load-bearing for Vuoom because (a) the closest reference
-project is AGPL, (b) the best GIF encoder is AGPL, and (c) video codecs carry **patent** licenses
-separate from software licenses. This doc collects every landmine and the safe path through.
+The licensing picture got much simpler after two owner decisions: **Vuoom is Apache-2.0**, and
+**v1 exports GIF only** (no MP4). GIF-only **erases the entire video-codec patent/licensing
+minefield**. The only remaining copyleft concern is **gifski (AGPL)**, which we isolate behind a
+process boundary.
 
 > ⚠️ This is engineering research, **not legal advice.** Get a lawyer's sign-off before shipping,
-> especially on OQ-2 (gifski) and the codec strategy.
+> especially on the gifski isolation.
 
 ---
 
-## 1. Vuoom's own license (OQ-1)
+## 1. Vuoom's own license — Apache-2.0 ✅ (decided)
 
-Leading candidates: **MIT** or **Apache-2.0** (both permissive, both "free"). Key difference:
-Apache-2.0 includes an **explicit patent grant**; MIT does not. For a codec-adjacent app, Apache's
-patent clarity is a mild plus. Pick one before public release. Either keeps Vuoom free and
-permissive, the stated goal.
+- **Apache License 2.0** for all of Vuoom's own code. See [`/LICENSE`](../LICENSE) and
+  [`/NOTICE`](../NOTICE).
+- Why Apache over MIT: an **explicit patent grant** and a clear contribution/patent-retaliation
+  framework — worth having for a media tool, even GIF-only. Still fully permissive and "free."
+- Add Apache headers to source files (or rely on the repo-level LICENSE; headers recommended for
+  files likely to be copied out).
 
-## 2. The AGPL line (Cap)
+## 2. gifski is AGPL — isolate it (the one real constraint)
 
-- **Cap's application code is AGPLv3.** AGPL is strong copyleft with a **network clause**.
-- Compatibility is **one-directional:** you may pull MIT/Apache/BSD code *into* an AGPL project,
-  but you **cannot pull AGPL code into a permissive Vuoom** without making all of Vuoom AGPL.
-- **Rule:** Cap is **study-only**. Read it to *understand* approaches (zoom springs, preview
-  transport, encoder selection), then **reimplement clean** from the documented algorithm. Do not
-  copy files, functions, or shaders.
-- **Safe to reuse:** Cap's **MIT** subcrates (`scap`, `cap-camera*`), and other MIT/Apache
-  projects (screen-demo, Recordly, Kap; screenize is Apache but Swift → design reference).
+- `gifski` is **AGPL-3.0-or-later**. Static-linking it into Apache-2.0 Vuoom would impose AGPL on
+  the whole app — **not acceptable**.
+- **Resolution: ship gifski as a separate, unmodified binary and invoke it out-of-process** (pipe
+  frames in, get a `.gif` out). This is "mere aggregation" — Vuoom's source stays Apache-2.0; the
+  AGPL binary travels alongside under its own license. This is the same separation pattern used
+  for bundling GPL CLI tools.
+- **Do NOT** use the in-process `gifski` *crate* (that's linking → AGPL).
+- Bundle gifski's AGPL license text in the installer and the About → Licenses screen; record the
+  pinned gifski version in [`/NOTICE`](../NOTICE).
+- **Fallback** if out-of-process is ever ruled insufficient: pure-Rust `gif` + `color_quant` +
+  `image` (permissive, lower quality), or buy gifski's commercial license from the author.
 
-## 3. gifski is AGPL (OQ-2) — the biggest GIF decision
+## 3. Video codec licensing — N/A in v1 (GIF-only)
 
-- `gifski` is **AGPL-3.0-or-later**. Static-linking it into a permissive/closed Vuoom imposes
-  AGPL on the whole app.
-- **Three resolutions:**
-  1. **Open-source the GIF module** (or all of Vuoom) — fine if Vuoom ships permissive/OSS anyway,
-     but AGPL's network clause still attaches to that module's distribution.
-  2. **Buy gifski's commercial license** from the author (the project explicitly offers one).
-  3. **Invoke the gifski CLI as a separate process** (pipe frames in, get a `.gif` out) — "mere
-     aggregation," the same separation logic as the OpenH264 model. **Most pragmatic for a free
-     tool; get legal sign-off.**
-- **Fallback if AGPL is unacceptable and (1)-(3) don't fit:** pure-Rust `gif` + `color_quant` +
-  `image` — markedly worse quality. Only as a last resort.
+Because v1 has **no MP4/H.264/H.265**, the two-layer codec problem (GPL x264 + MPEG-LA/Via LA
+patents) **does not apply**. There is no x264/x265 anywhere; no Media Foundation/ffmpeg codec
+shipped; no patent exposure. This is a major benefit of the GIF-only decision.
 
-## 4. Video codec licensing (two independent layers)
+*(Preserved for the future, if MP4 ever returns to scope: prefer the OS/GPU hardware encoder —
+Media Foundation — so codec patent royalties are the vendor's responsibility and no GPL codec
+ships. Never bundle x264/x265. The full analysis lives in git history.)*
 
-This trips up almost everyone. Two **separate** legal layers:
+## 4. The AGPL line (Cap) — study-only
 
-### Layer A — software copyleft
-- FFmpeg is **LGPL** by default; **x264/x265 are GPL** (`--enable-gpl`).
-- Shipping **x264/x265 → all of Vuoom becomes GPL** (forced open-source). **Don't ship them.**
-- LGPL FFmpeg is OK with a free/closed app **if dynamically linked** (ship DLLs). Use a **BtbN
-  `lgpl-shared`** build, never gyan.dev's GPLv3 full builds.
+- **Cap's application code is AGPLv3** with a network clause. Compatibility is one-directional:
+  you may pull MIT/Apache code *into* AGPL, **never** AGPL into permissive Vuoom.
+- **Rule:** Cap is **study-only**. Read it to understand approaches (zoom springs, preview
+  transport, encoder selection), then **reimplement clean**. Do not copy files/functions/shaders.
+- **Safe to reuse:** Cap's MIT subcrates (`scap`, `cap-camera*`); MIT/Apache projects (screen-demo,
+  Recordly, Kap). screenize is Apache-2.0 but Swift → design reference only.
 
-### Layer B — patents (MPEG-LA / Via LA), independent of software license
-- H.264/HEVC *use* can require patent royalties. The GPL/LGPL grant copyright, **not patents**.
-- **Hardware encoders sidestep this:** NVENC / QSV / AMF / **Media Foundation** royalties are paid
-  by the GPU/OS vendor — not the app that calls them.
+## 5. Annotation/text stack — all permissive ✅
 
-### → The safe codec strategy
-**Ship no x264/x265. Use hardware encoders (Media Foundation primary).** That is simultaneously:
-- copyleft-safe (no GPL code in Vuoom), and
-- patent-safe (the GPU/OS vendor holds the codec license).
+The text/annotation crates are clean: **glyphon** (Apache-2.0 / MIT / zlib), **cosmic-text** (MIT
+/ Apache-2.0), **lyon** (MIT / Apache-2.0), **tiny-skia** (BSD-3, fallback). No copyleft. See
+[`11-Editor-and-Annotations.md`](./11-Editor-and-Annotations.md).
 
-If a *software* fallback is ever needed, use **Cisco OpenH264** via its "download Cisco's signed
-binary to the user's device" model (the Firefox approach) — Cisco pays the patent royalties for
-*its* binary; do **not** bundle-and-recompile it. (Note: that royalty coverage is for Cisco's
-distributed binary specifically.)
-
-## 5. Sidecar binary distribution
+## 6. Sidecar binary distribution
 
 | Binary | License posture | How to ship |
 |---|---|---|
-| `ffmpeg.exe` (optional fallback) | **LGPL build only** (BtbN `lgpl-shared`) | Tauri `externalBin`; document license; or first-run download |
-| `gifsicle.exe` (optional GIF post) | GPL — OK as a **separately-invoked process** | Tauri `externalBin`; invoke out-of-process |
-| `gifski` (CLI option for OQ-2) | AGPL — OK as a **separately-invoked process** | bundle binary, pipe frames |
+| `gifski` | AGPL — OK as a **separately-invoked process** | Tauri `externalBin`; pipe frames; bundle AGPL text |
+| `gifsicle` (optional) | GPL — OK as a **separately-invoked process** | Tauri `externalBin`; invoke out-of-process |
+| `ffmpeg` (only if WebP added later) | **LGPL build only** (BtbN `lgpl-shared`) | Tauri `externalBin`; dynamically linked |
 
-Bundle each license text in the installer (`/licenses` or About dialog). Maintain a `THIRD-PARTY`
-notices file generated from `cargo about`/`cargo-deny`.
+Maintain a generated `THIRD-PARTY-NOTICES` (via `cargo about` / `cargo deny`) and bundle it in the
+installer + About screen.
 
-## 6. Practical pre-ship checklist
+## 7. Pre-ship checklist
 
-- [ ] Choose Vuoom's license (OQ-1) and add `LICENSE` to the repo root.
-- [ ] Resolve gifski (OQ-2) with legal sign-off; implement the chosen isolation.
-- [ ] Confirm **no x264/x265** anywhere in the dependency/binary tree (`cargo-deny` + binary audit).
-- [ ] If linking ffmpeg, confirm it's an **LGPL** build and dynamically linked.
-- [ ] Generate `THIRD-PARTY-NOTICES` (cargo-about/cargo-deny); bundle in installer.
-- [ ] Add an About → Licenses screen.
+- [x] Vuoom license chosen → Apache-2.0 (`LICENSE`, `NOTICE` in repo).
+- [ ] gifski isolation implemented as an out-of-process binary; AGPL text bundled; legal sign-off.
+- [ ] Confirm **no** AGPL/GPL crate is *linked* (`cargo deny` license check in CI).
+- [ ] Confirm no x264/x265 anywhere (trivially true in GIF-only v1; keep the CI check anyway).
+- [ ] Generate `THIRD-PARTY-NOTICES`; bundle in installer + About → Licenses.
 - [ ] No telemetry by default (spec §5.6); any later analytics opt-in only.
 
 ## Sources
 
+- Apache-2.0: <https://www.apache.org/licenses/LICENSE-2.0>
 - AGPL: <https://choosealicense.com/licenses/agpl-3.0/> · <https://www.fsf.org/bulletin/2021/fall/the-fundamentals-of-the-agplv3>
-- FFmpeg legal: <https://www.ffmpeg.org/legal.html> · x264: <https://x264.org/licensing/> ·
-  OpenH264: <https://www.openh264.org/BINARY_LICENSE.txt> · LGPL builds:
-  <https://github.com/BtbN/FFmpeg-Builds>
 - gifski (AGPL + commercial): <https://github.com/ImageOptim/gifski/>
 - Cap license (AGPL app + MIT subcrates): <https://github.com/CapSoftware/Cap>
+- glyphon/lyon/tiny-skia licenses: <https://github.com/grovesNL/glyphon> ·
+  <https://github.com/nical/lyon> · <https://github.com/linebender/tiny-skia>
 - Tooling: cargo-deny <https://github.com/EmbarkStudios/cargo-deny> · cargo-about
   <https://github.com/EmbarkStudios/cargo-about>

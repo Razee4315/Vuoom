@@ -86,11 +86,13 @@ Pass 1  Source       → upload captured BGRA → (GPU) BGRA→RGBA into a sourc
 Pass 2  Composite    → sample source with the camera zoom/pan transform (uniform);
                        apply rounded-corner SDF clip + drop-shadow SDF (drawn behind)
 Pass 3  Motion blur  → optional velocity-based post pass (uses prev-frame transform)
-Pass 4  Overlays     → custom cursor, click ripple, captions/annotations
+Pass 4  Overlays     → custom cursor, click ripple
+Pass 5  Annotations  → text labels (glyphon) + arrows/highlight boxes (lyon) + spotlight/blur
+                       region; opacity/position driven by per-frame timeline state
 → offscreen RGBA texture
 
 preview sink:  copy_texture_to_buffer → map → pack → WebSocket
-export sink:   (GPU) RGBA→NV12 → Media Foundation / ffmpeg encoder  (runs unthrottled)
+export sink:   copy_texture_to_buffer → RGBA → gifski (out-of-process binary) → GIF  (unthrottled)
 ```
 
 The camera transform comes from `vuoom-zoom`'s per-frame `(center, zoom)` (see

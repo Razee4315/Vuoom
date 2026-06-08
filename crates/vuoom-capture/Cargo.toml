@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Windows screen capture (WGC via windows-capture; DXGI Desktop Duplication fallback) → GPU textures."
+description = "Windows screen capture (WGC via windows-capture; DXGI Desktop Duplication fallback) → BGRA frames."
 
 [dependencies]
+vuoom-input.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-# Wired in for the S1 spike (docs/03-Capture.md). Confirm latest versions when first pulled.
-# windows-capture = "2"
-# windows = { version = "0.60", features = ["Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi"] }
+[target.'cfg(windows)'.dependencies]
+windows-capture = "2"

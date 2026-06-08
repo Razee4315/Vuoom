@@ -9,8 +9,12 @@ mod clock;
 mod dpi;
 mod event;
 mod normalize;
+#[cfg(windows)]
+mod recorder;
 
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
 pub use event::{MouseButton, RawEvent, RawEventKind};
 pub use normalize::{normalize, CaptureRegion};
+#[cfg(windows)]
+pub use recorder::InputRecorder;

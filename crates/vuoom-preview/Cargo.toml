@@ -1,0 +1,15 @@
+[package]
+name = "vuoom-preview"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Live-preview bridge: offscreen RGBA readback → localhost binary WebSocket → webview (WebGPU canvas)."
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+# Wired in for the S2 spike (docs/05-Compositing-and-Preview.md).
+# tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
+# tokio-tungstenite = "0.24"

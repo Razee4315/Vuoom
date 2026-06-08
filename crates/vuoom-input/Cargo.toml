@@ -1,0 +1,14 @@
+[package]
+name = "vuoom-input"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Global input capture (Raw Input via windows-rs) → QPC-stamped event log that drives auto-zoom."
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+# Wired in for M2 (docs/04-Input-and-AutoZoom.md).
+# windows = { version = "0.60", features = ["Win32_UI_Input", "Win32_UI_WindowsAndMessaging", "Win32_System_Performance"] }

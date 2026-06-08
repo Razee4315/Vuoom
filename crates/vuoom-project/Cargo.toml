@@ -1,0 +1,11 @@
+[package]
+name = "vuoom-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "The .vuoom project manifest (serde types) and the non-destructive timeline/edit model. No GPU/OS deps."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,56 @@
+# Vuoom — Cargo workspace
+# Layout rationale: docs/02-Architecture.md
+# The Tauri app shell (src-tauri) is thin; the engine lives in crates/*.
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/vuoom-capture",
+    "crates/vuoom-input",
+    "crates/vuoom-zoom",
+    "crates/vuoom-render",
+    "crates/vuoom-encode",
+    "crates/vuoom-project",
+    "crates/vuoom-preview",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["The Vuoom Authors"]
+repository = "https://github.com/vuoom/vuoom"
+rust-version = "1.80"
+
+# Shared dependency versions — pin once, reference with `dep.workspace = true`.
+# Verify latest at use-time; see docs/01-Tech-Stack.md.
+[workspace.dependencies]
+# Engine crates (path deps)
+vuoom-capture = { path = "crates/vuoom-capture" }
+vuoom-input   = { path = "crates/vuoom-input" }
+vuoom-zoom    = { path = "crates/vuoom-zoom" }
+vuoom-render  = { path = "crates/vuoom-render" }
+vuoom-encode  = { path = "crates/vuoom-encode" }
+vuoom-project = { path = "crates/vuoom-project" }
+vuoom-preview = { path = "crates/vuoom-preview" }
+
+# Third-party (versions are starting points — confirm latest when first pulled)
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+thiserror   = "2"
+anyhow      = "1"
+tracing     = "0.1"
+tracing-subscriber = "0.3"
+glam        = "0.29"
+bytemuck    = { version = "1", features = ["derive"] }
+pollster    = "0.4"
+
+[profile.dev]
+# wgpu/windows-capture are painfully slow unoptimized; optimize deps even in dev.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

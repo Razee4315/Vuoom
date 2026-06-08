@@ -1,0 +1,19 @@
+[package]
+name = "vuoom-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "wgpu compositor (DX12): zoom/pan + background + rounded corners (SDF) + shadow + text (glyphon) + annotations (lyon). One device, two sinks."
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+pollster.workspace = true
+
+# Wired in for the S1/S2 spikes (docs/05-Compositing-and-Preview.md).
+# wgpu = "25"
+# glyphon = "0.9"
+# lyon = "1"

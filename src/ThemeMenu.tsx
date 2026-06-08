@@ -22,7 +22,7 @@ export default function ThemeMenu(props: {
   };
 
   return (
-    <div class="thememenu" ref={root}>
+    <div class="thememenu" ref={(el) => (root = el)}>
       <button
         class="winbtn"
         title="Theme"

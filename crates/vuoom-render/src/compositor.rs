@@ -9,6 +9,20 @@
 use crate::layout::CompositeLayout;
 use crate::scene::Scene;
 use crate::shapes::{build_shape_vertices, ShapeVertex};
+use glyphon::{
+    Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
+    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
+    Viewport,
+};
+use std::sync::Mutex;
+
+struct TextState {
+    font_system: FontSystem,
+    swash_cache: SwashCache,
+    atlas: TextAtlas,
+    viewport: Viewport,
+    renderer: TextRenderer,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -39,6 +53,7 @@ pub struct Compositor {
     shape_pipeline: wgpu::RenderPipeline,
     shape_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    text: Mutex<TextState>,
 }
 
 impl Compositor {
@@ -200,6 +215,29 @@ impl Compositor {
             cache: None,
         });
 
+        // ── Text (glyphon) ──
+        let glyph_cache = GlyphCache::new(&device);
+        let viewport = Viewport::new(&device, &glyph_cache);
+        let mut text_atlas = TextAtlas::new(
+            &device,
+            &queue,
+            &glyph_cache,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let text_renderer = TextRenderer::new(
+            &mut text_atlas,
+            &device,
+            wgpu::MultisampleState::default(),
+            None,
+        );
+        let text = Mutex::new(TextState {
+            font_system: FontSystem::new(),
+            swash_cache: SwashCache::new(),
+            atlas: text_atlas,
+            viewport,
+            renderer: text_renderer,
+        });
+
         Some(Self {
             device,
             queue,
@@ -208,6 +246,7 @@ impl Compositor {
             shape_pipeline,
             shape_bind_group_layout,
             sampler,
+            text,
         })
     }
 
@@ -553,6 +592,66 @@ impl Compositor {
             Some(buf)
         };
 
+        // Prepare text labels (glyphon).
+        let mut text_guard = self.text.lock().expect("text state poisoned");
+        let TextState {
+            font_system,
+            swash_cache,
+            atlas,
+            viewport,
+            renderer,
+        } = &mut *text_guard;
+        viewport.update(
+            &self.queue,
+            Resolution {
+                width: out_w,
+                height: out_h,
+            },
+        );
+        let mut text_buffers = Vec::with_capacity(scene.texts.len());
+        for label in &scene.texts {
+            let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
+            let mut buf = TextBuffer::new(font_system, metrics);
+            buf.set_text(
+                font_system,
+                &label.text,
+                &Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            text_buffers.push(buf);
+        }
+        let text_areas: Vec<TextArea> = text_buffers
+            .iter()
+            .zip(&scene.texts)
+            .map(|(buf, label)| TextArea {
+                buffer: buf,
+                left: label.x as f32,
+                top: label.y as f32,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: out_w as i32,
+                    bottom: out_h as i32,
+                },
+                default_color: GlyphColor::rgb(
+                    (label.color.r * 255.0) as u8,
+                    (label.color.g * 255.0) as u8,
+                    (label.color.b * 255.0) as u8,
+                ),
+                custom_glyphs: &[],
+            })
+            .collect();
+        let _ = renderer.prepare(
+            &self.device,
+            &self.queue,
+            font_system,
+            atlas,
+            viewport,
+            text_areas,
+            swash_cache,
+        );
+
         let target = self.offscreen(out_w, out_h);
         let tview = target.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
@@ -582,6 +681,7 @@ impl Compositor {
                 pass.set_vertex_buffer(0, vbuf.slice(..));
                 pass.draw(0..verts.len() as u32, 0..1);
             }
+            let _ = renderer.render(atlas, viewport, &mut pass);
         }
         self.queue.submit(Some(encoder.finish()));
         self.read_back(&target, out_w, out_h)

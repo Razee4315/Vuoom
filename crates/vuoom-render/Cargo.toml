@@ -13,9 +13,6 @@ vuoom-project.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 wgpu = "25"
+glyphon = "0.9"
 bytemuck.workspace = true
 pollster.workspace = true
-
-# Text + vector annotation passes land next:
-# glyphon = "0.9"
-# lyon = "1"

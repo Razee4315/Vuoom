@@ -1,9 +1,16 @@
-//! Global input capture → QPC-stamped event log.
+//! Global input capture → QPC-stamped event log (the other half of M2).
 //!
-//! Raw Input (`RIDEV_INPUTSINK`) on a dedicated thread with a message-only window,
-//! plus `GetPhysicalCursorPos` polling for absolute position. All events stamped with
-//! `QueryPerformanceCounter` to share one time axis with capture frames. Per-monitor
-//! DPI-aware-v2; coordinates stored in physical virtual-desktop pixels.
-//! See `docs/04-Input-and-AutoZoom.md` Part A.
+//! Provides the master [`Clock`] (QPC), DPI-awareness setup, the raw event types, and the
+//! pure [`normalize`] bridge into [`vuoom_zoom::InputEvent`]. The platform Raw-Input
+//! recorder (a dedicated thread + message-only window + `RIDEV_INPUTSINK`) lands on top of
+//! these. See `docs/04-Input-and-AutoZoom.md` Part A.
 
-// TODO(M2): InputEvent { Move, Click, Scroll, DragStart, DragEnd, KeyType } with qpc field.
+mod clock;
+mod dpi;
+mod event;
+mod normalize;
+
+pub use clock::Clock;
+pub use dpi::set_per_monitor_aware_v2;
+pub use event::{MouseButton, RawEvent, RawEventKind};
+pub use normalize::{normalize, CaptureRegion};

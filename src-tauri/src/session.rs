@@ -17,7 +17,7 @@ use vuoom_encode::{export_gif as encode_gif, plan_frames, GifSettings, RgbaImage
 use vuoom_input::{normalize, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{Background, Color, FrameStyle, Project, SourceInfo, ZoomConfig};
-use vuoom_render::{compute_layout, Compositor};
+use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent};
 
 /// Summary returned to the UI when recording stops.
@@ -166,15 +166,14 @@ impl Session {
             nearest_frame(&edited.frames, self.clock, edited.start_qpc, t).ok_or("no frames")?;
 
         let (out_w, out_h) = project.output_dims();
-        let cam = track.at(t);
-        let layout = compute_layout(out_w, out_h, &project.frame, &cam);
-        let rgba = compositor.composite(
+        let scene = build_scene(project, track, out_w, out_h, t);
+        let rgba = compositor.composite_scene(
             &frame.bgra,
             frame.width,
             frame.height,
             out_w,
             out_h,
-            &layout,
+            &scene,
             background_color(&project.frame),
         );
         let meta = FrameMeta {
@@ -203,15 +202,14 @@ impl Session {
         for emitted in &plan {
             let frame = &edited.frames[emitted.source_index];
             let t = self.clock.seconds_between(edited.start_qpc, frame.qpc);
-            let cam = track.at(t);
-            let layout = compute_layout(out_w, out_h, &project.frame, &cam);
-            let rgba = compositor.composite(
+            let scene = build_scene(project, track, out_w, out_h, t);
+            let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
                 frame.height,
                 out_w,
                 out_h,
-                &layout,
+                &scene,
                 bg,
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));

@@ -9,6 +9,7 @@
 mod compositor;
 mod layout;
 mod scene;
+mod shapes;
 
 pub use compositor::Compositor;
 

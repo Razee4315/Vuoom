@@ -7,6 +7,8 @@
 //! GPU), so tests skip gracefully rather than fail.
 
 use crate::layout::CompositeLayout;
+use crate::scene::Scene;
+use crate::shapes::{build_shape_vertices, ShapeVertex};
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -21,12 +23,21 @@ struct Uniforms {
     bg: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ShapeUniforms {
+    out_size: [f32; 2],
+    _pad: [f32; 2],
+}
+
 /// A headless GPU compositor.
 pub struct Compositor {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    shape_pipeline: wgpu::RenderPipeline,
+    shape_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
 }
 
@@ -124,11 +135,78 @@ impl Compositor {
             ..Default::default()
         });
 
+        // ── Flat-shape pipeline (highlight boxes + arrows) ──
+        let shape_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("vuoom-shapes"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shapes.wgsl").into()),
+        });
+        let shape_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("vuoom-shapes-bgl"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let shape_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("vuoom-shapes-pl"),
+            bind_group_layouts: &[&shape_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let shape_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("vuoom-shapes-pipeline"),
+            layout: Some(&shape_pl),
+            vertex: wgpu::VertexState {
+                module: &shape_shader,
+                entry_point: Some("vs"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<ShapeVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            offset: 0,
+                            shader_location: 0,
+                            format: wgpu::VertexFormat::Float32x2,
+                        },
+                        wgpu::VertexAttribute {
+                            offset: 8,
+                            shader_location: 1,
+                            format: wgpu::VertexFormat::Float32x4,
+                        },
+                    ],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shape_shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         Some(Self {
             device,
             queue,
             pipeline,
             bind_group_layout,
+            shape_pipeline,
+            shape_bind_group_layout,
             sampler,
         })
     }
@@ -347,6 +425,163 @@ impl Compositor {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
+        }
+        self.queue.submit(Some(encoder.finish()));
+        self.read_back(&target, out_w, out_h)
+    }
+
+    /// Composite a frame and overlay the scene's shape annotations (highlight boxes and
+    /// arrows). Text is drawn by the separate glyphon pass. Returns RGBA8 bytes.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn composite_scene(
+        &self,
+        source_bgra: &[u8],
+        src_w: u32,
+        src_h: u32,
+        out_w: u32,
+        out_h: u32,
+        scene: &Scene,
+        bg: [f32; 4],
+    ) -> Vec<u8> {
+        let layout = &scene.layout;
+
+        let src_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vuoom-source"),
+            size: wgpu::Extent3d {
+                width: src_w,
+                height: src_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &src_tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            source_bgra,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(src_w * 4),
+                rows_per_image: Some(src_h),
+            },
+            wgpu::Extent3d {
+                width: src_w,
+                height: src_h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let src_view = src_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let uniforms = Uniforms {
+            out_size: [out_w as f32, out_h as f32],
+            src_min: [layout.src_rect.x as f32, layout.src_rect.y as f32],
+            src_size: [layout.src_rect.w as f32, layout.src_rect.h as f32],
+            dst_min: [layout.dst_rect.x as f32, layout.dst_rect.y as f32],
+            dst_size: [layout.dst_rect.w as f32, layout.dst_rect.h as f32],
+            corner_px: layout.corner_radius_px as f32,
+            _pad: 0.0,
+            bg,
+        };
+        let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&ubuf, 0, bytemuck::bytes_of(&uniforms));
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-composite-bg"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubuf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&src_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        let verts = build_shape_vertices(scene);
+        let shape_uniforms = ShapeUniforms {
+            out_size: [out_w as f32, out_h as f32],
+            _pad: [0.0, 0.0],
+        };
+        let shape_ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-shape-uniforms"),
+            size: std::mem::size_of::<ShapeUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
+        let shape_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-shape-bg"),
+            layout: &self.shape_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shape_ubuf.as_entire_binding(),
+            }],
+        });
+        let shape_vbuf = if verts.is_empty() {
+            None
+        } else {
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("vuoom-shape-verts"),
+                size: (verts.len() * std::mem::size_of::<ShapeVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&buf, 0, bytemuck::cast_slice(&verts));
+            Some(buf)
+        };
+
+        let target = self.offscreen(out_w, out_h);
+        let tview = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("vuoom-composite-scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &tview,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+            if let Some(vbuf) = &shape_vbuf {
+                pass.set_pipeline(&self.shape_pipeline);
+                pass.set_bind_group(0, &shape_bg, &[]);
+                pass.set_vertex_buffer(0, vbuf.slice(..));
+                pass.draw(0..verts.len() as u32, 0..1);
+            }
         }
         self.queue.submit(Some(encoder.finish()));
         self.read_back(&target, out_w, out_h)

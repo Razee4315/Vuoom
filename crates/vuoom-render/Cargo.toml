@@ -7,13 +7,16 @@ authors.workspace = true
 description = "wgpu compositor (DX12): zoom/pan + background + rounded corners (SDF) + shadow + text (glyphon) + annotations (lyon). One device, two sinks."
 
 [dependencies]
+glam.workspace = true
+vuoom-zoom.workspace = true
+vuoom-project.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-bytemuck.workspace = true
-glam.workspace = true
-pollster.workspace = true
 
-# Wired in for the S1/S2 spikes (docs/05-Compositing-and-Preview.md).
+# The wgpu compositor pipeline deps land with the GPU implementation
+# (docs/05-Compositing-and-Preview.md):
 # wgpu = "25"
+# bytemuck = { workspace = true }
+# pollster = { workspace = true }
 # glyphon = "0.9"
 # lyon = "1"

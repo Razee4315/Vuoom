@@ -1,9 +1,13 @@
-//! The wgpu compositor — the visual heart.
+//! The Vuoom compositor.
 //!
-//! One `wgpu::Device` on the DX12 backend, one compositor, two sinks (preview + export).
-//! Render graph: background → source(zoom/pan) → rounded-corner SDF + shadow → motion blur
-//! → cursor → text (glyphon) + arrows/highlights (lyon). Renders to an offscreen RGBA
-//! texture. See `docs/05-Compositing-and-Preview.md`.
+//! Today: the pure, GPU-free [`layout`] math (per-frame source crop + destination rect +
+//! corner radius) that the wgpu pipeline will consume. Next: a single `wgpu::Device` on
+//! the DX12 backend rendering background → source(zoom/pan) → rounded-corner SDF + shadow
+//! → cursor → text (glyphon) + annotations (lyon) into an offscreen RGBA texture, shared
+//! by the preview and GIF-export sinks. See `docs/05-Compositing-and-Preview.md`.
 
-// TODO(S2 spike): build the device (DX12), render a test pattern to an offscreen texture,
-// hand the RGBA readback to vuoom-preview.
+mod layout;
+
+pub use layout::{
+    camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,
+};

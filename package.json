@@ -1,12 +1,13 @@
 {
   "name": "vuoom",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Screen recordings that zoom where it matters — native Windows cinematic screen recorder that exports demo GIFs.",
   "type": "module",
   "scripts": {
     "start": "vite",
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "serve": "vite preview",
     "tauri": "tauri"
   },

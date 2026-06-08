@@ -1,0 +1,38 @@
+# Rust / Tauri
+/target
+/src-tauri/target
+**/*.rs.bk
+*.pdb
+
+# Node / frontend
+node_modules
+dist
+dist-ssr
+.vite
+*.local
+
+# Bundled binaries (sidecars are large; fetch via script)
+/src-tauri/binaries/*
+!/src-tauri/binaries/.gitkeep
+
+# Captured media / scratch
+*.mp4
+*.gif
+*.webp
+*.mov
+*.vuoom
+/recordings
+/scratch
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Secrets / signing
+.env
+.env.*
+*.key
+*.pfx

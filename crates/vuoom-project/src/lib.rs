@@ -18,7 +18,7 @@ pub use timeline::{output_duration, output_to_source};
 pub use timing::TimeRange;
 
 // Re-export the zoom types so a Project is self-describing from one crate.
-pub use vuoom_zoom::{ZoomConfig, ZoomKeyframe};
+pub use vuoom_zoom::{InputEvent, ZoomConfig, ZoomKeyframe};
 
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +58,10 @@ pub struct Project {
     /// The tunables used to plan zooms (so re-planning is reproducible).
     pub zoom_config: ZoomConfig,
     pub zooms: Vec<ZoomKeyframe>,
+    /// The normalized input log, persisted so a reopened project can re-simulate the
+    /// camera — panning needs the cursor samples, not just the zoom keyframes.
+    #[serde(default)]
+    pub events: Vec<InputEvent>,
     pub texts: Vec<TextAnnotation>,
     pub arrows: Vec<ArrowAnnotation>,
     pub highlights: Vec<HighlightBox>,
@@ -68,8 +72,8 @@ pub struct Project {
 }
 
 impl Project {
-    /// Current manifest schema version.
-    pub const SCHEMA: u32 = 1;
+    /// Current manifest schema version (2 added the persisted input-event log).
+    pub const SCHEMA: u32 = 2;
 
     /// A fresh project for a freshly captured recording, with sensible defaults.
     #[must_use]
@@ -79,6 +83,7 @@ impl Project {
             source,
             zoom_config: ZoomConfig::default(),
             zooms: Vec::new(),
+            events: Vec::new(),
             texts: Vec::new(),
             arrows: Vec::new(),
             highlights: Vec::new(),

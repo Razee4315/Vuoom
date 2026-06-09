@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
@@ -568,6 +568,39 @@ function App() {
     scrub(0);
   };
 
+  const safeName = () =>
+    projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
+
+  const onSaveProject = async () => {
+    const dir = await save({
+      defaultPath: `${safeName()}.vuoom`,
+      filters: [{ name: "Vuoom project", extensions: ["vuoom"] }],
+    });
+    if (!dir) return;
+    setStatus("Saving project…");
+    try {
+      await invoke("save_project_bundle", { dir });
+      setStatus(`Saved ${dir}`);
+    } catch (e) {
+      setStatus(`Save failed: ${String(e)}`);
+    }
+  };
+
+  const onOpenProject = async () => {
+    const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
+    if (!dir || Array.isArray(dir)) return;
+    setStatus("Opening project…");
+    try {
+      const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
+      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
+      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
+      await loadFinishedClip(summary);
+      setStatus("Project opened");
+    } catch (e) {
+      setStatus(`Open failed: ${String(e)}`);
+    }
+  };
+
   return (
     <div class="editor">
       <header class="titlebar" data-tauri-drag-region="">
@@ -582,6 +615,9 @@ function App() {
         <button class="btn record" onClick={() => void startRecord()}>
           <span class="dot" /> Record
         </button>
+        <button class="btn" title="Open a saved project" onClick={() => void onOpenProject()}>
+          Open
+        </button>
         <input
           class="project-name"
           value={projectName()}
@@ -590,6 +626,9 @@ function App() {
           onInput={(e) => setProjectName(e.currentTarget.value || "Untitled")}
           onFocus={(e) => e.currentTarget.select()}
         />
+        <button class="btn" disabled={!hasClip()} title="Save project (video + edits)" onClick={() => void onSaveProject()}>
+          Save
+        </button>
         <button class="btn export" disabled={!hasClip()} onClick={() => setShowExport(true)}>
           Export GIF
         </button>

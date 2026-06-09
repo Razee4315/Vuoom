@@ -49,6 +49,8 @@ pub fn run() {
             commands::finish_recording,
             commands::cancel_record_flow,
             commands::set_region,
+            commands::save_project_bundle,
+            commands::open_project_bundle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4994,6 +4994,7 @@ dependencies = [
  "vuoom-project",
  "vuoom-render",
  "vuoom-zoom",
+ "windows 0.60.0",
 ]
 
 [[package]]

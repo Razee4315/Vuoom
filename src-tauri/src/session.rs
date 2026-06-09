@@ -12,9 +12,9 @@ use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 
 use glam::DVec2;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
-use vuoom_encode::{export_gif_native, plan_frames, GifSettings, RgbaImage};
+use vuoom_encode::{export_gif_native, plan_frames, read_png, swizzle_rb, write_png, GifSettings, RgbaImage};
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
@@ -56,6 +56,16 @@ struct Edited {
     project: Option<Project>,
     track: Option<CameraTrack>,
     start_qpc: i64,
+}
+
+/// One entry in a saved bundle's `frames/index.json`: frame number, time from start
+/// (seconds), and dimensions. The QPC epoch isn't portable, so time is stored instead.
+#[derive(Serialize, Deserialize)]
+struct FrameIndex {
+    n: usize,
+    t: f64,
+    w: u32,
+    h: u32,
 }
 
 /// The app's recording/editing/export engine, held as Tauri managed state.
@@ -179,6 +189,7 @@ impl Session {
         let zoom_count = zooms.len();
         let frame_count = frames.len();
         project.zooms = zooms;
+        project.events = events; // persisted so a reopened project can re-simulate panning
 
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         *edited = Edited {
@@ -416,6 +427,88 @@ impl Session {
             p.highlights.retain(|a| a.id != id);
             Ok(())
         })
+    }
+
+    /// Save the recording as a `dir.vuoom` bundle: the project manifest plus every frame
+    /// as a lossless PNG and a time index. Reopenable with [`Self::open_bundle`].
+    pub fn save_bundle(&self, dir: &Path) -> Result<(), String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let frames_dir = dir.join("frames");
+        std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
+
+        let mut index = Vec::with_capacity(edited.frames.len());
+        for (n, f) in edited.frames.iter().enumerate() {
+            // Stored as RGBA (write_png's format); capture buffers are BGRA.
+            let img = RgbaImage::new(f.width, f.height, swizzle_rb(&f.bgra));
+            write_png(&frames_dir.join(format!("{n:05}.png")), &img).map_err(|e| e.to_string())?;
+            index.push(FrameIndex {
+                n,
+                t: self.clock.seconds_between(edited.start_qpc, f.qpc),
+                w: f.width,
+                h: f.height,
+            });
+        }
+        std::fs::write(
+            frames_dir.join("index.json"),
+            serde_json::to_string(&index).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        std::fs::write(
+            dir.join("project.json"),
+            project.to_json().map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
+    /// the camera from the persisted events, and repopulate the editor. Returns a summary.
+    pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
+        let project = Project::from_json(
+            &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let frames_dir = dir.join("frames");
+        let index: Vec<FrameIndex> = serde_json::from_str(
+            &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let freq = self.clock.freq();
+        let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
+        let mut frames = Vec::with_capacity(index.len());
+        for fi in &index {
+            let img =
+                read_png(&frames_dir.join(format!("{:05}.png", fi.n))).map_err(|e| e.to_string())?;
+            frames.push(CapturedFrame {
+                width: fi.w,
+                height: fi.h,
+                bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
+                qpc: base + (fi.t * freq as f64) as i64,
+            });
+        }
+
+        let track = simulate(
+            &project.events,
+            &project.zooms,
+            project.source.duration,
+            project.source.fps.max(1.0),
+            &project.zoom_config,
+        );
+        let summary = RecordingSummary {
+            duration: project.source.duration,
+            frames: frames.len(),
+            zooms: project.zooms.len(),
+        };
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        *edited = Edited {
+            frames,
+            project: Some(project),
+            track: Some(track),
+            start_qpc: base,
+        };
+        Ok(summary)
     }
 
     /// Run `f` against the editable project, erroring if there is no recording.

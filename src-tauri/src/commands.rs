@@ -146,6 +146,21 @@ pub fn load_project(path: String) -> Result<Project, String> {
     Project::from_json(&json).map_err(|e| e.to_string())
 }
 
+/// Save the current recording as a `.vuoom` bundle (manifest + frames) at `dir`.
+#[tauri::command]
+pub fn save_project_bundle(session: tauri::State<'_, Session>, dir: String) -> Result<(), String> {
+    session.save_bundle(std::path::Path::new(&dir))
+}
+
+/// Open a `.vuoom` bundle and rehydrate the editor; returns a summary like `stop_recording`.
+#[tauri::command]
+pub fn open_project_bundle(
+    session: tauri::State<'_, Session>,
+    dir: String,
+) -> Result<RecordingSummary, String> {
+    session.open_bundle(std::path::Path::new(&dir))
+}
+
 /// The two GIF export presets: `(readme, high_quality)`.
 #[tauri::command]
 pub fn gif_presets() -> (GifSettings, GifSettings) {

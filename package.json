@@ -1,6 +1,6 @@
 {
   "name": "vuoom",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Screen recordings that zoom where it matters — native Windows cinematic screen recorder that exports demo GIFs.",
   "type": "module",
   "scripts": {

@@ -22,7 +22,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(session::Session::new());
-            app.manage(commands::WindowStash::default());
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.maximize();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -53,7 +55,6 @@ pub fn run() {
             commands::set_region,
             commands::screenshot,
             commands::set_zoom_amount,
-            commands::border_supported,
             commands::save_project_bundle,
             commands::open_project_bundle,
         ])

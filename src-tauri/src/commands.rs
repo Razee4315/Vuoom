@@ -6,8 +6,7 @@
 
 use crate::session::{AnnotationSet, RecordingSummary, Session};
 use crate::windows_ext::exclude_from_capture;
-use std::sync::Mutex;
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition};
 use vuoom_capture::CropRegion;
 use vuoom_encode::{estimate_total_bytes, GifSettings};
 use vuoom_project::{Project, SourceInfo, ZoomConfig};
@@ -21,36 +20,25 @@ use vuoom_project::{Project, SourceInfo, ZoomConfig};
 // region picker, shrink to a small bar for recording, then restore. The window is excluded
 // from the capture the entire time, so none of this overlay UI lands in the recording.
 
-/// The editor window's bounds (physical px) saved before the overlay takes over, so we can
-/// put the editor back exactly where it was.
-#[derive(Default)]
-pub struct WindowStash(pub Mutex<Option<(i32, i32, u32, u32)>>);
-
-/// Restore the editor window to its saved bounds (always runs, even on an error path).
-fn restore_editor(app: &AppHandle, stash: &tauri::State<'_, WindowStash>) {
+/// Restore the editor window after the overlay flow: drop fullscreen / always-on-top and
+/// bring it back maximized (the editor's default state). Always runs, even on an error path.
+fn restore_editor(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.set_fullscreen(false);
         let _ = main.set_always_on_top(false);
-        if let Some((x, y, w, h)) = *stash.0.lock().unwrap_or_else(|e| e.into_inner()) {
-            let _ = main.set_size(PhysicalSize::new(w, h));
-            let _ = main.set_position(PhysicalPosition::new(x, y));
-        }
         let _ = main.unminimize();
+        let _ = main.maximize();
         let _ = main.show();
         let _ = main.set_focus();
     }
 }
 
-/// Step 1 — the user clicked Record: hide the editor from the capture, remember where it
-/// was, and blow it up to fullscreen so the in-window region selector covers the display.
+/// Step 1 — the user clicked Record: hide the editor from the capture and blow it up to
+/// fullscreen so the in-window region selector covers the display.
 #[tauri::command]
-pub fn enter_overlay(app: AppHandle, stash: tauri::State<'_, WindowStash>) -> Result<(), String> {
+pub fn enter_overlay(app: AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
     let _ = exclude_from_capture(&main);
-    if let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) {
-        *stash.0.lock().map_err(|_| "lock poisoned")? =
-            Some((pos.x, pos.y, size.width, size.height));
-    }
     main.set_always_on_top(true).map_err(|e| e.to_string())?;
     main.set_fullscreen(true).map_err(|e| e.to_string())?;
     let _ = main.set_focus();
@@ -91,20 +79,16 @@ pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
 pub fn finish_recording(
     app: AppHandle,
     session: tauri::State<'_, Session>,
-    stash: tauri::State<'_, WindowStash>,
 ) -> Result<RecordingSummary, String> {
     let result = session.stop_recording();
-    restore_editor(&app, &stash); // always, even if stop failed
+    restore_editor(&app); // always, even if stop failed
     result
 }
 
 /// Abort the flow (Cancel / Esc): restore the editor without producing a clip.
 #[tauri::command]
-pub fn cancel_record_flow(
-    app: AppHandle,
-    stash: tauri::State<'_, WindowStash>,
-) -> Result<(), String> {
-    restore_editor(&app, &stash);
+pub fn cancel_record_flow(app: AppHandle) -> Result<(), String> {
+    restore_editor(&app);
     Ok(())
 }
 
@@ -134,13 +118,6 @@ pub fn screenshot(session: tauri::State<'_, Session>) -> Result<String, String> 
 #[tauri::command]
 pub fn set_zoom_amount(session: tauri::State<'_, Session>, amount: f64) -> Result<(), String> {
     session.set_zoom_amount(amount)
-}
-
-/// Whether the capture border can be toggled (Windows 11+). The editor hides the toggle
-/// when this is false (Windows 10 forces the border on).
-#[tauri::command]
-pub fn border_supported() -> bool {
-    vuoom_capture::border_toggle_supported()
 }
 
 /// The default auto-zoom tuning (Screen-Studio-quality starting point).
@@ -215,14 +192,10 @@ pub fn preview_port(session: tauri::State<'_, Session>) -> u16 {
     session.preview_port()
 }
 
-/// Begin capturing the primary display + global input. `border` (default true) toggles the
-/// OS capture highlight drawn around the recorded area.
+/// Begin capturing the primary display + global input.
 #[tauri::command]
-pub fn start_recording(
-    session: tauri::State<'_, Session>,
-    border: Option<bool>,
-) -> Result<(), String> {
-    session.start_recording(border.unwrap_or(true))
+pub fn start_recording(session: tauri::State<'_, Session>) -> Result<(), String> {
+    session.start_recording()
 }
 
 /// Stop capturing and build the editable project; returns a summary for the UI.

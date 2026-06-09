@@ -70,7 +70,7 @@ impl Drop for LivePreview {
 }
 
 fn run(region: Option<CropRegion>, amount: f64, sink: FrameSink, stop: &AtomicBool) {
-    let (rx, capture) = spawn_region(region, false);
+    let (rx, capture) = spawn_region(region);
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, amount);
     let clock = Clock::new();

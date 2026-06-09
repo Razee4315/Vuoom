@@ -10,6 +10,6 @@ mod capture;
 
 #[cfg(windows)]
 pub use capture::{
-    border_toggle_supported, run_primary_display, spawn_primary_display, spawn_region,
-    CaptureError, CaptureHandle, CapturedFrame, CropRegion,
+    run_primary_display, spawn_primary_display, spawn_region, CaptureError, CaptureHandle,
+    CapturedFrame, CropRegion,
 };

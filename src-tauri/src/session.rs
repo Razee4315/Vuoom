@@ -121,7 +121,7 @@ impl Session {
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
     /// the still backdrop the region selector draws on (no transparent window needed).
     pub fn screenshot(&self) -> Result<String, String> {
-        let (rx, handle) = spawn_region(None, false);
+        let (rx, handle) = spawn_region(None);
         let frame = rx
             .recv_timeout(std::time::Duration::from_secs(3))
             .map_err(|e| format!("screenshot capture failed: {e}"))?;
@@ -138,16 +138,15 @@ impl Session {
         self.preview.port()
     }
 
-    /// Begin capturing the primary display + global input. `show_border` toggles the OS
-    /// capture highlight drawn around the recorded area.
-    pub fn start_recording(&self, show_border: bool) -> Result<(), String> {
+    /// Begin capturing the primary display + global input.
+    pub fn start_recording(&self) -> Result<(), String> {
         let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
         if active.is_some() {
             return Err("already recording".into());
         }
         let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
         let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
-        let (frames_rx, capture) = spawn_region(region, show_border);
+        let (frames_rx, capture) = spawn_region(region);
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview — its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, amount, self.preview.sink());
@@ -263,7 +262,13 @@ impl Session {
             nearest_frame(&edited.frames, self.clock, edited.start_qpc, t).ok_or("no frames")?;
 
         let (out_w, out_h) = project.output_dims();
-        let scene = build_scene(project, track, out_w, out_h, t);
+        let mut scene = build_scene(project, track, out_w, out_h, t);
+        // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
+        // the preview — a baked copy would lag the overlay during a drag and look glitchy.
+        // They ARE baked into the final GIF at export time.
+        scene.texts.clear();
+        scene.arrows.clear();
+        scene.highlights.clear();
         let rgba = compositor.composite_scene(
             &frame.bgra,
             frame.width,

@@ -35,13 +35,6 @@ pub struct CropRegion {
     pub h: u32,
 }
 
-/// Whether the OS supports toggling the capture border (Windows 11+). On Windows 10 the
-/// border is always drawn and cannot be turned off, so the editor hides the toggle there.
-#[must_use]
-pub fn border_toggle_supported() -> bool {
-    GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false)
-}
-
 /// Clamp a requested crop inside the frame, guaranteeing a non-empty rect.
 fn clamp_region(r: CropRegion, w: u32, h: u32) -> (u32, u32, u32, u32) {
     let cx = r.x.min(w.saturating_sub(1));
@@ -144,21 +137,16 @@ pub fn run_primary_display(
     tx: Sender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    show_border: bool,
 ) -> Result<(), CaptureError> {
     let monitor = Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))?;
-    // The OS-drawn "this is being captured" highlight around the recorded area. Toggling it
-    // needs the `IsBorderRequired` API, which is Windows 11+ — on Windows 10 it is absent and
-    // requesting any non-Default value makes the capture session FAIL to start (no frames).
-    // So only request a specific border when the platform actually supports it; otherwise
-    // fall back to Default (Win10 always draws the border — it can't be disabled there).
-    let border_supported = GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false);
-    let border = if !border_supported {
-        DrawBorderSettings::Default
-    } else if show_border {
-        DrawBorderSettings::WithBorder
-    } else {
+    // Capture without the OS "being captured" highlight where the platform allows it
+    // (Windows 11+, via the `IsBorderRequired` API). On Windows 10 that API is absent and the
+    // border can't be removed, so we fall back to Default — requesting a specific value there
+    // makes the capture session fail to start.
+    let border = if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
         DrawBorderSettings::WithoutBorder
+    } else {
+        DrawBorderSettings::Default
     };
     let settings = Settings::new(
         monitor,
@@ -176,20 +164,16 @@ pub fn run_primary_display(
 
 /// Spawn primary-display capture on a background thread; returns the frame receiver and a
 /// [`CaptureHandle`] to stop it. When `crop` is set, frames are cropped to that
-/// sub-rectangle (physical px) before being sent. `show_border` toggles the OS capture
-/// highlight around the recorded area.
+/// sub-rectangle (physical px) before being sent.
 #[must_use]
-pub fn spawn_region(
-    crop: Option<CropRegion>,
-    show_border: bool,
-) -> (Receiver<CapturedFrame>, CaptureHandle) {
+pub fn spawn_region(crop: Option<CropRegion>) -> (Receiver<CapturedFrame>, CaptureHandle) {
     let (tx, rx) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let handle = CaptureHandle {
         stop: Arc::clone(&stop),
     };
     std::thread::spawn(move || {
-        if let Err(e) = run_primary_display(tx, stop, crop, show_border) {
+        if let Err(e) = run_primary_display(tx, stop, crop) {
             tracing::error!("screen capture stopped: {e}");
         }
     });
@@ -199,7 +183,7 @@ pub fn spawn_region(
 /// Spawn full primary-display capture (no crop). Convenience wrapper over [`spawn_region`].
 #[must_use]
 pub fn spawn_primary_display() -> (Receiver<CapturedFrame>, CaptureHandle) {
-    spawn_region(None, true)
+    spawn_region(None)
 }
 
 #[cfg(test)]

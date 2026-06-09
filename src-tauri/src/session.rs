@@ -517,10 +517,13 @@ impl Session {
     /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
     /// the camera from the persisted events, and repopulate the editor. Returns a summary.
     pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
-        let project = Project::from_json(
+        let mut project = Project::from_json(
             &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
+        // The border/framing feature was removed from the product; bundles saved by older
+        // builds may still carry a decorated FrameStyle — normalize so nothing is baked in.
+        project.frame = FrameStyle::default();
         let frames_dir = dir.join("frames");
         let index: Vec<FrameIndex> = serde_json::from_str(
             &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,

@@ -62,16 +62,17 @@ pub struct FrameStyle {
 
 impl Default for FrameStyle {
     fn default() -> Self {
-        // A tasteful indigo→violet gradient, soft padding, rounded corners, soft shadow.
+        // No framing by default: the export is exactly the recording, edge to edge.
+        // (The border/padding feature was removed from the product — a non-zero default
+        // here would silently bake a border into every export.)
         Self {
-            background: Background::Gradient {
-                from: Color::rgb(0.36, 0.40, 0.92),
-                to: Color::rgb(0.55, 0.36, 0.86),
-                angle_deg: 135.0,
+            background: Background::Solid(Color::BLACK),
+            padding: 0.0,
+            corner_radius: 0.0,
+            shadow: Shadow {
+                strength: 0.0,
+                ..Shadow::default()
             },
-            padding: 0.06,
-            corner_radius: 0.02,
-            shadow: Shadow::default(),
         }
     }
 }

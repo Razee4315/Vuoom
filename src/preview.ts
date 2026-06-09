@@ -29,11 +29,19 @@ export class PreviewClient {
   private ws: WebSocket | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private aspect = 0;
+  private onAspect: ((aspect: number) => void) | null = null;
 
   /** Bind the canvas frames will be drawn into. */
   attach(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+  }
+
+  /** Notified with the frame aspect ratio (width / height) when it first changes —
+   *  lets the UI size the preview frame so there is no letterbox to misalign overlays. */
+  onAspectChange(cb: (aspect: number) => void): void {
+    this.onAspect = cb;
   }
 
   /** Connect to the engine's preview server on `port` (from the Rust side). */
@@ -69,5 +77,11 @@ export class PreviewClient {
     if (this.canvas.width !== width) this.canvas.width = width;
     if (this.canvas.height !== height) this.canvas.height = height;
     this.ctx.putImageData(new ImageData(packed, width, height), 0, 0);
+
+    const aspect = width / height;
+    if (Math.abs(aspect - this.aspect) > 1e-3) {
+      this.aspect = aspect;
+      this.onAspect?.(aspect);
+    }
   }
 }

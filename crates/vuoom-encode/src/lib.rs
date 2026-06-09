@@ -10,6 +10,7 @@ mod error;
 mod export;
 mod gifski;
 mod image;
+mod native;
 mod plan;
 mod settings;
 
@@ -17,5 +18,6 @@ pub use error::EncodeError;
 pub use export::export_gif;
 pub use gifski::{build_gifsicle_args, build_gifski_args, run_gifsicle, run_gifski};
 pub use image::{write_png, RgbaImage};
+pub use native::{downscale_rgba, export_gif_native, frame_delay_cs, quality_to_speed};
 pub use plan::{estimate_total_bytes, plan_frames, EmittedFrame};
 pub use settings::GifSettings;

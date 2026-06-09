@@ -12,6 +12,9 @@ tracing.workspace = true
 serde.workspace = true
 png = "0.17"
 tempfile = "3"
+# Pure-Rust animated-GIF encoder (MIT/Apache) for the no-gifski fallback path — linked,
+# unlike gifski which stays out-of-process. See docs/06-Export.md.
+gif = "0.13"
 
 # gifski is AGPL — invoked as a bundled binary via std::process, NEVER linked.
 # See docs/06-Export.md and docs/10-Licensing.md.

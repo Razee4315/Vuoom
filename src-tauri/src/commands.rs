@@ -4,7 +4,7 @@
 //! and size estimation). Capture / render / preview / export commands are added as those
 //! crates come online. See `docs/02-Architecture.md`.
 
-use crate::session::{RecordingSummary, Session};
+use crate::session::{AnnotationSet, RecordingSummary, Session};
 use vuoom_encode::{estimate_total_bytes, GifSettings};
 use vuoom_project::{Project, SourceInfo, ZoomConfig};
 
@@ -90,8 +90,9 @@ pub fn export_gif(
     path: String,
     fps: u32,
     width: Option<u32>,
+    quality: u8,
 ) -> Result<(), String> {
-    session.export_gif(path, fps, width)
+    session.export_gif(path, fps, width, quality)
 }
 
 /// Add a text label at normalized `(x, y)` from time `t`.
@@ -130,4 +131,67 @@ pub fn add_box(
     t: f64,
 ) -> Result<u32, String> {
     session.add_box(x, y, w, h, t)
+}
+
+/// Snapshot every annotation (for the editor overlay).
+#[tauri::command]
+pub fn list_annotations(session: tauri::State<'_, Session>) -> Result<AnnotationSet, String> {
+    session.annotations()
+}
+
+/// Move/edit a text label (omit a field to leave it unchanged).
+#[tauri::command]
+pub fn update_text(
+    session: tauri::State<'_, Session>,
+    id: u32,
+    x: Option<f64>,
+    y: Option<f64>,
+    text: Option<String>,
+    font_size: Option<f32>,
+) -> Result<(), String> {
+    session.update_text(id, x, y, text, font_size)
+}
+
+/// Move an arrow's endpoints.
+#[tauri::command]
+pub fn update_arrow(
+    session: tauri::State<'_, Session>,
+    id: u32,
+    fx: f64,
+    fy: f64,
+    tx: f64,
+    ty: f64,
+) -> Result<(), String> {
+    session.update_arrow(id, fx, fy, tx, ty)
+}
+
+/// Move/resize a highlight box.
+#[tauri::command]
+pub fn update_box(
+    session: tauri::State<'_, Session>,
+    id: u32,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    session.update_box(id, x, y, w, h)
+}
+
+/// Tint an annotation (text, arrow, or box) by id.
+#[tauri::command]
+pub fn set_annotation_color(
+    session: tauri::State<'_, Session>,
+    id: u32,
+    r: f64,
+    g: f64,
+    b: f64,
+) -> Result<(), String> {
+    session.set_annotation_color(id, r, g, b)
+}
+
+/// Delete an annotation (text, arrow, or box) by id.
+#[tauri::command]
+pub fn delete_annotation(session: tauri::State<'_, Session>, id: u32) -> Result<(), String> {
+    session.delete_annotation(id)
 }

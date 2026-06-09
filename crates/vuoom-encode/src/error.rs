@@ -12,6 +12,9 @@ pub enum EncodeError {
     /// PNG encoding failed.
     #[error("png encoding failed: {0}")]
     Png(String),
+    /// Native (pure-Rust) GIF encoding failed.
+    #[error("gif encoding failed: {0}")]
+    Gif(String),
     /// The external tool could not be launched (e.g. binary missing).
     #[error("failed to spawn {tool}")]
     Spawn {

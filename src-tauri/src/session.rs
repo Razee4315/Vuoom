@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use glam::DVec2;
 use serde::Serialize;
 use vuoom_capture::{spawn_primary_display, CaptureHandle, CapturedFrame};
-use vuoom_encode::{export_gif as encode_gif, plan_frames, GifSettings, RgbaImage};
+use vuoom_encode::{export_gif_native, plan_frames, GifSettings, RgbaImage};
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
@@ -30,6 +30,15 @@ pub struct RecordingSummary {
     pub duration: f64,
     pub frames: usize,
     pub zooms: usize,
+}
+
+/// All annotations on the project, sent to the editor overlay so it can draw selection
+/// handles and hit-test for moving/resizing.
+#[derive(Debug, Clone, Serialize)]
+pub struct AnnotationSet {
+    pub texts: Vec<TextAnnotation>,
+    pub arrows: Vec<ArrowAnnotation>,
+    pub highlights: Vec<HighlightBox>,
 }
 
 struct Active {
@@ -195,7 +204,15 @@ impl Session {
     }
 
     /// Composite every emitted frame and export an optimized GIF to `out_path`.
-    pub fn export_gif(&self, out_path: String, fps: u32, width: Option<u32>) -> Result<(), String> {
+    ///
+    /// Uses the pure-Rust encoder so export works with no external tools installed.
+    pub fn export_gif(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+    ) -> Result<(), String> {
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
@@ -225,17 +242,10 @@ impl Session {
         let settings = GifSettings {
             fps,
             width,
+            quality,
             ..GifSettings::readme()
         };
-        // TODO: resolve the bundled gifski sidecar path; "gifski" relies on PATH for now.
-        encode_gif(
-            &images,
-            &settings,
-            Path::new("gifski"),
-            None,
-            Path::new(&out_path),
-        )
-        .map_err(|e| e.to_string())
+        export_gif_native(&images, &settings, Path::new(&out_path)).map_err(|e| e.to_string())
     }
 
     /// Add a text label at normalized `(x, y)`, visible for ~3s from time `t`. Returns its id.
@@ -287,6 +297,111 @@ impl Session {
             range,
         });
         Ok(id)
+    }
+
+    /// Snapshot every annotation for the editor overlay.
+    pub fn annotations(&self) -> Result<AnnotationSet, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        Ok(AnnotationSet {
+            texts: project.texts.clone(),
+            arrows: project.arrows.clone(),
+            highlights: project.highlights.clone(),
+        })
+    }
+
+    /// Move/edit a text label. `None` fields keep their current value.
+    pub fn update_text(
+        &self,
+        id: u32,
+        x: Option<f64>,
+        y: Option<f64>,
+        text: Option<String>,
+        font_size: Option<f32>,
+    ) -> Result<(), String> {
+        self.with_project(|p| {
+            let a = p.texts.iter_mut().find(|a| a.id == id).ok_or("no such text")?;
+            if let Some(x) = x {
+                a.pos.x = x.clamp(0.0, 1.0);
+            }
+            if let Some(y) = y {
+                a.pos.y = y.clamp(0.0, 1.0);
+            }
+            if let Some(t) = text {
+                a.text = t;
+            }
+            if let Some(fs) = font_size {
+                a.font_size = fs.clamp(0.01, 0.5);
+            }
+            Ok(())
+        })
+    }
+
+    /// Move an arrow's endpoints.
+    pub fn update_arrow(
+        &self,
+        id: u32,
+        fx: f64,
+        fy: f64,
+        tx: f64,
+        ty: f64,
+    ) -> Result<(), String> {
+        self.with_project(|p| {
+            let a = p.arrows.iter_mut().find(|a| a.id == id).ok_or("no such arrow")?;
+            a.from = DVec2::new(fx.clamp(0.0, 1.0), fy.clamp(0.0, 1.0));
+            a.to = DVec2::new(tx.clamp(0.0, 1.0), ty.clamp(0.0, 1.0));
+            Ok(())
+        })
+    }
+
+    /// Move/resize a highlight box.
+    pub fn update_box(&self, id: u32, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+        self.with_project(|p| {
+            let b = p
+                .highlights
+                .iter_mut()
+                .find(|b| b.id == id)
+                .ok_or("no such box")?;
+            b.rect = Rect::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0), w.max(0.0), h.max(0.0));
+            Ok(())
+        })
+    }
+
+    /// Tint any annotation (text, arrow, or box) by id.
+    pub fn set_annotation_color(&self, id: u32, r: f64, g: f64, b: f64) -> Result<(), String> {
+        let color = Color::rgb(r as f32, g as f32, b as f32);
+        self.with_project(|p| {
+            if let Some(a) = p.texts.iter_mut().find(|a| a.id == id) {
+                a.color = color;
+            } else if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
+                a.color = color;
+            } else if let Some(a) = p.highlights.iter_mut().find(|a| a.id == id) {
+                a.color = color;
+            } else {
+                return Err("no such annotation".into());
+            }
+            Ok(())
+        })
+    }
+
+    /// Delete any annotation (text, arrow, or box) by id.
+    pub fn delete_annotation(&self, id: u32) -> Result<(), String> {
+        self.with_project(|p| {
+            p.texts.retain(|a| a.id != id);
+            p.arrows.retain(|a| a.id != id);
+            p.highlights.retain(|a| a.id != id);
+            Ok(())
+        })
+    }
+
+    /// Run `f` against the editable project, erroring if there is no recording.
+    fn with_project<F>(&self, f: F) -> Result<(), String>
+    where
+        F: FnOnce(&mut Project) -> Result<(), String>,
+    {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        f(project)
     }
 }
 

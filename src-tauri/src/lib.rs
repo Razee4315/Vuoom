@@ -13,6 +13,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(session::Session::new());
             Ok(())
@@ -32,6 +33,12 @@ pub fn run() {
             commands::add_text,
             commands::add_arrow,
             commands::add_box,
+            commands::list_annotations,
+            commands::update_text,
+            commands::update_arrow,
+            commands::update_box,
+            commands::set_annotation_color,
+            commands::delete_annotation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

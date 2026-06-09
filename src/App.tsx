@@ -117,6 +117,8 @@ type Drag =
 function App() {
   const [tool, setTool] = createSignal<Tool>("select");
   const [status, setStatus] = createSignal("Ready");
+  const [projectName, setProjectName] = createSignal("Untitled");
+  const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
   const [recording, setRecording] = createSignal(false);
   const [hasClip, setHasClip] = createSignal(false);
@@ -242,6 +244,8 @@ function App() {
     if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
       void deleteSelected();
+    } else if (e.key === "Escape" && selected()) {
+      setSelected(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
@@ -359,13 +363,12 @@ function App() {
     const t = tool();
 
     if (t === "text") {
-      const text = window.prompt("Text label:");
-      if (text) {
-        const id = await invoke<number>("add_text", { text, x: p.x, y: p.y, t: playhead() });
-        await refresh();
-        await pushSeek(playhead());
-        setSelected({ kind: "text", id });
-      }
+      const id = await invoke<number>("add_text", { text: "Text", x: p.x, y: p.y, t: playhead() });
+      await refresh();
+      await pushSeek(playhead());
+      setSelected({ kind: "text", id });
+      setEditingText(id);
+      setTool("select");
       return;
     }
     if (t === "arrow") {
@@ -516,6 +519,30 @@ function App() {
     await pushSeek(playhead());
   };
 
+  // ── inline text editing ──────────────────────────────────────────────────────────
+  const editingTextAnn = () => {
+    const id = editingText();
+    return id === null ? undefined : anns().texts.find((t) => t.id === id);
+  };
+  const editTextLive = (text: string) => {
+    const id = editingText();
+    if (id === null) return;
+    void pushEdit(() => invoke("update_text", { id, text }));
+  };
+  const finishTextEdit = async () => {
+    const id = editingText();
+    setEditingText(null);
+    if (id === null) return;
+    await refresh(); // sync the live-typed value before deciding
+    const ann = anns().texts.find((t) => t.id === id);
+    if (ann && ann.text.trim() === "") {
+      await invoke("delete_annotation", { id });
+      setSelected(null);
+      await refresh();
+    }
+    await pushSeek(playhead());
+  };
+
   // ── recording / export ───────────────────────────────────────────────────────────
   const toggleRecord = async () => {
     try {
@@ -553,13 +580,20 @@ function App() {
         <button class="btn record" classList={{ active: recording() }} onClick={toggleRecord}>
           <span class="dot" /> {recording() ? "Stop" : "Record"}
         </button>
-        <div class="project-title">Untitled</div>
+        <input
+          class="project-name"
+          value={projectName()}
+          spellcheck={false}
+          aria-label="Project name"
+          onInput={(e) => setProjectName(e.currentTarget.value || "Untitled")}
+          onFocus={(e) => e.currentTarget.select()}
+        />
         <button class="btn export" disabled={!hasClip()} onClick={() => setShowExport(true)}>
           Export GIF
         </button>
       </div>
 
-      <div class="workspace">
+      <div class="workspace" classList={{ "has-inspector": !!selected() }}>
         <nav class="toolrail">
           <For each={TOOLS}>
             {(t) => (
@@ -602,6 +636,13 @@ function App() {
                 onPointerDown={(e) => void onPointerDown(e)}
                 onPointerMove={onPointerMove}
                 onPointerUp={(e) => void onPointerUp(e)}
+                onDblClick={(e) => {
+                  const hit = hitTest(norm(e as unknown as PointerEvent));
+                  if (hit?.kind === "text") {
+                    setSelected(hit);
+                    setEditingText(hit.id);
+                  }
+                }}
               >
                 {/* boxes */}
                 <For each={anns().highlights}>
@@ -723,21 +764,43 @@ function App() {
                   })()}
                 </Show>
               </svg>
+
+              <Show when={editingTextAnn()}>
+                {(() => {
+                  const ta = editingTextAnn()!;
+                  const p = px({ x: v2(ta.pos).x, y: v2(ta.pos).y });
+                  const fs = ta.font_size * stage().h;
+                  return (
+                    <input
+                      class="text-edit"
+                      style={{ left: `${p.x}px`, top: `${p.y}px`, "font-size": `${fs}px` }}
+                      value={ta.text}
+                      spellcheck={false}
+                      ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
+                      onInput={(e) => editTextLive(e.currentTarget.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "Escape") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={() => void finishTextEdit()}
+                    />
+                  );
+                })()}
+              </Show>
             </Show>
           </div>
         </main>
 
-        <aside class="properties">
-          <Show
-            when={selected()}
-            fallback={
-              <>
-                <h2>Properties</h2>
-                <p class="muted">Select an element on the canvas to edit it. Use the tools on the left to add text, arrows, and highlight boxes.</p>
-              </>
-            }
-          >
-            <h2>{selected()!.kind[0].toUpperCase() + selected()!.kind.slice(1)}</h2>
+        <Show when={selected()}>
+          <aside class="properties">
+            <div class="inspector-head">
+              <h2>{selected()!.kind[0].toUpperCase() + selected()!.kind.slice(1)}</h2>
+              <button class="icon-btn" title="Done" onClick={() => setSelected(null)}>
+                ✕
+              </button>
+            </div>
 
             <Show when={selectedText()}>
               <label class="field">
@@ -772,12 +835,12 @@ function App() {
               </label>
             </Show>
 
-            <p class="muted small">Drag the element to move it. Drag a handle to resize.</p>
+            <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>
             <button class="btn danger" onClick={() => void deleteSelected()}>
               Delete element
             </button>
-          </Show>
-        </aside>
+          </aside>
+        </Show>
       </div>
 
       <footer class="timeline">
@@ -812,7 +875,7 @@ function App() {
       </footer>
 
       <Show when={showExport()}>
-        <ExportDialog onClose={() => setShowExport(false)} onStatus={setStatus} />
+        <ExportDialog name={projectName()} onClose={() => setShowExport(false)} onStatus={setStatus} />
       </Show>
     </div>
   );
@@ -862,6 +925,7 @@ function ArrowLine(props: { from: Vec2; to: Vec2; color: string }): JSX.Element 
 }
 
 function ExportDialog(props: {
+  name: string;
   onClose: () => void;
   onStatus: (s: string) => void;
 }): JSX.Element {
@@ -886,8 +950,9 @@ function ExportDialog(props: {
 
   const doExport = async () => {
     try {
+      const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
       const path = await save({
-        defaultPath: "vuoom.gif",
+        defaultPath: `${safe}.gif`,
         filters: [{ name: "GIF", extensions: ["gif"] }],
       });
       if (!path) return;

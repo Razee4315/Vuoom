@@ -194,10 +194,12 @@ export default function RecordOverlay(props: {
               <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
               <Show when={phase() === "countdown"}>
                 <div class="rec-countdown">
-                  <Show when={count() > 0} fallback={<span class="rec-num">Go!</span>}>
-                    <span class="rec-num">{count()}</span>
-                  </Show>
-                  <span class="rec-sub">Get ready…</span>
+                  <div class="rec-ring">
+                    <Show when={count() > 0} fallback={<span class="rec-num">Go</span>}>
+                      <span class="rec-num">{count()}</span>
+                    </Show>
+                  </div>
+                  <span class="rec-sub">Recording starts…</span>
                 </div>
               </Show>
               <Show when={phase() === "recording"}>

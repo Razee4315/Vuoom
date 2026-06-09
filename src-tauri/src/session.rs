@@ -176,6 +176,12 @@ impl Session {
         let frames: Vec<CapturedFrame> = session.frames_rx.try_iter().collect();
         let raw_events: Vec<RawEvent> = session.events_rx.try_iter().collect();
 
+        // No frames means the screen capture never started (or was stopped instantly) — fail
+        // loudly so the editor shows a clear message instead of a silent, empty player.
+        if frames.is_empty() {
+            return Err("No frames were captured — screen capture failed to start.".into());
+        }
+
         let (width, height) = frames.first().map_or((1920, 1080), |f| (f.width, f.height));
         let duration = frames.last().map_or(0.0, |f| {
             self.clock.seconds_between(session.start_qpc, f.qpc)

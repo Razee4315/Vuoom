@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vuoom_input::Clock;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
-use windows_capture::graphics_capture_api::InternalCaptureControl;
+use windows_capture::graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl};
 use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
@@ -140,9 +140,15 @@ pub fn run_primary_display(
     show_border: bool,
 ) -> Result<(), CaptureError> {
     let monitor = Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))?;
-    // The OS-drawn "this is being captured" highlight around the recorded area. Some users
-    // want it off in the final video; honor their choice.
-    let border = if show_border {
+    // The OS-drawn "this is being captured" highlight around the recorded area. Toggling it
+    // needs the `IsBorderRequired` API, which is Windows 11+ — on Windows 10 it is absent and
+    // requesting any non-Default value makes the capture session FAIL to start (no frames).
+    // So only request a specific border when the platform actually supports it; otherwise
+    // fall back to Default (Win10 always draws the border — it can't be disabled there).
+    let border_supported = GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false);
+    let border = if !border_supported {
+        DrawBorderSettings::Default
+    } else if show_border {
         DrawBorderSettings::WithBorder
     } else {
         DrawBorderSettings::WithoutBorder

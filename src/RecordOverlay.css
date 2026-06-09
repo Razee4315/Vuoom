@@ -249,7 +249,7 @@
   }
 }
 
-/* Countdown overlay sits over the (still dark) screen. */
+/* Countdown overlay sits over the (still dark) screen — a small ring with the count. */
 .rec-countdown {
   position: absolute;
   inset: 0;
@@ -257,17 +257,38 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 12px;
+}
+.rec-ring {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
 }
 .rec-num {
-  font-size: 56px;
+  font-size: 34px;
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  animation: rec-pop 1s ease-out infinite;
+}
+@keyframes rec-pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  35% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 .rec-sub {
   font-size: 12px;
-  opacity: 0.7;
+  opacity: 0.65;
+  letter-spacing: 0.02em;
 }
 
 /* Control row beneath the screen. */

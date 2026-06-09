@@ -188,9 +188,57 @@ function App() {
     if (!el.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
   };
 
+  // Desktop-app hardening: this is a native app, not a website. Swallow the WebView2
+  // browser chrome accelerators (Ctrl+J downloads, Ctrl+F find, Ctrl+R reload, F5, zoom
+  // keys, Alt-nav, devtools chords) and map the useful ones to app actions instead.
+  const BROWSER_CODES = new Set([
+    "KeyJ", "KeyF", "KeyG", "KeyH", "KeyL", "KeyK", "KeyT", "KeyN",
+    "KeyP", "KeyU", "KeyD", "KeyW", "Equal", "Minus", "Digit0",
+  ]);
+  const onGlobalKey = (e: KeyboardEvent) => {
+    const inField = (e.target as HTMLElement).closest("input, textarea");
+    if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+      if (e.code === "KeyS") {
+        e.preventDefault();
+        if (hasClip()) void onSaveProject();
+        return;
+      }
+      if (e.code === "KeyO") {
+        e.preventDefault();
+        void onOpenProject();
+        return;
+      }
+      if (e.code === "KeyE") {
+        e.preventDefault();
+        if (hasClip()) setShowExport(true);
+        return;
+      }
+      if (e.code === "KeyA" && !inField) {
+        e.preventDefault();
+        return;
+      }
+    }
+    const browserChord =
+      (e.ctrlKey && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
+      (e.ctrlKey && !e.shiftKey && e.code === "KeyR") ||
+      (e.ctrlKey && e.shiftKey && (e.code === "KeyI" || e.code === "KeyJ" || e.code === "KeyC") && !inField) ||
+      (e.altKey && (e.code === "ArrowLeft" || e.code === "ArrowRight") && !inField) ||
+      e.code === "F3" || e.code === "F5" || e.code === "F7" || e.code === "F11";
+    if (browserChord) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const onWheelGuard = (e: WheelEvent) => {
+    // Ctrl+wheel is browser page-zoom — meaningless in a desktop editor.
+    if (e.ctrlKey) e.preventDefault();
+  };
+
   onMount(async () => {
     applyTheme(theme());
     document.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onGlobalKey, true);
+    window.addEventListener("wheel", onWheelGuard, { passive: false });
     window.addEventListener("keydown", onKey);
     if (canvasEl) preview.attach(canvasEl);
     preview.onAspectChange((a) => setFrameAspect(a));
@@ -236,6 +284,8 @@ function App() {
   };
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
+    window.removeEventListener("keydown", onGlobalKey, true);
+    window.removeEventListener("wheel", onWheelGuard);
     window.removeEventListener("keydown", onKey);
     preview.disconnect();
   });
@@ -474,6 +524,18 @@ function App() {
     if (t === "box") {
       setDrag({ mode: "create-box", start: p, cur: p });
       return;
+    }
+
+    // Second click of a double-click on a text label → inline edit. Detected here via
+    // e.detail because pointer capture can swallow the synthesized dblclick event.
+    if (e.detail >= 2) {
+      const hit = hitTest(p);
+      if (hit?.kind === "text") {
+        setDrag(null);
+        setSelected(hit);
+        setEditingText(hit.id);
+        return;
+      }
     }
 
     // select tool: handle → resize, body → move, empty → deselect
@@ -855,6 +917,73 @@ function App() {
     for (let t = 0; t <= duration() + 1e-9; t += s) out.push(t);
     return out;
   };
+  // Annotation bar dragging: grab the middle to move it in time, the edges to resize
+  // how long it stays on screen.
+  const [annDrag, setAnnDrag] = createSignal<{
+    kind: Kind;
+    id: number;
+    mode: "move" | "l" | "r";
+    grabT: number;
+    orig: { start: number; end: number };
+    cur: { start: number; end: number };
+    moved: boolean;
+  } | null>(null);
+  const annGeom = (b: { kind: Kind; id: number; start: number; end: number }) => {
+    const d = annDrag();
+    return d && d.kind === b.kind && d.id === b.id ? d.cur : { start: b.start, end: b.end };
+  };
+  const onAnnDown =
+    (b: { kind: Kind; id: number; start: number; end: number }) => (e: PointerEvent) => {
+      e.stopPropagation();
+      const el = e.currentTarget as HTMLElement;
+      el.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect();
+      const mode = e.clientX - r.left < 8 ? "l" : r.right - e.clientX < 8 ? "r" : "move";
+      setAnnDrag({
+        kind: b.kind,
+        id: b.id,
+        mode,
+        grabT: tlTime(e),
+        orig: { start: b.start, end: b.end },
+        cur: { start: b.start, end: b.end },
+        moved: false,
+      });
+    };
+  const onAnnMove = (e: PointerEvent) => {
+    const d = annDrag();
+    if (!d) return;
+    const dt = tlTime(e) - d.grabT;
+    let { start, end } = d.orig;
+    if (d.mode === "move") {
+      const len = end - start;
+      start = Math.min(Math.max(0, start + dt), duration() - len);
+      end = start + len;
+    } else if (d.mode === "l") {
+      start = Math.min(Math.max(0, start + dt), end - 0.2);
+    } else {
+      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
+    }
+    setAnnDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
+  };
+  const onAnnUp = async () => {
+    const d = annDrag();
+    if (!d) return;
+    setAnnDrag(null);
+    setSelZoom(null);
+    setSelected({ kind: d.kind, id: d.id });
+    if (d.moved) {
+      try {
+        await invoke("update_annotation_range", { id: d.id, start: d.cur.start, end: d.cur.end });
+        await refresh();
+        await pushSeek(playhead());
+      } catch (e) {
+        setStatus(`Retime failed: ${String(e)}`);
+      }
+    } else {
+      scrub(d.orig.start);
+    }
+  };
+
   // All annotations as flat timeline bars, sorted by start time.
   const annBars = () => {
     const a = anns();
@@ -867,6 +996,31 @@ function App() {
       bars.push({ kind: "box", id: b.id, start: b.range.start, end: b.range.end, label: "Box" });
     return bars.sort((x, y) => x.start - y.start);
   };
+
+  // ── resizable inspector ────────────────────────────────────────────────────────
+  const [inspectorW, setInspectorW] = createSignal(
+    Number(localStorage.getItem("vuoom-inspector-w")) || 296,
+  );
+  let inspectorDrag = false;
+  const onInspDown = (e: PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    inspectorDrag = true;
+  };
+  const onInspMove = (e: PointerEvent) => {
+    if (!inspectorDrag) return;
+    setInspectorW(Math.min(440, Math.max(240, window.innerWidth - e.clientX)));
+  };
+  const onInspUp = () => {
+    if (!inspectorDrag) return;
+    inspectorDrag = false;
+    try {
+      localStorage.setItem("vuoom-inspector-w", String(inspectorW()));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const inspectorOpen = () => !!selected() || selZoom() !== null;
 
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -913,38 +1067,55 @@ function App() {
 
       <div class="toolbar">
         <div class="toolbar-group">
-          <button class="btn record" onClick={() => void startRecord()}>
+          <button class="btn record" title="Record your screen (Ctrl+Shift+R)" onClick={() => void startRecord()}>
             <span class="dot" /> Record
           </button>
         </div>
 
-        <input
-          class="project-name"
-          value={projectName()}
-          spellcheck={false}
-          aria-label="Project name"
-          title="Project name"
-          onInput={(e) => setProjectName(e.currentTarget.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => {
-            if (!e.currentTarget.value.trim()) setProjectName("Untitled");
-          }}
-        />
+        <div class="project-title">
+          <input
+            class="project-name"
+            value={projectName()}
+            spellcheck={false}
+            aria-label="Project name"
+            title="Rename project"
+            onInput={(e) => setProjectName(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => {
+              if (!e.currentTarget.value.trim()) setProjectName("Untitled");
+            }}
+          />
+        </div>
 
         <div class="toolbar-group">
-          <button class="btn" title="Open a saved project" onClick={() => void onOpenProject()}>
+          <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
+            </svg>
             Open
           </button>
-          <button class="btn" disabled={!hasClip()} title="Save project (video + edits)" onClick={() => void onSaveProject()}>
+          <button class="btn ghost" disabled={!hasClip()} title="Save project — video + edits (Ctrl+S)" onClick={() => void onSaveProject()}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 3v5h8V3M7 21v-7h10v7" />
+            </svg>
             Save
           </button>
-          <button class="btn export" disabled={!hasClip()} onClick={() => setShowExport(true)}>
+          <span class="toolbar-sep" />
+          <button class="btn export" disabled={!hasClip()} title="Export an optimized GIF (Ctrl+E)" onClick={() => setShowExport(true)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
+            </svg>
             Export GIF
           </button>
         </div>
       </div>
 
-      <div class="workspace" classList={{ "has-inspector": !!selected() || selZoom() !== null }}>
+      <div
+        class="workspace"
+        style={{
+          "grid-template-columns": inspectorOpen() ? `76px 1fr ${inspectorW()}px` : "76px 1fr",
+        }}
+      >
         <nav class="toolrail">
           <For each={TOOLS}>
             {(t) => (
@@ -1157,6 +1328,13 @@ function App() {
 
         <Show when={selected()}>
           <aside class="properties">
+            <div
+              class="panel-resizer"
+              title="Drag to resize"
+              onPointerDown={onInspDown}
+              onPointerMove={onInspMove}
+              onPointerUp={onInspUp}
+            />
             <div class="inspector-head">
               <h2>{selected()!.kind[0].toUpperCase() + selected()!.kind.slice(1)}</h2>
               <button class="icon-btn" title="Done" onClick={() => setSelected(null)}>
@@ -1206,6 +1384,13 @@ function App() {
 
         <Show when={selZoom() !== null && selectedZoom()}>
           <aside class="properties">
+            <div
+              class="panel-resizer"
+              title="Drag to resize"
+              onPointerDown={onInspDown}
+              onPointerMove={onInspMove}
+              onPointerUp={onInspUp}
+            />
             <div class="inspector-head">
               <h2>Zoom</h2>
               <button class="icon-btn" title="Done" onClick={() => setSelZoom(null)}>
@@ -1350,25 +1535,28 @@ function App() {
             <div class="tl-track">
               <span class="tl-tracklabel">Notes</span>
               <For each={annBars()}>
-                {(b) => (
-                  <button
-                    classList={{
-                      "tl-ann": true,
-                      [`tl-${b.kind}`]: true,
-                      selected: selected()?.kind === b.kind && selected()?.id === b.id,
-                    }}
-                    style={{ left: `${pct(b.start)}%`, width: `${Math.max(pct(b.end) - pct(b.start), 1)}%` }}
-                    title={`${b.label} · ${fmt(b.start)}–${fmt(b.end)}`}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => {
-                      setSelZoom(null);
-                      setSelected({ kind: b.kind, id: b.id });
-                      scrub(b.start);
-                    }}
-                  >
-                    {b.label}
-                  </button>
-                )}
+                {(b) => {
+                  const g = () => annGeom(b);
+                  return (
+                    <button
+                      classList={{
+                        "tl-ann": true,
+                        [`tl-${b.kind}`]: true,
+                        selected: selected()?.kind === b.kind && selected()?.id === b.id,
+                      }}
+                      style={{
+                        left: `${pct(g().start)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 1)}%`,
+                      }}
+                      title={`${b.label} · drag to move, drag an edge to set how long it shows`}
+                      onPointerDown={onAnnDown(b)}
+                      onPointerMove={onAnnMove}
+                      onPointerUp={() => void onAnnUp()}
+                    >
+                      {b.label}
+                    </button>
+                  );
+                }}
               </For>
             </div>
             {/* Speed-up bands (idle stretches playing at N×) */}
@@ -1454,7 +1642,7 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
 function Handles(props: { pts: Vec2[] }): JSX.Element {
   return (
     <For each={props.pts}>
-      {(p) => <rect class="handle" x={p.x - 5} y={p.y - 5} width={10} height={10} />}
+      {(p) => <circle class="handle" cx={p.x} cy={p.y} r={6} />}
     </For>
   );
 }

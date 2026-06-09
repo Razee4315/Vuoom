@@ -74,7 +74,7 @@
   --note-text: #6ea8ff;
   --radius: 9px;
   --radius-lg: 14px;
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--text);
 }
 
@@ -82,12 +82,15 @@
   box-sizing: border-box;
 }
 
+/* Desktop app, not a website: no page scroll, no rubber-band overscroll. */
 html,
 body,
 #root {
   margin: 0;
   height: 100%;
   background: var(--bg);
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 button {
@@ -270,8 +273,20 @@ kbd {
   gap: 8px;
   flex: none;
 }
-.project-name {
+.toolbar-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 4px;
+}
+.project-title {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.project-name {
+  width: min(100%, 340px);
   min-width: 0;
   margin: 0;
   padding: 8px 14px;
@@ -280,7 +295,7 @@ kbd {
   background: transparent;
   color: var(--text);
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 550;
   text-align: center;
   transition: background 0.1s ease;
 }
@@ -340,6 +355,15 @@ kbd {
 }
 .btn.record.cta:hover {
   filter: brightness(1.08);
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
 }
 .btn.export {
   background: var(--accent);
@@ -476,10 +500,24 @@ kbd {
 
 /* ---- Properties ---- */
 .properties {
+  position: relative;
   background: var(--panel);
   border-left: 1px solid var(--line);
   padding: 16px;
   overflow-y: auto;
+}
+.panel-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.panel-resizer:hover {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .properties h2 {
   font-size: 13px;
@@ -544,6 +582,7 @@ kbd {
   stroke: var(--accent-text);
   stroke-width: 1.5;
   cursor: pointer;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 .sel-outline {
   fill: none;
@@ -805,7 +844,7 @@ kbd {
   position: absolute;
   top: 5px;
   bottom: 5px;
-  padding: 0 6px;
+  padding: 0 8px;
   border-radius: 6px;
   border: 1px solid transparent;
   font-size: 10px;
@@ -815,8 +854,27 @@ kbd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   z-index: 1;
+}
+.tl-ann:active {
+  cursor: grabbing;
+}
+.tl-ann::before,
+.tl-ann::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.tl-ann::before {
+  left: 0;
+}
+.tl-ann::after {
+  right: 0;
 }
 .tl-text {
   background: color-mix(in srgb, var(--note-text) 26%, transparent);

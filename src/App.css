@@ -126,6 +126,13 @@ button {
   height: 100%;
 }
 
+/* window controls group — lay the three buttons out horizontally, full titlebar height */
+.winctl {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+
 /* window + theme buttons */
 .winbtn {
   width: 44px;

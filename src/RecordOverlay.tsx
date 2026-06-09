@@ -35,6 +35,8 @@ const fmt = (t: number) => {
  */
 export default function RecordOverlay(props: {
   backdrop: string | null;
+  border: boolean;
+  onBorderChange: (v: boolean) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
 }) {
@@ -92,7 +94,7 @@ export default function RecordOverlay(props: {
 
   const beginRecording = async () => {
     try {
-      await invoke("start_recording");
+      await invoke("start_recording", { border: props.border });
       setPhase("recording");
       startMs = Date.now();
       elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
@@ -226,6 +228,17 @@ export default function RecordOverlay(props: {
             </For>
           </div>
           <div class="sel-actions">
+            <label
+              class="sel-toggle"
+              title="The highlight Windows draws around the recorded area. Turn off for a clean recording."
+            >
+              <input
+                type="checkbox"
+                checked={props.border}
+                onChange={(e) => props.onBorderChange(e.currentTarget.checked)}
+              />
+              <span>Recording border</span>
+            </label>
             <span class="sel-dims">{dims()}</span>
             <button class="sel-btn ghost" onClick={cancel}>
               Cancel

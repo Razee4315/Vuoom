@@ -133,6 +133,7 @@ function App() {
   const [showExport, setShowExport] = createSignal(false);
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
+  const [captureBorder, setCaptureBorder] = createSignal(true);
 
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
@@ -940,6 +941,8 @@ function App() {
       <Show when={recordPhase() === "active"}>
         <RecordOverlay
           backdrop={backdrop()}
+          border={captureBorder()}
+          onBorderChange={setCaptureBorder}
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
         />

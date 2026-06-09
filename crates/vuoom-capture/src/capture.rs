@@ -137,12 +137,20 @@ pub fn run_primary_display(
     tx: Sender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
+    show_border: bool,
 ) -> Result<(), CaptureError> {
     let monitor = Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))?;
+    // The OS-drawn "this is being captured" highlight around the recorded area. Some users
+    // want it off in the final video; honor their choice.
+    let border = if show_border {
+        DrawBorderSettings::WithBorder
+    } else {
+        DrawBorderSettings::WithoutBorder
+    };
     let settings = Settings::new(
         monitor,
         CursorCaptureSettings::Default,
-        DrawBorderSettings::Default,
+        border,
         SecondaryWindowSettings::Default,
         MinimumUpdateIntervalSettings::Default,
         DirtyRegionSettings::Default,
@@ -155,16 +163,20 @@ pub fn run_primary_display(
 
 /// Spawn primary-display capture on a background thread; returns the frame receiver and a
 /// [`CaptureHandle`] to stop it. When `crop` is set, frames are cropped to that
-/// sub-rectangle (physical px) before being sent.
+/// sub-rectangle (physical px) before being sent. `show_border` toggles the OS capture
+/// highlight around the recorded area.
 #[must_use]
-pub fn spawn_region(crop: Option<CropRegion>) -> (Receiver<CapturedFrame>, CaptureHandle) {
+pub fn spawn_region(
+    crop: Option<CropRegion>,
+    show_border: bool,
+) -> (Receiver<CapturedFrame>, CaptureHandle) {
     let (tx, rx) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let handle = CaptureHandle {
         stop: Arc::clone(&stop),
     };
     std::thread::spawn(move || {
-        if let Err(e) = run_primary_display(tx, stop, crop) {
+        if let Err(e) = run_primary_display(tx, stop, crop, show_border) {
             tracing::error!("screen capture stopped: {e}");
         }
     });
@@ -174,7 +186,7 @@ pub fn spawn_region(crop: Option<CropRegion>) -> (Receiver<CapturedFrame>, Captu
 /// Spawn full primary-display capture (no crop). Convenience wrapper over [`spawn_region`].
 #[must_use]
 pub fn spawn_primary_display() -> (Receiver<CapturedFrame>, CaptureHandle) {
-    spawn_region(None)
+    spawn_region(None, true)
 }
 
 #[cfg(test)]

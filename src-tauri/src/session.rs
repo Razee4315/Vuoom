@@ -109,7 +109,7 @@ impl Session {
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
     /// the still backdrop the region selector draws on (no transparent window needed).
     pub fn screenshot(&self) -> Result<String, String> {
-        let (rx, handle) = spawn_region(None);
+        let (rx, handle) = spawn_region(None, false);
         let frame = rx
             .recv_timeout(std::time::Duration::from_secs(3))
             .map_err(|e| format!("screenshot capture failed: {e}"))?;
@@ -126,14 +126,15 @@ impl Session {
         self.preview.port()
     }
 
-    /// Begin capturing the primary display + global input.
-    pub fn start_recording(&self) -> Result<(), String> {
+    /// Begin capturing the primary display + global input. `show_border` toggles the OS
+    /// capture highlight drawn around the recorded area.
+    pub fn start_recording(&self, show_border: bool) -> Result<(), String> {
         let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
         if active.is_some() {
             return Err("already recording".into());
         }
         let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
-        let (frames_rx, capture) = spawn_region(region);
+        let (frames_rx, capture) = spawn_region(region, show_border);
         let (recorder, events_rx) = InputRecorder::start();
         *active = Some(Active {
             frames_rx,

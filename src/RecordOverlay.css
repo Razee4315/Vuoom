@@ -105,6 +105,21 @@
   align-items: center;
   gap: 10px;
 }
+.sel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sel-toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: #fff;
+  cursor: pointer;
+}
 .sel-dims {
   flex: 1;
   font-size: 12px;

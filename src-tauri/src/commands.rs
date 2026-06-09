@@ -197,10 +197,14 @@ pub fn preview_port(session: tauri::State<'_, Session>) -> u16 {
     session.preview_port()
 }
 
-/// Begin capturing the primary display + global input.
+/// Begin capturing the primary display + global input. `border` (default true) toggles the
+/// OS capture highlight drawn around the recorded area.
 #[tauri::command]
-pub fn start_recording(session: tauri::State<'_, Session>) -> Result<(), String> {
-    session.start_recording()
+pub fn start_recording(
+    session: tauri::State<'_, Session>,
+    border: Option<bool>,
+) -> Result<(), String> {
+    session.start_recording(border.unwrap_or(true))
 }
 
 /// Stop capturing and build the editable project; returns a summary for the UI.

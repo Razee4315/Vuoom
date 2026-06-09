@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0e0e0f" />
     <title>Vuoom</title>
-    <!-- Anti-flash: paint the dark default background before the app CSS loads. -->
+    <!-- Anti-flash: paint the dark default background + a loader before the app CSS/JS load,
+         so the launch window shows a branded splash instead of a black flash. -->
     <style>
       html,
       body,
@@ -14,11 +15,54 @@
         height: 100%;
         background: #0e0e0f;
       }
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        background: #0e0e0f;
+        transition: opacity 0.25s ease;
+      }
+      #splash.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #splash img {
+        width: 92px;
+        height: 92px;
+        animation: splash-breathe 1.8s ease-in-out infinite;
+      }
+      #splash .ring {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 2.5px solid rgba(255, 255, 255, 0.15);
+        border-top-color: rgba(255, 255, 255, 0.85);
+        animation: splash-spin 0.8s linear infinite;
+      }
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes splash-breathe {
+        50% {
+          opacity: 0.6;
+        }
+      }
     </style>
   </head>
 
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="splash">
+      <img src="/splash.png" alt="Vuoom" />
+      <div class="ring"></div>
+    </div>
     <div id="root"></div>
 
     <script src="/src/index.tsx" type="module"></script>

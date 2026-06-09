@@ -623,8 +623,11 @@ function App() {
           value={projectName()}
           spellcheck={false}
           aria-label="Project name"
-          onInput={(e) => setProjectName(e.currentTarget.value || "Untitled")}
+          onInput={(e) => setProjectName(e.currentTarget.value)}
           onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => {
+            if (!e.currentTarget.value.trim()) setProjectName("Untitled");
+          }}
         />
         <button class="btn" disabled={!hasClip()} title="Save project (video + edits)" onClick={() => void onSaveProject()}>
           Save

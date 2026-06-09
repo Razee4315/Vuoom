@@ -30,19 +30,16 @@ pub fn start_record_flow(app: AppHandle) -> Result<(), String> {
         let _ = exclude_from_capture(&main);
         let _ = main.minimize();
     }
-    let selector = WebviewWindowBuilder::new(
-        &app,
-        "selector",
-        WebviewUrl::App("index.html#selector".into()),
-    )
-    .title("Select area")
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .fullscreen(true)
-    .build()
-    .map_err(|e| e.to_string())?;
+    let selector =
+        WebviewWindowBuilder::new(&app, "selector", WebviewUrl::App("index.html".into()))
+            .title("Select area")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .fullscreen(true)
+            .build()
+            .map_err(|e| e.to_string())?;
     let _ = exclude_from_capture(&selector);
     Ok(())
 }
@@ -54,20 +51,17 @@ pub fn begin_countdown(app: AppHandle) -> Result<(), String> {
     if let Some(sel) = app.get_webview_window("selector") {
         let _ = sel.close();
     }
-    let recorder = WebviewWindowBuilder::new(
-        &app,
-        "recorder",
-        WebviewUrl::App("index.html#recorder".into()),
-    )
-    .title("Recording")
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .inner_size(360.0, 96.0)
-    .build()
-    .map_err(|e| e.to_string())?;
+    let recorder =
+        WebviewWindowBuilder::new(&app, "recorder", WebviewUrl::App("index.html".into()))
+            .title("Recording")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .inner_size(360.0, 96.0)
+            .build()
+            .map_err(|e| e.to_string())?;
     let _ = exclude_from_capture(&recorder);
     Ok(())
 }

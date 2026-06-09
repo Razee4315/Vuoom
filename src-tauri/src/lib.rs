@@ -53,6 +53,7 @@ pub fn run() {
             commands::set_region,
             commands::screenshot,
             commands::set_zoom_amount,
+            commands::border_supported,
             commands::save_project_bundle,
             commands::open_project_bundle,
         ])

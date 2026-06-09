@@ -136,6 +136,13 @@ pub fn set_zoom_amount(session: tauri::State<'_, Session>, amount: f64) -> Resul
     session.set_zoom_amount(amount)
 }
 
+/// Whether the capture border can be toggled (Windows 11+). The editor hides the toggle
+/// when this is false (Windows 10 forces the border on).
+#[tauri::command]
+pub fn border_supported() -> bool {
+    vuoom_capture::border_toggle_supported()
+}
+
 /// The default auto-zoom tuning (Screen-Studio-quality starting point).
 #[tauri::command]
 pub fn default_zoom_config() -> ZoomConfig {

@@ -35,6 +35,13 @@ pub struct CropRegion {
     pub h: u32,
 }
 
+/// Whether the OS supports toggling the capture border (Windows 11+). On Windows 10 the
+/// border is always drawn and cannot be turned off, so the editor hides the toggle there.
+#[must_use]
+pub fn border_toggle_supported() -> bool {
+    GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false)
+}
+
 /// Clamp a requested crop inside the frame, guaranteeing a non-empty rect.
 fn clamp_region(r: CropRegion, w: u32, h: u32) -> (u32, u32, u32, u32) {
     let cx = r.x.min(w.saturating_sub(1));

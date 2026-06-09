@@ -30,10 +30,11 @@ impl Cluster {
 /// clicks/drags) yields no zooms — the clip stays at 1.0.
 #[must_use]
 pub fn plan_zooms(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec<ZoomKeyframe> {
-    // 1. Gather the deliberate "points of interest" (clicks, drag starts).
+    // 1. Gather the deliberate "points of interest". A manual zoom mark (hotkey) always
+    //    seeds a zoom; clicks/drag-starts only do so when click-to-zoom is enabled.
     let mut triggers: Vec<(f64, DVec2)> = events
         .iter()
-        .filter(|e| e.is_zoom_trigger())
+        .filter(|e| e.is_zoom_mark() || (cfg.auto_zoom_on_click && e.is_click_trigger()))
         .filter_map(|e| e.pos().map(|p| (e.t(), p)))
         .collect();
     triggers.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -119,6 +120,15 @@ mod tests {
     use super::*;
     use crate::event::MouseButton;
 
+    /// Click-to-zoom is off by default now (manual hotkey is the default trigger);
+    /// these click-pathway tests opt it back on.
+    fn click_cfg() -> ZoomConfig {
+        ZoomConfig {
+            auto_zoom_on_click: true,
+            ..ZoomConfig::default()
+        }
+    }
+
     fn click(t: f64, x: f64, y: f64) -> InputEvent {
         InputEvent::Click {
             t,
@@ -129,7 +139,7 @@ mod tests {
 
     #[test]
     fn no_triggers_no_zooms() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         let events = [
             InputEvent::Move {
                 t: 0.1,
@@ -145,7 +155,7 @@ mod tests {
 
     #[test]
     fn rapid_colocated_clicks_debounce_to_one_segment() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         // Three quick clicks at the same spot.
         let events = [
             click(1.0, 0.3, 0.3),
@@ -158,7 +168,7 @@ mod tests {
 
     #[test]
     fn distant_clicks_in_time_make_separate_segments() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         // Two clicks far apart in time and space -> two zooms.
         let events = [click(1.0, 0.2, 0.2), click(8.0, 0.8, 0.8)];
         let zooms = plan_zooms(&events, 12.0, &cfg);
@@ -168,7 +178,7 @@ mod tests {
 
     #[test]
     fn close_in_time_segments_merge_for_frequency_limit() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         // Two clusters whose holds would overlap within min_rezoom_interval -> merged.
         let events = [click(1.0, 0.2, 0.2), click(2.2, 0.8, 0.8)];
         let zooms = plan_zooms(&events, 12.0, &cfg);
@@ -181,7 +191,7 @@ mod tests {
 
     #[test]
     fn segments_respect_min_rezoom_spacing() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         let events = [click(1.0, 0.2, 0.2), click(8.0, 0.8, 0.8)];
         let zooms = plan_zooms(&events, 12.0, &cfg);
         for w in zooms.windows(2) {
@@ -191,10 +201,30 @@ mod tests {
 
     #[test]
     fn pre_roll_never_goes_negative() {
-        let cfg = ZoomConfig::default();
+        let cfg = click_cfg();
         let events = [click(0.05, 0.5, 0.5)];
         let zooms = plan_zooms(&events, 5.0, &cfg);
         assert_eq!(zooms.len(), 1);
         assert!(zooms[0].start >= 0.0);
+    }
+
+    #[test]
+    fn clicks_do_not_zoom_in_manual_mode() {
+        // Default config = manual: clicks alone seed nothing.
+        let cfg = ZoomConfig::default();
+        assert!(!cfg.auto_zoom_on_click);
+        let events = [click(1.0, 0.3, 0.3), click(5.0, 0.7, 0.7)];
+        assert!(plan_zooms(&events, 8.0, &cfg).is_empty());
+    }
+
+    #[test]
+    fn zoom_mark_seeds_a_zoom_even_in_manual_mode() {
+        let cfg = ZoomConfig::default();
+        let events = [InputEvent::ZoomMark {
+            t: 2.0,
+            pos: DVec2::new(0.4, 0.6),
+        }];
+        let zooms = plan_zooms(&events, 8.0, &cfg);
+        assert_eq!(zooms.len(), 1, "manual zoom mark must seed a zoom");
     }
 }

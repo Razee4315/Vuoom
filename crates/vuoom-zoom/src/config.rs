@@ -33,6 +33,9 @@ pub struct ZoomConfig {
     pub edge_snap_ratio: f64,
     /// Minimum seconds between the end of one zoom and the start of the next.
     pub min_rezoom_interval: f64,
+    /// When `true`, every mouse click seeds a zoom (the original behaviour). When `false`,
+    /// only the manual zoom hotkey ([`crate::InputEvent::ZoomMark`]) seeds a zoom.
+    pub auto_zoom_on_click: bool,
 }
 
 impl Default for ZoomConfig {
@@ -49,6 +52,7 @@ impl Default for ZoomConfig {
             dead_zone: 0.10,
             edge_snap_ratio: 0.25,
             min_rezoom_interval: 1.0,
+            auto_zoom_on_click: false,
         }
     }
 }

@@ -15,7 +15,7 @@ use glam::DVec2;
 use serde::Serialize;
 use vuoom_capture::{spawn_primary_display, CaptureHandle, CapturedFrame};
 use vuoom_encode::{export_gif as encode_gif, plan_frames, GifSettings, RgbaImage};
-use vuoom_input::{normalize, CaptureRegion, Clock, InputRecorder, RawEvent};
+use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     ArrowAnnotation, Background, Color, FrameStyle, HighlightBox, Project, Rect, SourceInfo,
@@ -120,10 +120,13 @@ impl Session {
             h: height as i32,
         };
         let freq = self.clock.freq();
-        let events: Vec<InputEvent> = raw_events
+        let mut events: Vec<InputEvent> = raw_events
             .iter()
             .filter_map(|e| normalize(e, &region, session.start_qpc, freq))
             .collect();
+        // Manual zoom: each Ctrl+Shift+Z press becomes a deliberate zoom at the cursor.
+        events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
+        events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let cfg = ZoomConfig::default();
         let zooms = plan_zooms(&events, duration, &cfg);

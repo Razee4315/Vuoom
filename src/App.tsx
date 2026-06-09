@@ -129,7 +129,7 @@ function App() {
       if (!recording()) {
         await invoke("start_recording");
         setRecording(true);
-        setStatus("Recording… click Stop when done");
+        setStatus("Recording… press Ctrl+Shift+Z to zoom where it matters · Stop when done");
       } else {
         const summary = await invoke<RecordingSummary>("stop_recording");
         setRecording(false);

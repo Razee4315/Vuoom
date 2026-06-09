@@ -35,6 +35,9 @@ pub enum InputEvent {
     DragEnd { t: f64, pos: DVec2 },
     /// A key was typed (no position; used to sustain a zoom while typing).
     KeyType { t: f64 },
+    /// The user deliberately requested a zoom at `pos` (e.g. the manual zoom hotkey).
+    /// Always a zoom trigger, regardless of the click-to-zoom setting.
+    ZoomMark { t: f64, pos: DVec2 },
 }
 
 impl InputEvent {
@@ -47,6 +50,7 @@ impl InputEvent {
             | InputEvent::Scroll { t, .. }
             | InputEvent::DragStart { t, .. }
             | InputEvent::DragEnd { t, .. }
+            | InputEvent::ZoomMark { t, .. }
             | InputEvent::KeyType { t } => t,
         }
     }
@@ -59,18 +63,32 @@ impl InputEvent {
             | InputEvent::Click { pos, .. }
             | InputEvent::Scroll { pos, .. }
             | InputEvent::DragStart { pos, .. }
+            | InputEvent::ZoomMark { pos, .. }
             | InputEvent::DragEnd { pos, .. } => Some(pos),
             InputEvent::KeyType { .. } => None,
         }
     }
 
     /// Whether this event should *seed* a new zoom (a deliberate point of interest).
+    ///
+    /// Clicks and drag-starts only count when click-to-zoom is enabled; a [`ZoomMark`]
+    /// (the manual hotkey) always counts. See [`crate::plan_zooms`].
+    ///
+    /// [`ZoomMark`]: InputEvent::ZoomMark
     #[must_use]
-    pub fn is_zoom_trigger(&self) -> bool {
+    pub fn is_click_trigger(&self) -> bool {
         matches!(
             self,
             InputEvent::Click { .. } | InputEvent::DragStart { .. }
         )
+    }
+
+    /// Whether this event is a deliberate manual zoom request ([`ZoomMark`]).
+    ///
+    /// [`ZoomMark`]: InputEvent::ZoomMark
+    #[must_use]
+    pub fn is_zoom_mark(&self) -> bool {
+        matches!(self, InputEvent::ZoomMark { .. })
     }
 
     /// Whether this event counts as ongoing activity that *sustains* a zoom hold.

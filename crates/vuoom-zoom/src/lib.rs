@@ -43,6 +43,15 @@ mod gate_tests {
     use super::*;
     use glam::DVec2;
 
+    /// These gate tests exercise the click→zoom pathway, so they opt click-to-zoom on
+    /// (the default trigger is now the manual hotkey).
+    fn cfg() -> ZoomConfig {
+        ZoomConfig {
+            auto_zoom_on_click: true,
+            ..ZoomConfig::default()
+        }
+    }
+
     fn click(t: f64, x: f64, y: f64) -> InputEvent {
         InputEvent::Click {
             t,
@@ -77,7 +86,7 @@ mod gate_tests {
     /// §5.1 #3 — no zoom ever shows empty space outside the captured content.
     #[test]
     fn never_reveals_offscreen_area() {
-        let cfg = ZoomConfig::default();
+        let cfg = cfg();
         let (_zooms, track) = plan_and_simulate(&sample_recording(), 8.0, 60.0, &cfg);
         for (i, s) in track.frames().iter().enumerate() {
             let half = 0.5 / s.zoom.max(1.0);
@@ -95,7 +104,7 @@ mod gate_tests {
     /// §5.1 #5 — tiny cursor movements / no clicks must not cause camera jumps.
     #[test]
     fn jitter_without_clicks_does_not_zoom() {
-        let cfg = ZoomConfig::default();
+        let cfg = cfg();
         let mut events = Vec::new();
         for i in 0..120 {
             let t = f64::from(i) / 60.0;
@@ -116,7 +125,7 @@ mod gate_tests {
     /// A click should actually produce a meaningful zoom-in that later releases.
     #[test]
     fn click_zooms_in_then_releases() {
-        let cfg = ZoomConfig::default();
+        let cfg = cfg();
         let events = [click(1.0, 0.5, 0.5)];
         let (_zooms, track) = plan_and_simulate(&events, 6.0, 60.0, &cfg);
 
@@ -131,7 +140,7 @@ mod gate_tests {
     /// The track is deterministic — identical inputs give identical output.
     #[test]
     fn simulation_is_deterministic() {
-        let cfg = ZoomConfig::default();
+        let cfg = cfg();
         let rec = sample_recording();
         let a = plan_and_simulate(&rec, 8.0, 60.0, &cfg).1;
         let b = plan_and_simulate(&rec, 8.0, 60.0, &cfg).1;

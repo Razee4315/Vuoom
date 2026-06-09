@@ -43,8 +43,7 @@ pub fn run() {
         .setup(|app| {
             // Boot the engine off the main thread: blocking here would stall the event
             // loop and the launch splash would never paint.
-            let cell: Arc<OnceLock<Result<session::Session, String>>> =
-                Arc::new(OnceLock::new());
+            let cell: Arc<OnceLock<Result<session::Session, String>>> = Arc::new(OnceLock::new());
             app.manage(Engine(Arc::clone(&cell)));
             app.manage(hotkey::RecordingHotkey::default());
             std::thread::spawn(move || {

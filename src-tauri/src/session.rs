@@ -14,7 +14,9 @@ use std::sync::Mutex;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
-use vuoom_encode::{export_gif_native, plan_frames, read_png, swizzle_rb, write_png, GifSettings, RgbaImage};
+use vuoom_encode::{
+    export_gif_native, plan_frames, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
+};
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
@@ -479,8 +481,8 @@ impl Session {
         let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
         let mut frames = Vec::with_capacity(index.len());
         for fi in &index {
-            let img =
-                read_png(&frames_dir.join(format!("{:05}.png", fi.n))).map_err(|e| e.to_string())?;
+            let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
+                .map_err(|e| e.to_string())?;
             frames.push(CapturedFrame {
                 width: fi.w,
                 height: fi.h,

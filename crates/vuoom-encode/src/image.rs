@@ -86,7 +86,11 @@ pub fn read_png(path: &Path) -> Result<RgbaImage, EncodeError> {
             }
             out
         }
-        other => return Err(EncodeError::Png(format!("unsupported PNG color type {other:?}"))),
+        other => {
+            return Err(EncodeError::Png(format!(
+                "unsupported PNG color type {other:?}"
+            )))
+        }
     };
     Ok(RgbaImage::new(info.width, info.height, pixels))
 }

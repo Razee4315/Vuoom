@@ -1,5 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { PreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
@@ -126,7 +127,10 @@ export default function RecordOverlay(props: {
     }
   };
 
+  let stopping = false; // the Stop button and the global hotkey can race — stop once
   const stop = async () => {
+    if (stopping) return;
+    stopping = true;
     stopTimer();
     try {
       const summary = await invoke<Summary>("finish_recording");
@@ -163,8 +167,14 @@ export default function RecordOverlay(props: {
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
+    // Global Ctrl+Shift+X (watched by the backend while recording) stops the recording
+    // even when this panel doesn't have focus.
+    const unlistenStop = listen("stop-hotkey", () => {
+      if (phase() === "recording") void stop();
+    });
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
+      void unlistenStop.then((un) => un());
       stopTimer();
       preview.disconnect();
     });
@@ -223,7 +233,9 @@ export default function RecordOverlay(props: {
                 }
               >
                 <span class="rec-time">{fmt(elapsed())}</span>
-                <span class="rec-hint">Ctrl+Shift+Z to zoom</span>
+                <span class="rec-hint">
+                  <kbd>Ctrl+Shift+Z</kbd> zoom · <kbd>Ctrl+Shift+X</kbd> stop
+                </span>
                 <button class="rec-stop" onClick={() => void stop()}>
                   Stop
                 </button>

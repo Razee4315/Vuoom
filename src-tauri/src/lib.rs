@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod hotkey;
 mod live_preview;
 mod session;
 mod windows_ext;
@@ -45,6 +46,7 @@ pub fn run() {
             let cell: Arc<OnceLock<Result<session::Session, String>>> =
                 Arc::new(OnceLock::new());
             app.manage(Engine(Arc::clone(&cell)));
+            app.manage(hotkey::RecordingHotkey::default());
             std::thread::spawn(move || {
                 let _ = cell.set(session::Session::new());
             });

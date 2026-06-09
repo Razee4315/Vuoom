@@ -5,6 +5,7 @@
 //! the frontend retries. Heavy commands (capture, composite, encode, disk I/O) are `async`
 //! so they run off the main thread and never freeze the UI.
 
+use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::session::{AnnotationSet, RecordingSummary};
 use crate::windows_ext::exclude_from_capture;
 use crate::Engine;
@@ -80,7 +81,9 @@ pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
 pub async fn finish_recording(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
+    hotkey: tauri::State<'_, RecordingHotkey>,
 ) -> Result<RecordingSummary, String> {
+    drop_hotkey(&hotkey);
     let result = engine.session()?.stop_recording();
     restore_editor(&app); // always, even if stop failed
     result
@@ -88,9 +91,20 @@ pub async fn finish_recording(
 
 /// Abort the flow (Cancel / Esc): restore the editor without producing a clip.
 #[tauri::command]
-pub fn cancel_record_flow(app: AppHandle) -> Result<(), String> {
+pub fn cancel_record_flow(
+    app: AppHandle,
+    hotkey: tauri::State<'_, RecordingHotkey>,
+) -> Result<(), String> {
+    drop_hotkey(&hotkey);
     restore_editor(&app);
     Ok(())
+}
+
+/// Stop the Ctrl+Shift+X watcher, if one is running.
+fn drop_hotkey(hotkey: &RecordingHotkey) {
+    if let Ok(mut slot) = hotkey.0.lock() {
+        *slot = None;
+    }
 }
 
 /// Set the capture region for the next recording (physical px); omit fields for full screen.
@@ -147,10 +161,19 @@ pub fn preview_port(engine: tauri::State<'_, Engine>) -> Result<u16, String> {
     Ok(engine.session()?.preview_port())
 }
 
-/// Begin capturing the primary display + global input.
+/// Begin capturing the primary display + global input, and arm the global
+/// Ctrl+Shift+X stop hotkey for the duration of the recording.
 #[tauri::command]
-pub async fn start_recording(engine: tauri::State<'_, Engine>) -> Result<(), String> {
-    engine.session()?.start_recording()
+pub async fn start_recording(
+    app: AppHandle,
+    engine: tauri::State<'_, Engine>,
+    hotkey: tauri::State<'_, RecordingHotkey>,
+) -> Result<(), String> {
+    engine.session()?.start_recording()?;
+    if let Ok(mut slot) = hotkey.0.lock() {
+        *slot = Some(StopHotkey::watch(app));
+    }
+    Ok(())
 }
 
 /// Composite the frame at time `t` (seconds) and push it to the preview.

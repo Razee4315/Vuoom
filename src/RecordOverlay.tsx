@@ -1,5 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { PreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -60,6 +61,10 @@ export default function RecordOverlay(props: {
   let elapsedTimer: number | undefined;
   let startMs = 0;
 
+  // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
+  const preview = new PreviewClient();
+  let canvasEl: HTMLCanvasElement | undefined;
+
   const stopTimer = () => {
     if (elapsedTimer) clearInterval(elapsedTimer);
     elapsedTimer = undefined;
@@ -108,6 +113,14 @@ export default function RecordOverlay(props: {
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording", { border: props.border });
       setPhase("recording");
+      // Hook the live preview stream to the panel canvas.
+      if (canvasEl) preview.attach(canvasEl);
+      try {
+        const port = await invoke<number>("preview_port");
+        preview.connect(port);
+      } catch {
+        /* preview is best-effort; recording proceeds regardless */
+      }
       startMs = Date.now();
       elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
     } catch {
@@ -155,6 +168,7 @@ export default function RecordOverlay(props: {
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
       stopTimer();
+      preview.disconnect();
     });
   });
 
@@ -174,29 +188,42 @@ export default function RecordOverlay(props: {
     <Show
       when={phase() === "select"}
       fallback={
-        <div class="rec-bar-root">
-          <Show
-            when={phase() === "recording"}
-            fallback={
-              <div class="rec-count">
-                <Show when={count() > 0} fallback={<span class="rec-go">Go!</span>}>
-                  <span class="rec-num">{count()}</span>
-                </Show>
-                <button class="rec-cancel" onClick={cancel}>
-                  Cancel
-                </button>
-              </div>
-            }
-          >
-            <div class="rec-bar">
-              <span class="rec-dot" />
-              <span class="rec-time">{fmt(elapsed())}</span>
-              <span class="rec-hint">Ctrl+Shift+Z to zoom</span>
-              <button class="rec-stop" onClick={() => void stop()}>
-                Stop
-              </button>
+        <div class="rec-panel-root">
+          <div class="rec-panel">
+            <div class="rec-screen">
+              <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
+              <Show when={phase() === "countdown"}>
+                <div class="rec-countdown">
+                  <Show when={count() > 0} fallback={<span class="rec-num">Go!</span>}>
+                    <span class="rec-num">{count()}</span>
+                  </Show>
+                  <span class="rec-sub">Get ready…</span>
+                </div>
+              </Show>
+              <Show when={phase() === "recording"}>
+                <span class="rec-live">
+                  <span class="rec-dot" /> LIVE
+                </span>
+                <span class="rec-previewtag">Zoom preview</span>
+              </Show>
             </div>
-          </Show>
+            <div class="rec-controls">
+              <Show
+                when={phase() === "recording"}
+                fallback={
+                  <button class="rec-cancel" onClick={cancel}>
+                    Cancel
+                  </button>
+                }
+              >
+                <span class="rec-time">{fmt(elapsed())}</span>
+                <span class="rec-hint">Ctrl+Shift+Z to zoom</span>
+                <button class="rec-stop" onClick={() => void stop()}>
+                  Stop
+                </button>
+              </Show>
+            </div>
+          </div>
         </div>
       }
     >

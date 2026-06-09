@@ -36,4 +36,8 @@ vuoom-preview.workspace = true
 # Win32 SetWindowDisplayAffinity (exclude overlays from screen capture). Match the
 # version vuoom-input/vuoom-capture resolve to avoid a second `windows` tree.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.60", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
+windows = { version = "0.60", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Foundation",
+] }

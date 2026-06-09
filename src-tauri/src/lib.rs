@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod live_preview;
 mod session;
 mod windows_ext;
 

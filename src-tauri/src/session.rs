@@ -11,6 +11,7 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 
+use crate::live_preview::LivePreview;
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,8 @@ struct Active {
     events_rx: Receiver<RawEvent>,
     start_qpc: i64,
     region: Option<CropRegion>,
+    /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
+    _preview: LivePreview,
 }
 
 #[derive(Default)]
@@ -143,8 +146,11 @@ impl Session {
             return Err("already recording".into());
         }
         let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
+        let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
         let (frames_rx, capture) = spawn_region(region, show_border);
         let (recorder, events_rx) = InputRecorder::start();
+        // Independent live preview — its own capture, so it can never disturb the recording.
+        let preview = LivePreview::start(region, amount, self.preview.sink());
         *active = Some(Active {
             frames_rx,
             capture,
@@ -152,6 +158,7 @@ impl Session {
             recorder,
             events_rx,
             start_qpc: self.clock.now(),
+            _preview: preview,
         });
         Ok(())
     }
@@ -162,6 +169,7 @@ impl Session {
         let Some(mut session) = active.take() else {
             return Err("not recording".into());
         };
+        session._preview.stop(); // tear down the live monitor before post-processing
         session.capture.stop();
         session.recorder.stop();
 

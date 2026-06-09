@@ -2,7 +2,7 @@
    above the editor and paints its own opaque surface, so the editor never shows through. */
 
 .sel-root,
-.rec-bar-root {
+.rec-panel-root {
   position: fixed;
   inset: 0;
   z-index: 9999;
@@ -180,27 +180,65 @@
   opacity: 0.9;
 }
 
-/* ── Countdown + Stop bar (small-window phase) ─────────────────────────────────── */
-.rec-bar-root {
+/* ── Recording panel: live zoom preview + Stop (panel-window phase) ─────────────── */
+.rec-panel-root {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+.rec-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 10px;
+}
+
+/* The live preview "screen". */
+.rec-screen {
+  position: relative;
+  flex: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   display: grid;
   place-items: center;
 }
-
-.rec-bar,
-.rec-count {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: rgba(20, 20, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+.rec-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
+.rec-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.rec-previewtag {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  opacity: 0.85;
+}
 .rec-dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: #e5484d;
   animation: rec-pulse 1.2s ease-in-out infinite;
@@ -211,17 +249,46 @@
   }
 }
 
+/* Countdown overlay sits over the (still dark) screen. */
+.rec-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.rec-num {
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rec-sub {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* Control row beneath the screen. */
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+}
 .rec-time {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   min-width: 40px;
 }
 .rec-hint {
+  flex: 1;
   font-size: 12px;
   opacity: 0.65;
 }
 .rec-stop {
-  padding: 6px 16px;
+  padding: 7px 18px;
   border: none;
   border-radius: 8px;
   background: #e5484d;
@@ -233,21 +300,9 @@
 .rec-stop:hover {
   opacity: 0.9;
 }
-
-.rec-num {
-  font-size: 38px;
-  font-weight: 700;
-  min-width: 30px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.rec-go {
-  font-size: 26px;
-  font-weight: 700;
-  padding: 0 8px;
-}
 .rec-cancel {
-  padding: 6px 14px;
+  margin-left: auto;
+  padding: 7px 16px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   background: transparent;

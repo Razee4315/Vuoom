@@ -57,24 +57,29 @@ pub fn enter_overlay(app: AppHandle, stash: tauri::State<'_, WindowStash>) -> Re
     Ok(())
 }
 
+/// Width/height (logical px) of the recording panel — a live zoom preview + Stop controls.
+const PANEL_W: f64 = 384.0;
+const PANEL_H: f64 = 300.0;
+
 /// Step 2 — a region (or full screen) was confirmed: drop out of fullscreen and shrink the
-/// window to a small always-on-top bar parked bottom-center, ready for the countdown + Stop.
+/// window to the always-on-top recording panel (live preview + Stop), parked bottom-right
+/// so it stays out of the way of what is being recorded.
 #[tauri::command]
 pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
     main.set_fullscreen(false).map_err(|e| e.to_string())?;
-    main.set_size(LogicalSize::new(360.0, 84.0))
+    main.set_size(LogicalSize::new(PANEL_W, PANEL_H))
         .map_err(|e| e.to_string())?;
     main.set_always_on_top(true).map_err(|e| e.to_string())?;
     if let Ok(Some(mon)) = main.current_monitor() {
         let scale = mon.scale_factor();
         let mp = mon.position();
         let ms = mon.size();
-        let bar_w = (360.0 * scale) as i32;
-        let bar_h = (84.0 * scale) as i32;
-        let margin = (28.0 * scale) as i32;
-        let x = mp.x + (ms.width as i32 - bar_w) / 2;
-        let y = mp.y + ms.height as i32 - bar_h - margin;
+        let panel_w = (PANEL_W * scale) as i32;
+        let panel_h = (PANEL_H * scale) as i32;
+        let margin = (24.0 * scale) as i32;
+        let x = mp.x + ms.width as i32 - panel_w - margin;
+        let y = mp.y + ms.height as i32 - panel_h - margin;
         let _ = main.set_position(PhysicalPosition::new(x, y));
     }
     Ok(())

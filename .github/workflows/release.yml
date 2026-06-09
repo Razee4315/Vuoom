@@ -3,18 +3,14 @@ name: Release
 # Auto-version + build Windows installers + publish a GitHub Release.
 # Adapted from the Tauri v2 CI/CD guide for Vuoom (pnpm + Cargo workspace).
 #
-# TRIGGER: manual only for now. Vuoom is pre-implementation, so we do NOT want a
-# release of the empty scaffold on every push. Once there's something worth shipping
-# (target: milestone M4 — first public release), uncomment the `push` trigger below to
-# get the auto-bump-on-every-push behaviour from the guide.
-#
-# BEFORE first real release: bundle the gifski sidecar binary (see docs/06-Export.md,
-# docs/10-Licensing.md) — GIF export depends on it.
+# TRIGGER: every push to main (auto-bump patch + build MSI/NSIS + publish), plus manual
+# dispatch. The check-and-bump job skips when there are no new commits since the last tag.
+# GIF export uses the built-in pure-Rust encoder, so no gifski sidecar is required.
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: write

@@ -17,17 +17,18 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{
-    encode_png_to_vec, export_gif_native, plan_frames, read_png, swizzle_rb, write_png,
+    encode_png_to_vec, estimate_total_bytes, export_gif_native, read_png, swizzle_rb, write_png,
     GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    ArrowAnnotation, Background, Color, FrameStyle, HighlightBox, Project, Rect, SourceInfo,
-    TextAnnotation, TimeRange, ZoomConfig, ZoomKeyframe,
+    output_duration, output_to_source, ArrowAnnotation, Background, Color, FrameStyle,
+    HighlightBox, Project, Rect, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim,
+    ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
-use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent};
+use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
 
 /// Summary returned to the UI when recording stops.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -44,6 +45,15 @@ pub struct AnnotationSet {
     pub texts: Vec<TextAnnotation>,
     pub arrows: Vec<ArrowAnnotation>,
     pub highlights: Vec<HighlightBox>,
+}
+
+/// Everything the editor timeline binds to: duration, trim, speed regions, zoom segments.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClipState {
+    pub duration: f64,
+    pub trim: Option<Trim>,
+    pub speed_regions: Vec<SpeedRegion>,
+    pub zooms: Vec<ZoomKeyframe>,
 }
 
 struct Active {
@@ -291,7 +301,9 @@ impl Session {
         Ok(())
     }
 
-    /// Composite every emitted frame and export an optimized GIF to `out_path`.
+    /// Composite the output-timeline frames (honoring trim + speed regions) and export an
+    /// optimized GIF to `out_path`. `progress(done, total)` is called as frames composite
+    /// and once more when encoding finishes.
     ///
     /// Uses the pure-Rust encoder so export works with no external tools installed.
     pub fn export_gif(
@@ -300,21 +312,98 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let images = self.composite_output_frames(&edited, fps, 1, &|done, total| {
+            // Reserve the last tick for the encode step.
+            progress(done, total + 1);
+        })?;
+        let total = images.len() as u32 + 1;
+
+        let settings = GifSettings {
+            fps,
+            width,
+            quality,
+            ..GifSettings::readme()
+        };
+        export_gif_native(&images, &settings, Path::new(&out_path)).map_err(|e| e.to_string())?;
+        progress(total, total);
+        Ok(())
+    }
+
+    /// Estimate the export size (bytes) by encoding a strided sample of the output frames
+    /// at the chosen settings and extrapolating (see `docs/06-Export.md` — GIF has no
+    /// closed-form size formula).
+    pub fn estimate_gif(&self, fps: u32, width: Option<u32>, quality: u8) -> Result<u64, String> {
+        /// Sampled frames are strided (not consecutive), so inter-frame deltas — and GIF
+        /// temporal compression — are slightly pessimistic; nudge rather than multiply.
+        const MOTION_FUDGE: f64 = 1.1;
+        const MAX_SAMPLES: usize = 8;
+
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let total = self.output_frame_count(&edited, fps)?;
+        let stride = (total / MAX_SAMPLES).max(1);
+        let samples = self.composite_output_frames(&edited, fps, stride, &|_, _| {})?;
+        if samples.is_empty() {
+            return Ok(0);
+        }
+
+        let settings = GifSettings {
+            fps,
+            width,
+            quality,
+            ..GifSettings::readme()
+        };
+        let tmp = std::env::temp_dir().join("vuoom-size-estimate.gif");
+        export_gif_native(&samples, &settings, &tmp).map_err(|e| e.to_string())?;
+        let bytes = std::fs::metadata(&tmp).map_err(|e| e.to_string())?.len();
+        let _ = std::fs::remove_file(&tmp);
+        Ok(estimate_total_bytes(
+            bytes,
+            samples.len(),
+            total,
+            MOTION_FUDGE,
+        ))
+    }
+
+    /// Number of frames the output timeline (after trim + speed) emits at `fps`.
+    fn output_frame_count(&self, edited: &Edited, fps: u32) -> Result<usize, String> {
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let (_, span, regions) = out_mapping(project);
+        let d_out = output_duration(span, &regions);
+        Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
+    }
+
+    /// Composite every `stride`-th output-timeline frame (honoring trim + speed regions).
+    fn composite_output_frames(
+        &self,
+        edited: &Edited,
+        fps: u32,
+        stride: usize,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
+        if edited.frames.is_empty() {
+            return Err("no frames".into());
+        }
 
         let (out_w, out_h) = project.output_dims();
         let bg = background_color(&project.frame);
-        let plan = plan_frames(edited.frames.len(), project.source.fps, f64::from(fps));
+        let (t0, span, regions) = out_mapping(project);
+        let d_out = output_duration(span, &regions);
+        let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
 
-        let mut images = Vec::with_capacity(plan.len());
-        for emitted in &plan {
-            let frame = &edited.frames[emitted.source_index];
-            let t = self.clock.seconds_between(edited.start_qpc, frame.qpc);
-            let scene = build_scene(project, track, out_w, out_h, t);
+        let count = total.div_ceil(stride.max(1));
+        let mut images = Vec::with_capacity(count);
+        for (done, i) in (0..total).step_by(stride.max(1)).enumerate() {
+            let t_out = (i as f64 / f64::from(fps)).min(d_out);
+            let t_src = t0 + output_to_source(t_out, span, &regions);
+            let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
+                .ok_or("no frames")?;
+            let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -325,15 +414,9 @@ impl Session {
                 bg,
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
+            progress(done as u32 + 1, count as u32);
         }
-
-        let settings = GifSettings {
-            fps,
-            width,
-            quality,
-            ..GifSettings::readme()
-        };
-        export_gif_native(&images, &settings, Path::new(&out_path)).map_err(|e| e.to_string())
+        Ok(images)
     }
 
     /// Add a text label at normalized `(x, y)`, visible for ~3s from time `t`. Returns its id.
@@ -387,11 +470,146 @@ impl Session {
         Ok(id)
     }
 
-    /// Snapshot the planned zoom segments for the editor timeline.
-    pub fn zooms(&self) -> Result<Vec<ZoomKeyframe>, String> {
+    /// Snapshot everything the editor timeline binds to.
+    pub fn clip_state(&self) -> Result<ClipState, String> {
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
-        Ok(project.zooms.clone())
+        Ok(ClipState {
+            duration: project.source.duration,
+            trim: project.trim,
+            speed_regions: project.speed_regions.clone(),
+            zooms: project.zooms.clone(),
+        })
+    }
+
+    /// Set the trim range (seconds). A range covering the whole clip clears the trim.
+    pub fn set_trim(&self, start: f64, end: f64) -> Result<(), String> {
+        self.with_project(|p| {
+            let d = p.source.duration;
+            let s = start.clamp(0.0, d);
+            let e = end.clamp(0.0, d);
+            if e - s < 0.2 {
+                return Err("trim range too short".into());
+            }
+            p.trim = if s <= 1e-6 && e >= d - 1e-6 {
+                None
+            } else {
+                Some(Trim { start: s, end: e })
+            };
+            Ok(())
+        })
+    }
+
+    /// Detect idle stretches (no clicks/keys/scrolls for `MIN_GAP` seconds) and mark them
+    /// to play at `factor`×. Replaces any existing speed regions; returns the new list.
+    pub fn auto_speed(&self, factor: f64) -> Result<Vec<SpeedRegion>, String> {
+        /// An idle gap must be at least this long (s) to be worth skimming.
+        const MIN_GAP: f64 = 2.5;
+        /// Keep normal speed for a beat after the last action / before the next one.
+        const LEAD: f64 = 0.6;
+        const TAIL: f64 = 0.4;
+
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let factor = factor.clamp(1.5, 16.0);
+
+        let mut marks: Vec<f64> = project
+            .events
+            .iter()
+            .filter(|e| e.is_activity())
+            .map(InputEvent::t)
+            .collect();
+        marks.sort_by(f64::total_cmp);
+
+        let mut regions = Vec::new();
+        let mut prev = 0.0_f64;
+        for m in marks.into_iter().chain(std::iter::once(d)) {
+            if m - prev >= MIN_GAP {
+                let start = (prev + LEAD).max(0.0);
+                let end = (m - TAIL).min(d);
+                if end - start > 0.5 {
+                    regions.push(SpeedRegion { start, end, factor });
+                }
+            }
+            prev = prev.max(m);
+        }
+        project.speed_regions = regions.clone();
+        Ok(regions)
+    }
+
+    /// Remove all speed regions (play everything at 1×).
+    pub fn clear_speed(&self) -> Result<(), String> {
+        self.with_project(|p| {
+            p.speed_regions.clear();
+            Ok(())
+        })
+    }
+
+    /// Insert a manual zoom segment at time `t` and re-simulate the camera.
+    /// Returns the updated segment list.
+    pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
+        const DEFAULT_LEN: f64 = 2.0;
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let start = t.clamp(0.0, (d - vuoom_zoom::MIN_LEN).max(0.0));
+        let end = (start + DEFAULT_LEN).clamp(
+            start + vuoom_zoom::MIN_LEN,
+            d.max(start + vuoom_zoom::MIN_LEN),
+        );
+        // If zoom was recorded "off" (amount 1.0), a manual segment still needs a real zoom.
+        let amount = if project.zoom_config.amount > 1.05 {
+            project.zoom_config.amount
+        } else {
+            1.8
+        };
+        let kf = ZoomKeyframe {
+            start,
+            end,
+            amount,
+            mode: ZoomMode::Auto,
+            edge_snap_ratio: project.zoom_config.edge_snap_ratio,
+        };
+        vuoom_zoom::insert_sorted(&mut project.zooms, kf);
+        let zooms = project.zooms.clone();
+        resimulate(&mut edited);
+        Ok(zooms)
+    }
+
+    /// Retime / re-level the zoom segment at `index` and re-simulate the camera.
+    /// Returns the updated segment list.
+    pub fn update_zoom(
+        &self,
+        index: usize,
+        start: f64,
+        end: f64,
+        amount: f64,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        if !vuoom_zoom::resize(&mut project.zooms, index, start, end, d) {
+            return Err("no such zoom segment".into());
+        }
+        if let Some(kf) = project.zooms.get_mut(index) {
+            kf.amount = amount.clamp(1.1, 4.0);
+        }
+        vuoom_zoom::sort_by_start(&mut project.zooms);
+        let zooms = project.zooms.clone();
+        resimulate(&mut edited);
+        Ok(zooms)
+    }
+
+    /// Delete the zoom segment at `index` and re-simulate the camera.
+    /// Returns the updated segment list.
+    pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        vuoom_zoom::remove(&mut project.zooms, index).ok_or("no such zoom segment")?;
+        let zooms = project.zooms.clone();
+        resimulate(&mut edited);
+        Ok(zooms)
     }
 
     /// Snapshot every annotation for the editor overlay.
@@ -597,6 +815,42 @@ fn nearest_frame(
         let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
         da.total_cmp(&db)
     })
+}
+
+/// Recompute the camera track from the project's persisted events + (edited) zoom
+/// segments, so preview and export reflect zoom edits immediately.
+fn resimulate(edited: &mut Edited) {
+    if let Some(p) = edited.project.as_ref() {
+        edited.track = Some(simulate(
+            &p.events,
+            &p.zooms,
+            p.source.duration,
+            p.source.fps.max(1.0),
+            &p.zoom_config,
+        ));
+    }
+}
+
+/// The output-timeline mapping inputs: the trim start `t0`, the trimmed span, and the
+/// speed regions clipped + shifted into trim-local coordinates. An output time maps to
+/// source time via `t0 + output_to_source(t_out, span, &regions)`.
+fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>) {
+    let (t0, t1) = project.active_range();
+    let span = (t1 - t0).max(1e-6);
+    let regions = project
+        .speed_regions
+        .iter()
+        .filter_map(|r| {
+            let s = r.start.max(t0);
+            let e = r.end.min(t1);
+            (e > s).then_some(SpeedRegion {
+                start: s - t0,
+                end: e - t0,
+                factor: r.factor,
+            })
+        })
+        .collect();
+    (t0, span, regions)
 }
 
 fn background_color(frame: &FrameStyle) -> [f32; 4] {

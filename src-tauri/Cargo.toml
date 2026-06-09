@@ -15,7 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde.workspace = true
@@ -33,11 +33,16 @@ vuoom-capture.workspace = true
 vuoom-render.workspace = true
 vuoom-preview.workspace = true
 
-# Win32 SetWindowDisplayAffinity (exclude overlays from screen capture). Match the
-# version vuoom-input/vuoom-capture resolve to avoid a second `windows` tree.
+# Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
+# CF_HDROP clipboard file copy, hotkey polling. Match the version vuoom-input /
+# vuoom-capture resolve to avoid a second `windows` tree.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.60", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
     "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
 ] }

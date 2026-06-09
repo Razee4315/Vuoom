@@ -6,12 +6,13 @@
 //! so they run off the main thread and never freeze the UI.
 
 use crate::hotkey::{RecordingHotkey, StopHotkey};
-use crate::session::{AnnotationSet, RecordingSummary};
-use crate::windows_ext::exclude_from_capture;
+use crate::session::{AnnotationSet, ClipState, RecordingSummary};
+use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
 use crate::Engine;
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
 use vuoom_capture::CropRegion;
-use vuoom_project::ZoomKeyframe;
+use vuoom_project::{SpeedRegion, ZoomKeyframe};
 
 // ── Recording flow ───────────────────────────────────────────────────────────────
 //
@@ -182,16 +183,100 @@ pub async fn seek(engine: tauri::State<'_, Engine>, t: f64) -> Result<(), String
     engine.session()?.seek(t)
 }
 
-/// Export the recording to an optimized GIF at `path`.
+/// Payload for the `export-progress` event the export panel listens to.
+#[derive(Clone, Copy, Serialize)]
+struct ExportProgress {
+    done: u32,
+    total: u32,
+}
+
+/// Export the recording to an optimized GIF at `path`, emitting `export-progress`
+/// events as frames composite and the encode completes.
 #[tauri::command]
 pub async fn export_gif(
+    app: AppHandle,
     engine: tauri::State<'_, Engine>,
     path: String,
     fps: u32,
     width: Option<u32>,
     quality: u8,
 ) -> Result<(), String> {
-    engine.session()?.export_gif(path, fps, width, quality)
+    engine
+        .session()?
+        .export_gif(path, fps, width, quality, &|done, total| {
+            let _ = app.emit("export-progress", ExportProgress { done, total });
+        })
+}
+
+/// Estimate the export size in bytes for the given settings (sample-and-extrapolate).
+#[tauri::command]
+pub async fn estimate_gif(
+    engine: tauri::State<'_, Engine>,
+    fps: u32,
+    width: Option<u32>,
+    quality: u8,
+) -> Result<u64, String> {
+    engine.session()?.estimate_gif(fps, width, quality)
+}
+
+/// Put the exported GIF on the clipboard as a file (CF_HDROP), so pasting into Slack /
+/// Discord / a GitHub comment uploads the animated file.
+#[tauri::command]
+pub fn copy_gif_to_clipboard(path: String) -> Result<(), String> {
+    copy_file_to_clipboard(&path)
+}
+
+// ── Timeline edits ─────────────────────────────────────────────────────────────
+
+/// Set the trim range in seconds (full range clears the trim).
+#[tauri::command]
+pub fn set_trim(engine: tauri::State<'_, Engine>, start: f64, end: f64) -> Result<(), String> {
+    engine.session()?.set_trim(start, end)
+}
+
+/// Detect idle stretches and mark them to play at `factor`×; returns the regions.
+#[tauri::command]
+pub fn auto_speed(
+    engine: tauri::State<'_, Engine>,
+    factor: f64,
+) -> Result<Vec<SpeedRegion>, String> {
+    engine.session()?.auto_speed(factor)
+}
+
+/// Remove all speed regions.
+#[tauri::command]
+pub fn clear_speed(engine: tauri::State<'_, Engine>) -> Result<(), String> {
+    engine.session()?.clear_speed()
+}
+
+/// Insert a manual zoom segment at time `t`; returns the updated segment list.
+#[tauri::command]
+pub async fn add_zoom(
+    engine: tauri::State<'_, Engine>,
+    t: f64,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.add_zoom(t)
+}
+
+/// Retime / re-level the zoom segment at `index`; returns the updated segment list.
+#[tauri::command]
+pub async fn update_zoom(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+    start: f64,
+    end: f64,
+    amount: f64,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.update_zoom(index, start, end, amount)
+}
+
+/// Delete the zoom segment at `index`; returns the updated segment list.
+#[tauri::command]
+pub async fn delete_zoom(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.delete_zoom(index)
 }
 
 /// Add a text label at normalized `(x, y)` from time `t`.
@@ -238,10 +323,10 @@ pub fn list_annotations(engine: tauri::State<'_, Engine>) -> Result<AnnotationSe
     engine.session()?.annotations()
 }
 
-/// Snapshot the planned zoom segments (for the editor timeline).
+/// Snapshot everything the editor timeline binds to (duration, trim, speed, zooms).
 #[tauri::command]
-pub fn list_zooms(engine: tauri::State<'_, Engine>) -> Result<Vec<ZoomKeyframe>, String> {
-    engine.session()?.zooms()
+pub fn clip_state(engine: tauri::State<'_, Engine>) -> Result<ClipState, String> {
+    engine.session()?.clip_state()
 }
 
 /// Move/edit a text label (omit a field to leave it unchanged).

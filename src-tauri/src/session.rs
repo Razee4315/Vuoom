@@ -13,7 +13,7 @@ use std::sync::Mutex;
 
 use glam::DVec2;
 use serde::Serialize;
-use vuoom_capture::{spawn_primary_display, CaptureHandle, CapturedFrame};
+use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{export_gif_native, plan_frames, GifSettings, RgbaImage};
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -47,6 +47,7 @@ struct Active {
     recorder: InputRecorder,
     events_rx: Receiver<RawEvent>,
     start_qpc: i64,
+    region: Option<CropRegion>,
 }
 
 #[derive(Default)]
@@ -64,6 +65,9 @@ pub struct Session {
     clock: Clock,
     active: Mutex<Option<Active>>,
     edited: Mutex<Edited>,
+    /// The capture region chosen by the selector for the next recording (physical px);
+    /// `None` = full primary display.
+    pending_region: Mutex<Option<CropRegion>>,
 }
 
 impl Session {
@@ -78,7 +82,14 @@ impl Session {
             clock: Clock::new(),
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
+            pending_region: Mutex::new(None),
         }
+    }
+
+    /// Set the capture region (physical px) for the next recording; `None` = full display.
+    pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
+        *self.pending_region.lock().map_err(|_| "lock poisoned")? = region;
+        Ok(())
     }
 
     /// The localhost port the webview connects to for the live preview.
@@ -93,11 +104,13 @@ impl Session {
         if active.is_some() {
             return Err("already recording".into());
         }
-        let (frames_rx, capture) = spawn_primary_display();
+        let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
+        let (frames_rx, capture) = spawn_region(region);
         let (recorder, events_rx) = InputRecorder::start();
         *active = Some(Active {
             frames_rx,
             capture,
+            region,
             recorder,
             events_rx,
             start_qpc: self.clock.now(),
@@ -122,11 +135,21 @@ impl Session {
             self.clock.seconds_between(session.start_qpc, f.qpc)
         });
 
-        let region = CaptureRegion {
-            x: 0,
-            y: 0,
-            w: width as i32,
-            h: height as i32,
+        // Map the cursor into the captured area. With a crop region the cursor's physical
+        // virtual-desktop coords must be offset by the region origin; full-screen uses 0,0.
+        let region = match session.region {
+            Some(r) => CaptureRegion {
+                x: r.x as i32,
+                y: r.y as i32,
+                w: r.w as i32,
+                h: r.h as i32,
+            },
+            None => CaptureRegion {
+                x: 0,
+                y: 0,
+                w: width as i32,
+                h: height as i32,
+            },
         };
         let freq = self.clock.freq();
         let mut events: Vec<InputEvent> = raw_events

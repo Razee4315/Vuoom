@@ -6,11 +6,16 @@
 
 mod commands;
 mod session;
+mod windows_ext;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Per-monitor DPI awareness must be set before any window exists, so the capture crop
+    // and cursor coordinates are in true physical pixels on scaled displays.
+    let _ = vuoom_input::set_per_monitor_aware_v2();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -39,6 +44,11 @@ pub fn run() {
             commands::update_box,
             commands::set_annotation_color,
             commands::delete_annotation,
+            commands::start_record_flow,
+            commands::begin_countdown,
+            commands::finish_recording,
+            commands::cancel_record_flow,
+            commands::set_region,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

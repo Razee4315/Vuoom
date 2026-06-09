@@ -5,8 +5,107 @@
 //! crates come online. See `docs/02-Architecture.md`.
 
 use crate::session::{AnnotationSet, RecordingSummary, Session};
+use crate::windows_ext::exclude_from_capture;
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use vuoom_capture::CropRegion;
 use vuoom_encode::{estimate_total_bytes, GifSettings};
 use vuoom_project::{Project, SourceInfo, ZoomConfig};
+
+// ── Recording flow: selector → countdown → stop bar, all hidden from the capture ──
+
+/// Restore the main editor window (always runs, even on an error path).
+fn restore_main(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+}
+
+/// Step 1 — the user clicked Record: hide the editor from the capture and open the
+/// full-screen region selector.
+#[tauri::command]
+pub fn start_record_flow(app: AppHandle) -> Result<(), String> {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = exclude_from_capture(&main);
+        let _ = main.minimize();
+    }
+    let selector =
+        WebviewWindowBuilder::new(&app, "selector", WebviewUrl::App("index.html#selector".into()))
+            .title("Select area")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .fullscreen(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+    let _ = exclude_from_capture(&selector);
+    Ok(())
+}
+
+/// Step 2 — the selector confirmed a region (or full screen): close it and open the
+/// recorder overlay, which runs the countdown and becomes the Stop bar.
+#[tauri::command]
+pub fn begin_countdown(app: AppHandle) -> Result<(), String> {
+    if let Some(sel) = app.get_webview_window("selector") {
+        let _ = sel.close();
+    }
+    let recorder =
+        WebviewWindowBuilder::new(&app, "recorder", WebviewUrl::App("index.html#recorder".into()))
+            .title("Recording")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .inner_size(360.0, 96.0)
+            .build()
+            .map_err(|e| e.to_string())?;
+    let _ = exclude_from_capture(&recorder);
+    Ok(())
+}
+
+/// Step 3 — the user stopped: finish capture, close the recorder, restore the editor, and
+/// hand the clip summary to the main window via an event.
+#[tauri::command]
+pub fn finish_recording(app: AppHandle, session: tauri::State<'_, Session>) -> Result<(), String> {
+    let result = session.stop_recording();
+    if let Some(rec) = app.get_webview_window("recorder") {
+        let _ = rec.close();
+    }
+    restore_main(&app); // always, even if stop failed
+    let summary = result?;
+    app.emit("recording-finished", summary).map_err(|e| e.to_string())
+}
+
+/// Abort the flow (Cancel / closed overlay): tear down overlays and restore the editor.
+#[tauri::command]
+pub fn cancel_record_flow(app: AppHandle) -> Result<(), String> {
+    for label in ["selector", "recorder"] {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.close();
+        }
+    }
+    restore_main(&app);
+    Ok(())
+}
+
+/// Set the capture region for the next recording (physical px); omit fields for full screen.
+#[tauri::command]
+pub fn set_region(
+    session: tauri::State<'_, Session>,
+    x: Option<u32>,
+    y: Option<u32>,
+    w: Option<u32>,
+    h: Option<u32>,
+) -> Result<(), String> {
+    let region = match (x, y, w, h) {
+        (Some(x), Some(y), Some(w), Some(h)) if w > 0 && h > 0 => Some(CropRegion { x, y, w, h }),
+        _ => None,
+    };
+    session.set_region(region)
+}
 
 /// The default auto-zoom tuning (Screen-Studio-quality starting point).
 #[tauri::command]

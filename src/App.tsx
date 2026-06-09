@@ -5,7 +5,13 @@ import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
 import { PreviewClient } from "./preview";
+import logoWhite from "./assets/logo-white.png";
+import logoBlack from "./assets/logo-black.png";
+import emptyState from "./assets/empty-state.png";
 import "./App.css";
+
+const LIGHT_THEMES = new Set(["mono-light", "paper"]);
+const isLight = (id: string) => LIGHT_THEMES.has(id);
 
 type Tool = "select" | "text" | "arrow" | "box" | "crop";
 type Vec2 = { x: number; y: number };
@@ -536,7 +542,7 @@ function App() {
   return (
     <div class="editor">
       <header class="titlebar" data-tauri-drag-region="">
-        <span class="brand">Vuoom</span>
+        <img class="brand-logo" src={isLight(theme()) ? logoBlack : logoWhite} alt="Vuoom" />
         <div class="titlebar-right">
           <ThemeMenu current={theme()} onSelect={setTheme} />
           <WindowControls />
@@ -583,8 +589,9 @@ function App() {
             />
             <Show when={!hasClip()}>
               <div class="canvas-placeholder">
-                <p class="big">Preview</p>
-                <small>Record a clip to begin — press Ctrl+Shift+Z while recording to zoom.</small>
+                <img class="empty-illustration" src={emptyState} alt="" />
+                <p class="big">Ready when you are</p>
+                <small>Press Record to frame your shot — auto-zoom follows the cursor. Ctrl+Shift+Z to zoom.</small>
               </div>
             </Show>
 

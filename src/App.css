@@ -114,10 +114,10 @@ button {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
-.titlebar .brand {
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.06em;
+.titlebar .brand-logo {
+  height: 15px;
+  margin-left: 2px;
+  display: block;
   pointer-events: none; /* let drags pass through to the titlebar */
 }
 .titlebar-right {
@@ -355,6 +355,14 @@ button {
   font-weight: 600;
   margin: 0 0 6px;
   color: var(--text);
+}
+.empty-illustration {
+  width: 200px;
+  max-width: 50%;
+  height: auto;
+  border-radius: 12px;
+  margin-bottom: 18px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
 }
 
 /* ---- Properties ---- */

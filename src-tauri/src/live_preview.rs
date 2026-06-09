@@ -86,10 +86,10 @@ fn run(region: Option<CropRegion>, amount: f64, sink: FrameSink, stop: &AtomicBo
         };
         let t = clock.seconds_between(start, clock.now());
 
-        // Rising edge of Ctrl+Shift+Z seeds a zoom (mirrors the real recorder's hotkey).
+        // Rising edge of Ctrl+Shift+Z toggles the zoom (mirrors the real recorder's hotkey).
         let chord = chord_down();
         if chord && !prev_chord {
-            camera.on_zoom_mark(t);
+            camera.toggle_zoom();
         }
         prev_chord = chord;
 
@@ -174,8 +174,8 @@ fn cursor_norm(region: Option<CropRegion>, fw: u32, fh: u32) -> DVec2 {
 }
 
 /// An online version of [`vuoom_zoom::simulate`]'s per-frame step: the same critically-damped
-/// springs, fed live. A Ctrl+Shift+Z seeds an active zoom that follows the cursor and
-/// releases after `hold` seconds of inactivity — matching what the final render produces.
+/// springs, fed live. Ctrl+Shift+Z is an explicit toggle — zoom in (and follow the cursor)
+/// on one press, zoom back out on the next — matching what the final render produces.
 struct LiveCamera {
     cfg: ZoomConfig,
     amount: f64,
@@ -186,9 +186,7 @@ struct LiveCamera {
     pan_target: DVec2,
     zoom: f64,
     zoom_v: f64,
-    last_cursor: DVec2,
     active: bool,
-    last_activity_t: f64,
     last_t: f64,
 }
 
@@ -204,27 +202,18 @@ impl LiveCamera {
             pan_target: DVec2::splat(0.5),
             zoom: 1.0,
             zoom_v: 0.0,
-            last_cursor: DVec2::splat(0.5),
             active: false,
-            last_activity_t: 0.0,
             last_t: 0.0,
         }
     }
 
-    fn on_zoom_mark(&mut self, t: f64) {
-        self.active = true;
-        self.last_activity_t = t;
+    fn toggle_zoom(&mut self) {
+        self.active = !self.active;
     }
 
     fn step(&mut self, t: f64, cursor: DVec2) -> CameraState {
         let dt = (t - self.last_t).clamp(1e-4, 0.1);
         self.last_t = t;
-
-        // Cursor movement counts as activity (keeps an active zoom alive).
-        if (cursor - self.last_cursor).abs().max_element() > 0.002 {
-            self.last_activity_t = t;
-        }
-        self.last_cursor = cursor;
 
         // Pre-smooth the raw cursor ("shaky -> glide").
         spring_update(
@@ -241,11 +230,6 @@ impl LiveCamera {
             self.cfg.hl_cursor,
             dt,
         );
-
-        // Release the zoom after enough inactivity.
-        if self.active && t - self.last_activity_t > self.cfg.hold {
-            self.active = false;
-        }
 
         let (target_zoom, focus) = if self.active {
             (

@@ -28,13 +28,62 @@ impl Cluster {
 ///
 /// Returns editable [`ZoomKeyframe`]s in start order. An empty log (or one with no
 /// clicks/drags) yields no zooms — the clip stays at 1.0.
+///
+/// The manual hotkey (Ctrl+Shift+Z) is an explicit **toggle**: the first press zooms in
+/// (and the camera follows the cursor), the next press zooms back out, and so on — so you
+/// control exactly when a product demo is zoomed. Click-to-zoom (opt-in) keeps the
+/// debounced auto-clustering instead.
 #[must_use]
 pub fn plan_zooms(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec<ZoomKeyframe> {
-    // 1. Gather the deliberate "points of interest". A manual zoom mark (hotkey) always
-    //    seeds a zoom; clicks/drag-starts only do so when click-to-zoom is enabled.
+    let mut segments = manual_toggle_segments(events, duration, cfg);
+    if cfg.auto_zoom_on_click {
+        segments.extend(click_segments(events, duration, cfg));
+    }
+    segments.sort_by(|a, b| a.start.total_cmp(&b.start));
+    segments
+}
+
+/// Pair up manual zoom marks into in→out segments: marks 0&1 are one zoom, 2&3 the next,
+/// etc. A final unpaired press holds the zoom to the end of the clip.
+fn manual_toggle_segments(
+    events: &[InputEvent],
+    duration: f64,
+    cfg: &ZoomConfig,
+) -> Vec<ZoomKeyframe> {
+    let mut marks: Vec<(f64, DVec2)> = events
+        .iter()
+        .filter(|e| e.is_zoom_mark())
+        .filter_map(|e| e.pos().map(|p| (e.t(), p)))
+        .collect();
+    marks.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < marks.len() {
+        let in_t = marks[i].0;
+        let out_t = marks.get(i + 1).map_or(duration, |m| m.0);
+        let start = (in_t - cfg.pre_roll).max(0.0);
+        let end = out_t.min(duration);
+        if end > start {
+            out.push(ZoomKeyframe {
+                start,
+                end,
+                amount: cfg.amount,
+                mode: ZoomMode::Auto,
+                edge_snap_ratio: cfg.edge_snap_ratio,
+            });
+        }
+        i += 2; // skip the matching zoom-out press
+    }
+    out
+}
+
+/// Click-driven auto-zoom: debounced, hold-extended, frequency-limited clustering.
+fn click_segments(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec<ZoomKeyframe> {
+    // 1. Gather the deliberate "points of interest" from clicks/drag-starts.
     let mut triggers: Vec<(f64, DVec2)> = events
         .iter()
-        .filter(|e| e.is_zoom_mark() || (cfg.auto_zoom_on_click && e.is_click_trigger()))
+        .filter(|e| e.is_click_trigger())
         .filter_map(|e| e.pos().map(|p| (e.t(), p)))
         .collect();
     triggers.sort_by(|a, b| a.0.total_cmp(&b.0));

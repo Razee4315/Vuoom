@@ -13,7 +13,7 @@ import "./App.css";
 const LIGHT_THEMES = new Set(["mono-light", "paper"]);
 const isLight = (id: string) => LIGHT_THEMES.has(id);
 
-type Tool = "select" | "text" | "arrow" | "box" | "crop";
+type Tool = "select" | "text" | "arrow" | "box";
 type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -78,7 +78,6 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "text", label: "Text", hint: "Click on the video to drop a text label." },
   { id: "arrow", label: "Arrow", hint: "Drag on the video to draw an arrow." },
   { id: "box", label: "Box", hint: "Drag on the video to draw a highlight box." },
-  { id: "crop", label: "Crop", hint: "Cropping is coming soon." },
 ];
 
 // ── small helpers ──────────────────────────────────────────────────────────────
@@ -379,7 +378,6 @@ function App() {
       setDrag({ mode: "create-box", start: p, cur: p });
       return;
     }
-    if (t === "crop") return;
 
     // select tool: handle → resize, body → move, empty → deselect
     const h = handleAt(p);
@@ -632,7 +630,7 @@ function App() {
             <Show when={hasClip()}>
               <svg
                 class="overlay"
-                classList={{ "tool-draw": tool() !== "select" && tool() !== "crop" }}
+                classList={{ "tool-draw": tool() !== "select" }}
                 onPointerDown={(e) => void onPointerDown(e)}
                 onPointerMove={onPointerMove}
                 onPointerUp={(e) => void onPointerUp(e)}
@@ -894,8 +892,6 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
       return <svg {...common}><path d="M5 19L19 5M11 5h8v8" /></svg>;
     case "box":
       return <svg {...common}><rect x="4" y="6" width="16" height="12" rx="1" /></svg>;
-    case "crop":
-      return <svg {...common}><path d="M6 2v16h16M2 6h16v16" /></svg>;
   }
 }
 

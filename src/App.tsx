@@ -1,6 +1,8 @@
-import { createSignal, onMount, onCleanup, For, Show, type JSX } from "solid-js";
+import { createSignal, createEffect, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
@@ -69,6 +71,42 @@ interface ZoomSeg {
   end: number;
   amount: number;
 }
+interface SpeedRegion {
+  start: number;
+  end: number;
+  factor: number;
+}
+interface Trim {
+  start: number;
+  end: number;
+}
+/** Mirrors src-tauri session::ClipState. */
+interface ClipState {
+  duration: number;
+  trim: Trim | null;
+  speed_regions: SpeedRegion[];
+  zooms: ZoomSeg[];
+}
+
+/** Played duration after trim + speed regions (mirrors vuoom_project::output_duration). */
+function outputDuration(duration: number, trim: Trim | null, regions: SpeedRegion[]): number {
+  const t0 = trim?.start ?? 0;
+  const t1 = trim?.end ?? duration;
+  let out = 0;
+  let cursor = t0;
+  const sorted = [...regions]
+    .filter((r) => r.end > r.start && r.factor > 0)
+    .sort((a, b) => a.start - b.start);
+  for (const r of sorted) {
+    const s = Math.max(r.start, t0);
+    const e = Math.min(r.end, t1);
+    if (e <= s || s < cursor) continue;
+    out += s - cursor + (e - s) / r.factor;
+    cursor = e;
+  }
+  if (cursor < t1) out += t1 - cursor;
+  return out;
+}
 
 type Kind = "text" | "arrow" | "box";
 interface Selection {
@@ -129,6 +167,9 @@ function App() {
 
   const [anns, setAnns] = createSignal<AnnotationSet>({ texts: [], arrows: [], highlights: [] });
   const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
+  const [trim, setTrimState] = createSignal<Trim | null>(null);
+  const [speed, setSpeed] = createSignal<SpeedRegion[]>([]);
+  const [selZoom, setSelZoom] = createSignal<number | null>(null);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -232,16 +273,32 @@ function App() {
       /* no recording */
     }
   };
+  /// Re-sync trim / speed / zooms from the backend's clip state.
+  const refreshClip = async () => {
+    try {
+      const cs = await invoke<ClipState>("clip_state");
+      setZooms(cs.zooms);
+      setTrimState(cs.trim);
+      setSpeed(cs.speed_regions);
+    } catch {
+      /* no recording */
+    }
+  };
 
-  // ── playback transport ─────────────────────────────────────────────────────────
+  // ── playback transport (honors trim bounds + speed regions) ─────────────────────
+  const tStart = () => trim()?.start ?? 0;
+  const tEnd = () => trim()?.end ?? duration();
+  const factorAt = (t: number) =>
+    speed().find((r) => t >= r.start && t < r.end)?.factor ?? 1;
+
   let raf = 0;
   let lastTs = 0;
   const tick = (ts: number) => {
     if (!playing()) return;
     if (lastTs) {
-      let t = playhead() + (ts - lastTs) / 1000;
-      if (t >= duration()) {
-        t = duration();
+      let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead());
+      if (t >= tEnd()) {
+        t = tEnd();
         setPlaying(false);
       }
       setPlayhead(t);
@@ -256,7 +313,7 @@ function App() {
       setPlaying(false);
       cancelAnimationFrame(raf);
     } else {
-      if (playhead() >= duration() - 1e-3) scrub(0);
+      if (playhead() >= tEnd() - 1e-3 || playhead() < tStart()) scrub(tStart());
       setPlaying(true);
       lastTs = 0;
       raf = requestAnimationFrame(tick);
@@ -265,17 +322,24 @@ function App() {
   const restart = () => {
     setPlaying(false);
     cancelAnimationFrame(raf);
-    scrub(0);
+    scrub(tStart());
   };
 
   const onKey = (e: KeyboardEvent) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea")) return;
-    if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
+    if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
+      e.preventDefault();
+      void startRecord();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selZoom() !== null) {
+      e.preventDefault();
+      void deleteSelectedZoom();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
       void deleteSelected();
-    } else if (e.key === "Escape" && selected()) {
+    } else if (e.key === "Escape" && (selected() || selZoom() !== null)) {
       setSelected(null);
+      setSelZoom(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
@@ -610,23 +674,173 @@ function App() {
     setHasClip(true);
     setDuration(summary.duration);
     setSelected(null);
+    setSelZoom(null);
     setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
     await refresh();
+    await refreshClip();
+    scrub(trim()?.start ?? 0);
+  };
+
+  // ── zoom segment editing ───────────────────────────────────────────────────────
+  const selectedZoom = () => {
+    const i = selZoom();
+    return i === null ? undefined : zooms()[i];
+  };
+  const addZoomAtPlayhead = async () => {
+    if (!hasClip()) return;
     try {
-      setZooms(await invoke<ZoomSeg[]>("list_zooms"));
-    } catch {
-      setZooms([]);
+      const list = await invoke<ZoomSeg[]>("add_zoom", { t: playhead() });
+      setZooms(list);
+      const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
+      setSelected(null);
+      setSelZoom(idx >= 0 ? idx : null);
+      await pushSeek(playhead());
+      setStatus("Zoom added — drag its edges on the timeline to retime");
+    } catch (e) {
+      setStatus(`Could not add zoom: ${String(e)}`);
     }
-    scrub(0);
+  };
+  const applyZoomEdit = async (index: number, start: number, end: number, amount: number) => {
+    try {
+      const list = await invoke<ZoomSeg[]>("update_zoom", { index, start, end, amount });
+      setZooms(list);
+      // Re-find the edited segment (the list re-sorts by start).
+      const idx = list.findIndex((z) => Math.abs(z.start - Math.min(start, end)) < 0.25);
+      if (idx >= 0) setSelZoom(idx);
+      await pushSeek(playhead());
+    } catch (e) {
+      setStatus(`Zoom edit failed: ${String(e)}`);
+    }
+  };
+  const deleteSelectedZoom = async () => {
+    const i = selZoom();
+    if (i === null) return;
+    try {
+      setZooms(await invoke<ZoomSeg[]>("delete_zoom", { index: i }));
+      setSelZoom(null);
+      await pushSeek(playhead());
+    } catch (e) {
+      setStatus(`Zoom delete failed: ${String(e)}`);
+    }
+  };
+
+  // ── speed-up dead time ─────────────────────────────────────────────────────────
+  const toggleSkim = async () => {
+    if (!hasClip()) return;
+    try {
+      if (speed().length > 0) {
+        await invoke("clear_speed");
+        setSpeed([]);
+        setStatus("Idle stretches back to normal speed");
+      } else {
+        const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: 3.0 });
+        setSpeed(regions);
+        setStatus(
+          regions.length > 0
+            ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at 3×`
+            : "No idle stretches longer than ~2.5s found",
+        );
+      }
+    } catch (e) {
+      setStatus(`Speed-up failed: ${String(e)}`);
+    }
   };
 
   // ── timeline (ruler + tracks + drag-to-scrub) ─────────────────────────────────────
   let tlEl: HTMLDivElement | undefined;
   let tlDrag = false;
+  const tlTime = (e: PointerEvent) => {
+    const r = tlEl!.getBoundingClientRect();
+    return clamp01((e.clientX - r.left) / r.width) * duration();
+  };
   const tlSeekFromEvent = (e: PointerEvent) => {
     if (!tlEl || !hasClip() || duration() <= 0) return;
-    const r = tlEl.getBoundingClientRect();
-    scrub(clamp01((e.clientX - r.left) / r.width) * duration());
+    scrub(tlTime(e));
+  };
+
+  // Trim handle dragging (local preview while dragging, committed on release).
+  let trimDrag: "start" | "end" | null = null;
+  const onTrimDown = (which: "start" | "end") => (e: PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    trimDrag = which;
+  };
+  const onTrimMove = (e: PointerEvent) => {
+    if (!trimDrag || !tlEl) return;
+    const t = tlTime(e);
+    const cur = trim() ?? { start: 0, end: duration() };
+    const next =
+      trimDrag === "start"
+        ? { start: Math.min(t, cur.end - 0.2), end: cur.end }
+        : { start: cur.start, end: Math.max(t, cur.start + 0.2) };
+    next.start = Math.max(0, next.start);
+    next.end = Math.min(duration(), next.end);
+    setTrimState(next);
+  };
+  const onTrimUp = async () => {
+    if (!trimDrag) return;
+    trimDrag = null;
+    const t = trim();
+    if (!t) return;
+    try {
+      await invoke("set_trim", { start: t.start, end: t.end });
+      await refreshClip(); // backend may normalize a full-range trim to null
+      if (playhead() < tStart() || playhead() > tEnd()) scrub(tStart());
+    } catch (e) {
+      setStatus(`Trim failed: ${String(e)}`);
+    }
+  };
+
+  // Zoom block dragging: grab the middle to move, the edges (8px) to resize.
+  const [zoomDrag, setZoomDrag] = createSignal<{
+    idx: number;
+    mode: "move" | "l" | "r";
+    grabT: number;
+    orig: ZoomSeg;
+    cur: { start: number; end: number };
+    moved: boolean;
+  } | null>(null);
+  const zoomGeom = (idx: number, z: ZoomSeg) => {
+    const d = zoomDrag();
+    return d && d.idx === idx ? d.cur : { start: z.start, end: z.end };
+  };
+  const onZoomDown = (idx: number, z: ZoomSeg) => (e: PointerEvent) => {
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const r = el.getBoundingClientRect();
+    const mode = e.clientX - r.left < 8 ? "l" : r.right - e.clientX < 8 ? "r" : "move";
+    setZoomDrag({ idx, mode, grabT: tlTime(e), orig: { ...z }, cur: { start: z.start, end: z.end }, moved: false });
+  };
+  const onZoomMove = (e: PointerEvent) => {
+    const d = zoomDrag();
+    if (!d) return;
+    const t = tlTime(e);
+    const dt = t - d.grabT;
+    let { start, end } = d.orig;
+    if (d.mode === "move") {
+      const len = end - start;
+      start = Math.min(Math.max(0, start + dt), duration() - len);
+      end = start + len;
+    } else if (d.mode === "l") {
+      start = Math.min(Math.max(0, start + dt), end - 0.2);
+    } else {
+      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
+    }
+    setZoomDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
+  };
+  const onZoomUp = async () => {
+    const d = zoomDrag();
+    if (!d) return;
+    setZoomDrag(null);
+    setSelected(null);
+    if (d.moved) {
+      await applyZoomEdit(d.idx, d.cur.start, d.cur.end, zooms()[d.idx]?.amount ?? 1.8);
+    } else {
+      // A plain click: select the block and jump to it.
+      setSelZoom(d.idx);
+      scrub(d.orig.start);
+    }
   };
   const pct = (t: number) => (duration() > 0 ? (t / duration()) * 100 : 0);
   const tickStep = () => {
@@ -730,7 +944,7 @@ function App() {
         </div>
       </div>
 
-      <div class="workspace" classList={{ "has-inspector": !!selected() }}>
+      <div class="workspace" classList={{ "has-inspector": !!selected() || selZoom() !== null }}>
         <nav class="toolrail">
           <For each={TOOLS}>
             {(t) => (
@@ -771,7 +985,8 @@ function App() {
                   <span class="dot" /> Start recording
                 </button>
                 <span class="placeholder-hint">
-                  <kbd>Ctrl+Shift+Z</kbd> zoom while recording · <kbd>Ctrl+Shift+X</kbd> stop
+                  <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom while recording ·{" "}
+                  <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
               </div>
             </Show>
@@ -988,6 +1203,39 @@ function App() {
             </button>
           </aside>
         </Show>
+
+        <Show when={selZoom() !== null && selectedZoom()}>
+          <aside class="properties">
+            <div class="inspector-head">
+              <h2>Zoom</h2>
+              <button class="icon-btn" title="Done" onClick={() => setSelZoom(null)}>
+                ✕
+              </button>
+            </div>
+
+            <label class="field">
+              <span>Strength · {selectedZoom()!.amount.toFixed(1)}×</span>
+              <input
+                type="range"
+                min="1.2"
+                max="4"
+                step="0.1"
+                value={selectedZoom()!.amount}
+                onChange={(e) => {
+                  const z = selectedZoom()!;
+                  void applyZoomEdit(selZoom()!, z.start, z.end, Number(e.currentTarget.value));
+                }}
+              />
+            </label>
+            <p class="muted small">
+              {fmt(selectedZoom()!.start)} – {fmt(selectedZoom()!.end)} · drag the block on the
+              timeline to retime, drag its edges to resize.
+            </p>
+            <button class="btn danger" onClick={() => void deleteSelectedZoom()}>
+              Delete zoom
+            </button>
+          </aside>
+        </Show>
       </div>
 
       <footer class="timeline">
@@ -1014,7 +1262,36 @@ function App() {
           </button>
           <span class="time">
             {fmt(playhead())} <span class="time-sep">/</span> {fmt(duration())}
+            <Show when={trim() || speed().length > 0}>
+              <span class="time-out" title="Final GIF duration after trim + speed-up">
+                → {outputDuration(duration(), trim(), speed()).toFixed(1)}s
+              </span>
+            </Show>
           </span>
+          <button
+            class="tbtn wide"
+            title="Add a zoom segment at the playhead"
+            disabled={!hasClip()}
+            onClick={() => void addZoomAtPlayhead()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="M15.5 15.5L21 21M10.5 7.5v6M7.5 10.5h6" />
+            </svg>
+            <span>Zoom</span>
+          </button>
+          <button
+            class="tbtn wide"
+            classList={{ on: speed().length > 0 }}
+            title="Play idle stretches at 3× (auto-detected from your activity)"
+            disabled={!hasClip()}
+            onClick={() => void toggleSkim()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 6.5v11a.8.8 0 0 0 1.25.66L12 13v4.5a.8.8 0 0 0 1.25.66l8.3-5.5a.8.8 0 0 0 0-1.32l-8.3-5.5A.8.8 0 0 0 12 6.5V11L4.25 5.84A.8.8 0 0 0 3 6.5z" />
+            </svg>
+            <span>Skim idle</span>
+          </button>
           <span class="statusline">{status()}</span>
         </div>
 
@@ -1050,15 +1327,24 @@ function App() {
             <div class="tl-track">
               <span class="tl-tracklabel">Zoom</span>
               <For each={zooms()}>
-                {(z) => (
-                  <div
-                    class="tl-seg"
-                    style={{ left: `${pct(z.start)}%`, width: `${Math.max(pct(z.end) - pct(z.start), 0.6)}%` }}
-                    title={`Auto-zoom ${z.amount.toFixed(1)}× · ${fmt(z.start)}–${fmt(z.end)}`}
-                  >
-                    {z.amount.toFixed(1)}×
-                  </div>
-                )}
+                {(z, i) => {
+                  const g = () => zoomGeom(i(), z);
+                  return (
+                    <div
+                      classList={{ "tl-seg": true, selected: selZoom() === i() }}
+                      style={{
+                        left: `${pct(g().start)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                      }}
+                      title={`Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`}
+                      onPointerDown={onZoomDown(i(), z)}
+                      onPointerMove={onZoomMove}
+                      onPointerUp={() => void onZoomUp()}
+                    >
+                      {z.amount.toFixed(1)}×
+                    </div>
+                  );
+                }}
               </For>
             </div>
             <div class="tl-track">
@@ -1075,6 +1361,7 @@ function App() {
                     title={`${b.label} · ${fmt(b.start)}–${fmt(b.end)}`}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
+                      setSelZoom(null);
                       setSelected({ kind: b.kind, id: b.id });
                       scrub(b.start);
                     }}
@@ -1084,6 +1371,39 @@ function App() {
                 )}
               </For>
             </div>
+            {/* Speed-up bands (idle stretches playing at N×) */}
+            <For each={speed()}>
+              {(r) => (
+                <div
+                  class="tl-speedband"
+                  style={{ left: `${pct(r.start)}%`, width: `${pct(r.end) - pct(r.start)}%` }}
+                  title={`Plays at ${r.factor.toFixed(0)}× (idle stretch)`}
+                >
+                  <span>{r.factor.toFixed(0)}×</span>
+                </div>
+              )}
+            </For>
+
+            {/* Trim: dimmed cut-off areas + draggable in/out handles */}
+            <div class="tl-shade" style={{ left: "0", width: `${pct(tStart())}%` }} />
+            <div class="tl-shade" style={{ left: `${pct(tEnd())}%`, right: "0" }} />
+            <div
+              class="tl-trim"
+              style={{ left: `${pct(tStart())}%` }}
+              title="Trim start — drag"
+              onPointerDown={onTrimDown("start")}
+              onPointerMove={onTrimMove}
+              onPointerUp={() => void onTrimUp()}
+            />
+            <div
+              class="tl-trim end"
+              style={{ left: `${pct(tEnd())}%` }}
+              title="Trim end — drag"
+              onPointerDown={onTrimDown("end")}
+              onPointerMove={onTrimMove}
+              onPointerUp={() => void onTrimUp()}
+            />
+
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
               <i />
             </div>
@@ -1092,7 +1412,14 @@ function App() {
       </footer>
 
       <Show when={showExport()}>
-        <ExportDialog name={projectName()} onClose={() => setShowExport(false)} onStatus={setStatus} />
+        <ExportDialog
+          name={projectName()}
+          duration={duration()}
+          trim={trim()}
+          speed={speed()}
+          onClose={() => setShowExport(false)}
+          onStatus={setStatus}
+        />
       </Show>
 
       <Show when={recordPhase() === "active"}>
@@ -1149,8 +1476,17 @@ function ArrowLine(props: { from: Vec2; to: Vec2; color: string }): JSX.Element 
   );
 }
 
+const fmtBytes = (b: number) => {
+  if (b <= 0) return "—";
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+};
+
 function ExportDialog(props: {
   name: string;
+  duration: number;
+  trim: Trim | null;
+  speed: SpeedRegion[];
   onClose: () => void;
   onStatus: (s: string) => void;
 }): JSX.Element {
@@ -1158,7 +1494,33 @@ function ExportDialog(props: {
   const [fps, setFps] = createSignal(15);
   const [width, setWidth] = createSignal(1000);
   const [quality, setQuality] = createSignal(80);
-  const [busy, setBusy] = createSignal(false);
+  const [phase, setPhase] = createSignal<"configure" | "exporting" | "done">("configure");
+  const [progress, setProgress] = createSignal(0);
+  const [estimate, setEstimate] = createSignal<number | null>(null);
+  const [outPath, setOutPath] = createSignal("");
+  const [copied, setCopied] = createSignal("");
+
+  const outDur = () => outputDuration(props.duration, props.trim, props.speed);
+
+  // Live size estimate (sample-and-extrapolate), debounced as sliders move.
+  let estimateTimer: number | undefined;
+  let estimateGen = 0;
+  createEffect(() => {
+    const args = { fps: fps(), width: width(), quality: quality() };
+    setEstimate(null);
+    clearTimeout(estimateTimer);
+    const gen = ++estimateGen;
+    estimateTimer = window.setTimeout(() => {
+      invoke<number>("estimate_gif", args)
+        .then((b) => {
+          if (gen === estimateGen) setEstimate(b);
+        })
+        .catch(() => {
+          if (gen === estimateGen) setEstimate(0);
+        });
+    }, 350);
+  });
+  onCleanup(() => clearTimeout(estimateTimer));
 
   const applyPreset = (p: "readme" | "hq" | "custom") => {
     setPreset(p);
@@ -1174,62 +1536,130 @@ function ExportDialog(props: {
   };
 
   const doExport = async () => {
+    const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
+    const path = await save({
+      defaultPath: `${safe}.gif`,
+      filters: [{ name: "GIF", extensions: ["gif"] }],
+    });
+    if (!path) return;
+    setPhase("exporting");
+    setProgress(0);
+    props.onStatus("Exporting GIF…");
+    const unlisten = await listen<{ done: number; total: number }>("export-progress", (ev) => {
+      setProgress(ev.payload.total > 0 ? ev.payload.done / ev.payload.total : 0);
+    });
     try {
-      const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
-      const path = await save({
-        defaultPath: `${safe}.gif`,
-        filters: [{ name: "GIF", extensions: ["gif"] }],
-      });
-      if (!path) return;
-      setBusy(true);
-      props.onStatus("Exporting GIF…");
       await invoke("export_gif", { path, fps: fps(), width: width(), quality: quality() });
+      setOutPath(path);
+      setPhase("done");
       props.onStatus(`Exported ${path}`);
-      props.onClose();
     } catch (e) {
+      setPhase("configure");
       props.onStatus(`Export failed: ${String(e)}`);
     } finally {
-      setBusy(false);
+      unlisten();
     }
   };
 
+  const copyGif = async () => {
+    try {
+      await invoke("copy_gif_to_clipboard", { path: outPath() });
+      setCopied("Copied! Paste it into Slack, Discord, or a GitHub comment.");
+    } catch (e) {
+      setCopied(`Copy failed: ${String(e)}`);
+    }
+  };
+  const copyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(outPath());
+      setCopied("Path copied.");
+    } catch {
+      setCopied("Could not copy the path.");
+    }
+  };
+  const reveal = () => void revealItemInDir(outPath()).catch(() => undefined);
+
   return (
-    <div class="modal-backdrop" onClick={props.onClose}>
+    <div class="modal-backdrop" onClick={() => phase() !== "exporting" && props.onClose()}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Export GIF</h2>
-        <div class="preset-row">
-          <button classList={{ chip: true, active: preset() === "readme" }} onClick={() => applyPreset("readme")}>
-            README<small>small · 15fps · 1000px</small>
-          </button>
-          <button classList={{ chip: true, active: preset() === "hq" }} onClick={() => applyPreset("hq")}>
-            High quality<small>crisp · 20fps · 1280px</small>
-          </button>
-          <button classList={{ chip: true, active: preset() === "custom" }} onClick={() => applyPreset("custom")}>
-            Custom<small>tune it yourself</small>
-          </button>
-        </div>
+        <Show when={phase() === "configure"}>
+          <h2>Export GIF</h2>
+          <div class="preset-row">
+            <button classList={{ chip: true, active: preset() === "readme" }} onClick={() => applyPreset("readme")}>
+              README<small>small · 15fps · 1000px</small>
+            </button>
+            <button classList={{ chip: true, active: preset() === "hq" }} onClick={() => applyPreset("hq")}>
+              High quality<small>crisp · 20fps · 1280px</small>
+            </button>
+            <button classList={{ chip: true, active: preset() === "custom" }} onClick={() => applyPreset("custom")}>
+              Custom<small>tune it yourself</small>
+            </button>
+          </div>
 
-        <label class="field">
-          <span>Frame rate · {fps()} fps</span>
-          <input type="range" min="8" max="30" step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
-        </label>
-        <label class="field">
-          <span>Max width · {width()} px</span>
-          <input type="range" min="400" max="1920" step="20" value={width()} onInput={(e) => { setWidth(Number(e.currentTarget.value)); setPreset("custom"); }} />
-        </label>
-        <label class="field">
-          <span>Quality · {quality()}</span>
-          <input type="range" min="40" max="100" step="1" value={quality()} onInput={(e) => { setQuality(Number(e.currentTarget.value)); setPreset("custom"); }} />
-        </label>
+          <label class="field">
+            <span>Frame rate · {fps()} fps</span>
+            <input type="range" min="8" max="30" step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
+          </label>
+          <label class="field">
+            <span>Max width · {width()} px</span>
+            <input type="range" min="400" max="1920" step="20" value={width()} onInput={(e) => { setWidth(Number(e.currentTarget.value)); setPreset("custom"); }} />
+          </label>
+          <label class="field">
+            <span>Quality · {quality()}</span>
+            <input type="range" min="40" max="100" step="1" value={quality()} onInput={(e) => { setQuality(Number(e.currentTarget.value)); setPreset("custom"); }} />
+          </label>
 
-        <div class="modal-actions">
-          <button class="btn" onClick={props.onClose} disabled={busy()}>
-            Cancel
-          </button>
-          <button class="btn export" onClick={() => void doExport()} disabled={busy()}>
-            {busy() ? "Exporting…" : "Choose location & export"}
-          </button>
-        </div>
+          <div class="export-meta">
+            <span>{outDur().toFixed(1)}s of GIF</span>
+            <span class="export-size">
+              {estimate() === null ? "estimating size…" : `≈ ${fmtBytes(estimate()!)}`}
+            </span>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn" onClick={props.onClose}>
+              Cancel
+            </button>
+            <button class="btn export" onClick={() => void doExport()}>
+              Choose location & export
+            </button>
+          </div>
+        </Show>
+
+        <Show when={phase() === "exporting"}>
+          <h2>Exporting…</h2>
+          <div class="progress">
+            <div class="progress-fill" style={{ width: `${Math.round(progress() * 100)}%` }} />
+          </div>
+          <p class="muted small">
+            Compositing {Math.round(progress() * 100)}% — annotations, zoom and speed-up are
+            baked into the final GIF.
+          </p>
+        </Show>
+
+        <Show when={phase() === "done"}>
+          <h2>GIF exported</h2>
+          <p class="export-path" title={outPath()}>
+            {outPath()}
+          </p>
+          <div class="done-actions">
+            <button class="btn export" onClick={() => void copyGif()}>
+              Copy GIF
+            </button>
+            <button class="btn" onClick={() => void copyPath()}>
+              Copy path
+            </button>
+            <button class="btn" onClick={reveal}>
+              Show in folder
+            </button>
+          </div>
+          <p class="muted small">{copied() || "Paste the copied GIF anywhere that accepts files."}</p>
+          <div class="modal-actions">
+            <button class="btn" onClick={props.onClose}>
+              Done
+            </button>
+          </div>
+        </Show>
       </div>
     </div>
   );

@@ -33,9 +33,23 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 |---|---|
 | Editor shell (titlebar · toolbar · tool rail · canvas · properties · timeline) | ✅ |
 | **Real timeline** (ruler, auto-zoom segment track, annotation track, playhead, drag-scrub) | ✅ |
-| **Global stop hotkey** (Ctrl+Shift+X while recording, backend-watched) | 🟡 |
+| **Trim** (draggable in/out handles; playback + export honor it) | 🟡 |
+| **Speed-up dead time** (auto-detects idle >2.5s from the event log, plays at 3×, remapped in export) | 🟡 |
+| **Zoom editing** (drag blocks to retime, drag edges to resize, strength slider, add-at-playhead, delete; camera re-simulates) | 🟡 |
+| **Export panel**: live size estimate (sample-and-extrapolate), progress bar, copy-GIF-file (CF_HDROP), copy path, reveal in Explorer | 🟡 |
+| **Global stop hotkey** (Ctrl+Shift+X while recording, backend-watched) + Ctrl+Shift+R to record | 🟡 |
+| **System tray** (Open / Quit) | 🟡 |
 | **Non-blocking engine boot** (splash shows while GPU/preview server start) | 🟡 |
 | Export is borderless by default (framing removed; old bundles normalized on open) | ✅ |
+
+### Deliberately not built (overrides the older docs)
+
+- **Framing/background/padding controls** — feature removed by owner decision (borderless exports).
+- **Editor aspect-ratio reframe** — covered by the record-time 16:9 / 9:16 / 1:1 / 4:5 region
+  presets; a post-hoc reframe without framing would distort or crop.
+- **MP4 / audio / WebP / webcam / click-ripple / pause** — out of v1 per the spec amendments
+  (cursor is excluded from capture by design, so a ripple has nothing to anchor to).
+- **Code signing / auto-updater** — infrastructure, pre-public-launch task.
 | **Black & white + neutral themes** (Mono Dark/Light, Graphite, Paper, Midnight; no purple) | ✅ |
 | **Custom frameless titlebar** + min/max/close window controls | ✅ |
 | Tauri UI hardening (drag region, context-menu, anti-flash startup, window permissions) | ✅ |

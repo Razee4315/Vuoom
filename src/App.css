@@ -656,6 +656,19 @@ kbd {
   opacity: 0.45;
   cursor: default;
 }
+.tbtn.wide {
+  width: auto;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+.tbtn.on {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
 .time {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
@@ -664,6 +677,12 @@ kbd {
 .time-sep {
   color: var(--muted);
   font-weight: 400;
+}
+.time-out {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11.5px;
 }
 .statusline {
   margin-left: auto;
@@ -755,7 +774,32 @@ kbd {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   overflow: hidden;
-  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
+  z-index: 1;
+}
+.tl-seg:active {
+  cursor: grabbing;
+}
+.tl-seg.selected {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+/* edge affordances for resizing */
+.tl-seg::before,
+.tl-seg::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.tl-seg::before {
+  left: 0;
+}
+.tl-seg::after {
+  right: 0;
 }
 .tl-ann {
   position: absolute;
@@ -790,6 +834,78 @@ kbd {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
+/* Idle stretches playing at N× */
+.tl-speedband {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: repeating-linear-gradient(
+    -55deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--note-box) 14%, transparent) 6px 12px
+  );
+  border-left: 1px dashed color-mix(in srgb, var(--note-box) 50%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--note-box) 50%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+.tl-speedband span {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--note-box) 80%, var(--text));
+  padding-bottom: 2px;
+}
+
+/* Trim: dimmed cut-off areas + draggable in/out handles */
+.tl-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 2;
+}
+:root[data-theme="mono-light"] .tl-shade,
+:root[data-theme="paper"] .tl-shade {
+  background: rgba(255, 255, 255, 0.6);
+}
+.tl-trim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  margin-left: -5px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 4;
+}
+.tl-trim::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.tl-trim::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  background: var(--accent);
+}
+
 .tl-playhead {
   position: absolute;
   top: 0;
@@ -869,4 +985,56 @@ kbd {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
+}
+
+/* live duration + size estimate row */
+.export-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  font-size: 12px;
+  color: var(--muted);
+}
+.export-size {
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* export progress */
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  margin: 6px 0 12px;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+/* post-export actions */
+.export-path {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 0 0 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.done-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
 }

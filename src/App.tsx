@@ -102,7 +102,8 @@ const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
 
 // Drag state for the interactive overlay.
 type Drag =
-  | { mode: "create-arrow" | "create-box"; start: Vec2; cur: Vec2 }
+  | { mode: "create-arrow"; start: Vec2; cur: Vec2 }
+  | { mode: "create-box"; start: Vec2; cur: Vec2 }
   | { mode: "move"; kind: Kind; id: number; grab: Vec2; orig: number[]; geom: number[] }
   | { mode: "resize"; kind: Kind; id: number; handle: string; orig: number[]; geom: number[] }
   | null;
@@ -294,13 +295,15 @@ function App() {
     if (d && (d.mode === "move" || d.mode === "resize") && d.kind === kind && d.id === id) return d.geom;
     return geomOf(kind, id);
   };
+  const applyGeom = async (kind: Kind, id: number, g: number[]) => {
+    if (kind === "box") await invoke("update_box", { id, x: g[0], y: g[1], w: g[2], h: g[3] });
+    else if (kind === "arrow")
+      await invoke("update_arrow", { id, fx: g[0], fy: g[1], tx: g[2], ty: g[3] });
+    else await invoke("update_text", { id, x: g[0], y: g[1] });
+  };
+  // throttled live update while dragging
   const commitGeom = (kind: Kind, g: number[], id: number) =>
-    pushEdit(async () => {
-      if (kind === "box") await invoke("update_box", { id, x: g[0], y: g[1], w: g[2], h: g[3] });
-      else if (kind === "arrow")
-        await invoke("update_arrow", { id, fx: g[0], fy: g[1], tx: g[2], ty: g[3] });
-      else await invoke("update_text", { id, x: g[0], y: g[1] });
-    });
+    pushEdit(() => applyGeom(kind, id, g));
 
   // ── hit testing (normalized) ─────────────────────────────────────────────────────
   const TOL = () => 8 / Math.max(stage().w, stage().h); // ~8px in normalized space
@@ -456,7 +459,10 @@ function App() {
         setTool("select");
       }
     } else {
-      // move/resize already live-committed; refresh the source of truth
+      // Final authoritative commit (the throttle may have dropped the last move),
+      // then refresh the source of truth.
+      await applyGeom(d.kind, d.id, d.geom);
+      await pushSeek(playhead());
       await refresh();
     }
   };

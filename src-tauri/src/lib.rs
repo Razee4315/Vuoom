@@ -51,6 +51,7 @@ pub fn run() {
             commands::cancel_record_flow,
             commands::set_region,
             commands::screenshot,
+            commands::set_zoom_amount,
             commands::save_project_bundle,
             commands::open_project_bundle,
         ])

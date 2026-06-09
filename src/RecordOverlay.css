@@ -105,6 +105,38 @@
   align-items: center;
   gap: 10px;
 }
+.sel-zoomrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sel-zoomlabel {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.sel-zooms {
+  display: flex;
+  gap: 6px;
+}
+.sel-zoom {
+  min-width: 42px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sel-zoom:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sel-zoom.active {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  font-weight: 600;
+}
+
 .sel-toggle {
   display: flex;
   align-items: center;

@@ -82,6 +82,8 @@ pub struct Session {
     /// The capture region chosen by the selector for the next recording (physical px);
     /// `None` = full primary display.
     pending_region: Mutex<Option<CropRegion>>,
+    /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
+    pending_zoom: Mutex<f64>,
 }
 
 impl Session {
@@ -97,12 +99,19 @@ impl Session {
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
             pending_region: Mutex::new(None),
+            pending_zoom: Mutex::new(ZoomConfig::default().amount),
         }
     }
 
     /// Set the capture region (physical px) for the next recording; `None` = full display.
     pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
         *self.pending_region.lock().map_err(|_| "lock poisoned")? = region;
+        Ok(())
+    }
+
+    /// Set the zoom multiplier for the next recording (clamped to a sane range).
+    pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
+        *self.pending_zoom.lock().map_err(|_| "lock poisoned")? = amount.clamp(1.0, 4.0);
         Ok(())
     }
 
@@ -189,7 +198,11 @@ impl Session {
         events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
-        let cfg = ZoomConfig::default();
+        let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
+        let cfg = ZoomConfig {
+            amount,
+            ..ZoomConfig::default()
+        };
         let zooms = plan_zooms(&events, duration, &cfg);
         let fps = if duration > 0.0 {
             frames.len() as f64 / duration
@@ -207,6 +220,7 @@ impl Session {
         });
         let zoom_count = zooms.len();
         let frame_count = frames.len();
+        project.zoom_config = cfg; // so a reopened project re-simulates at the same zoom level
         project.zooms = zooms;
         project.events = events; // persisted so a reopened project can re-simulate panning
 

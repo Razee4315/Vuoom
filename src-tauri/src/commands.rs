@@ -125,6 +125,12 @@ pub fn screenshot(session: tauri::State<'_, Session>) -> Result<String, String> 
     session.screenshot()
 }
 
+/// Set the zoom multiplier (1.0 = no zoom) applied to the next recording.
+#[tauri::command]
+pub fn set_zoom_amount(session: tauri::State<'_, Session>, amount: f64) -> Result<(), String> {
+    session.set_zoom_amount(amount)
+}
+
 /// The default auto-zoom tuning (Screen-Studio-quality starting point).
 #[tauri::command]
 pub fn default_zoom_config() -> ZoomConfig {

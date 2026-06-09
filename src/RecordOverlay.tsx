@@ -33,10 +33,21 @@ const fmt = (t: number) => {
  * 3-2-1 countdown (small bar) → record + Stop. The host window is excluded from the
  * capture, so none of this UI appears in the recording.
  */
+const ZOOM_LEVELS = [
+  { v: 1.0, label: "Off" },
+  { v: 1.5, label: "1.5×" },
+  { v: 1.8, label: "1.8×" },
+  { v: 2.0, label: "2×" },
+  { v: 2.5, label: "2.5×" },
+  { v: 3.0, label: "3×" },
+];
+
 export default function RecordOverlay(props: {
   backdrop: string | null;
   border: boolean;
   onBorderChange: (v: boolean) => void;
+  zoom: number;
+  onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
 }) {
@@ -94,6 +105,7 @@ export default function RecordOverlay(props: {
 
   const beginRecording = async () => {
     try {
+      await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording", { border: props.border });
       setPhase("recording");
       startMs = Date.now();
@@ -226,6 +238,22 @@ export default function RecordOverlay(props: {
                 </button>
               )}
             </For>
+          </div>
+          <div class="sel-zoomrow">
+            <span class="sel-zoomlabel">Zoom level</span>
+            <div class="sel-zooms">
+              <For each={ZOOM_LEVELS}>
+                {(z) => (
+                  <button
+                    classList={{ "sel-zoom": true, active: Math.abs(props.zoom - z.v) < 0.001 }}
+                    title={z.v === 1 ? "No zoom" : `Zoom to ${z.label} on Ctrl+Shift+Z`}
+                    onClick={() => props.onZoomChange(z.v)}
+                  >
+                    {z.label}
+                  </button>
+                )}
+              </For>
+            </div>
           </div>
           <div class="sel-actions">
             <label

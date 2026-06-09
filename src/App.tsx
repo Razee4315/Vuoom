@@ -134,6 +134,7 @@ function App() {
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
   const [captureBorder, setCaptureBorder] = createSignal(true);
+  const [zoomAmount, setZoomAmount] = createSignal(1.8);
 
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
@@ -943,6 +944,8 @@ function App() {
           backdrop={backdrop()}
           border={captureBorder()}
           onBorderChange={setCaptureBorder}
+          zoom={zoomAmount()}
+          onZoomChange={setZoomAmount}
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
         />

@@ -134,6 +134,7 @@ function App() {
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
   const [captureBorder, setCaptureBorder] = createSignal(true);
+  const [borderSupported, setBorderSupported] = createSignal(false);
   const [zoomAmount, setZoomAmount] = createSignal(1.8);
 
   const preview = new PreviewClient();
@@ -158,6 +159,7 @@ function App() {
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
     }
+    invoke<boolean>("border_supported").then(setBorderSupported).catch(() => setBorderSupported(false));
     try {
       const port = await invoke<number>("preview_port");
       preview.connect(port);
@@ -319,7 +321,7 @@ function App() {
     pushEdit(() => applyGeom(kind, id, g));
 
   // ── hit testing (normalized) ─────────────────────────────────────────────────────
-  const TOL = () => 8 / Math.max(stage().w, stage().h); // ~8px in normalized space
+  const TOL = () => 11 / Math.max(stage().w, stage().h); // ~11px grab radius in normalized space
   const handleAt = (p: Vec2): string | null => {
     const s = selected();
     if (!s) return null;
@@ -351,8 +353,14 @@ function App() {
     for (const t of anns().texts) {
       if (!inView(t.range, false)) continue;
       const pos = v2(t.pos);
-      const wApprox = (t.text.length * t.font_size * 0.6) || 0.05;
-      if (p.x >= pos.x - TOL() && p.x <= pos.x + wApprox && p.y >= pos.y - t.font_size && p.y <= pos.y + TOL())
+      const wApprox = Math.max(t.text.length * t.font_size * 0.6, 0.05);
+      // The glyphs sit between pos.y (top) and pos.y + font_size (baseline); pad by TOL.
+      if (
+        p.x >= pos.x - TOL() &&
+        p.x <= pos.x + wApprox + TOL() &&
+        p.y >= pos.y - TOL() &&
+        p.y <= pos.y + t.font_size + TOL()
+      )
         return { kind: "text", id: t.id };
     }
     return null;
@@ -392,11 +400,13 @@ function App() {
       return;
     }
     const hit = hitTest(p);
-    setSelected(hit);
     if (hit) {
+      setSelected(hit);
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
     }
+    // Clicking empty space keeps the current selection so the inspector stays open;
+    // deselect deliberately with Esc or the inspector's ✕.
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -629,29 +639,36 @@ function App() {
       </header>
 
       <div class="toolbar">
-        <button class="btn record" onClick={() => void startRecord()}>
-          <span class="dot" /> Record
-        </button>
-        <button class="btn" title="Open a saved project" onClick={() => void onOpenProject()}>
-          Open
-        </button>
+        <div class="toolbar-group">
+          <button class="btn record" onClick={() => void startRecord()}>
+            <span class="dot" /> Record
+          </button>
+        </div>
+
         <input
           class="project-name"
           value={projectName()}
           spellcheck={false}
           aria-label="Project name"
+          title="Project name"
           onInput={(e) => setProjectName(e.currentTarget.value)}
           onFocus={(e) => e.currentTarget.select()}
           onBlur={(e) => {
             if (!e.currentTarget.value.trim()) setProjectName("Untitled");
           }}
         />
-        <button class="btn" disabled={!hasClip()} title="Save project (video + edits)" onClick={() => void onSaveProject()}>
-          Save
-        </button>
-        <button class="btn export" disabled={!hasClip()} onClick={() => setShowExport(true)}>
-          Export GIF
-        </button>
+
+        <div class="toolbar-group">
+          <button class="btn" title="Open a saved project" onClick={() => void onOpenProject()}>
+            Open
+          </button>
+          <button class="btn" disabled={!hasClip()} title="Save project (video + edits)" onClick={() => void onSaveProject()}>
+            Save
+          </button>
+          <button class="btn export" disabled={!hasClip()} onClick={() => setShowExport(true)}>
+            Export GIF
+          </button>
+        </div>
       </div>
 
       <div class="workspace" classList={{ "has-inspector": !!selected() }}>
@@ -943,6 +960,7 @@ function App() {
         <RecordOverlay
           backdrop={backdrop()}
           border={captureBorder()}
+          borderSupported={borderSupported()}
           onBorderChange={setCaptureBorder}
           zoom={zoomAmount()}
           onZoomChange={setZoomAmount}

@@ -46,6 +46,7 @@ const ZOOM_LEVELS = [
 export default function RecordOverlay(props: {
   backdrop: string | null;
   border: boolean;
+  borderSupported: boolean;
   onBorderChange: (v: boolean) => void;
   zoom: number;
   onZoomChange: (v: number) => void;
@@ -285,17 +286,19 @@ export default function RecordOverlay(props: {
             </div>
           </div>
           <div class="sel-actions">
-            <label
-              class="sel-toggle"
-              title="The highlight Windows draws around the recorded area. Turn off for a clean recording."
-            >
-              <input
-                type="checkbox"
-                checked={props.border}
-                onChange={(e) => props.onBorderChange(e.currentTarget.checked)}
-              />
-              <span>Recording border</span>
-            </label>
+            <Show when={props.borderSupported}>
+              <label
+                class="sel-toggle"
+                title="The highlight Windows draws around the recorded area. Turn off for a clean recording."
+              >
+                <input
+                  type="checkbox"
+                  checked={props.border}
+                  onChange={(e) => props.onBorderChange(e.currentTarget.checked)}
+                />
+                <span>Recording border</span>
+              </label>
+            </Show>
             <span class="sel-dims">{dims()}</span>
             <button class="sel-btn ghost" onClick={cancel}>
               Cancel

@@ -97,7 +97,7 @@ button {
    ============================================================ */
 .editor {
   display: grid;
-  grid-template-rows: 36px 46px 1fr 110px;
+  grid-template-rows: 46px 56px 1fr 110px;
   height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -110,13 +110,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 14px;
+  padding-left: 18px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
 .titlebar .brand-logo {
-  height: 15px;
-  margin-left: 2px;
+  height: 26px;
+  width: auto;
   display: block;
   pointer-events: none; /* let drags pass through to the titlebar */
 }
@@ -231,19 +231,24 @@ button {
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
+  gap: 12px;
+  padding: 0 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
 }
 .project-name {
   flex: 1;
   min-width: 0;
-  max-width: 360px;
-  margin: 0 12px;
-  padding: 5px 8px;
+  margin: 0;
+  padding: 7px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text);
   font-size: 13px;

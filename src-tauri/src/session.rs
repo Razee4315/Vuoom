@@ -11,11 +11,13 @@ use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 
+use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{
-    export_gif_native, plan_frames, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
+    encode_png_to_vec, export_gif_native, plan_frames, read_png, swizzle_rb, write_png,
+    GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -102,6 +104,20 @@ impl Session {
     pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
         *self.pending_region.lock().map_err(|_| "lock poisoned")? = region;
         Ok(())
+    }
+
+    /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
+    /// the still backdrop the region selector draws on (no transparent window needed).
+    pub fn screenshot(&self) -> Result<String, String> {
+        let (rx, handle) = spawn_region(None);
+        let frame = rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .map_err(|e| format!("screenshot capture failed: {e}"))?;
+        handle.stop();
+        let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
+        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        Ok(format!("data:image/png;base64,{b64}"))
     }
 
     /// The localhost port the webview connects to for the live preview.

@@ -30,11 +30,12 @@ pub fn start_record_flow(app: AppHandle) -> Result<(), String> {
         let _ = exclude_from_capture(&main);
         let _ = main.minimize();
     }
+    // Non-transparent on purpose: WebView2 transparent windows fail to composite on many
+    // GPUs (white screen). The selector paints a captured still of the desktop instead.
     let selector =
         WebviewWindowBuilder::new(&app, "selector", WebviewUrl::App("index.html".into()))
             .title("Select area")
             .decorations(false)
-            .transparent(true)
             .always_on_top(true)
             .skip_taskbar(true)
             .fullscreen(true)
@@ -55,11 +56,10 @@ pub fn begin_countdown(app: AppHandle) -> Result<(), String> {
         WebviewWindowBuilder::new(&app, "recorder", WebviewUrl::App("index.html".into()))
             .title("Recording")
             .decorations(false)
-            .transparent(true)
             .always_on_top(true)
             .skip_taskbar(true)
             .resizable(false)
-            .inner_size(360.0, 96.0)
+            .inner_size(380.0, 84.0)
             .build()
             .map_err(|e| e.to_string())?;
     let _ = exclude_from_capture(&recorder);
@@ -106,6 +106,12 @@ pub fn set_region(
         _ => None,
     };
     session.set_region(region)
+}
+
+/// Capture a still of the full display for the region selector's backdrop (data-URL PNG).
+#[tauri::command]
+pub fn screenshot(session: tauri::State<'_, Session>) -> Result<String, String> {
+    session.screenshot()
 }
 
 /// The default auto-zoom tuning (Screen-Studio-quality starting point).

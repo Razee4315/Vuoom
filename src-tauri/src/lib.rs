@@ -49,6 +49,7 @@ pub fn run() {
             commands::finish_recording,
             commands::cancel_record_flow,
             commands::set_region,
+            commands::screenshot,
             commands::save_project_bundle,
             commands::open_project_bundle,
         ])

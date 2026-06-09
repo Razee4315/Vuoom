@@ -35,6 +35,21 @@ impl RgbaImage {
 /// # Errors
 /// Returns [`EncodeError`] on I/O failure or if the pixel buffer is the wrong size.
 pub fn write_png(path: &Path, img: &RgbaImage) -> Result<(), EncodeError> {
+    encode_png(BufWriter::new(File::create(path)?), img)
+}
+
+/// Encode an [`RgbaImage`] to an in-memory PNG (e.g. for a data-URL screenshot).
+///
+/// # Errors
+/// Returns [`EncodeError`] if the pixel buffer is the wrong size or encoding fails.
+pub fn encode_png_to_vec(img: &RgbaImage) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    encode_png(&mut out, img)?;
+    Ok(out)
+}
+
+/// Shared PNG encode into any writer.
+fn encode_png<W: std::io::Write>(w: W, img: &RgbaImage) -> Result<(), EncodeError> {
     if !img.is_valid() {
         return Err(EncodeError::Png(format!(
             "pixel buffer {} != {}x{}x4",
@@ -43,8 +58,7 @@ pub fn write_png(path: &Path, img: &RgbaImage) -> Result<(), EncodeError> {
             img.height
         )));
     }
-    let file = File::create(path)?;
-    let mut encoder = png::Encoder::new(BufWriter::new(file), img.width, img.height);
+    let mut encoder = png::Encoder::new(w, img.width, img.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder

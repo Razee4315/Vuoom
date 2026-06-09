@@ -19,6 +19,7 @@ type Rect = { x: number; y: number; w: number; h: number };
 export default function Selector() {
   const [preset, setPreset] = createSignal<Preset>(PRESETS[1]);
   const [sel, setSel] = createSignal<Rect | null>(null);
+  const [shot, setShot] = createSignal<string | null>(null);
   let start: { x: number; y: number } | null = null;
 
   const cancel = () => void invoke("cancel_record_flow");
@@ -67,6 +68,11 @@ export default function Selector() {
   onMount(() => {
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
+    // Freeze the desktop as a backdrop to draw on. If it fails, the dark fallback +
+    // presets still let the user record.
+    invoke<string>("screenshot")
+      .then(setShot)
+      .catch(() => setShot(null));
   });
 
   const pickPreset = (p: Preset) => {
@@ -90,6 +96,10 @@ export default function Selector() {
       onPointerMove={onMove}
       onPointerUp={onUp}
     >
+      <Show when={shot()}>
+        <img class="sel-shot" src={shot()!} alt="" draggable={false} />
+      </Show>
+
       {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow. */}
       <Show when={preset().ratio !== "full" && sel()}>
         {(r) => (

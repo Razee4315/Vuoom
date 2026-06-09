@@ -45,9 +45,6 @@ const ZOOM_LEVELS = [
 
 export default function RecordOverlay(props: {
   backdrop: string | null;
-  border: boolean;
-  borderSupported: boolean;
-  onBorderChange: (v: boolean) => void;
   zoom: number;
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
@@ -112,7 +109,7 @@ export default function RecordOverlay(props: {
   const beginRecording = async () => {
     try {
       await invoke("set_zoom_amount", { amount: props.zoom });
-      await invoke("start_recording", { border: props.border });
+      await invoke("start_recording");
       setPhase("recording");
       // Hook the live preview stream to the panel canvas.
       if (canvasEl) preview.attach(canvasEl);
@@ -191,6 +188,12 @@ export default function RecordOverlay(props: {
       fallback={
         <div class="rec-panel-root">
           <div class="rec-panel">
+            <div class="rec-drag" data-tauri-drag-region>
+              <span class="rec-grip" data-tauri-drag-region>
+                ⠿
+              </span>
+              <span data-tauri-drag-region>Live preview · drag to move</span>
+            </div>
             <div class="rec-screen">
               <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
               <Show when={phase() === "countdown"}>
@@ -286,19 +289,6 @@ export default function RecordOverlay(props: {
             </div>
           </div>
           <div class="sel-actions">
-            <Show when={props.borderSupported}>
-              <label
-                class="sel-toggle"
-                title="The highlight Windows draws around the recorded area. Turn off for a clean recording."
-              >
-                <input
-                  type="checkbox"
-                  checked={props.border}
-                  onChange={(e) => props.onBorderChange(e.currentTarget.checked)}
-                />
-                <span>Recording border</span>
-              </label>
-            </Show>
             <span class="sel-dims">{dims()}</span>
             <button class="sel-btn ghost" onClick={cancel}>
               Cancel

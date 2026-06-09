@@ -133,8 +133,6 @@ function App() {
   const [showExport, setShowExport] = createSignal(false);
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
-  const [captureBorder, setCaptureBorder] = createSignal(true);
-  const [borderSupported, setBorderSupported] = createSignal(false);
   const [zoomAmount, setZoomAmount] = createSignal(1.8);
 
   const preview = new PreviewClient();
@@ -159,7 +157,6 @@ function App() {
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
     }
-    invoke<boolean>("border_supported").then(setBorderSupported).catch(() => setBorderSupported(false));
     try {
       const port = await invoke<number>("preview_port");
       preview.connect(port);
@@ -316,10 +313,6 @@ function App() {
       await invoke("update_arrow", { id, fx: g[0], fy: g[1], tx: g[2], ty: g[3] });
     else await invoke("update_text", { id, x: g[0], y: g[1] });
   };
-  // throttled live update while dragging
-  const commitGeom = (kind: Kind, g: number[], id: number) =>
-    pushEdit(() => applyGeom(kind, id, g));
-
   // ── hit testing (normalized) ─────────────────────────────────────────────────────
   const TOL = () => 11 / Math.max(stage().w, stage().h); // ~11px grab radius in normalized space
   const handleAt = (p: Vec2): string | null => {
@@ -427,7 +420,6 @@ function App() {
         g = [clamp01(og[0] + dx), clamp01(og[1] + dy), clamp01(og[2] + dx), clamp01(og[3] + dy)];
       else g = [clamp01(og[0] + dx), clamp01(og[1] + dy)];
       setDrag({ ...d, geom: g });
-      void commitGeom(d.kind, g, d.id);
     } else if (d.mode === "resize") {
       const og = d.orig;
       let g = og.slice();
@@ -444,16 +436,15 @@ function App() {
         g = d.handle === "from" ? [p.x, p.y, og[2], og[3]] : [og[0], og[1], p.x, p.y];
       }
       setDrag({ ...d, geom: g });
-      void commitGeom(d.kind, g, d.id);
     }
   };
 
   const onPointerUp = async (e: PointerEvent) => {
     const d = drag();
-    setDrag(null);
     if (!d) return;
     const p = norm(e);
     if (d.mode === "create-arrow") {
+      setDrag(null);
       if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.01) {
         const id = await invoke<number>("add_arrow", {
           fx: d.start.x,
@@ -468,6 +459,7 @@ function App() {
         setTool("select");
       }
     } else if (d.mode === "create-box") {
+      setDrag(null);
       const x = Math.min(d.start.x, p.x);
       const y = Math.min(d.start.y, p.y);
       const w = Math.abs(p.x - d.start.x);
@@ -480,11 +472,11 @@ function App() {
         setTool("select");
       }
     } else {
-      // Final authoritative commit (the throttle may have dropped the last move),
-      // then refresh the source of truth.
+      // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
+      // the drag, so the overlay never flashes back to the pre-drag position for a frame.
       await applyGeom(d.kind, d.id, d.geom);
-      await pushSeek(playhead());
       await refresh();
+      setDrag(null);
     }
   };
 
@@ -959,9 +951,6 @@ function App() {
       <Show when={recordPhase() === "active"}>
         <RecordOverlay
           backdrop={backdrop()}
-          border={captureBorder()}
-          borderSupported={borderSupported()}
-          onBorderChange={setCaptureBorder}
           zoom={zoomAmount()}
           onZoomChange={setZoomAmount}
           onFinished={(s) => void onRecordFinished(s)}

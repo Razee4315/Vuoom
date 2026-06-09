@@ -24,7 +24,7 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     ArrowAnnotation, Background, Color, FrameStyle, HighlightBox, Project, Rect, SourceInfo,
-    TextAnnotation, TimeRange, ZoomConfig,
+    TextAnnotation, TimeRange, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent};
@@ -91,11 +91,13 @@ pub struct Session {
 
 impl Session {
     /// Start the preview server and GPU compositor.
-    #[must_use]
-    pub fn new() -> Self {
+    ///
+    /// # Errors
+    /// Returns a message if the preview WebSocket server cannot bind.
+    pub fn new() -> Result<Self, String> {
         let preview = tauri::async_runtime::block_on(PreviewServer::start())
-            .expect("failed to start preview server");
-        Self {
+            .map_err(|e| format!("preview server: {e}"))?;
+        Ok(Self {
             preview,
             compositor: Compositor::new(),
             clock: Clock::new(),
@@ -103,7 +105,7 @@ impl Session {
             edited: Mutex::new(Edited::default()),
             pending_region: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
-        }
+        })
     }
 
     /// Set the capture region (physical px) for the next recording; `None` = full display.
@@ -385,6 +387,13 @@ impl Session {
         Ok(id)
     }
 
+    /// Snapshot the planned zoom segments for the editor timeline.
+    pub fn zooms(&self) -> Result<Vec<ZoomKeyframe>, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        Ok(project.zooms.clone())
+    }
+
     /// Snapshot every annotation for the editor overlay.
     pub fn annotations(&self) -> Result<AnnotationSet, String> {
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
@@ -574,12 +583,6 @@ impl Session {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let project = edited.project.as_mut().ok_or("no recording")?;
         f(project)
-    }
-}
-
-impl Default for Session {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

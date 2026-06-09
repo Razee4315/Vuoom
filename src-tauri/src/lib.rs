@@ -1,7 +1,7 @@
 //! Vuoom desktop app shell. The webview is the cockpit; Rust is the engine.
 //!
 //! This thin Tauri layer manages the recording [`session::Session`] and registers the
-//! command surface in [`commands`] (pure-logic helpers + record/preview/export). See
+//! command surface in [`commands`] (record/preview/export/annotations). See
 //! `docs/02-Architecture.md`.
 
 mod commands;
@@ -9,7 +9,26 @@ mod live_preview;
 mod session;
 mod windows_ext;
 
+use std::sync::{Arc, OnceLock};
 use tauri::Manager;
+
+/// Lazily-booted engine, held as Tauri managed state.
+///
+/// Starting the engine (GPU compositor + preview WebSocket server) takes real time, so it
+/// boots on a background thread while the window paints its launch splash. Until it's
+/// ready, commands fail with the sentinel `"engine-starting"`, which the frontend retries.
+pub struct Engine(Arc<OnceLock<Result<session::Session, String>>>);
+
+impl Engine {
+    /// The booted session, an `"engine-starting"` retry hint, or the boot error.
+    pub fn session(&self) -> Result<&session::Session, String> {
+        match self.0.get() {
+            None => Err("engine-starting".into()),
+            Some(Ok(s)) => Ok(s),
+            Some(Err(e)) => Err(format!("engine failed to start: {e}")),
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,28 +40,29 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            app.manage(session::Session::new());
+            // Boot the engine off the main thread: blocking here would stall the event
+            // loop and the launch splash would never paint.
+            let cell: Arc<OnceLock<Result<session::Session, String>>> =
+                Arc::new(OnceLock::new());
+            app.manage(Engine(Arc::clone(&cell)));
+            std::thread::spawn(move || {
+                let _ = cell.set(session::Session::new());
+            });
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.maximize();
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::default_zoom_config,
-            commands::new_project,
-            commands::save_project,
-            commands::load_project,
-            commands::gif_presets,
-            commands::estimate_gif_size,
             commands::preview_port,
             commands::start_recording,
-            commands::stop_recording,
             commands::seek,
             commands::export_gif,
             commands::add_text,
             commands::add_arrow,
             commands::add_box,
             commands::list_annotations,
+            commands::list_zooms,
             commands::update_text,
             commands::update_arrow,
             commands::update_box,

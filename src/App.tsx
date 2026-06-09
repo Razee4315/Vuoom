@@ -157,14 +157,39 @@ function App() {
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
     }
-    try {
-      const port = await invoke<number>("preview_port");
-      preview.connect(port);
-      setStatus("Engine connected · record to begin");
-    } catch (e) {
-      setStatus(`Backend error: ${String(e)}`);
-    }
+    await connectEngine();
   });
+
+  // The engine (GPU compositor + preview server) boots on a background thread; retry
+  // until it's up, keeping the launch splash visible so startup never looks dead.
+  const hideSplash = () => {
+    const el = document.getElementById("splash");
+    if (el) {
+      el.classList.add("hide");
+      setTimeout(() => el.remove(), 300);
+    }
+  };
+  const connectEngine = async () => {
+    for (let tries = 0; tries < 200; tries++) {
+      try {
+        const port = await invoke<number>("preview_port");
+        preview.connect(port);
+        setStatus("Ready — press Record to capture your screen");
+        hideSplash();
+        return;
+      } catch (e) {
+        const msg = String(e);
+        if (!msg.includes("engine-starting")) {
+          setStatus(`Engine error: ${msg}`);
+          hideSplash();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+    setStatus("The engine did not start — try restarting Vuoom.");
+    hideSplash();
+  };
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("keydown", onKey);

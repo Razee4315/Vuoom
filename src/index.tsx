@@ -7,11 +7,5 @@ import App from "./App";
 const root = document.getElementById("root") as HTMLElement;
 render(() => <App />, root);
 
-// Fade out the launch splash once the app has mounted.
-const splash = document.getElementById("splash");
-if (splash) {
-  requestAnimationFrame(() => {
-    splash.classList.add("hide");
-    setTimeout(() => splash.remove(), 300);
-  });
-}
+// The launch splash (in index.html) stays up until App connects to the engine —
+// App calls hideSplash() once the backend is ready (or has definitively failed).

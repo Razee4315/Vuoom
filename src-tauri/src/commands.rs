@@ -6,89 +6,100 @@
 
 use crate::session::{AnnotationSet, RecordingSummary, Session};
 use crate::windows_ext::exclude_from_capture;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use std::sync::Mutex;
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_encode::{estimate_total_bytes, GifSettings};
 use vuoom_project::{Project, SourceInfo, ZoomConfig};
 
-// ── Recording flow: selector → countdown → stop bar, all hidden from the capture ──
+// ── Recording flow ───────────────────────────────────────────────────────────────
+//
+// The whole flow (region selector → countdown → stop bar) runs as overlays INSIDE the
+// single main window — no extra WebView2 windows. Spawning a second webview and navigating
+// it to the bundled app proved unreliable (a blank-white window that never loaded the page
+// on some machines), so we drive the proven main webview instead: go fullscreen for the
+// region picker, shrink to a small bar for recording, then restore. The window is excluded
+// from the capture the entire time, so none of this overlay UI lands in the recording.
 
-/// Restore the main editor window (always runs, even on an error path).
-fn restore_main(app: &AppHandle) {
+/// The editor window's bounds (physical px) saved before the overlay takes over, so we can
+/// put the editor back exactly where it was.
+#[derive(Default)]
+pub struct WindowStash(pub Mutex<Option<(i32, i32, u32, u32)>>);
+
+/// Restore the editor window to its saved bounds (always runs, even on an error path).
+fn restore_editor(app: &AppHandle, stash: &tauri::State<'_, WindowStash>) {
     if let Some(main) = app.get_webview_window("main") {
+        let _ = main.set_fullscreen(false);
+        let _ = main.set_always_on_top(false);
+        if let Some((x, y, w, h)) = *stash.0.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = main.set_size(PhysicalSize::new(w, h));
+            let _ = main.set_position(PhysicalPosition::new(x, y));
+        }
         let _ = main.unminimize();
         let _ = main.show();
         let _ = main.set_focus();
     }
 }
 
-/// Step 1 — the user clicked Record: hide the editor from the capture and open the
-/// full-screen region selector.
+/// Step 1 — the user clicked Record: hide the editor from the capture, remember where it
+/// was, and blow it up to fullscreen so the in-window region selector covers the display.
 #[tauri::command]
-pub fn start_record_flow(app: AppHandle) -> Result<(), String> {
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = exclude_from_capture(&main);
-        let _ = main.minimize();
+pub fn enter_overlay(app: AppHandle, stash: tauri::State<'_, WindowStash>) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("no main window")?;
+    let _ = exclude_from_capture(&main);
+    if let (Ok(pos), Ok(size)) = (main.outer_position(), main.outer_size()) {
+        *stash.0.lock().map_err(|_| "lock poisoned")? =
+            Some((pos.x, pos.y, size.width, size.height));
     }
-    // Non-transparent on purpose: WebView2 transparent windows fail to composite on many
-    // GPUs (white screen). The selector paints a captured still of the desktop instead.
-    let selector =
-        WebviewWindowBuilder::new(&app, "selector", WebviewUrl::App("index.html".into()))
-            .title("Select area")
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .fullscreen(true)
-            .build()
-            .map_err(|e| e.to_string())?;
-    let _ = exclude_from_capture(&selector);
+    main.set_always_on_top(true).map_err(|e| e.to_string())?;
+    main.set_fullscreen(true).map_err(|e| e.to_string())?;
+    let _ = main.set_focus();
     Ok(())
 }
 
-/// Step 2 — the selector confirmed a region (or full screen): close it and open the
-/// recorder overlay, which runs the countdown and becomes the Stop bar.
+/// Step 2 — a region (or full screen) was confirmed: drop out of fullscreen and shrink the
+/// window to a small always-on-top bar parked bottom-center, ready for the countdown + Stop.
 #[tauri::command]
-pub fn begin_countdown(app: AppHandle) -> Result<(), String> {
-    if let Some(sel) = app.get_webview_window("selector") {
-        let _ = sel.close();
+pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("no main window")?;
+    main.set_fullscreen(false).map_err(|e| e.to_string())?;
+    main.set_size(LogicalSize::new(360.0, 84.0))
+        .map_err(|e| e.to_string())?;
+    main.set_always_on_top(true).map_err(|e| e.to_string())?;
+    if let Ok(Some(mon)) = main.current_monitor() {
+        let scale = mon.scale_factor();
+        let mp = mon.position();
+        let ms = mon.size();
+        let bar_w = (360.0 * scale) as i32;
+        let bar_h = (84.0 * scale) as i32;
+        let margin = (28.0 * scale) as i32;
+        let x = mp.x + (ms.width as i32 - bar_w) / 2;
+        let y = mp.y + ms.height as i32 - bar_h - margin;
+        let _ = main.set_position(PhysicalPosition::new(x, y));
     }
-    let recorder =
-        WebviewWindowBuilder::new(&app, "recorder", WebviewUrl::App("index.html".into()))
-            .title("Recording")
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .inner_size(380.0, 84.0)
-            .build()
-            .map_err(|e| e.to_string())?;
-    let _ = exclude_from_capture(&recorder);
     Ok(())
 }
 
-/// Step 3 — the user stopped: finish capture, close the recorder, restore the editor, and
-/// hand the clip summary to the main window via an event.
+/// Step 3 — the user stopped: finish capture, restore the editor, and return the clip
+/// summary so the editor can load it.
 #[tauri::command]
-pub fn finish_recording(app: AppHandle, session: tauri::State<'_, Session>) -> Result<(), String> {
+pub fn finish_recording(
+    app: AppHandle,
+    session: tauri::State<'_, Session>,
+    stash: tauri::State<'_, WindowStash>,
+) -> Result<RecordingSummary, String> {
     let result = session.stop_recording();
-    if let Some(rec) = app.get_webview_window("recorder") {
-        let _ = rec.close();
-    }
-    restore_main(&app); // always, even if stop failed
-    let summary = result?;
-    app.emit("recording-finished", summary)
-        .map_err(|e| e.to_string())
+    restore_editor(&app, &stash); // always, even if stop failed
+    result
 }
 
-/// Abort the flow (Cancel / closed overlay): tear down overlays and restore the editor.
+/// Abort the flow (Cancel / Esc): restore the editor without producing a clip.
 #[tauri::command]
-pub fn cancel_record_flow(app: AppHandle) -> Result<(), String> {
-    for label in ["selector", "recorder"] {
-        if let Some(w) = app.get_webview_window(label) {
-            let _ = w.close();
-        }
-    }
-    restore_main(&app);
+pub fn cancel_record_flow(
+    app: AppHandle,
+    stash: tauri::State<'_, WindowStash>,
+) -> Result<(), String> {
+    restore_editor(&app, &stash);
     Ok(())
 }
 

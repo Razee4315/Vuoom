@@ -1,0 +1,245 @@
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
+import "./RecordOverlay.css";
+
+/** Mirrors src-tauri session::RecordingSummary. */
+interface Summary {
+  duration: number;
+  frames: number;
+  zooms: number;
+}
+
+type Preset = { id: string; label: string; hint: string; ratio: number | null | "full" };
+
+// ratio = width / height. null = free draw. "full" = whole screen, no draw.
+const PRESETS: Preset[] = [
+  { id: "full", label: "Full screen", hint: "Whole display", ratio: "full" },
+  { id: "16:9", label: "16:9", hint: "YouTube · Reddit · X", ratio: 16 / 9 },
+  { id: "9:16", label: "9:16", hint: "Reels · TikTok · Shorts", ratio: 9 / 16 },
+  { id: "1:1", label: "1:1", hint: "Instagram · Facebook", ratio: 1 },
+  { id: "4:5", label: "4:5", hint: "Instagram · Facebook", ratio: 4 / 5 },
+  { id: "free", label: "Custom", hint: "Any size", ratio: null },
+];
+
+type Rect = { x: number; y: number; w: number; h: number };
+const fmt = (t: number) => {
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+/**
+ * The full recording flow as a single in-window overlay: pick a region (fullscreen) →
+ * 3-2-1 countdown (small bar) → record + Stop. The host window is excluded from the
+ * capture, so none of this UI appears in the recording.
+ */
+export default function RecordOverlay(props: {
+  backdrop: string | null;
+  onFinished: (s: Summary) => void;
+  onCancel: () => void;
+}) {
+  const [phase, setPhase] = createSignal<"select" | "countdown" | "recording">("select");
+  const [preset, setPreset] = createSignal<Preset>(PRESETS[1]);
+  const [sel, setSel] = createSignal<Rect | null>(null);
+  const [count, setCount] = createSignal(3);
+  const [elapsed, setElapsed] = createSignal(0);
+  let start: { x: number; y: number } | null = null;
+  let elapsedTimer: number | undefined;
+  let startMs = 0;
+
+  const stopTimer = () => {
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = undefined;
+  };
+
+  const cancel = () => {
+    stopTimer();
+    void invoke("cancel_record_flow").finally(() => props.onCancel());
+  };
+
+  const beginCountdown = async () => {
+    const p = preset();
+    const r = sel();
+    if (p.ratio === "full" || !r || r.w < 8 || r.h < 8) {
+      await invoke("set_region", {}); // no fields → full screen
+    } else {
+      const dpr = window.devicePixelRatio || 1;
+      await invoke("set_region", {
+        x: Math.round(r.x * dpr),
+        y: Math.round(r.y * dpr),
+        w: Math.round(r.w * dpr),
+        h: Math.round(r.h * dpr),
+      });
+    }
+    await invoke("enter_stopbar"); // shrink the host window to the bar
+    setPhase("countdown");
+    runCountdown();
+  };
+
+  const runCountdown = () => {
+    const tick = () => {
+      const c = count() - 1;
+      if (c <= 0) {
+        setCount(0);
+        void beginRecording();
+      } else {
+        setCount(c);
+        window.setTimeout(tick, 1000);
+      }
+    };
+    window.setTimeout(tick, 1000);
+  };
+
+  const beginRecording = async () => {
+    try {
+      await invoke("start_recording");
+      setPhase("recording");
+      startMs = Date.now();
+      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
+    } catch {
+      cancel();
+    }
+  };
+
+  const stop = async () => {
+    stopTimer();
+    try {
+      const summary = await invoke<Summary>("finish_recording");
+      props.onFinished(summary);
+    } catch {
+      props.onCancel();
+    }
+  };
+
+  // ── region drawing (select phase) ──────────────────────────────────────────────
+  const onDown = (e: PointerEvent) => {
+    if (phase() !== "select" || preset().ratio === "full") return;
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    start = { x: e.clientX, y: e.clientY };
+    setSel({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+  };
+  const onMove = (e: PointerEvent) => {
+    if (!start) return;
+    const ratio = preset().ratio;
+    const x = Math.min(start.x, e.clientX);
+    const y = Math.min(start.y, e.clientY);
+    const w = Math.abs(e.clientX - start.x);
+    const h = typeof ratio === "number" ? w / ratio : Math.abs(e.clientY - start.y);
+    setSel({ x, y, w, h });
+  };
+  const onUp = () => {
+    start = null;
+  };
+
+  const onKey = (e: KeyboardEvent) => {
+    if (phase() !== "select") return;
+    if (e.key === "Escape") cancel();
+    else if (e.key === "Enter") void beginCountdown();
+  };
+  onMount(() => {
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKey);
+      stopTimer();
+    });
+  });
+
+  const pickPreset = (p: Preset) => {
+    setPreset(p);
+    setSel(null);
+    start = null;
+  };
+  const dims = () => {
+    const r = sel();
+    if (preset().ratio === "full" || !r) return "Full screen";
+    const dpr = window.devicePixelRatio || 1;
+    return `${Math.round(r.w * dpr)} × ${Math.round(r.h * dpr)} px`;
+  };
+
+  return (
+    <Show
+      when={phase() === "select"}
+      fallback={
+        <div class="rec-bar-root">
+          <Show
+            when={phase() === "recording"}
+            fallback={
+              <div class="rec-count">
+                <Show when={count() > 0} fallback={<span class="rec-go">Go!</span>}>
+                  <span class="rec-num">{count()}</span>
+                </Show>
+                <button class="rec-cancel" onClick={cancel}>
+                  Cancel
+                </button>
+              </div>
+            }
+          >
+            <div class="rec-bar">
+              <span class="rec-dot" />
+              <span class="rec-time">{fmt(elapsed())}</span>
+              <span class="rec-hint">Ctrl+Shift+Z to zoom</span>
+              <button class="rec-stop" onClick={() => void stop()}>
+                Stop
+              </button>
+            </div>
+          </Show>
+        </div>
+      }
+    >
+      <div
+        class="sel-root"
+        classList={{ full: preset().ratio === "full" }}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+      >
+        <Show when={props.backdrop}>
+          <img class="sel-shot" src={props.backdrop!} alt="" draggable={false} />
+        </Show>
+
+        {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow. */}
+        <Show when={preset().ratio !== "full" && sel()}>
+          {(r) => (
+            <div
+              class="sel-rect"
+              style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
+            />
+          )}
+        </Show>
+        <Show when={preset().ratio === "full"}>
+          <div class="sel-fullhint">Recording the whole display</div>
+        </Show>
+
+        <div class="sel-bar" onPointerDown={(e) => e.stopPropagation()}>
+          <div class="sel-presets">
+            <For each={PRESETS}>
+              {(p) => (
+                <button
+                  classList={{ "sel-chip": true, active: preset().id === p.id }}
+                  title={p.hint}
+                  onClick={() => pickPreset(p)}
+                >
+                  <strong>{p.label}</strong>
+                  <small>{p.hint}</small>
+                </button>
+              )}
+            </For>
+          </div>
+          <div class="sel-actions">
+            <span class="sel-dims">{dims()}</span>
+            <button class="sel-btn ghost" onClick={cancel}>
+              Cancel
+            </button>
+            <button class="sel-btn primary" onClick={() => void beginCountdown()}>
+              Start →
+            </button>
+          </div>
+        </div>
+
+        <Show when={preset().ratio !== "full" && !sel()}>
+          <div class="sel-drawhint">Drag to mark the area · Esc to cancel</div>
+        </Show>
+      </div>
+    </Show>
+  );
+}

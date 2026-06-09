@@ -21,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(session::Session::new());
+            app.manage(commands::WindowStash::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -44,8 +45,8 @@ pub fn run() {
             commands::update_box,
             commands::set_annotation_color,
             commands::delete_annotation,
-            commands::start_record_flow,
-            commands::begin_countdown,
+            commands::enter_overlay,
+            commands::enter_stopbar,
             commands::finish_recording,
             commands::cancel_record_flow,
             commands::set_region,

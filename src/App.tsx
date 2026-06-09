@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
@@ -131,11 +131,12 @@ function App() {
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
   const [showExport, setShowExport] = createSignal(false);
+  const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
+  const [backdrop, setBackdrop] = createSignal<string | null>(null);
 
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let stageEl: HTMLDivElement | undefined;
-  let unlistenFinished: (() => void) | undefined;
 
   const onContextMenu = (e: MouseEvent) => {
     const el = e.target as HTMLElement;
@@ -155,9 +156,6 @@ function App() {
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
     }
-    unlistenFinished = await listen<RecordingSummary>("recording-finished", (e) =>
-      void loadFinishedClip(e.payload),
-    );
     try {
       const port = await invoke<number>("preview_port");
       preview.connect(port);
@@ -169,7 +167,6 @@ function App() {
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("keydown", onKey);
-    unlistenFinished?.();
     preview.disconnect();
   });
 
@@ -547,16 +544,34 @@ function App() {
   };
 
   // ── recording / export ───────────────────────────────────────────────────────────
-  // Recording happens in dedicated overlay windows (region selector → countdown → stop
-  // bar), all hidden from the capture. The editor just kicks off the flow and waits for
-  // the finished clip.
+  // The record flow (region selector → countdown → stop bar) runs as an overlay INSIDE
+  // this window — the window is excluded from the capture and grown/shrunk by the backend,
+  // so the overlay never lands in the recording and we avoid fragile extra webviews.
   const startRecord = async () => {
     try {
       setStatus("Choose the area to record…");
-      await invoke("start_record_flow");
+      await invoke("enter_overlay"); // hide editor from capture + go fullscreen
+      setBackdrop(null);
+      setRecordPhase("active"); // overlay shows immediately (dark + presets)
+      // Freeze the desktop behind us as a backdrop to draw on (non-blocking).
+      invoke<string>("screenshot")
+        .then(setBackdrop)
+        .catch(() => setBackdrop(null));
     } catch (e) {
+      setRecordPhase("idle");
       setStatus(`Error: ${String(e)}`);
     }
+  };
+
+  const onRecordFinished = async (summary: RecordingSummary) => {
+    setRecordPhase("idle");
+    setBackdrop(null);
+    await loadFinishedClip(summary);
+  };
+  const onRecordCancel = () => {
+    setRecordPhase("idle");
+    setBackdrop(null);
+    setStatus("Recording cancelled");
   };
 
   const loadFinishedClip = async (summary: RecordingSummary) => {
@@ -920,6 +935,14 @@ function App() {
 
       <Show when={showExport()}>
         <ExportDialog name={projectName()} onClose={() => setShowExport(false)} onStatus={setStatus} />
+      </Show>
+
+      <Show when={recordPhase() === "active"}>
+        <RecordOverlay
+          backdrop={backdrop()}
+          onFinished={(s) => void onRecordFinished(s)}
+          onCancel={onRecordCancel}
+        />
       </Show>
     </div>
   );

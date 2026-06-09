@@ -1,0 +1,124 @@
+/* The selector + recorder are transparent overlay windows; App.css paints an opaque
+   background, so override it for these surfaces. */
+:root[data-surface="selector"],
+:root[data-surface="selector"] body,
+:root[data-surface="selector"] #root,
+:root[data-surface="recorder"],
+:root[data-surface="recorder"] body,
+:root[data-surface="recorder"] #root {
+  background: transparent !important;
+}
+
+.sel-root {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  overflow: hidden;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff;
+  user-select: none;
+}
+.sel-root.full {
+  background: rgba(0, 0, 0, 0.28);
+  cursor: default;
+}
+
+.sel-rect {
+  position: absolute;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.sel-drawhint,
+.sel-fullhint {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* Floating preset/action bar */
+.sel-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(20, 20, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+.sel-presets {
+  display: flex;
+  gap: 8px;
+}
+.sel-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 78px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  cursor: pointer;
+}
+.sel-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sel-chip.active {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+.sel-chip strong {
+  font-size: 13px;
+}
+.sel-chip small {
+  font-size: 10px;
+  opacity: 0.65;
+}
+.sel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sel-dims {
+  flex: 1;
+  font-size: 12px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.sel-btn {
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sel-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sel-btn.primary {
+  background: #fff;
+  color: #111;
+  border-color: #fff;
+  font-weight: 600;
+}
+.sel-btn.primary:hover {
+  opacity: 0.9;
+}

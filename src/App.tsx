@@ -1,5 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
@@ -119,7 +120,6 @@ function App() {
   const [projectName, setProjectName] = createSignal("Untitled");
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
-  const [recording, setRecording] = createSignal(false);
   const [hasClip, setHasClip] = createSignal(false);
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
@@ -135,6 +135,7 @@ function App() {
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let stageEl: HTMLDivElement | undefined;
+  let unlistenFinished: (() => void) | undefined;
 
   const onContextMenu = (e: MouseEvent) => {
     const el = e.target as HTMLElement;
@@ -154,6 +155,9 @@ function App() {
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
     }
+    unlistenFinished = await listen<RecordingSummary>("recording-finished", (e) =>
+      void loadFinishedClip(e.payload),
+    );
     try {
       const port = await invoke<number>("preview_port");
       preview.connect(port);
@@ -165,6 +169,7 @@ function App() {
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("keydown", onKey);
+    unlistenFinished?.();
     preview.disconnect();
   });
 
@@ -542,26 +547,25 @@ function App() {
   };
 
   // ── recording / export ───────────────────────────────────────────────────────────
-  const toggleRecord = async () => {
+  // Recording happens in dedicated overlay windows (region selector → countdown → stop
+  // bar), all hidden from the capture. The editor just kicks off the flow and waits for
+  // the finished clip.
+  const startRecord = async () => {
     try {
-      if (!recording()) {
-        await invoke("start_recording");
-        setRecording(true);
-        setStatus("Recording… press Ctrl+Shift+Z to zoom where it matters · Stop when done");
-      } else {
-        const summary = await invoke<RecordingSummary>("stop_recording");
-        setRecording(false);
-        setHasClip(true);
-        setDuration(summary.duration);
-        setSelected(null);
-        setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
-        await refresh();
-        scrub(0);
-      }
+      setStatus("Choose the area to record…");
+      await invoke("start_record_flow");
     } catch (e) {
-      setRecording(false);
       setStatus(`Error: ${String(e)}`);
     }
+  };
+
+  const loadFinishedClip = async (summary: RecordingSummary) => {
+    setHasClip(true);
+    setDuration(summary.duration);
+    setSelected(null);
+    setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
+    await refresh();
+    scrub(0);
   };
 
   return (
@@ -575,8 +579,8 @@ function App() {
       </header>
 
       <div class="toolbar">
-        <button class="btn record" classList={{ active: recording() }} onClick={toggleRecord}>
-          <span class="dot" /> {recording() ? "Stop" : "Record"}
+        <button class="btn record" onClick={() => void startRecord()}>
+          <span class="dot" /> Record
         </button>
         <input
           class="project-name"

@@ -1,0 +1,82 @@
+.rec-root {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff;
+  user-select: none;
+}
+
+.rec-bar,
+.rec-count {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+}
+
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5484d;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.rec-time {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+}
+.rec-hint {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.rec-stop {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #e5484d;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rec-stop:hover {
+  opacity: 0.9;
+}
+
+.rec-num {
+  font-size: 38px;
+  font-weight: 700;
+  width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.rec-go {
+  font-size: 26px;
+  font-weight: 700;
+  padding: 0 8px;
+}
+.rec-cancel {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.rec-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}

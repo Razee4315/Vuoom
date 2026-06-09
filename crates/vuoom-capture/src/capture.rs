@@ -193,7 +193,17 @@ mod tests {
     #[test]
     fn crop_extracts_subrect() {
         let full = ramp(4, 2); // indices 0..7
-        let (w, h, out) = crop_bgra(&full, 4, 2, CropRegion { x: 1, y: 0, w: 2, h: 2 });
+        let (w, h, out) = crop_bgra(
+            &full,
+            4,
+            2,
+            CropRegion {
+                x: 1,
+                y: 0,
+                w: 2,
+                h: 2,
+            },
+        );
         assert_eq!((w, h), (2, 2));
         // row0: idx 1,2 ; row1: idx 5,6
         assert_eq!(out[0], 1);
@@ -204,7 +214,31 @@ mod tests {
 
     #[test]
     fn clamp_keeps_region_inside_frame() {
-        assert_eq!(clamp_region(CropRegion { x: 3, y: 1, w: 99, h: 99 }, 4, 2), (3, 1, 1, 1));
-        assert_eq!(clamp_region(CropRegion { x: 0, y: 0, w: 4, h: 2 }, 4, 2), (0, 0, 4, 2));
+        assert_eq!(
+            clamp_region(
+                CropRegion {
+                    x: 3,
+                    y: 1,
+                    w: 99,
+                    h: 99
+                },
+                4,
+                2
+            ),
+            (3, 1, 1, 1)
+        );
+        assert_eq!(
+            clamp_region(
+                CropRegion {
+                    x: 0,
+                    y: 0,
+                    w: 4,
+                    h: 2
+                },
+                4,
+                2
+            ),
+            (0, 0, 4, 2)
+        );
     }
 }

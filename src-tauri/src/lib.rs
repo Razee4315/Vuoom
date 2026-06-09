@@ -9,6 +9,7 @@ mod hotkey;
 mod live_preview;
 mod session;
 mod windows_ext;
+mod zoom_chord;
 
 use std::sync::{Arc, OnceLock};
 use tauri::Manager;
@@ -105,6 +106,7 @@ pub fn run() {
             commands::update_arrow,
             commands::update_box,
             commands::set_annotation_color,
+            commands::update_annotation_range,
             commands::delete_annotation,
             commands::enter_overlay,
             commands::enter_stopbar,

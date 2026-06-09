@@ -380,6 +380,17 @@ pub fn set_annotation_color(
     engine.session()?.set_annotation_color(id, r, g, b)
 }
 
+/// Retime an annotation (text, arrow, or box): when it appears / disappears.
+#[tauri::command]
+pub fn update_annotation_range(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    start: f64,
+    end: f64,
+) -> Result<(), String> {
+    engine.session()?.update_annotation_range(id, start, end)
+}
+
 /// Delete an annotation (text, arrow, or box) by id.
 #[tauri::command]
 pub fn delete_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<(), String> {

@@ -12,6 +12,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
 
 use crate::live_preview::LivePreview;
+use crate::zoom_chord::ZoomChordPoller;
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,9 @@ struct Active {
     events_rx: Receiver<RawEvent>,
     start_qpc: i64,
     region: Option<CropRegion>,
+    /// Poll-based Ctrl+Shift+Z recorder — catches chord presses the keyboard hook misses
+    /// (e.g. while an elevated window has focus). Merged with hook marks at stop time.
+    zoom_poll: ZoomChordPoller,
     /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
     _preview: LivePreview,
 }
@@ -169,6 +173,7 @@ impl Session {
             recorder,
             events_rx,
             start_qpc: self.clock.now(),
+            zoom_poll: ZoomChordPoller::start(),
             _preview: preview,
         });
         Ok(())
@@ -221,6 +226,29 @@ impl Session {
             .collect();
         // Manual zoom: each Ctrl+Shift+Z press becomes a deliberate zoom at the cursor.
         events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
+
+        // Merge in poll-detected chord presses the hook missed (e.g. elevated-window
+        // focus) — without this, the live preview can show a zoom that the final edit
+        // silently drops. Hook marks within 0.3s win to avoid duplicates.
+        let hook_mark_times: Vec<f64> = events
+            .iter()
+            .filter(|e| e.is_zoom_mark())
+            .map(InputEvent::t)
+            .collect();
+        for m in session.zoom_poll.finish() {
+            let t = self.clock.seconds_between(session.start_qpc, m.qpc);
+            if t < 0.0 || t > duration {
+                continue;
+            }
+            if hook_mark_times.iter().any(|&h| (h - t).abs() < 0.3) {
+                continue;
+            }
+            let pos = DVec2::new(
+                (f64::from(m.x - region.x) / f64::from(region.w.max(1))).clamp(0.0, 1.0),
+                (f64::from(m.y - region.y) / f64::from(region.h.max(1))).clamp(0.0, 1.0),
+            );
+            events.push(InputEvent::ZoomMark { t, pos });
+        }
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
@@ -694,6 +722,40 @@ impl Session {
             } else {
                 return Err("no such annotation".into());
             }
+            Ok(())
+        })
+    }
+
+    /// Retime any annotation (text, arrow, or box): set when it appears/disappears.
+    pub fn update_annotation_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
+        self.with_project(|p| {
+            let d = p.source.duration;
+            let s = start.clamp(0.0, (d - 0.1).max(0.0));
+            let e = end.clamp(s + 0.1, d.max(s + 0.1));
+            let range = p
+                .texts
+                .iter_mut()
+                .find(|a| a.id == id)
+                .map(|a| &mut a.range)
+                .or_else(|| {
+                    p.arrows
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .or_else(|| {
+                    p.highlights
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .ok_or("no such annotation")?;
+            range.start = s;
+            range.end = e;
+            // Keep fades sane if the window shrank below the fade lengths.
+            let span = e - s;
+            range.fade_in = range.fade_in.min(span / 2.0);
+            range.fade_out = range.fade_out.min(span / 2.0);
             Ok(())
         })
     }

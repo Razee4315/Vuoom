@@ -320,7 +320,11 @@ impl Session {
         font_size: Option<f32>,
     ) -> Result<(), String> {
         self.with_project(|p| {
-            let a = p.texts.iter_mut().find(|a| a.id == id).ok_or("no such text")?;
+            let a = p
+                .texts
+                .iter_mut()
+                .find(|a| a.id == id)
+                .ok_or("no such text")?;
             if let Some(x) = x {
                 a.pos.x = x.clamp(0.0, 1.0);
             }
@@ -338,16 +342,13 @@ impl Session {
     }
 
     /// Move an arrow's endpoints.
-    pub fn update_arrow(
-        &self,
-        id: u32,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-    ) -> Result<(), String> {
+    pub fn update_arrow(&self, id: u32, fx: f64, fy: f64, tx: f64, ty: f64) -> Result<(), String> {
         self.with_project(|p| {
-            let a = p.arrows.iter_mut().find(|a| a.id == id).ok_or("no such arrow")?;
+            let a = p
+                .arrows
+                .iter_mut()
+                .find(|a| a.id == id)
+                .ok_or("no such arrow")?;
             a.from = DVec2::new(fx.clamp(0.0, 1.0), fy.clamp(0.0, 1.0));
             a.to = DVec2::new(tx.clamp(0.0, 1.0), ty.clamp(0.0, 1.0));
             Ok(())

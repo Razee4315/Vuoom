@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Questions & ideas
+    url: https://github.com/Razee4315/Vuoom/discussions
+    about: Not sure it's a bug? Want to talk through an idea first? Start here.
+  - name: 🔒 Security issue
+    url: https://github.com/Razee4315/Vuoom/security/advisories/new
+    about: Please report vulnerabilities privately, not as public issues.

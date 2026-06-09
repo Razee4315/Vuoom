@@ -1,0 +1,55 @@
+name: 🐛 Bug report
+description: Something broke — recording, editing, exporting, or the app itself.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Vuoom version
+      description: Shown in the installer name (e.g. 0.1.15) or the latest release you installed.
+      placeholder: "0.1.15"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2 / Windows 10 22H2"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did you get instead?
+      placeholder: |
+        1. Pressed Record, picked a 16:9 region
+        2. Zoomed with Ctrl+Shift+Z twice
+        3. Exported with the README preset
+        → The GIF was missing the zoom / the app froze / …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      options:
+        - Recording (capture / live preview / shortcuts)
+        - Auto-zoom (planning / camera motion)
+        - Editor (timeline / annotations / trim / playback)
+        - Export (GIF quality / size / progress / clipboard)
+        - App shell (startup / window / tray / themes)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Display setup
+      description: Helps a lot for capture/zoom bugs.
+      placeholder: "Single 2560×1440 @ 125% scaling / dual monitor mixed-DPI / …"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, the exported GIF, or error text from the status bar.

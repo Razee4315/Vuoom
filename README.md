@@ -1,14 +1,23 @@
 <div align="center">
 
+<img src=".github/assets/logo.png" alt="Vuoom logo" width="110" />
+
 # Vuoom
 
 **Screen recordings that zoom where it matters.**
 
-A free, native Windows screen recorder that cinematically zooms into the action
-as you work — then exports a small, crisp demo **GIF** ready for your README,
-changelog, or product post. No account, no watermark, no subscription.
+A **free, open-source screen recorder for Windows** with cinematic **auto-zoom** —
+record your screen, the camera glides into the action, and you export a small,
+crisp **demo GIF** ready for your GitHub README, changelog, or product post.
+No account, no watermark, no subscription.
 
-**By [Saqlain Abbas](https://github.com/Razee4315)** · Apache-2.0 · Windows 10/11
+[![Latest release](https://img.shields.io/github/v/release/Razee4315/Vuoom?label=download&color=e5484d)](https://github.com/Razee4315/Vuoom/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Razee4315/Vuoom/total?color=2ea44f)](https://github.com/Razee4315/Vuoom/releases)
+[![CI](https://github.com/Razee4315/Vuoom/actions/workflows/ci.yml/badge.svg)](https://github.com/Razee4315/Vuoom/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+
+**By [Saqlain Abbas](https://github.com/Razee4315)**
 
 [**⬇ Download the latest release**](https://github.com/Razee4315/Vuoom/releases/latest)
 
@@ -20,8 +29,9 @@ changelog, or product post. No account, no watermark, no subscription.
 
 A flat recording of your whole screen makes UI text tiny and the "wow" moment
 invisible. The tools that fix this — the ones that smoothly zoom into each click
-like a little camera operator — are Mac-only, paid, or both. Vuoom brings that
-experience to Windows, free, in a small native app:
+like a little camera operator (Screen Studio, and friends) — are **Mac-only, paid,
+or both**. Vuoom is that experience as a free Screen Studio alternative for
+Windows, in a small native app:
 
 **Record → zoom happens where you point → trim the dead air → export a GIF you can paste anywhere.**
 

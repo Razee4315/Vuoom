@@ -1,0 +1,24 @@
+name: 💡 Feature request
+description: An idea that would make demo GIFs easier or better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem?
+      description: Describe the friction in your record → edit → export flow, not just the solution.
+      placeholder: "Every time I … I have to … which takes …"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like Vuoom to do?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        > **Heads up — v1 scope:** GIF-only, no audio, no webcam, no cloud/accounts
+        > ([why](https://github.com/Razee4315/Vuoom/blob/main/docs/Vuoom-Spec.md)).
+        > Ideas outside that line are welcome but will be parked for later.

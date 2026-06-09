@@ -6,13 +6,8 @@ import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
 import { PreviewClient } from "./preview";
-import logoWhite from "./assets/logo-white.png";
-import logoBlack from "./assets/logo-black.png";
-import emptyState from "./assets/empty-state.png";
+import { LogoMark, LogoWordmark } from "./Logo";
 import "./App.css";
-
-const LIGHT_THEMES = new Set(["mono-light", "paper"]);
-const isLight = (id: string) => LIGHT_THEMES.has(id);
 
 type Tool = "select" | "text" | "arrow" | "box";
 type Vec2 = { x: number; y: number };
@@ -66,6 +61,13 @@ interface AnnotationSet {
   texts: TextAnn[];
   arrows: ArrowAnn[];
   highlights: BoxAnn[];
+}
+
+/** Mirrors vuoom_zoom::ZoomKeyframe (mode is unused by the timeline). */
+interface ZoomSeg {
+  start: number;
+  end: number;
+  amount: number;
 }
 
 type Kind = "text" | "arrow" | "box";
@@ -126,6 +128,7 @@ function App() {
   const [playing, setPlaying] = createSignal(false);
 
   const [anns, setAnns] = createSignal<AnnotationSet>({ texts: [], arrows: [], highlights: [] });
+  const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -609,7 +612,46 @@ function App() {
     setSelected(null);
     setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
     await refresh();
+    try {
+      setZooms(await invoke<ZoomSeg[]>("list_zooms"));
+    } catch {
+      setZooms([]);
+    }
     scrub(0);
+  };
+
+  // ── timeline (ruler + tracks + drag-to-scrub) ─────────────────────────────────────
+  let tlEl: HTMLDivElement | undefined;
+  let tlDrag = false;
+  const tlSeekFromEvent = (e: PointerEvent) => {
+    if (!tlEl || !hasClip() || duration() <= 0) return;
+    const r = tlEl.getBoundingClientRect();
+    scrub(clamp01((e.clientX - r.left) / r.width) * duration());
+  };
+  const pct = (t: number) => (duration() > 0 ? (t / duration()) * 100 : 0);
+  const tickStep = () => {
+    for (const s of [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60]) {
+      if (duration() / s <= 12) return s;
+    }
+    return 120;
+  };
+  const ticks = () => {
+    const s = tickStep();
+    const out: number[] = [];
+    for (let t = 0; t <= duration() + 1e-9; t += s) out.push(t);
+    return out;
+  };
+  // All annotations as flat timeline bars, sorted by start time.
+  const annBars = () => {
+    const a = anns();
+    const bars: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
+    for (const t of a.texts)
+      bars.push({ kind: "text", id: t.id, start: t.range.start, end: t.range.end, label: t.text || "Text" });
+    for (const ar of a.arrows)
+      bars.push({ kind: "arrow", id: ar.id, start: ar.range.start, end: ar.range.end, label: "Arrow" });
+    for (const b of a.highlights)
+      bars.push({ kind: "box", id: b.id, start: b.range.start, end: b.range.end, label: "Box" });
+    return bars.sort((x, y) => x.start - y.start);
   };
 
   const safeName = () =>
@@ -648,7 +690,7 @@ function App() {
   return (
     <div class="editor">
       <header class="titlebar" data-tauri-drag-region="">
-        <img class="brand-logo" src={isLight(theme()) ? logoBlack : logoWhite} alt="Vuoom" />
+        <LogoWordmark />
         <div class="titlebar-right">
           <ThemeMenu current={theme()} onSelect={setTheme} />
           <WindowControls />
@@ -718,9 +760,19 @@ function App() {
             />
             <Show when={!hasClip()}>
               <div class="canvas-placeholder">
-                <img class="empty-illustration" src={emptyState} alt="" />
+                <div class="placeholder-mark">
+                  <LogoMark size={46} />
+                </div>
                 <p class="big">Ready when you are</p>
-                <small>Press Record to frame your shot — auto-zoom follows the cursor. Ctrl+Shift+Z to zoom.</small>
+                <small>
+                  Capture your screen with cinematic auto-zoom, annotate it, export a crisp GIF.
+                </small>
+                <button class="btn record cta" onClick={() => void startRecord()}>
+                  <span class="dot" /> Start recording
+                </button>
+                <span class="placeholder-hint">
+                  <kbd>Ctrl+Shift+Z</kbd> zoom while recording · <kbd>Ctrl+Shift+X</kbd> stop
+                </span>
               </div>
             </Show>
 
@@ -940,33 +992,103 @@ function App() {
 
       <footer class="timeline">
         <div class="transport">
-          <button class="tbtn" title="Restart" disabled={!hasClip()} onClick={restart}>
-            ⏮
+          <button class="tbtn" title="Back to start" disabled={!hasClip()} onClick={restart}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 5h2.5v14H6zM20 5.8v12.4a.8.8 0 0 1-1.25.66L9.6 12.66a.8.8 0 0 1 0-1.32l9.15-6.2A.8.8 0 0 1 20 5.8z" />
+            </svg>
           </button>
-          <button class="tbtn play" title="Play / Pause" disabled={!hasClip()} onClick={togglePlay}>
-            {playing() ? "⏸" : "▶"}
+          <button class="tbtn play" title="Play / Pause (Space)" disabled={!hasClip()} onClick={togglePlay}>
+            <Show
+              when={playing()}
+              fallback={
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5.6v12.8a.9.9 0 0 0 1.38.76l10.1-6.4a.9.9 0 0 0 0-1.52l-10.1-6.4A.9.9 0 0 0 8 5.6z" />
+                </svg>
+              }
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="5" width="4.4" height="14" rx="1" />
+                <rect x="13.6" y="5" width="4.4" height="14" rx="1" />
+              </svg>
+            </Show>
           </button>
           <span class="time">
-            {fmt(playhead())} / {fmt(duration())}
+            {fmt(playhead())} <span class="time-sep">/</span> {fmt(duration())}
           </span>
-          <div class="timeline-track">
-            <Show
-              when={hasClip()}
-              fallback={<span class="muted">Record a clip to begin</span>}
-            >
-              <input
-                class="scrubber"
-                type="range"
-                min="0"
-                max={duration()}
-                step="0.01"
-                value={playhead()}
-                onInput={(e) => scrub(Number(e.currentTarget.value))}
-              />
-            </Show>
-          </div>
+          <span class="statusline">{status()}</span>
         </div>
-        <div class="statusbar">{status()}</div>
+
+        <div
+          class="tl"
+          classList={{ empty: !hasClip() }}
+          ref={(el) => (tlEl = el)}
+          onPointerDown={(e) => {
+            if (!hasClip()) return;
+            (e.currentTarget as Element).setPointerCapture(e.pointerId);
+            tlDrag = true;
+            tlSeekFromEvent(e);
+          }}
+          onPointerMove={(e) => {
+            if (tlDrag) tlSeekFromEvent(e);
+          }}
+          onPointerUp={() => (tlDrag = false)}
+        >
+          <Show
+            when={hasClip()}
+            fallback={<div class="tl-empty">Your recording's timeline appears here</div>}
+          >
+            <div class="tl-ruler">
+              <For each={ticks()}>
+                {(t) => (
+                  <span class="tl-tick" style={{ left: `${pct(t)}%` }}>
+                    <i />
+                    {fmt(t)}
+                  </span>
+                )}
+              </For>
+            </div>
+            <div class="tl-track">
+              <span class="tl-tracklabel">Zoom</span>
+              <For each={zooms()}>
+                {(z) => (
+                  <div
+                    class="tl-seg"
+                    style={{ left: `${pct(z.start)}%`, width: `${Math.max(pct(z.end) - pct(z.start), 0.6)}%` }}
+                    title={`Auto-zoom ${z.amount.toFixed(1)}× · ${fmt(z.start)}–${fmt(z.end)}`}
+                  >
+                    {z.amount.toFixed(1)}×
+                  </div>
+                )}
+              </For>
+            </div>
+            <div class="tl-track">
+              <span class="tl-tracklabel">Notes</span>
+              <For each={annBars()}>
+                {(b) => (
+                  <button
+                    classList={{
+                      "tl-ann": true,
+                      [`tl-${b.kind}`]: true,
+                      selected: selected()?.kind === b.kind && selected()?.id === b.id,
+                    }}
+                    style={{ left: `${pct(b.start)}%`, width: `${Math.max(pct(b.end) - pct(b.start), 1)}%` }}
+                    title={`${b.label} · ${fmt(b.start)}–${fmt(b.end)}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => {
+                      setSelected({ kind: b.kind, id: b.id });
+                      scrub(b.start);
+                    }}
+                  >
+                    {b.label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
+              <i />
+            </div>
+          </Show>
+        </div>
       </footer>
 
       <Show when={showExport()}>

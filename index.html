@@ -31,10 +31,16 @@
         opacity: 0;
         pointer-events: none;
       }
-      #splash img {
-        width: 92px;
-        height: 92px;
+      #splash svg {
+        width: 84px;
+        height: 84px;
         animation: splash-breathe 1.8s ease-in-out infinite;
+      }
+      #splash .splash-label {
+        font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.45);
+        letter-spacing: 0.02em;
       }
       #splash .ring {
         width: 26px;
@@ -60,8 +66,18 @@
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="splash">
-      <img src="/splash.png" alt="Vuoom" />
+      <svg viewBox="0 0 32 32" fill="none" aria-label="Vuoom">
+        <path
+          d="M6.5 8 L16 25.5 L25.5 8"
+          stroke="#ffffff"
+          stroke-width="5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="25.5" cy="8" r="4.6" fill="#e5484d" />
+      </svg>
       <div class="ring"></div>
+      <div class="splash-label">Starting the engine…</div>
     </div>
     <div id="root"></div>
 

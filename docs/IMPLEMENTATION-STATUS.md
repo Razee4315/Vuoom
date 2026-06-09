@@ -32,6 +32,10 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | Area | Status |
 |---|---|
 | Editor shell (titlebar · toolbar · tool rail · canvas · properties · timeline) | ✅ |
+| **Real timeline** (ruler, auto-zoom segment track, annotation track, playhead, drag-scrub) | ✅ |
+| **Global stop hotkey** (Ctrl+Shift+X while recording, backend-watched) | 🟡 |
+| **Non-blocking engine boot** (splash shows while GPU/preview server start) | 🟡 |
+| Export is borderless by default (framing removed; old bundles normalized on open) | ✅ |
 | **Black & white + neutral themes** (Mono Dark/Light, Graphite, Paper, Midnight; no purple) | ✅ |
 | **Custom frameless titlebar** + min/max/close window controls | ✅ |
 | Tauri UI hardening (drag region, context-menu, anti-flash startup, window permissions) | ✅ |
@@ -93,4 +97,6 @@ Actions → *Release* → *Run workflow* (or `gh workflow run release.yml`). Ins
 
 ## Assets
 
-Logo / icons are placeholders (default Tauri icons). Drop-in replacement when provided.
+Logo: the Vuoom mark (bold rounded **V** with a recording-dot tip). Canonical vector in
+`src/assets/logo.svg` / `src/Logo.tsx` (inline, theme-aware); app icons generated from
+`src-tauri/icons/source-1024.png` via `pnpm tauri icon`.

@@ -55,6 +55,47 @@ pub fn estimate_total_bytes(
     (per_frame * total_frames as f64 * motion_factor.max(1.0)).round() as u64
 }
 
+/// Estimate the total size of a **delta-encoded** GIF from contiguous sample windows.
+///
+/// The encoder writes one full keyframe and then per-frame delta rectangles, so size is
+/// `keyframe + per-delta × (frames − 1)` — extrapolating raw window bytes linearly would
+/// count the window's keyframe once per window-length and badly overestimate. Each
+/// window is `(encoded_bytes, keyframe_bytes, frame_count)`, where `keyframe_bytes` is a
+/// 1-frame encode of the window's first frame; subtracting it isolates the delta cost.
+#[must_use]
+pub fn estimate_delta_total_bytes(
+    windows: &[(u64, u64, usize)],
+    total_frames: usize,
+    motion_factor: f64,
+) -> u64 {
+    if total_frames == 0 || windows.is_empty() {
+        return 0;
+    }
+    let (mut key_bytes, mut keys) = (0u64, 0u64);
+    let (mut delta_bytes, mut delta_frames) = (0f64, 0usize);
+    for &(bytes, kbytes, frames) in windows {
+        if frames == 0 {
+            continue;
+        }
+        key_bytes += kbytes;
+        keys += 1;
+        if frames > 1 {
+            delta_bytes += bytes.saturating_sub(kbytes) as f64;
+            delta_frames += frames - 1;
+        }
+    }
+    if keys == 0 {
+        return 0;
+    }
+    let key_avg = key_bytes as f64 / keys as f64;
+    let per_delta = if delta_frames > 0 {
+        delta_bytes / delta_frames as f64
+    } else {
+        0.0
+    };
+    ((key_avg + per_delta * (total_frames - 1) as f64) * motion_factor.max(1.0)).round() as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +121,39 @@ mod tests {
     fn empty_inputs_yield_no_frames() {
         assert!(plan_frames(0, 60.0, 15.0).is_empty());
         assert!(plan_frames(60, 0.0, 15.0).is_empty());
+    }
+
+    #[test]
+    fn delta_estimate_amortizes_the_keyframe() {
+        // One 9-frame window: 50KB encoded, 10KB keyframe -> 5KB per delta frame.
+        let e = estimate_delta_total_bytes(&[(50_000, 10_000, 9)], 901, 1.0);
+        assert_eq!(e, 10_000 + 5_000 * 900);
+        // Naive linear extrapolation would have said ~5MB for a static-ish clip too,
+        // but with cheap deltas the estimate tracks the keyframe + delta structure:
+        let cheap = estimate_delta_total_bytes(&[(11_600, 10_000, 9)], 901, 1.0);
+        assert_eq!(cheap, 10_000 + 200 * 900);
+    }
+
+    #[test]
+    fn delta_estimate_averages_multiple_windows() {
+        // Windows with 1KB and 3KB per delta -> 2KB average; 10KB average keyframe.
+        let windows = [(14_000u64, 10_000u64, 5usize), (22_000, 10_000, 5)];
+        let e = estimate_delta_total_bytes(&windows, 101, 1.0);
+        assert_eq!(e, 10_000 + 2_000 * 100);
+    }
+
+    #[test]
+    fn delta_estimate_handles_degenerate_inputs() {
+        assert_eq!(estimate_delta_total_bytes(&[], 100, 1.0), 0);
+        assert_eq!(
+            estimate_delta_total_bytes(&[(10_000, 10_000, 1)], 0, 1.0),
+            0
+        );
+        // Single-frame clip: just the keyframe.
+        assert_eq!(
+            estimate_delta_total_bytes(&[(10_000, 10_000, 1)], 1, 1.0),
+            10_000
+        );
     }
 
     #[test]

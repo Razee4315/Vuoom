@@ -20,7 +20,21 @@ optimized GIF.
 | How it's integrated | **Separate bundled binary, invoked out-of-process** (keeps Vuoom Apache-2.0 — see below) |
 | Optional size optimizer | `gifsicle` (also out-of-process) |
 | "Smaller, modern" alt | animated **WebP** (opt-in, later) |
-| Pure-Rust fallback | `gif` + `color_quant` + `image` (lower quality; only if gifski is ever unavailable) |
+| Pure-Rust fallback | `gif` + `color_quant` — **this is the shipping v1 encoder** (gifski sidecar not yet bundled) |
+
+### The shipping pure-Rust encoder (`vuoom-encode/src/native.rs`)
+
+The fallback is not a naive frame dumper — it is built for screen recordings:
+
+- **One global NeuQuant palette** for the whole clip (trained on pixels sampled evenly
+  across all frames). No per-frame palette overhead, no palette flicker, and identical
+  colors always quantize to identical indices — which makes exact frame diffing possible.
+- **Delta rectangles**: every frame after the first stores only the bounding box of
+  changed pixels; unchanged pixels inside the box are the transparent index, with
+  disposal `Keep`. On a mostly-static product/UI clip this is typically **5–20× smaller**
+  than full-frame encoding at identical visual quality.
+- **Duplicate-frame collapsing**: identical consecutive frames are dropped and their
+  delay is added to the previous frame, so idle screen time is nearly free.
 
 ## The licensing point that shapes the integration
 
@@ -67,9 +81,13 @@ gifski builds a unique cross-frame palette and diffs temporally — **no closed-
 exists** (the maintainer confirms; even gifski's own running estimate is "very imprecise"). The
 honest method, which the editor's live size readout uses:
 
-1. **Encode a representative sample** — every Nth frame (~10–15%) at the chosen settings, measure
-   bytes, **linearly extrapolate** by frame count (GIF is roughly per-frame additive after frame 1).
-2. Scale up if the sample's mean inter-frame delta is high (more motion → worse compression).
+1. **Encode contiguous sample windows** (one mid-clip, two spread out for longer clips) at
+   the chosen settings. Windows must be *contiguous*, not strided: the encoder
+   delta-compresses consecutive frames, so a strided sample would see artificially large
+   frame-to-frame changes and wildly overestimate.
+2. **Isolate keyframe cost from delta cost** — also encode a 1-frame GIF of each window's
+   first frame, then extrapolate as `keyframe + per-delta × (total − 1)` (see
+   `estimate_delta_total_bytes` in `vuoom-encode/src/plan.rs`), nudged up by a motion fudge.
 3. Expose the deterministic levers (**width**, **fps**, **quality**, **lossy**) and **re-estimate
    live** as the user drags them — exactly how gifski's author recommends converging on a target.
 

@@ -18,8 +18,8 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{
-    encode_png_to_vec, estimate_total_bytes, export_gif_native, read_png, swizzle_rb, write_png,
-    GifSettings, RgbaImage,
+    encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png, swizzle_rb,
+    write_png, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -360,22 +360,27 @@ impl Session {
         Ok(())
     }
 
-    /// Estimate the export size (bytes) by encoding a strided sample of the output frames
-    /// at the chosen settings and extrapolating (see `docs/06-Export.md` — GIF has no
-    /// closed-form size formula).
+    /// Estimate the export size (bytes) by encoding contiguous sample windows of the
+    /// output frames at the chosen settings and extrapolating (see `docs/06-Export.md` —
+    /// GIF has no closed-form size formula).
+    ///
+    /// Windows must be contiguous: the encoder delta-compresses consecutive frames, so a
+    /// strided sample would see artificially large frame-to-frame changes and wildly
+    /// overestimate. A 1-frame encode per window isolates keyframe cost from delta cost.
     pub fn estimate_gif(&self, fps: u32, width: Option<u32>, quality: u8) -> Result<u64, String> {
-        /// Sampled frames are strided (not consecutive), so inter-frame deltas — and GIF
-        /// temporal compression — are slightly pessimistic; nudge rather than multiply.
-        const MOTION_FUDGE: f64 = 1.1;
-        const MAX_SAMPLES: usize = 8;
+        /// Sample windows can still miss the clip's busiest stretch; nudge up.
+        const MOTION_FUDGE: f64 = 1.15;
+        const WINDOW: usize = 12;
 
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let total = self.output_frame_count(&edited, fps)?;
-        let stride = (total / MAX_SAMPLES).max(1);
-        let samples = self.composite_output_frames(&edited, fps, stride, &|_, _| {})?;
-        if samples.is_empty() {
-            return Ok(0);
-        }
+        let win = WINDOW.min(total);
+        // One mid-clip window for short clips, two spread out for longer ones.
+        let starts: Vec<usize> = if total >= 4 * win {
+            vec![total / 5, total * 3 / 5]
+        } else {
+            vec![(total - win) / 2]
+        };
 
         let settings = GifSettings {
             fps,
@@ -383,16 +388,19 @@ impl Session {
             quality,
             ..GifSettings::readme()
         };
-        let tmp = std::env::temp_dir().join("vuoom-size-estimate.gif");
-        export_gif_native(&samples, &settings, &tmp).map_err(|e| e.to_string())?;
-        let bytes = std::fs::metadata(&tmp).map_err(|e| e.to_string())?.len();
-        let _ = std::fs::remove_file(&tmp);
-        Ok(estimate_total_bytes(
-            bytes,
-            samples.len(),
-            total,
-            MOTION_FUDGE,
-        ))
+        let mut windows: Vec<(u64, u64, usize)> = Vec::with_capacity(starts.len());
+        for (k, &start) in starts.iter().enumerate() {
+            let start = start.min(total - win);
+            let indices: Vec<usize> = (start..start + win).collect();
+            let frames = self.composite_indices(&edited, fps, &indices, &|_, _| {})?;
+            if frames.is_empty() {
+                continue;
+            }
+            let window_bytes = encode_sample_bytes(&frames, &settings, k, "win")?;
+            let key_bytes = encode_sample_bytes(&frames[0..1], &settings, k, "key")?;
+            windows.push((window_bytes, key_bytes, frames.len()));
+        }
+        Ok(estimate_delta_total_bytes(&windows, total, MOTION_FUDGE))
     }
 
     /// Number of frames the output timeline (after trim + speed) emits at `fps`.
@@ -411,6 +419,19 @@ impl Session {
         stride: usize,
         progress: &dyn Fn(u32, u32),
     ) -> Result<Vec<RgbaImage>, String> {
+        let total = self.output_frame_count(edited, fps)?;
+        let indices: Vec<usize> = (0..total).step_by(stride.max(1)).collect();
+        self.composite_indices(edited, fps, &indices, progress)
+    }
+
+    /// Composite specific output-timeline frame indices (honoring trim + speed regions).
+    fn composite_indices(
+        &self,
+        edited: &Edited,
+        fps: u32,
+        indices: &[usize],
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
@@ -422,11 +443,9 @@ impl Session {
         let bg = background_color(&project.frame);
         let (t0, span, regions) = out_mapping(project);
         let d_out = output_duration(span, &regions);
-        let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
 
-        let count = total.div_ceil(stride.max(1));
-        let mut images = Vec::with_capacity(count);
-        for (done, i) in (0..total).step_by(stride.max(1)).enumerate() {
+        let mut images = Vec::with_capacity(indices.len());
+        for (done, &i) in indices.iter().enumerate() {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions);
             let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
@@ -442,7 +461,7 @@ impl Session {
                 bg,
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
-            progress(done as u32 + 1, count as u32);
+            progress(done as u32 + 1, indices.len() as u32);
         }
         Ok(images)
     }
@@ -864,6 +883,21 @@ impl Session {
         let project = edited.project.as_mut().ok_or("no recording")?;
         f(project)
     }
+}
+
+/// Encode `frames` to a throwaway GIF in the temp dir and return its byte size — the
+/// measurement step of the sample-and-extrapolate size estimate.
+fn encode_sample_bytes(
+    frames: &[RgbaImage],
+    settings: &GifSettings,
+    window: usize,
+    tag: &str,
+) -> Result<u64, String> {
+    let tmp = std::env::temp_dir().join(format!("vuoom-size-estimate-{window}-{tag}.gif"));
+    export_gif_native(frames, settings, &tmp).map_err(|e| e.to_string())?;
+    let bytes = std::fs::metadata(&tmp).map_err(|e| e.to_string())?.len();
+    let _ = std::fs::remove_file(&tmp);
+    Ok(bytes)
 }
 
 fn nearest_frame(

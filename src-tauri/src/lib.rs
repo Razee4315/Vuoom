@@ -94,6 +94,7 @@ pub fn run() {
             commands::add_text,
             commands::add_arrow,
             commands::add_box,
+            commands::add_ellipse,
             commands::list_annotations,
             commands::clip_state,
             commands::set_trim,

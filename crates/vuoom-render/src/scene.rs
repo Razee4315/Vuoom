@@ -5,7 +5,7 @@
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
 use crate::layout::{compute_layout, CompositeLayout};
-use vuoom_project::{Color, Project};
+use vuoom_project::{Color, HighlightShape, Project};
 use vuoom_zoom::CameraTrack;
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
@@ -41,6 +41,8 @@ pub struct ResolvedHighlight {
     pub h: f64,
     pub thickness_px: f64,
     pub filled: bool,
+    /// Draw an ellipse inscribed in the rect instead of the rect itself.
+    pub ellipse: bool,
     pub color: Color,
 }
 
@@ -117,6 +119,7 @@ pub fn build_scene(
             h: h.rect.h * oh,
             thickness_px: f64::from(h.thickness) * oh,
             filled: h.filled,
+            ellipse: h.shape == HighlightShape::Ellipse,
             color: fade(h.color, o),
         });
     }

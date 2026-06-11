@@ -386,6 +386,19 @@ pub fn add_box(
     engine.session()?.add_box(x, y, w, h, t)
 }
 
+/// Add an ellipse highlight inscribed in the normalized rect from time `t`.
+#[tauri::command]
+pub fn add_ellipse(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_ellipse(x, y, w, h, t)
+}
+
 /// Snapshot every annotation (for the editor overlay).
 #[tauri::command]
 pub fn list_annotations(engine: tauri::State<'_, Engine>) -> Result<AnnotationSet, String> {

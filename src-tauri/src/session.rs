@@ -25,8 +25,8 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, ArrowAnnotation, Background, Color, FrameStyle,
-    HighlightBox, Project, Rect, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim,
-    ZoomConfig, ZoomKeyframe,
+    HighlightBox, HighlightShape, Project, Rect, SourceInfo, SpeedRegion, TextAnnotation,
+    TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
@@ -504,6 +504,23 @@ impl Session {
 
     /// Add a highlight box (normalized rect), visible for ~3s from time `t`. Returns its id.
     pub fn add_box(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        self.add_highlight(x, y, w, h, t, HighlightShape::Rect)
+    }
+
+    /// Add an ellipse highlight inscribed in the normalized rect. Returns its id.
+    pub fn add_ellipse(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        self.add_highlight(x, y, w, h, t, HighlightShape::Ellipse)
+    }
+
+    fn add_highlight(
+        &self,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        t: f64,
+        shape: HighlightShape,
+    ) -> Result<u32, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
@@ -514,6 +531,7 @@ impl Session {
             color: Color::rgb(1.0, 0.82, 0.1),
             thickness: 0.005,
             filled: false,
+            shape,
             range,
         });
         Ok(id)

@@ -64,6 +64,38 @@ fn highlight(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
     }
 }
 
+/// Segments used to approximate an ellipse — plenty for screen-sized highlights.
+const ELLIPSE_SEGS: u32 = 48;
+
+fn ellipse(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
+    let color = col(h.color);
+    let cx = (h.x + h.w / 2.0) as f32;
+    let cy = (h.y + h.h / 2.0) as f32;
+    let rx = (h.w / 2.0) as f32;
+    let ry = (h.h / 2.0) as f32;
+    let t = (h.thickness_px as f32).max(1.0);
+    let step = std::f32::consts::TAU / ELLIPSE_SEGS as f32;
+    for i in 0..ELLIPSE_SEGS {
+        let a0 = i as f32 * step;
+        let a1 = a0 + step;
+        let p0 = [cx + rx * a0.cos(), cy + ry * a0.sin()];
+        let p1 = [cx + rx * a1.cos(), cy + ry * a1.sin()];
+        if h.filled {
+            // Triangle fan from the center.
+            for pos in [[cx, cy], p0, p1] {
+                out.push(ShapeVertex { pos, color });
+            }
+        } else {
+            // A ring: quads between the outer ellipse and one inset by the thickness.
+            let irx = (rx - t).max(0.0);
+            let iry = (ry - t).max(0.0);
+            let q0 = [cx + irx * a0.cos(), cy + iry * a0.sin()];
+            let q1 = [cx + irx * a1.cos(), cy + iry * a1.sin()];
+            push_quad(out, [p0, p1, q1, q0], color);
+        }
+    }
+}
+
 fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     let color = col(a.color);
     let from = [a.from_x as f32, a.from_y as f32];
@@ -101,12 +133,16 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     });
 }
 
-/// Build the triangle list for all of a scene's highlight boxes and arrows.
+/// Build the triangle list for all of a scene's highlights and arrows.
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
     for h in &scene.highlights {
-        highlight(&mut out, h);
+        if h.ellipse {
+            ellipse(&mut out, h);
+        } else {
+            highlight(&mut out, h);
+        }
     }
     for a in &scene.arrows {
         arrow(&mut out, a);

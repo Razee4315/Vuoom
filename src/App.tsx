@@ -11,7 +11,7 @@ import { PreviewClient } from "./preview";
 import { LogoWordmark } from "./Logo";
 import "./App.css";
 
-type Tool = "select" | "text" | "arrow" | "box";
+type Tool = "select" | "text" | "arrow" | "box" | "ellipse";
 type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -59,6 +59,7 @@ interface BoxAnn {
   color: Color;
   thickness: number;
   filled: boolean;
+  shape: "Rect" | "Ellipse";
   range: TimeRange;
 }
 interface AnnotationSet {
@@ -124,6 +125,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "text", label: "Text", hint: "Click on the video to drop a text label." },
   { id: "arrow", label: "Arrow", hint: "Drag on the video to draw an arrow." },
   { id: "box", label: "Box", hint: "Drag on the video to draw a highlight box." },
+  { id: "ellipse", label: "Ellipse", hint: "Drag on the video to draw an ellipse highlight." },
 ];
 
 // ── small helpers ──────────────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
 type Drag =
   | { mode: "create-arrow"; start: Vec2; cur: Vec2 }
   | { mode: "create-box"; start: Vec2; cur: Vec2 }
+  | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "move"; kind: Kind; id: number; grab: Vec2; orig: number[]; geom: number[] }
   | { mode: "resize"; kind: Kind; id: number; handle: string; orig: number[]; geom: number[] }
   | null;
@@ -546,8 +549,8 @@ function App() {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
-    if (t === "box") {
-      setDrag({ mode: "create-box", start: p, cur: p });
+    if (t === "box" || t === "ellipse") {
+      setDrag({ mode: t === "box" ? "create-box" : "create-ellipse", start: p, cur: p });
       return;
     }
 
@@ -590,7 +593,7 @@ function App() {
     const d = drag();
     if (!d) return;
     const p = norm(e);
-    if (d.mode === "create-arrow" || d.mode === "create-box") {
+    if (d.mode === "create-arrow" || d.mode === "create-box" || d.mode === "create-ellipse") {
       setDrag({ ...d, cur: p });
       return;
     }
@@ -644,14 +647,15 @@ function App() {
         setSelected({ kind: "arrow", id });
         setTool("select");
       }
-    } else if (d.mode === "create-box") {
+    } else if (d.mode === "create-box" || d.mode === "create-ellipse") {
+      const cmd = d.mode === "create-box" ? "add_box" : "add_ellipse";
       setDrag(null);
       const x = Math.min(d.start.x, p.x);
       const y = Math.min(d.start.y, p.y);
       const w = Math.abs(p.x - d.start.x);
       const h = Math.abs(p.y - d.start.y);
       if (w > 0.01 && h > 0.01) {
-        const id = await invoke<number>("add_box", { x, y, w, h, t: playhead() });
+        const id = await invoke<number>(cmd, { x, y, w, h, t: playhead() });
         await refresh();
         await pushSeek(playhead());
         setSelZoom(null);
@@ -672,6 +676,15 @@ function App() {
   const selectedText = () => {
     const s = selected();
     return s?.kind === "text" ? anns().texts.find((t) => t.id === s.id) : undefined;
+  };
+  const selectedBox = () => {
+    const s = selected();
+    return s?.kind === "box" ? anns().highlights.find((b) => b.id === s.id) : undefined;
+  };
+  const inspTitle = () => {
+    const s = selected()!;
+    if (s.kind === "box" && selectedBox()?.shape === "Ellipse") return "Ellipse";
+    return s.kind[0].toUpperCase() + s.kind.slice(1);
   };
   const selectedColor = (): Color | undefined => {
     const s = selected();
@@ -1160,7 +1173,13 @@ function App() {
     for (const ar of a.arrows)
       bars.push({ kind: "arrow", id: ar.id, start: ar.range.start, end: ar.range.end, label: "Arrow" });
     for (const b of a.highlights)
-      bars.push({ kind: "box", id: b.id, start: b.range.start, end: b.range.end, label: "Box" });
+      bars.push({
+        kind: "box",
+        id: b.id,
+        start: b.range.start,
+        end: b.range.end,
+        label: b.shape === "Ellipse" ? "Ellipse" : "Box",
+      });
     return bars.sort((x, y) => x.start - y.start);
   };
 
@@ -1350,15 +1369,30 @@ function App() {
                           const s = () => px({ x: g()[2], y: g()[3] });
                           return (
                             <g opacity={isGhost(b.range, sel()) ? 0.35 : 1}>
-                              <rect
-                                x={a().x}
-                                y={a().y}
-                                width={s().x}
-                                height={s().y}
-                                fill={b.filled ? cssColor(b.color) : "none"}
-                                stroke={cssColor(b.color)}
-                                stroke-width={2}
-                              />
+                              <Show
+                                when={b.shape === "Ellipse"}
+                                fallback={
+                                  <rect
+                                    x={a().x}
+                                    y={a().y}
+                                    width={s().x}
+                                    height={s().y}
+                                    fill={b.filled ? cssColor(b.color) : "none"}
+                                    stroke={cssColor(b.color)}
+                                    stroke-width={2}
+                                  />
+                                }
+                              >
+                                <ellipse
+                                  cx={a().x + s().x / 2}
+                                  cy={a().y + s().y / 2}
+                                  rx={s().x / 2}
+                                  ry={s().y / 2}
+                                  fill={b.filled ? cssColor(b.color) : "none"}
+                                  stroke={cssColor(b.color)}
+                                  stroke-width={2}
+                                />
+                              </Show>
                               <Show when={sel()}>
                                 <Handles
                                   pts={[
@@ -1461,6 +1495,17 @@ function App() {
                     );
                   })()}
                 </Show>
+                <Show when={drag()?.mode === "create-ellipse"}>
+                  {(() => {
+                    const d = drag() as { start: Vec2; cur: Vec2 };
+                    const a = px({ x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y) });
+                    const w = Math.abs(d.cur.x - d.start.x) * stage().w;
+                    const h = Math.abs(d.cur.y - d.start.y) * stage().h;
+                    return (
+                      <ellipse cx={a.x + w / 2} cy={a.y + h / 2} rx={w / 2} ry={h / 2} fill="none" stroke="#ffd23f" stroke-width={2} />
+                    );
+                  })()}
+                </Show>
               </svg>
 
               <Show when={editingTextAnn()}>
@@ -1507,7 +1552,7 @@ function App() {
               onPointerUp={onInspUp}
             />
             <div class="inspector-head">
-              <h2>{selected()!.kind[0].toUpperCase() + selected()!.kind.slice(1)}</h2>
+              <h2>{inspTitle()}</h2>
               <button class="icon-btn" title="Done" onClick={() => setSelected(null)}>
                 ✕
               </button>
@@ -1954,6 +1999,8 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
       return <svg {...common}><path d="M5 19L19 5M11 5h8v8" /></svg>;
     case "box":
       return <svg {...common}><rect x="4" y="6" width="16" height="12" rx="1" /></svg>;
+    case "ellipse":
+      return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>;
   }
 }
 

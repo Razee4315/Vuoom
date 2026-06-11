@@ -40,7 +40,17 @@ pub struct ArrowAnnotation {
     pub range: TimeRange,
 }
 
-/// A highlight rectangle (outlined or filled).
+/// The geometry a highlight draws within its rect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HighlightShape {
+    /// Axis-aligned rectangle.
+    #[default]
+    Rect,
+    /// Ellipse inscribed in the rect.
+    Ellipse,
+}
+
+/// A highlight region (outlined or filled; rectangle or ellipse).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct HighlightBox {
     pub id: u32,
@@ -49,5 +59,8 @@ pub struct HighlightBox {
     /// Outline thickness as a fraction of output height (ignored when `filled`).
     pub thickness: f32,
     pub filled: bool,
+    /// Defaults to `Rect` so projects saved before ellipses existed still load.
+    #[serde(default)]
+    pub shape: HighlightShape,
     pub range: TimeRange,
 }

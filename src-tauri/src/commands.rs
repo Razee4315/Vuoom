@@ -249,6 +249,23 @@ pub async fn export_gif(
         })
 }
 
+/// Export the recording to an H.264 MP4 at `path`, emitting `export-progress` events.
+#[tauri::command]
+pub async fn export_mp4(
+    app: AppHandle,
+    engine: tauri::State<'_, Engine>,
+    path: String,
+    fps: u32,
+    width: Option<u32>,
+    quality: u8,
+) -> Result<(), String> {
+    engine
+        .session()?
+        .export_mp4(path, fps, width, quality, &|done, total| {
+            let _ = app.emit("export-progress", ExportProgress { done, total });
+        })
+}
+
 /// Estimate the export size in bytes for the given settings (sample-and-extrapolate).
 #[tauri::command]
 pub async fn estimate_gif(

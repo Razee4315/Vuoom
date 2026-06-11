@@ -1645,11 +1645,11 @@ function App() {
             <option value="subtle">Subtle frame</option>
             <option value="studio">Studio frame</option>
           </select>
-          <button class="btn export" disabled={!hasClip()} title="Export an optimized GIF (Ctrl+E)" onClick={() => setShowExport(true)}>
+          <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
             </svg>
-            Export GIF
+            Export
           </button>
         </div>
       </div>
@@ -2593,6 +2593,7 @@ function ExportDialog(props: {
   onClose: () => void;
   onStatus: (s: string) => void;
 }): JSX.Element {
+  const [format, setFormat] = createSignal<"gif" | "mp4">("gif");
   const [preset, setPreset] = createSignal<"readme" | "hq" | "custom">("readme");
   const [fps, setFps] = createSignal(15);
   const [width, setWidth] = createSignal(1000);
@@ -2605,7 +2606,16 @@ function ExportDialog(props: {
 
   const outDur = () => outputDuration(props.duration, props.trim, props.speed, props.cuts);
 
-  // Live size estimate (sample-and-extrapolate), debounced as sliders move.
+  // MP4 size follows directly from the bitrate (mirrors src-tauri mp4::bitrate).
+  const mp4Estimate = () => {
+    const q = Math.min(100, Math.max(40, quality()));
+    const bpp = 0.04 + ((q - 40) / 60) * 0.16;
+    const h = Math.round((width() * 9) / 16); // rough; real height depends on the source
+    const bits = width() * h * fps() * bpp;
+    return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8);
+  };
+
+  // Live size estimate: GIF samples-and-extrapolates (debounced); MP4 is closed-form.
   let estimateTimer: number | undefined;
   let estimateGen = 0;
   createEffect(() => {
@@ -2613,6 +2623,10 @@ function ExportDialog(props: {
     setEstimate(null);
     clearTimeout(estimateTimer);
     const gen = ++estimateGen;
+    if (format() === "mp4") {
+      setEstimate(mp4Estimate());
+      return;
+    }
     estimateTimer = window.setTimeout(() => {
       invoke<number>("estimate_gif", args)
         .then((b) => {
@@ -2639,20 +2653,30 @@ function ExportDialog(props: {
   };
 
   const doExport = async () => {
+    const f = format();
     const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
     const path = await save({
-      defaultPath: `${safe}.gif`,
-      filters: [{ name: "GIF", extensions: ["gif"] }],
+      defaultPath: `${safe}.${f}`,
+      filters: [
+        f === "gif"
+          ? { name: "GIF", extensions: ["gif"] }
+          : { name: "MP4 video", extensions: ["mp4"] },
+      ],
     });
     if (!path) return;
     setPhase("exporting");
     setProgress(0);
-    props.onStatus("Exporting GIF…");
+    props.onStatus(`Exporting ${f.toUpperCase()}…`);
     const unlisten = await listen<{ done: number; total: number }>("export-progress", (ev) => {
       setProgress(ev.payload.total > 0 ? ev.payload.done / ev.payload.total : 0);
     });
     try {
-      await invoke("export_gif", { path, fps: fps(), width: width(), quality: quality() });
+      await invoke(f === "gif" ? "export_gif" : "export_mp4", {
+        path,
+        fps: fps(),
+        width: width(),
+        quality: quality(),
+      });
       setOutPath(path);
       setPhase("done");
       props.onStatus(`Exported ${path}`);
@@ -2686,7 +2710,24 @@ function ExportDialog(props: {
     <div class="modal-backdrop" onClick={() => phase() !== "exporting" && props.onClose()}>
       <div class="modal" onClick={(e) => e.stopPropagation()}>
         <Show when={phase() === "configure"}>
-          <h2>Export GIF</h2>
+          <h2>Export</h2>
+          <div class="format-row">
+            <button
+              classList={{ chip: true, active: format() === "gif" }}
+              onClick={() => setFormat("gif")}
+            >
+              GIF<small>loops anywhere · README / chat</small>
+            </button>
+            <button
+              classList={{ chip: true, active: format() === "mp4" }}
+              onClick={() => {
+                setFormat("mp4");
+                if (fps() < 24) setFps(30);
+              }}
+            >
+              MP4 video<small>smaller · smoother · Slack / X / YouTube</small>
+            </button>
+          </div>
           <div class="preset-row">
             <button classList={{ chip: true, active: preset() === "readme" }} onClick={() => applyPreset("readme")}>
               README<small>small · 15fps · 1000px</small>
@@ -2701,7 +2742,7 @@ function ExportDialog(props: {
 
           <label class="field">
             <span>Frame rate · {fps()} fps</span>
-            <input type="range" min="8" max="30" step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
+            <input type="range" min="8" max={format() === "mp4" ? 60 : 30} step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
           </label>
           <label class="field">
             <span>Max width · {width()} px</span>
@@ -2713,7 +2754,9 @@ function ExportDialog(props: {
           </label>
 
           <div class="export-meta">
-            <span>{outDur().toFixed(1)}s of GIF</span>
+            <span>
+              {outDur().toFixed(1)}s of {format().toUpperCase()}
+            </span>
             <span class="export-size">
               {estimate() === null ? "estimating size…" : `≈ ${fmtBytes(estimate()!)}`}
             </span>
@@ -2735,19 +2778,19 @@ function ExportDialog(props: {
             <div class="progress-fill" style={{ width: `${Math.round(progress() * 100)}%` }} />
           </div>
           <p class="muted small">
-            Compositing {Math.round(progress() * 100)}% — annotations, zoom and speed-up are
-            baked into the final GIF.
+            Compositing {Math.round(progress() * 100)}% — annotations, zoom, speed-up and cuts
+            are baked into the final {format().toUpperCase()}.
           </p>
         </Show>
 
         <Show when={phase() === "done"}>
-          <h2>GIF exported</h2>
+          <h2>{format().toUpperCase()} exported</h2>
           <p class="export-path" title={outPath()}>
             {outPath()}
           </p>
           <div class="done-actions">
             <button class="btn export" onClick={() => void copyGif()}>
-              Copy GIF
+              Copy {format().toUpperCase()}
             </button>
             <button class="btn" onClick={() => void copyPath()}>
               Copy path

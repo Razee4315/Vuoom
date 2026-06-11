@@ -18,8 +18,8 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{
-    encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png, swizzle_rb,
-    write_png, GifSettings, RgbaImage,
+    downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png,
+    swizzle_rb, write_png, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -425,6 +425,72 @@ impl Session {
         };
         export_gif_native(&images, &settings, Path::new(&out_path)).map_err(|e| e.to_string())?;
         progress(total, total);
+        Ok(())
+    }
+
+    /// Composite the output timeline and encode an H.264 MP4 to `out_path`, streaming one
+    /// frame at a time (no full-clip RAM spike, unlike GIF which needs a global palette).
+    pub fn export_mp4(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let track = edited.track.as_ref().ok_or("no recording")?;
+        if edited.frames.is_empty() {
+            return Err("no frames".into());
+        }
+
+        let (out_w, out_h) = project.output_dims();
+        let bg = background_color(&project.frame);
+        let (t0, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
+        let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
+
+        // Optional max-width downscale; H.264 wants even dimensions, so floor to even and
+        // let the encoder crop the stray right/bottom line.
+        let scale_w = width.filter(|&w| w > 0 && w < out_w);
+        let (enc_src_w, enc_src_h) = match scale_w {
+            Some(w) => (
+                w,
+                ((u64::from(out_h) * u64::from(w)) / u64::from(out_w)).max(1) as u32,
+            ),
+            None => (out_w, out_h),
+        };
+        let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
+
+        let encoder = crate::mp4::Mp4Encoder::new(Path::new(&out_path), enc_w, enc_h, fps, quality)?;
+        for i in 0..total {
+            let t_out = (i as f64 / f64::from(fps)).min(d_out);
+            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+            let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
+                .ok_or("no frames")?;
+            let scene = build_scene(project, track, out_w, out_h, t_src);
+            let rgba = compositor.composite_scene(
+                &frame.bgra,
+                frame.width,
+                frame.height,
+                out_w,
+                out_h,
+                &scene,
+                bg,
+            );
+            let img = RgbaImage::new(out_w, out_h, rgba);
+            let img = if scale_w.is_some() {
+                downscale_rgba(&img, enc_src_w)
+            } else {
+                img
+            };
+            encoder.write_rgba(&img.pixels, img.width, img.height, i as u32)?;
+            progress(i as u32 + 1, total as u32 + 1);
+        }
+        encoder.finish()?;
+        progress(total as u32 + 1, total as u32 + 1);
         Ok(())
     }
 

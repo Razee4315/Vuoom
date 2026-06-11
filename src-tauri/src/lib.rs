@@ -7,6 +7,7 @@
 mod commands;
 mod hotkey;
 mod live_preview;
+mod mp4;
 mod region_border;
 mod session;
 mod windows_ext;
@@ -92,6 +93,7 @@ pub fn run() {
             commands::set_record_paused,
             commands::seek,
             commands::export_gif,
+            commands::export_mp4,
             commands::add_text,
             commands::add_arrow,
             commands::add_box,

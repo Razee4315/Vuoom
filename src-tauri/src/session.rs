@@ -54,6 +54,7 @@ pub struct ClipState {
     pub duration: f64,
     pub trim: Option<Trim>,
     pub speed_regions: Vec<SpeedRegion>,
+    pub cuts: Vec<Trim>,
     pub zooms: Vec<ZoomKeyframe>,
     pub show_clicks: bool,
 }
@@ -433,8 +434,8 @@ impl Session {
     /// Number of frames the output timeline (after trim + speed) emits at `fps`.
     fn output_frame_count(&self, edited: &Edited, fps: u32) -> Result<usize, String> {
         let project = edited.project.as_ref().ok_or("no recording")?;
-        let (_, span, regions) = out_mapping(project);
-        let d_out = output_duration(span, &regions);
+        let (_, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
         Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
     }
 
@@ -468,13 +469,13 @@ impl Session {
 
         let (out_w, out_h) = project.output_dims();
         let bg = background_color(&project.frame);
-        let (t0, span, regions) = out_mapping(project);
-        let d_out = output_duration(span, &regions);
+        let (t0, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
 
         let mut images = Vec::with_capacity(indices.len());
         for (done, &i) in indices.iter().enumerate() {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
-            let t_src = t0 + output_to_source(t_out, span, &regions);
+            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
                 .ok_or("no frames")?;
             let scene = build_scene(project, track, out_w, out_h, t_src);
@@ -575,6 +576,7 @@ impl Session {
             duration: project.source.duration,
             trim: project.trim,
             speed_regions: project.speed_regions.clone(),
+            cuts: project.cuts.clone(),
             zooms: project.zooms.clone(),
             show_clicks: project.show_clicks,
         })
@@ -712,6 +714,45 @@ impl Session {
         }
         project.speed_regions.remove(index);
         Ok(project.speed_regions.clone())
+    }
+
+    /// Remove `[start, end]` from the output entirely. Returns the updated, sorted list.
+    pub fn add_cut(&self, start: f64, end: f64) -> Result<Vec<Trim>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let s = start.min(end).clamp(0.0, (d - 0.1).max(0.0));
+        let e = end.max(start).clamp(s + 0.1, d.max(s + 0.1));
+        project.cuts.push(Trim { start: s, end: e });
+        sort_cuts(&mut project.cuts);
+        Ok(project.cuts.clone())
+    }
+
+    /// Retime the cut at `index`. Returns the updated, sorted list.
+    pub fn update_cut(&self, index: usize, start: f64, end: f64) -> Result<Vec<Trim>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let s = start.min(end).clamp(0.0, (d - 0.1).max(0.0));
+        let e = end.max(start).clamp(s + 0.1, d.max(s + 0.1));
+        let c = project.cuts.get_mut(index).ok_or("no such cut")?;
+        *c = Trim { start: s, end: e };
+        sort_cuts(&mut project.cuts);
+        Ok(project.cuts.clone())
+    }
+
+    /// Restore the cut at `index` (the section plays again). Returns the updated list.
+    pub fn delete_cut(&self, index: usize) -> Result<Vec<Trim>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        if index >= project.cuts.len() {
+            return Err("no such cut".into());
+        }
+        project.cuts.remove(index);
+        Ok(project.cuts.clone())
     }
 
     /// Insert a manual zoom segment at time `t` and re-simulate the camera.
@@ -1177,6 +1218,11 @@ fn sort_speed(regions: &mut [SpeedRegion]) {
     regions.sort_by(|a, b| a.start.total_cmp(&b.start));
 }
 
+/// Keep cuts in timeline order (the editor identifies them by sorted index).
+fn sort_cuts(cuts: &mut [Trim]) {
+    cuts.sort_by(|a, b| a.start.total_cmp(&b.start));
+}
+
 /// Recompute the camera track from the project's persisted events + (edited) zoom
 /// segments, so preview and export reflect zoom edits immediately.
 fn resimulate(edited: &mut Edited) {
@@ -1192,9 +1238,9 @@ fn resimulate(edited: &mut Edited) {
 }
 
 /// The output-timeline mapping inputs: the trim start `t0`, the trimmed span, and the
-/// speed regions clipped + shifted into trim-local coordinates. An output time maps to
-/// source time via `t0 + output_to_source(t_out, span, &regions)`.
-fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>) {
+/// speed regions + cuts clipped and shifted into trim-local coordinates. An output time
+/// maps to source time via `t0 + output_to_source(t_out, span, &regions, &cuts)`.
+fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>, Vec<Trim>) {
     let (t0, t1) = project.active_range();
     let span = (t1 - t0).max(1e-6);
     let regions = project
@@ -1210,7 +1256,19 @@ fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>) {
             })
         })
         .collect();
-    (t0, span, regions)
+    let cuts = project
+        .cuts
+        .iter()
+        .filter_map(|c| {
+            let s = c.start.max(t0);
+            let e = c.end.min(t1);
+            (e > s).then_some(Trim {
+                start: s - t0,
+                end: e - t0,
+            })
+        })
+        .collect();
+    (t0, span, regions, cuts)
 }
 
 fn background_color(frame: &FrameStyle) -> [f32; 4] {

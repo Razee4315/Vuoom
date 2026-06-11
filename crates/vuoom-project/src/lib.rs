@@ -67,6 +67,9 @@ pub struct Project {
     pub highlights: Vec<HighlightBox>,
     pub trim: Option<Trim>,
     pub speed_regions: Vec<SpeedRegion>,
+    /// Source-time ranges removed from the output entirely (mistakes, dead ends).
+    #[serde(default)]
+    pub cuts: Vec<Trim>,
     /// Render an expanding ripple at every recorded mouse click (preview + export).
     #[serde(default)]
     pub show_clicks: bool,
@@ -92,6 +95,7 @@ impl Project {
             highlights: Vec::new(),
             trim: None,
             speed_regions: Vec::new(),
+            cuts: Vec::new(),
             show_clicks: false,
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,

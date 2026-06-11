@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
 use vuoom_capture::CropRegion;
-use vuoom_project::{SpeedRegion, ZoomKeyframe};
+use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -316,6 +316,33 @@ pub fn delete_speed(
     index: usize,
 ) -> Result<Vec<SpeedRegion>, String> {
     engine.session()?.delete_speed_region(index)
+}
+
+/// Remove `[start, end]` from the output entirely; returns the updated cut list.
+#[tauri::command]
+pub fn add_cut(
+    engine: tauri::State<'_, Engine>,
+    start: f64,
+    end: f64,
+) -> Result<Vec<Trim>, String> {
+    engine.session()?.add_cut(start, end)
+}
+
+/// Retime the cut at `index`; returns the updated cut list.
+#[tauri::command]
+pub fn update_cut(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+    start: f64,
+    end: f64,
+) -> Result<Vec<Trim>, String> {
+    engine.session()?.update_cut(index, start, end)
+}
+
+/// Restore the cut at `index`; returns the updated cut list.
+#[tauri::command]
+pub fn delete_cut(engine: tauri::State<'_, Engine>, index: usize) -> Result<Vec<Trim>, String> {
+    engine.session()?.delete_cut(index)
 }
 
 /// Insert a manual zoom segment at time `t`; returns the updated segment list.

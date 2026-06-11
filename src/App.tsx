@@ -91,19 +91,29 @@ interface ClipState {
   duration: number;
   trim: Trim | null;
   speed_regions: SpeedRegion[];
+  cuts: Trim[];
   zooms: ZoomSeg[];
   show_clicks: boolean;
 }
 
-/** Played duration after trim + speed regions (mirrors vuoom_project::output_duration). */
-function outputDuration(duration: number, trim: Trim | null, regions: SpeedRegion[]): number {
+/** Played duration after trim + speed regions + cuts (mirrors vuoom_project::output_duration).
+ * A cut is a region with an infinite factor — it contributes zero output time. */
+function outputDuration(
+  duration: number,
+  trim: Trim | null,
+  regions: SpeedRegion[],
+  cuts: Trim[],
+): number {
   const t0 = trim?.start ?? 0;
   const t1 = trim?.end ?? duration;
   let out = 0;
   let cursor = t0;
-  const sorted = [...regions]
-    .filter((r) => r.end > r.start && r.factor > 0)
-    .sort((a, b) => a.start - b.start);
+  const sorted = [
+    ...regions.filter((r) => r.end > r.start && r.factor > 0),
+    ...cuts
+      .filter((c) => c.end > c.start)
+      .map((c) => ({ start: c.start, end: c.end, factor: Infinity })),
+  ].sort((a, b) => a.start - b.start);
   for (const r of sorted) {
     const s = Math.max(r.start, t0);
     const e = Math.min(r.end, t1);
@@ -184,8 +194,10 @@ function App() {
   const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
   const [trim, setTrimState] = createSignal<Trim | null>(null);
   const [speed, setSpeed] = createSignal<SpeedRegion[]>([]);
+  const [cuts, setCuts] = createSignal<Trim[]>([]);
   const [selZoom, setSelZoom] = createSignal<number | null>(null);
   const [selSpeed, setSelSpeed] = createSignal<number | null>(null);
+  const [selCut, setSelCut] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
   const [selected, setSelected] = createSignal<Selection | null>(null);
@@ -365,6 +377,7 @@ function App() {
       setZooms(cs.zooms);
       setTrimState(cs.trim);
       setSpeed(cs.speed_regions);
+      setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
     } catch {
       /* no recording */
@@ -383,6 +396,9 @@ function App() {
     if (!playing()) return;
     if (lastTs) {
       let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead());
+      // Cut sections are removed from the output — playback jumps over them.
+      const cut = cuts().find((c) => t >= c.start && t < c.end);
+      if (cut) t = cut.end;
       if (t >= tEnd()) {
         // GIFs loop — with Loop on, the preview does too.
         if (looping()) {
@@ -447,13 +463,21 @@ function App() {
     } else if ((e.key === "Delete" || e.key === "Backspace") && selSpeed() !== null) {
       e.preventDefault();
       void deleteSelectedSpeed();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selCut() !== null) {
+      e.preventDefault();
+      void deleteSelectedCut();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
       void deleteSelected();
-    } else if (e.key === "Escape" && (selected() || selZoom() !== null || selSpeed() !== null)) {
+    } else if (
+      e.key === "Escape" &&
+      (selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null)
+    ) {
       setSelected(null);
       setSelZoom(null);
       setSelSpeed(null);
+      setSelCut(null);
+      setSelCut(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
@@ -607,6 +631,7 @@ function App() {
       await pushSeek(playhead());
       setSelZoom(null);
       setSelSpeed(null);
+      setSelCut(null);
       setSelected({ kind: "text", id });
       setEditingText(id);
       setTool("select");
@@ -645,6 +670,7 @@ function App() {
     if (hit) {
       setSelZoom(null);
       setSelSpeed(null);
+      setSelCut(null);
       setSelected(hit);
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
@@ -653,6 +679,7 @@ function App() {
       setSelected(null);
       setSelZoom(null);
       setSelSpeed(null);
+      setSelCut(null);
     }
   };
 
@@ -828,6 +855,7 @@ function App() {
     setSelected(null);
     setSelZoom(null);
     setSelSpeed(null);
+    setSelCut(null);
     setEditingText(null);
     await refresh();
     await refreshClip();
@@ -935,6 +963,7 @@ function App() {
     setSelected(null);
     setSelZoom(null);
     setSelSpeed(null);
+    setSelCut(null);
     setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
     await refresh();
     await refreshClip();
@@ -954,6 +983,7 @@ function App() {
       const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
       setSelected(null);
       setSelSpeed(null);
+      setSelCut(null);
       setSelZoom(idx >= 0 ? idx : null);
       await pushSeek(playhead());
       setStatus("Zoom added — drag its edges on the timeline to retime");
@@ -1063,6 +1093,7 @@ function App() {
       const idx = list.findIndex((r) => Math.abs(r.start - start) < 0.01);
       setSelected(null);
       setSelZoom(null);
+      setSelCut(null);
       setSelSpeed(idx >= 0 ? idx : null);
       setStatus("Speed region added — drag it on the timeline to retime");
     } catch (e) {
@@ -1088,6 +1119,51 @@ function App() {
       setSelSpeed(null);
     } catch (e) {
       setStatus(`Speed delete failed: ${String(e)}`);
+    }
+  };
+
+  // ── cuts (sections removed from the output) ────────────────────────────────────
+  const selectedCut = () => {
+    const i = selCut();
+    return i === null ? undefined : cuts()[i];
+  };
+  const addCutAtPlayhead = async () => {
+    if (!hasClip()) return;
+    try {
+      const start = Math.min(playhead(), Math.max(0, duration() - 0.2));
+      const end = Math.min(start + 1, duration());
+      const list = await invoke<Trim[]>("add_cut", { start, end });
+      setCuts(list);
+      const idx = list.findIndex((c) => Math.abs(c.start - start) < 0.01);
+      setSelected(null);
+      setSelZoom(null);
+      setSelSpeed(null);
+      setSelCut(idx >= 0 ? idx : null);
+      setStatus("Section cut — drag the band to choose exactly what's removed");
+    } catch (e) {
+      setStatus(`Could not cut: ${String(e)}`);
+    }
+  };
+  const applyCutEdit = async (index: number, start: number, end: number) => {
+    try {
+      const list = await invoke<Trim[]>("update_cut", { index, start, end });
+      setCuts(list);
+      // Re-find the edited cut (the list re-sorts by start).
+      const idx = list.findIndex((c) => Math.abs(c.start - Math.min(start, end)) < 0.25);
+      if (idx >= 0) setSelCut(idx);
+    } catch (e) {
+      setStatus(`Cut edit failed: ${String(e)}`);
+    }
+  };
+  const deleteSelectedCut = async () => {
+    const i = selCut();
+    if (i === null) return;
+    try {
+      setCuts(await invoke<Trim[]>("delete_cut", { index: i }));
+      setSelCut(null);
+      setStatus("Section restored");
+    } catch (e) {
+      setStatus(`Restore failed: ${String(e)}`);
     }
   };
 
@@ -1194,6 +1270,7 @@ function App() {
     setZoomDrag(null);
     setSelected(null);
     setSelSpeed(null);
+    setSelCut(null);
     if (d.moved) {
       await applyZoomEdit(d.idx, d.cur.start, d.cur.end, zooms()[d.idx]?.amount ?? 1.8);
     } else {
@@ -1252,11 +1329,72 @@ function App() {
     setSpeedDrag(null);
     setSelected(null);
     setSelZoom(null);
+    setSelCut(null);
     if (d.moved) {
       await applySpeedEdit(d.idx, d.cur.start, d.cur.end, speed()[d.idx]?.factor ?? skimFactor());
     } else {
       // A plain click: select the region and jump to it.
       setSelSpeed(d.idx);
+      scrub(d.orig.start);
+    }
+  };
+
+  // Cut-band dragging: grab the chip to move the cut, its edges (8px) to resize.
+  const [cutDrag, setCutDrag] = createSignal<{
+    idx: number;
+    mode: "move" | "l" | "r";
+    grabT: number;
+    orig: Trim;
+    cur: { start: number; end: number };
+    moved: boolean;
+  } | null>(null);
+  const cutGeom = (idx: number, c: Trim) => {
+    const d = cutDrag();
+    return d && d.idx === idx ? d.cur : { start: c.start, end: c.end };
+  };
+  const onCutDown = (idx: number, c: Trim) => (e: PointerEvent) => {
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    const mode = e.clientX - rect.left < 8 ? "l" : rect.right - e.clientX < 8 ? "r" : "move";
+    setCutDrag({
+      idx,
+      mode,
+      grabT: tlTime(e),
+      orig: { ...c },
+      cur: { start: c.start, end: c.end },
+      moved: false,
+    });
+  };
+  const onCutMove = (e: PointerEvent) => {
+    const d = cutDrag();
+    if (!d) return;
+    const dt = tlTime(e) - d.grabT;
+    let { start, end } = d.orig;
+    if (d.mode === "move") {
+      const len = end - start;
+      start = Math.min(Math.max(0, start + dt), duration() - len);
+      end = start + len;
+    } else if (d.mode === "l") {
+      start = Math.min(Math.max(0, start + dt), end - 0.1);
+    } else {
+      end = Math.max(Math.min(duration(), end + dt), start + 0.1);
+    }
+    setCutDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
+  };
+  const onCutUp = async () => {
+    const d = cutDrag();
+    if (!d) return;
+    setCutDrag(null);
+    setSelected(null);
+    setSelZoom(null);
+    setSelSpeed(null);
+    if (d.moved) {
+      await applyCutEdit(d.idx, d.cur.start, d.cur.end);
+    } else {
+      // A plain click: select the cut and jump to it.
+      setSelCut(d.idx);
       scrub(d.orig.start);
     }
   };
@@ -1328,6 +1466,7 @@ function App() {
     setAnnDrag(null);
     setSelZoom(null);
     setSelSpeed(null);
+    setSelCut(null);
     setSelected({ kind: d.kind, id: d.id });
     if (d.moved) {
       try {
@@ -1384,7 +1523,8 @@ function App() {
       /* storage unavailable */
     }
   };
-  const inspectorOpen = () => !!selected() || selZoom() !== null || selSpeed() !== null;
+  const inspectorOpen = () =>
+    !!selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null;
 
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -2028,6 +2168,33 @@ function App() {
             </button>
           </aside>
         </Show>
+
+        <Show when={selCut() !== null && selectedCut()}>
+          <aside class="properties">
+            <div
+              class="panel-resizer"
+              title="Drag to resize"
+              onPointerDown={onInspDown}
+              onPointerMove={onInspMove}
+              onPointerUp={onInspUp}
+            />
+            <div class="inspector-head">
+              <h2>Cut</h2>
+              <button class="icon-btn" title="Done" onClick={() => setSelCut(null)}>
+                ✕
+              </button>
+            </div>
+
+            <p class="muted small">
+              {fmt(selectedCut()!.start)} – {fmt(selectedCut()!.end)} is removed from the GIF —
+              playback and export skip straight over it. Drag the band on the timeline to retime,
+              drag its edges to resize.
+            </p>
+            <button class="btn danger" onClick={() => void deleteSelectedCut()}>
+              Restore this section
+            </button>
+          </aside>
+        </Show>
       </div>
 
       <footer class="timeline">
@@ -2068,9 +2235,9 @@ function App() {
           </button>
           <span class="time">
             {fmtT(playhead())} <span class="time-sep">/</span> {fmt(duration())}
-            <Show when={trim() || speed().length > 0}>
-              <span class="time-out" title="Final GIF duration after trim + speed-up">
-                → {outputDuration(duration(), trim(), speed()).toFixed(1)}s
+            <Show when={trim() || speed().length > 0 || cuts().length > 0}>
+              <span class="time-out" title="Final GIF duration after trim + speed-up + cuts">
+                → {outputDuration(duration(), trim(), speed(), cuts()).toFixed(1)}s
               </span>
             </Show>
           </span>
@@ -2117,6 +2284,19 @@ function App() {
               <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
             </svg>
             <span>Speed</span>
+          </button>
+          <button
+            class="tbtn wide"
+            title="Remove 1s at the playhead from the GIF — drag the band to choose the exact section"
+            disabled={!hasClip()}
+            onClick={() => void addCutAtPlayhead()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="6" cy="6" r="2.6" />
+              <circle cx="6" cy="18" r="2.6" />
+              <path d="M8.1 7.8L20 19M8.1 16.2L20 5" />
+            </svg>
+            <span>Cut</span>
           </button>
           <button
             class="tbtn wide"
@@ -2246,6 +2426,32 @@ function App() {
               }}
             </For>
 
+            {/* Cut bands — sections removed from the output. Click the chip to select. */}
+            <For each={cuts()}>
+              {(c, i) => {
+                const g = () => cutGeom(i(), c);
+                return (
+                  <div
+                    classList={{ "tl-cutband": true, selected: selCut() === i() }}
+                    style={{
+                      left: `${pct(g().start)}%`,
+                      width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                    }}
+                  >
+                    <button
+                      class="tl-cutchip"
+                      title="Removed from the GIF · drag to move, drag an edge to resize, Delete to restore"
+                      onPointerDown={onCutDown(i(), c)}
+                      onPointerMove={onCutMove}
+                      onPointerUp={() => void onCutUp()}
+                    >
+                      ✂
+                    </button>
+                  </div>
+                );
+              }}
+            </For>
+
             {/* Trim: dimmed cut-off areas + draggable in/out handles */}
             <div class="tl-shade" style={{ left: "0", width: `${pct(tStart())}%` }} />
             <div class="tl-shade" style={{ left: `${pct(tEnd())}%`, right: "0" }} />
@@ -2279,6 +2485,7 @@ function App() {
           duration={duration()}
           trim={trim()}
           speed={speed()}
+          cuts={cuts()}
           onClose={() => setShowExport(false)}
           onStatus={setStatus}
         />
@@ -2353,6 +2560,7 @@ function ExportDialog(props: {
   duration: number;
   trim: Trim | null;
   speed: SpeedRegion[];
+  cuts: Trim[];
   onClose: () => void;
   onStatus: (s: string) => void;
 }): JSX.Element {
@@ -2366,7 +2574,7 @@ function ExportDialog(props: {
   const [outPath, setOutPath] = createSignal("");
   const [copied, setCopied] = createSignal("");
 
-  const outDur = () => outputDuration(props.duration, props.trim, props.speed);
+  const outDur = () => outputDuration(props.duration, props.trim, props.speed, props.cuts);
 
   // Live size estimate (sample-and-extrapolate), debounced as sliders move.
   let estimateTimer: number | undefined;

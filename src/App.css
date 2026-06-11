@@ -1068,6 +1068,50 @@ kbd {
   outline: 1px solid var(--accent);
 }
 
+/* Cut bands — sections removed from the output entirely */
+.tl-cutband {
+  position: absolute;
+  top: 20px;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -55deg,
+    rgba(0, 0, 0, 0.35) 0 6px,
+    color-mix(in srgb, var(--record) 28%, rgba(0, 0, 0, 0.35)) 6px 12px
+  );
+  border-left: 1px solid color-mix(in srgb, var(--record) 60%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--record) 60%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+.tl-cutband.selected {
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+}
+.tl-cutchip {
+  pointer-events: auto;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 15px;
+  width: 100%;
+  border: none;
+  border-radius: 5px 5px 0 0;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: #fff;
+  background: color-mix(in srgb, var(--record) 65%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+.tl-cutchip:active {
+  cursor: grabbing;
+}
+.tl-cutband.selected .tl-cutchip {
+  outline: 1px solid var(--accent);
+}
+
 /* Trim: dimmed cut-off areas + draggable in/out handles */
 .tl-shade {
   position: absolute;

@@ -832,6 +832,35 @@ impl Session {
         })
     }
 
+    /// Restyle an arrow or highlight: stroke thickness (fraction of output height) and,
+    /// for highlights, filled vs outlined. `None` fields keep their current value.
+    pub fn set_annotation_style(
+        &self,
+        id: u32,
+        thickness: Option<f64>,
+        filled: Option<bool>,
+    ) -> Result<(), String> {
+        self.with_project(|p| {
+            let th = thickness.map(|t| (t as f32).clamp(0.001, 0.05));
+            if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
+                if let Some(t) = th {
+                    a.thickness = t;
+                }
+                return Ok(());
+            }
+            if let Some(b) = p.highlights.iter_mut().find(|b| b.id == id) {
+                if let Some(t) = th {
+                    b.thickness = t;
+                }
+                if let Some(f) = filled {
+                    b.filled = f;
+                }
+                return Ok(());
+            }
+            Err("no such arrow or highlight".into())
+        })
+    }
+
     /// Retime any annotation (text, arrow, or box): set when it appears/disappears.
     pub fn update_annotation_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
         self.with_project(|p| {

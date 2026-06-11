@@ -681,6 +681,17 @@ function App() {
     const s = selected();
     return s?.kind === "box" ? anns().highlights.find((b) => b.id === s.id) : undefined;
   };
+  const selectedArrow = () => {
+    const s = selected();
+    return s?.kind === "arrow" ? anns().arrows.find((a) => a.id === s.id) : undefined;
+  };
+  const editStyle = async (patch: { thickness?: number; filled?: boolean }) => {
+    const s = selected();
+    if (!s) return;
+    await invoke("set_annotation_style", { id: s.id, ...patch });
+    await refresh();
+    await pushSeek(playhead());
+  };
   const inspTitle = () => {
     const s = selected()!;
     if (s.kind === "box" && selectedBox()?.shape === "Ellipse") return "Ellipse";
@@ -1379,7 +1390,7 @@ function App() {
                                     height={s().y}
                                     fill={b.filled ? cssColor(b.color) : "none"}
                                     stroke={cssColor(b.color)}
-                                    stroke-width={2}
+                                    stroke-width={Math.max(b.thickness * stage().h, 1.5)}
                                   />
                                 }
                               >
@@ -1390,7 +1401,7 @@ function App() {
                                   ry={s().y / 2}
                                   fill={b.filled ? cssColor(b.color) : "none"}
                                   stroke={cssColor(b.color)}
-                                  stroke-width={2}
+                                  stroke-width={Math.max(b.thickness * stage().h, 1.5)}
                                 />
                               </Show>
                               <Show when={sel()}>
@@ -1423,7 +1434,12 @@ function App() {
                           const tp = () => px({ x: g()[2], y: g()[3] });
                           return (
                             <g opacity={isGhost(ar.range, sel()) ? 0.35 : 1}>
-                              <ArrowLine from={f()} to={tp()} color={cssColor(ar.color)} />
+                              <ArrowLine
+                                from={f()}
+                                to={tp()}
+                                color={cssColor(ar.color)}
+                                width={Math.max(ar.thickness * stage().h, 1.5)}
+                              />
                               <Show when={sel()}>
                                 <Handles pts={[f(), tp()]} />
                               </Show>
@@ -1595,6 +1611,45 @@ function App() {
                   step="0.005"
                   value={selectedText()!.font_size}
                   onInput={(e) => void editFontSize(Number(e.currentTarget.value))}
+                />
+              </label>
+            </Show>
+
+            <Show when={selectedBox()}>
+              <div class="field">
+                <span>Fill</span>
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, label: true, on: !selectedBox()!.filled }}
+                    onClick={() => void editStyle({ filled: false })}
+                  >
+                    Outline
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedBox()!.filled }}
+                    onClick={() => void editStyle({ filled: true })}
+                  >
+                    Filled
+                  </button>
+                </div>
+              </div>
+            </Show>
+            <Show when={selectedArrow() || (selectedBox() && !selectedBox()!.filled)}>
+              <label class="field">
+                <span>
+                  Thickness ·{" "}
+                  {(
+                    (selectedArrow()?.thickness ?? selectedBox()?.thickness ?? 0.006) * 100
+                  ).toFixed(1)}
+                  % of height
+                </span>
+                <input
+                  type="range"
+                  min="0.002"
+                  max="0.02"
+                  step="0.001"
+                  value={selectedArrow()?.thickness ?? selectedBox()?.thickness ?? 0.006}
+                  onInput={(e) => void editStyle({ thickness: Number(e.currentTarget.value) })}
                 />
               </label>
             </Show>
@@ -2012,14 +2067,16 @@ function Handles(props: { pts: Vec2[] }): JSX.Element {
   );
 }
 
-function ArrowLine(props: { from: Vec2; to: Vec2; color: string }): JSX.Element {
+function ArrowLine(props: { from: Vec2; to: Vec2; color: string; width?: number }): JSX.Element {
+  const w = () => props.width ?? 3;
+  const headLen = () => Math.max(w() * 3.5, 9); // mirrors the export head (thickness × 3.5)
   const ang = () => Math.atan2(props.to.y - props.from.y, props.to.x - props.from.x);
   const head = (off: number) => ({
-    x: props.to.x - 14 * Math.cos(ang() - off),
-    y: props.to.y - 14 * Math.sin(ang() - off),
+    x: props.to.x - headLen() * Math.cos(ang() - off),
+    y: props.to.y - headLen() * Math.sin(ang() - off),
   });
   return (
-    <g stroke={props.color} fill={props.color} stroke-width={3} stroke-linecap="round">
+    <g stroke={props.color} fill={props.color} stroke-width={w()} stroke-linecap="round">
       <line x1={props.from.x} y1={props.from.y} x2={props.to.x} y2={props.to.y} />
       <polygon
         points={`${props.to.x},${props.to.y} ${head(0.5).x},${head(0.5).y} ${head(-0.5).x},${head(-0.5).y}`}

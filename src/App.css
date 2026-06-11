@@ -640,6 +640,12 @@ kbd {
   font-style: italic;
   font-weight: 500;
 }
+.stylebtn.label {
+  width: auto;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 550;
+}
 .stylebtn:hover {
   background: var(--hover);
 }

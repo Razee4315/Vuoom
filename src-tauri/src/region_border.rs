@@ -45,9 +45,6 @@ mod imp {
         thread: Option<JoinHandle<()>>,
     }
 
-    // HWNDs never leave the worker thread; the handle only carries the thread id.
-    unsafe impl Send for RegionBorder {}
-
     impl RegionBorder {
         /// Show a frame around the region `(x, y, w, h)` (physical px, virtual-screen
         /// coords). Returns `None` if any window could not be created.

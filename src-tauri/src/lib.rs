@@ -114,6 +114,7 @@ pub fn run() {
             commands::set_annotation_color,
             commands::set_annotation_style,
             commands::update_annotation_range,
+            commands::duplicate_annotation,
             commands::delete_annotation,
             commands::enter_overlay,
             commands::enter_stopbar,

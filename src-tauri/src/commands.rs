@@ -489,6 +489,12 @@ pub fn update_annotation_range(
     engine.session()?.update_annotation_range(id, start, end)
 }
 
+/// Duplicate an annotation (same style/timing, nudged); returns the new id.
+#[tauri::command]
+pub fn duplicate_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<u32, String> {
+    engine.session()?.duplicate_annotation(id)
+}
+
 /// Delete an annotation (text, arrow, or box) by id.
 #[tauri::command]
 pub fn delete_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<(), String> {

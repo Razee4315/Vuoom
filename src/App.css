@@ -708,6 +708,11 @@ kbd {
   font-size: 11px;
   margin: 6px 0 14px;
 }
+.btn.block {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 8px;
+}
 .btn.danger {
   width: 100%;
   justify-content: center;

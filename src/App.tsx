@@ -229,6 +229,12 @@ function App() {
         e.preventDefault();
         return;
       }
+      // Ctrl+D would otherwise be swallowed below as a browser-bookmark chord.
+      if (e.code === "KeyD" && !inField) {
+        e.preventDefault();
+        if (hasClip() && selected()) void duplicateSelected();
+        return;
+      }
     }
     const browserChord =
       (e.ctrlKey && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
@@ -754,6 +760,19 @@ function App() {
     setSelected(null);
     await refresh();
     await pushSeek(playhead());
+  };
+  const duplicateSelected = async () => {
+    const s = selected();
+    if (!s) return;
+    try {
+      const id = await invoke<number>("duplicate_annotation", { id: s.id });
+      await refresh();
+      await pushSeek(playhead());
+      setSelected({ kind: s.kind, id });
+      setStatus("Duplicated — drag the copy into place");
+    } catch (e) {
+      setStatus(`Duplicate failed: ${String(e)}`);
+    }
   };
 
   // ── inline text editing ──────────────────────────────────────────────────────────
@@ -1715,6 +1734,9 @@ function App() {
               </p>
             </Show>
             <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>
+            <button class="btn block" title="Duplicate (Ctrl+D)" onClick={() => void duplicateSelected()}>
+              Duplicate
+            </button>
             <button class="btn danger" onClick={() => void deleteSelected()}>
               Delete element
             </button>

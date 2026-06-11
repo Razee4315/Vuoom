@@ -895,6 +895,39 @@ impl Session {
         })
     }
 
+    /// Duplicate any annotation: same style and timing, nudged down-right so the copy is
+    /// visible next to the original. Returns the new id.
+    pub fn duplicate_annotation(&self, id: u32) -> Result<u32, String> {
+        const NUDGE: f64 = 0.03;
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let new_id = next_id(project);
+        if let Some(t) = project.texts.iter().find(|t| t.id == id).cloned() {
+            let mut c = t;
+            c.id = new_id;
+            c.pos = (c.pos + DVec2::splat(NUDGE)).clamp(DVec2::ZERO, DVec2::ONE);
+            project.texts.push(c);
+            return Ok(new_id);
+        }
+        if let Some(a) = project.arrows.iter().find(|a| a.id == id).copied() {
+            let mut c = a;
+            c.id = new_id;
+            c.from = (c.from + DVec2::splat(NUDGE)).clamp(DVec2::ZERO, DVec2::ONE);
+            c.to = (c.to + DVec2::splat(NUDGE)).clamp(DVec2::ZERO, DVec2::ONE);
+            project.arrows.push(c);
+            return Ok(new_id);
+        }
+        if let Some(b) = project.highlights.iter().find(|b| b.id == id).copied() {
+            let mut c = b;
+            c.id = new_id;
+            c.rect.x = (c.rect.x + NUDGE).clamp(0.0, 1.0);
+            c.rect.y = (c.rect.y + NUDGE).clamp(0.0, 1.0);
+            project.highlights.push(c);
+            return Ok(new_id);
+        }
+        Err("no such annotation".into())
+    }
+
     /// Delete any annotation (text, arrow, or box) by id.
     pub fn delete_annotation(&self, id: u32) -> Result<(), String> {
         self.with_project(|p| {

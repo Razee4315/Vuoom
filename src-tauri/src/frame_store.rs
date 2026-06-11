@@ -82,11 +82,6 @@ impl FrameWriter {
         Ok(())
     }
 
-    /// How many frames have been written so far.
-    pub fn len(&self) -> usize {
-        self.index.len()
-    }
-
     /// Flush, persist the index sidecar, and reopen the store for reading.
     pub fn finish(mut self) -> Result<FrameStore, String> {
         self.out.flush().map_err(|e| format!("frame flush: {e}"))?;

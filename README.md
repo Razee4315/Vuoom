@@ -17,10 +17,6 @@ No account, no watermark, no subscription.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 ![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
 
-**By [Saqlain Abbas](https://github.com/Razee4315)**
-
-[**⬇ Download the latest release**](https://github.com/Razee4315/Vuoom/releases/latest)
-
 </div>
 
 ---

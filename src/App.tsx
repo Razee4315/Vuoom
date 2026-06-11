@@ -68,11 +68,14 @@ interface AnnotationSet {
   highlights: BoxAnn[];
 }
 
-/** Mirrors vuoom_zoom::ZoomKeyframe (mode is unused by the timeline). */
+/** How a zoom picks its focus — mirrors vuoom_zoom::ZoomMode's serde shape. */
+type ZoomMode = "Auto" | { Manual: { pos: SerVec } };
+/** Mirrors vuoom_zoom::ZoomKeyframe. */
 interface ZoomSeg {
   start: number;
   end: number;
   amount: number;
+  mode: ZoomMode;
 }
 interface SpeedRegion {
   start: number;
@@ -886,6 +889,41 @@ function App() {
     }
   };
 
+  // ── zoom focus (follow the cursor, or hold a fixed draggable point) ──────────────
+  const selZoomFocus = (): Vec2 | null => {
+    const z = selectedZoom();
+    if (!z || typeof z.mode !== "object") return null;
+    return v2(z.mode.Manual.pos);
+  };
+  const applyZoomFocus = async (focus: Vec2 | null) => {
+    const i = selZoom();
+    if (i === null) return;
+    try {
+      const args = focus ? { index: i, x: focus.x, y: focus.y } : { index: i };
+      setZooms(await invoke<ZoomSeg[]>("set_zoom_focus", args));
+      await pushSeek(playhead());
+      setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the cursor");
+    } catch (e) {
+      setStatus(`Zoom focus failed: ${String(e)}`);
+    }
+  };
+  // Crosshair dragging on the canvas.
+  const [focusDrag, setFocusDrag] = createSignal<Vec2 | null>(null);
+  const onFocusDown = (e: PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    setFocusDrag(norm(e));
+  };
+  const onFocusMove = (e: PointerEvent) => {
+    if (focusDrag()) setFocusDrag(norm(e));
+  };
+  const onFocusUp = async () => {
+    const f = focusDrag();
+    if (!f) return;
+    setFocusDrag(null);
+    await applyZoomFocus(f);
+  };
+
   // ── speed-up dead time ─────────────────────────────────────────────────────────
   const toggleSkim = async () => {
     if (!hasClip()) return;
@@ -1541,6 +1579,29 @@ function App() {
                     );
                   })()}
                 </Show>
+
+                {/* Zoom focus crosshair — drag to aim the selected zoom segment. */}
+                <Show when={selZoomFocus()}>
+                  {(() => {
+                    const f = () => focusDrag() ?? selZoomFocus()!;
+                    const p = () => px(f());
+                    return (
+                      <g
+                        class="focus-reticle"
+                        onPointerDown={onFocusDown}
+                        onPointerMove={onFocusMove}
+                        onPointerUp={() => void onFocusUp()}
+                      >
+                        <circle class="ring" cx={p().x} cy={p().y} r={16} />
+                        <circle class="dot" cx={p().x} cy={p().y} r={3} />
+                        <line x1={p().x - 26} y1={p().y} x2={p().x - 10} y2={p().y} />
+                        <line x1={p().x + 10} y1={p().y} x2={p().x + 26} y2={p().y} />
+                        <line x1={p().x} y1={p().y - 26} x2={p().x} y2={p().y - 10} />
+                        <line x1={p().x} y1={p().y + 10} x2={p().x} y2={p().y + 26} />
+                      </g>
+                    );
+                  })()}
+                </Show>
               </svg>
 
               <Show when={editingTextAnn()}>
@@ -1773,6 +1834,30 @@ function App() {
                 }}
               />
             </label>
+            <div class="field">
+              <span>Focus</span>
+              <div class="style-row">
+                <button
+                  classList={{ stylebtn: true, label: true, on: !selZoomFocus() }}
+                  title="The camera follows your recorded cursor"
+                  onClick={() => void applyZoomFocus(null)}
+                >
+                  Follow cursor
+                </button>
+                <button
+                  classList={{ stylebtn: true, label: true, on: !!selZoomFocus() }}
+                  title="Hold one spot — drag the crosshair on the video to aim"
+                  onClick={() => {
+                    if (!selZoomFocus()) void applyZoomFocus({ x: 0.5, y: 0.5 });
+                  }}
+                >
+                  Fixed point
+                </button>
+              </div>
+            </div>
+            <Show when={selZoomFocus()}>
+              <p class="muted small">Drag the crosshair on the video to aim this zoom.</p>
+            </Show>
             <p class="muted small">
               {fmt(selectedZoom()!.start)} – {fmt(selectedZoom()!.end)} · drag the block on the
               timeline to retime, drag its edges to resize.

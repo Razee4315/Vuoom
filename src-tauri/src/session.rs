@@ -726,6 +726,30 @@ impl Session {
         Ok(zooms)
     }
 
+    /// Set how the zoom segment at `index` picks its focus: `Some((x, y))` holds a fixed
+    /// normalized point, `None` follows the cursor. Returns the updated segment list.
+    pub fn set_zoom_focus(
+        &self,
+        index: usize,
+        focus: Option<(f64, f64)>,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let kf = project
+            .zooms
+            .get_mut(index)
+            .ok_or("no such zoom segment")?;
+        kf.mode = match focus {
+            Some((x, y)) => ZoomMode::Manual {
+                pos: DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)),
+            },
+            None => ZoomMode::Auto,
+        };
+        let zooms = project.zooms.clone();
+        resimulate(&mut edited);
+        Ok(zooms)
+    }
+
     /// Delete the zoom segment at `index` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {

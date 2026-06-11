@@ -574,6 +574,24 @@ kbd {
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
 }
+/* Zoom focus crosshair */
+.focus-reticle {
+  cursor: move;
+}
+.focus-reticle .ring {
+  fill: rgba(229, 72, 77, 0.12);
+  stroke: var(--record);
+  stroke-width: 2;
+}
+.focus-reticle .dot {
+  fill: var(--record);
+}
+.focus-reticle line {
+  stroke: var(--record);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .text-edit {
   position: absolute;
   z-index: 5;

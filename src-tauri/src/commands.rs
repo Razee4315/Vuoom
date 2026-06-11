@@ -339,6 +339,22 @@ pub async fn update_zoom(
     engine.session()?.update_zoom(index, start, end, amount)
 }
 
+/// Set a zoom segment's focus: pass `x` + `y` (normalized) to hold a fixed point, or
+/// omit both to follow the cursor. Returns the updated segment list.
+#[tauri::command]
+pub async fn set_zoom_focus(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    let focus = match (x, y) {
+        (Some(x), Some(y)) => Some((x, y)),
+        _ => None,
+    };
+    engine.session()?.set_zoom_focus(index, focus)
+}
+
 /// Delete the zoom segment at `index`; returns the updated segment list.
 #[tauri::command]
 pub async fn delete_zoom(

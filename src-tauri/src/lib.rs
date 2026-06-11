@@ -105,6 +105,7 @@ pub fn run() {
             commands::delete_speed,
             commands::add_zoom,
             commands::update_zoom,
+            commands::set_zoom_focus,
             commands::delete_zoom,
             commands::estimate_gif,
             commands::copy_gif_to_clipboard,

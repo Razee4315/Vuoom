@@ -375,7 +375,9 @@ impl Session {
             .filter_map(|&(s, e)| {
                 let start = self.clock.seconds_between(session.start_qpc, s).max(0.0);
                 let end = e
-                    .map_or(duration, |e| self.clock.seconds_between(session.start_qpc, e))
+                    .map_or(duration, |e| {
+                        self.clock.seconds_between(session.start_qpc, e)
+                    })
                     .min(duration);
                 (end - start > 0.05).then_some(Trim { start, end })
             })
@@ -504,7 +506,8 @@ impl Session {
         };
         let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
 
-        let encoder = crate::mp4::Mp4Encoder::new(Path::new(&out_path), enc_w, enc_h, fps, quality)?;
+        let encoder =
+            crate::mp4::Mp4Encoder::new(Path::new(&out_path), enc_w, enc_h, fps, quality)?;
         for i in 0..total {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
@@ -1403,12 +1406,7 @@ fn nearest_frame(
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
 /// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced.
-fn extract_key_taps(
-    raw: &[RawEvent],
-    clock: Clock,
-    start_qpc: i64,
-    duration: f64,
-) -> Vec<KeyTap> {
+fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f64) -> Vec<KeyTap> {
     use vuoom_input::{is_standalone, key_name, modifier, Modifier, RawEventKind};
 
     let (mut shift, mut ctrl, mut alt, mut win) = (false, false, false, false);

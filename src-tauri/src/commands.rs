@@ -65,7 +65,9 @@ pub fn enter_overlay(
     let main = app.get_webview_window("main").ok_or("no main window")?;
     let monitor = main.current_monitor().ok().flatten();
     if let Ok(mut slot) = border.origin.lock() {
-        *slot = monitor.as_ref().map_or((0, 0), |m| (m.position().x, m.position().y));
+        *slot = monitor
+            .as_ref()
+            .map_or((0, 0), |m| (m.position().x, m.position().y));
     }
     if let Ok(session) = engine.session() {
         let info = monitor.as_ref().and_then(|m| {

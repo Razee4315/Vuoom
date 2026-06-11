@@ -17,11 +17,15 @@ fn segments(source_duration: f64, regions: &[SpeedRegion], cuts: &[Trim]) -> Vec
         .copied()
         .filter(|r| r.end > r.start && r.factor > 0.0)
         .collect();
-    rs.extend(cuts.iter().filter(|c| c.end > c.start).map(|c| SpeedRegion {
-        start: c.start,
-        end: c.end,
-        factor: f64::INFINITY,
-    }));
+    rs.extend(
+        cuts.iter()
+            .filter(|c| c.end > c.start)
+            .map(|c| SpeedRegion {
+                start: c.start,
+                end: c.end,
+                factor: f64::INFINITY,
+            }),
+    );
     rs.sort_by(|a, b| a.start.total_cmp(&b.start));
 
     let mut segs: Vec<(f64, f64, f64)> = Vec::new();

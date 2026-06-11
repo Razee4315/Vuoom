@@ -182,7 +182,12 @@ fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32)
     // The cursor is in virtual-desktop coords; the crop is monitor-relative.
     let (mx, my) = (f64::from(origin.0), f64::from(origin.1));
     let (ox, oy, w, h) = match region {
-        Some(r) => (mx + f64::from(r.x), my + f64::from(r.y), f64::from(r.w), f64::from(r.h)),
+        Some(r) => (
+            mx + f64::from(r.x),
+            my + f64::from(r.y),
+            f64::from(r.w),
+            f64::from(r.h),
+        ),
         None => (mx, my, f64::from(fw), f64::from(fh)),
     };
     DVec2::new(

@@ -129,16 +129,32 @@ impl GraphicsCaptureApiHandler for Handler {
     }
 }
 
-/// Capture the primary display, **blocking** until stopped; BGRA frames go to `tx`.
+/// Resolve a monitor by Win32 device name (e.g. `\\.\DISPLAY2`), falling back to primary.
+fn pick_monitor(name: Option<&str>) -> Result<Monitor, CaptureError> {
+    if let Some(name) = name {
+        if let Ok(monitors) = Monitor::enumerate() {
+            for m in monitors {
+                if m.device_name().is_ok_and(|n| n == name) {
+                    return Ok(m);
+                }
+            }
+        }
+    }
+    Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))
+}
+
+/// Capture one display (by device name; primary if `None`), **blocking** until stopped;
+/// BGRA frames go to `tx`.
 ///
 /// # Errors
 /// Returns [`CaptureError`] if the monitor or capture session cannot be started.
-pub fn run_primary_display(
+pub fn run_display(
     tx: Sender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
+    monitor: Option<&str>,
 ) -> Result<(), CaptureError> {
-    let monitor = Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))?;
+    let monitor = pick_monitor(monitor)?;
     // Capture without the OS "being captured" highlight where the platform allows it
     // (Windows 11+, via the `IsBorderRequired` API). On Windows 10 that API is absent and the
     // border can't be removed, so we fall back to Default — requesting a specific value there
@@ -162,18 +178,22 @@ pub fn run_primary_display(
     Ok(())
 }
 
-/// Spawn primary-display capture on a background thread; returns the frame receiver and a
+/// Spawn display capture on a background thread; returns the frame receiver and a
 /// [`CaptureHandle`] to stop it. When `crop` is set, frames are cropped to that
-/// sub-rectangle (physical px) before being sent.
+/// sub-rectangle (monitor-relative physical px) before being sent. `monitor` is a Win32
+/// device name (e.g. `\\.\DISPLAY2`); `None` captures the primary display.
 #[must_use]
-pub fn spawn_region(crop: Option<CropRegion>) -> (Receiver<CapturedFrame>, CaptureHandle) {
+pub fn spawn_region(
+    crop: Option<CropRegion>,
+    monitor: Option<String>,
+) -> (Receiver<CapturedFrame>, CaptureHandle) {
     let (tx, rx) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let handle = CaptureHandle {
         stop: Arc::clone(&stop),
     };
     std::thread::spawn(move || {
-        if let Err(e) = run_primary_display(tx, stop, crop) {
+        if let Err(e) = run_display(tx, stop, crop, monitor.as_deref()) {
             tracing::error!("screen capture stopped: {e}");
         }
     });
@@ -183,7 +203,7 @@ pub fn spawn_region(crop: Option<CropRegion>) -> (Receiver<CapturedFrame>, Captu
 /// Spawn full primary-display capture (no crop). Convenience wrapper over [`spawn_region`].
 #[must_use]
 pub fn spawn_primary_display() -> (Receiver<CapturedFrame>, CaptureHandle) {
-    spawn_region(None)
+    spawn_region(None, None)
 }
 
 #[cfg(test)]

@@ -39,6 +39,15 @@ pub struct RecordingSummary {
     pub zooms: usize,
 }
 
+/// The monitor the next recording captures: its Win32 device name (e.g. `\\.\DISPLAY2`)
+/// and virtual-desktop origin in physical px (for mapping global cursor coordinates).
+#[derive(Debug, Clone)]
+pub struct MonitorInfo {
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+}
+
 /// All annotations on the project, sent to the editor overlay so it can draw selection
 /// handles and hit-test for moving/resizing.
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +78,8 @@ struct Active {
     events_rx: Receiver<RawEvent>,
     start_qpc: i64,
     region: Option<CropRegion>,
+    /// Virtual-desktop origin (physical px) of the captured monitor.
+    mon_origin: (i32, i32),
     /// Poll-based Ctrl+Shift+Z recorder — catches chord presses the keyboard hook misses
     /// (e.g. while an elevated window has focus). Merged with hook marks at stop time.
     zoom_poll: ZoomChordPoller,
@@ -128,9 +139,11 @@ pub struct Session {
     clock: Clock,
     active: Mutex<Option<Active>>,
     edited: Mutex<Edited>,
-    /// The capture region chosen by the selector for the next recording (physical px);
-    /// `None` = full primary display.
+    /// The capture region chosen by the selector for the next recording (physical px,
+    /// monitor-relative); `None` = the full monitor.
     pending_region: Mutex<Option<CropRegion>>,
+    /// The monitor the next recording captures; `None` = primary.
+    pending_monitor: Mutex<Option<MonitorInfo>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
 }
@@ -150,6 +163,7 @@ impl Session {
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
             pending_region: Mutex::new(None),
+            pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
         })
     }
@@ -157,6 +171,12 @@ impl Session {
     /// Set the capture region (physical px) for the next recording; `None` = full display.
     pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
         *self.pending_region.lock().map_err(|_| "lock poisoned")? = region;
+        Ok(())
+    }
+
+    /// Set the monitor the next recording (and its selector screenshot) captures.
+    pub fn set_monitor(&self, monitor: Option<MonitorInfo>) -> Result<(), String> {
+        *self.pending_monitor.lock().map_err(|_| "lock poisoned")? = monitor;
         Ok(())
     }
 
@@ -169,7 +189,13 @@ impl Session {
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
     /// the still backdrop the region selector draws on (no transparent window needed).
     pub fn screenshot(&self) -> Result<String, String> {
-        let (rx, handle) = spawn_region(None);
+        let monitor = self
+            .pending_monitor
+            .lock()
+            .map_err(|_| "lock poisoned")?
+            .as_ref()
+            .map(|m| m.name.clone());
+        let (rx, handle) = spawn_region(None, monitor);
         let frame = rx
             .recv_timeout(std::time::Duration::from_secs(3))
             .map_err(|e| format!("screenshot capture failed: {e}"))?;
@@ -193,15 +219,23 @@ impl Session {
             return Err("already recording".into());
         }
         let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
+        let monitor = self
+            .pending_monitor
+            .lock()
+            .map_err(|_| "lock poisoned")?
+            .clone();
+        let mon_name = monitor.as_ref().map(|m| m.name.clone());
+        let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
         let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
-        let (frames_rx, capture) = spawn_region(region);
+        let (frames_rx, capture) = spawn_region(region, mon_name.clone());
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview — its own capture, so it can never disturb the recording.
-        let preview = LivePreview::start(region, amount, self.preview.sink());
+        let preview = LivePreview::start(region, mon_name, mon_origin, amount, self.preview.sink());
         *active = Some(Active {
             frames_rx,
             capture,
             region,
+            mon_origin,
             recorder,
             events_rx,
             start_qpc: self.clock.now(),
@@ -254,18 +288,19 @@ impl Session {
             self.clock.seconds_between(session.start_qpc, f.qpc)
         });
 
-        // Map the cursor into the captured area. With a crop region the cursor's physical
-        // virtual-desktop coords must be offset by the region origin; full-screen uses 0,0.
+        // Map the cursor into the captured area. Cursor events are in virtual-desktop
+        // physical coords; the crop is monitor-relative, so offset by the monitor origin.
+        let (mx, my) = session.mon_origin;
         let region = match session.region {
             Some(r) => CaptureRegion {
-                x: r.x as i32,
-                y: r.y as i32,
+                x: mx + r.x as i32,
+                y: my + r.y as i32,
                 w: r.w as i32,
                 h: r.h as i32,
             },
             None => CaptureRegion {
-                x: 0,
-                y: 0,
+                x: mx,
+                y: my,
                 w: width as i32,
                 h: height as i32,
             },

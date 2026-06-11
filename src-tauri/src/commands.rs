@@ -20,8 +20,11 @@ use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe};
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
 #[derive(Default)]
 pub struct BorderState {
-    /// A copy of the region chosen by the selector (physical px); `None` = full screen.
+    /// A copy of the region chosen by the selector (monitor-relative physical px);
+    /// `None` = full screen.
     pub region: Mutex<Option<CropRegion>>,
+    /// Virtual-desktop origin of the monitor being recorded (physical px).
+    pub origin: Mutex<(i32, i32)>,
     /// The live strips while recording; dropping them removes the frame.
     pub border: Mutex<Option<RegionBorder>>,
 }
@@ -50,9 +53,30 @@ fn restore_editor(app: &AppHandle) {
 
 /// Step 1 — the user clicked Record: hide the editor from the capture and blow it up to
 /// fullscreen so the in-window region selector covers the display.
+///
+/// The recording targets the monitor the editor is on right now — fullscreen lands there,
+/// so drag Vuoom to another monitor to record that one.
 #[tauri::command]
-pub fn enter_overlay(app: AppHandle) -> Result<(), String> {
+pub fn enter_overlay(
+    app: AppHandle,
+    engine: tauri::State<'_, Engine>,
+    border: tauri::State<'_, BorderState>,
+) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
+    let monitor = main.current_monitor().ok().flatten();
+    if let Ok(mut slot) = border.origin.lock() {
+        *slot = monitor.as_ref().map_or((0, 0), |m| (m.position().x, m.position().y));
+    }
+    if let Ok(session) = engine.session() {
+        let info = monitor.as_ref().and_then(|m| {
+            m.name().map(|n| crate::session::MonitorInfo {
+                name: n.clone(),
+                x: m.position().x,
+                y: m.position().y,
+            })
+        });
+        let _ = session.set_monitor(info);
+    }
     let _ = exclude_from_capture(&main);
     main.set_always_on_top(true).map_err(|e| e.to_string())?;
     main.set_fullscreen(true).map_err(|e| e.to_string())?;
@@ -203,8 +227,9 @@ pub async fn start_recording(
     // sit outside the crop AND are capture-excluded, so they never land in the recording.
     // Full-screen recordings skip the frame — the screen edge is the region.
     let region = border.region.lock().ok().and_then(|r| *r);
+    let (mx, my) = border.origin.lock().map_or((0, 0), |o| *o);
     if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
-        *slot = RegionBorder::show(r.x as i32, r.y as i32, r.w as i32, r.h as i32);
+        *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
     }
     if let Ok(mut slot) = hotkey.0.lock() {
         *slot = Some(StopHotkey::watch(app));

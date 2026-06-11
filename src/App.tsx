@@ -1610,7 +1610,11 @@ function App() {
 
       <div class="toolbar">
         <div class="toolbar-group">
-          <button class="btn record" title="Record your screen (Ctrl+Shift+R)" onClick={() => void startRecord()}>
+          <button
+            class="btn record"
+            title="Record your screen (Ctrl+Shift+R) — captures the monitor Vuoom is on"
+            onClick={() => void startRecord()}
+          >
             <span class="dot" /> Record
           </button>
         </div>

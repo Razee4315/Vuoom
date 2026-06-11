@@ -41,13 +41,22 @@ pub struct LivePreview {
 }
 
 impl LivePreview {
-    /// Start streaming a live, zoom-tracked preview of `region` (full display if `None`) to
-    /// `sink`. `amount` is the chosen zoom multiplier.
+    /// Start streaming a live, zoom-tracked preview of `region` (full display if `None`)
+    /// on `monitor` (primary if `None`) to `sink`. `origin` is the monitor's
+    /// virtual-desktop origin (physical px) so the cursor maps correctly; `amount` is the
+    /// chosen zoom multiplier.
     #[must_use]
-    pub fn start(region: Option<CropRegion>, amount: f64, sink: FrameSink) -> Self {
+    pub fn start(
+        region: Option<CropRegion>,
+        monitor: Option<String>,
+        origin: (i32, i32),
+        amount: f64,
+        sink: FrameSink,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
-        let handle = std::thread::spawn(move || run(region, amount, sink, &stop_worker));
+        let handle =
+            std::thread::spawn(move || run(region, monitor, origin, amount, sink, &stop_worker));
         Self {
             stop,
             handle: Some(handle),
@@ -69,8 +78,15 @@ impl Drop for LivePreview {
     }
 }
 
-fn run(region: Option<CropRegion>, amount: f64, sink: FrameSink, stop: &AtomicBool) {
-    let (rx, capture) = spawn_region(region);
+fn run(
+    region: Option<CropRegion>,
+    monitor: Option<String>,
+    origin: (i32, i32),
+    amount: f64,
+    sink: FrameSink,
+    stop: &AtomicBool,
+) {
+    let (rx, capture) = spawn_region(region, monitor);
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, amount);
     let clock = Clock::new();
@@ -93,7 +109,7 @@ fn run(region: Option<CropRegion>, amount: f64, sink: FrameSink, stop: &AtomicBo
         }
         prev_chord = chord;
 
-        let cursor = cursor_norm(region, frame.width, frame.height);
+        let cursor = cursor_norm(region, origin, frame.width, frame.height);
         let cam = camera.step(t, cursor);
 
         // Throttle the actual pixel work to the preview cadence.
@@ -158,14 +174,16 @@ fn key_down(vk: i32) -> bool {
 /// The cursor position normalized into the captured `region` (full display if `None`).
 /// The primary monitor's origin is (0,0) in virtual-desktop coords, and per-monitor DPI
 /// awareness is enabled, so screen px map directly onto the captured frame.
-fn cursor_norm(region: Option<CropRegion>, fw: u32, fh: u32) -> DVec2 {
+fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32) -> DVec2 {
     let mut p = POINT::default();
     if unsafe { GetCursorPos(&mut p) }.is_err() {
         return DVec2::splat(0.5);
     }
+    // The cursor is in virtual-desktop coords; the crop is monitor-relative.
+    let (mx, my) = (f64::from(origin.0), f64::from(origin.1));
     let (ox, oy, w, h) = match region {
-        Some(r) => (r.x as f64, r.y as f64, r.w as f64, r.h as f64),
-        None => (0.0, 0.0, f64::from(fw), f64::from(fh)),
+        Some(r) => (mx + f64::from(r.x), my + f64::from(r.y), f64::from(r.w), f64::from(r.h)),
+        None => (mx, my, f64::from(fw), f64::from(fh)),
     };
     DVec2::new(
         ((f64::from(p.x) - ox) / w.max(1.0)).clamp(0.0, 1.0),

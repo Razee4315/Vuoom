@@ -779,10 +779,7 @@ impl Session {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
-        let kf = project
-            .zooms
-            .get_mut(index)
-            .ok_or("no such zoom segment")?;
+        let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
         kf.mode = match focus {
             Some((x, y)) => ZoomMode::Manual {
                 pos: DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)),

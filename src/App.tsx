@@ -8,7 +8,7 @@ import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
 import { PreviewClient } from "./preview";
-import { LogoMark, LogoWordmark } from "./Logo";
+import { LogoWordmark } from "./Logo";
 import "./App.css";
 
 type Tool = "select" | "text" | "arrow" | "box";
@@ -1145,18 +1145,12 @@ function App() {
             />
             <Show when={!hasClip()}>
               <div class="canvas-placeholder">
-                <div class="placeholder-mark">
-                  <LogoMark size={46} />
-                </div>
                 <p class="big">Ready when you are</p>
-                <small>
-                  Capture your screen with cinematic auto-zoom, annotate it, export a crisp GIF.
-                </small>
                 <button class="btn record cta" onClick={() => void startRecord()}>
                   <span class="dot" /> Start recording
                 </button>
                 <span class="placeholder-hint">
-                  <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom while recording ·{" "}
+                  <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom ·{" "}
                   <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
               </div>

@@ -32,28 +32,9 @@
         pointer-events: none;
       }
       #splash svg {
-        width: 84px;
-        height: 84px;
+        width: 64px;
+        height: 64px;
         animation: splash-breathe 1.8s ease-in-out infinite;
-      }
-      #splash .splash-label {
-        font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.45);
-        letter-spacing: 0.02em;
-      }
-      #splash .ring {
-        width: 26px;
-        height: 26px;
-        border-radius: 50%;
-        border: 2.5px solid rgba(255, 255, 255, 0.15);
-        border-top-color: rgba(255, 255, 255, 0.85);
-        animation: splash-spin 0.8s linear infinite;
-      }
-      @keyframes splash-spin {
-        to {
-          transform: rotate(360deg);
-        }
       }
       @keyframes splash-breathe {
         50% {
@@ -76,8 +57,6 @@
         />
         <circle cx="25.5" cy="8" r="4.6" fill="#e5484d" />
       </svg>
-      <div class="ring"></div>
-      <div class="splash-label">Starting the engine…</div>
     </div>
     <div id="root"></div>
 

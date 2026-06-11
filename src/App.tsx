@@ -142,6 +142,8 @@ const fmt = (t: number) => {
   const s = Math.floor(t % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 };
+// Playhead readout with tenths, so annotations can be aligned precisely.
+const fmtT = (t: number) => `${fmt(t)}.${Math.floor((t % 1) * 10)}`;
 const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -501,7 +503,12 @@ function App() {
     for (const t of anns().texts) {
       if (!inView(t.range, false)) continue;
       const pos = v2(t.pos);
-      const wApprox = Math.max(t.text.length * t.font_size * 0.6, 0.05);
+      // font_size is a fraction of stage HEIGHT; convert the glyph width into
+      // width-normalized space or wide text on a wide stage can't be clicked.
+      const wApprox = Math.max(
+        t.text.length * t.font_size * 0.6 * (stage().h / Math.max(stage().w, 1)),
+        0.05,
+      );
       // The glyphs sit between pos.y (top) and pos.y + font_size (baseline); pad by TOL.
       if (
         p.x >= pos.x - TOL() &&
@@ -525,6 +532,8 @@ function App() {
       const id = await invoke<number>("add_text", { text: "Text", x: p.x, y: p.y, t: playhead() });
       await refresh();
       await pushSeek(playhead());
+      setSelZoom(null);
+      setSelSpeed(null);
       setSelected({ kind: "text", id });
       setEditingText(id);
       setTool("select");
@@ -624,6 +633,8 @@ function App() {
         });
         await refresh();
         await pushSeek(playhead());
+        setSelZoom(null);
+        setSelSpeed(null);
         setSelected({ kind: "arrow", id });
         setTool("select");
       }
@@ -637,6 +648,8 @@ function App() {
         const id = await invoke<number>("add_box", { x, y, w, h, t: playhead() });
         await refresh();
         await pushSeek(playhead());
+        setSelZoom(null);
+        setSelSpeed(null);
         setSelected({ kind: "box", id });
         setTool("select");
       }
@@ -1700,7 +1713,7 @@ function App() {
             </Show>
           </button>
           <span class="time">
-            {fmt(playhead())} <span class="time-sep">/</span> {fmt(duration())}
+            {fmtT(playhead())} <span class="time-sep">/</span> {fmt(duration())}
             <Show when={trim() || speed().length > 0}>
               <span class="time-out" title="Final GIF duration after trim + speed-up">
                 → {outputDuration(duration(), trim(), speed()).toFixed(1)}s

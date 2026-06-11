@@ -475,7 +475,9 @@ pub fn set_annotation_style(
     thickness: Option<f64>,
     filled: Option<bool>,
 ) -> Result<(), String> {
-    engine.session()?.set_annotation_style(id, thickness, filled)
+    engine
+        .session()?
+        .set_annotation_style(id, thickness, filled)
 }
 
 /// Retime an annotation (text, arrow, or box): when it appears / disappears.

@@ -178,6 +178,7 @@ function App() {
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
+  const [looping, setLooping] = createSignal(false);
 
   const [anns, setAnns] = createSignal<AnnotationSet>({ texts: [], arrows: [], highlights: [] });
   const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
@@ -383,8 +384,13 @@ function App() {
     if (lastTs) {
       let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead());
       if (t >= tEnd()) {
-        t = tEnd();
-        setPlaying(false);
+        // GIFs loop — with Loop on, the preview does too.
+        if (looping()) {
+          t = tStart();
+        } else {
+          t = tEnd();
+          setPlaying(false);
+        }
       }
       setPlayhead(t);
       void pushSeek(t);
@@ -410,6 +416,25 @@ function App() {
     scrub(tStart());
   };
 
+  // Move the selected annotation by a normalized delta (arrow-key nudging).
+  const nudgeSelected = async (dx: number, dy: number) => {
+    const s = selected();
+    if (!s) return;
+    const g = geomOf(s.kind, s.id).slice();
+    if (s.kind === "arrow") {
+      g[0] = clamp01(g[0] + dx);
+      g[1] = clamp01(g[1] + dy);
+      g[2] = clamp01(g[2] + dx);
+      g[3] = clamp01(g[3] + dy);
+    } else {
+      g[0] = clamp01(g[0] + dx);
+      g[1] = clamp01(g[1] + dy);
+    }
+    await applyGeom(s.kind, s.id, g);
+    await refresh();
+    await pushSeek(playhead());
+  };
+
   const onKey = (e: KeyboardEvent) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea")) return;
@@ -432,6 +457,25 @@ function App() {
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
+    } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && hasClip() && !e.ctrlKey) {
+      e.preventDefault();
+      const dir = e.key === "ArrowRight" ? 1 : -1;
+      if (selected() && !playing()) {
+        void nudgeSelected(dir * (e.shiftKey ? 0.02 : 0.005), 0);
+      } else {
+        const step = e.shiftKey ? 1 : 0.05;
+        scrub(Math.min(Math.max(playhead() + dir * step, tStart()), tEnd()));
+      }
+    } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && hasClip() && !e.ctrlKey && selected() && !playing()) {
+      e.preventDefault();
+      const dir = e.key === "ArrowDown" ? 1 : -1;
+      void nudgeSelected(0, dir * (e.shiftKey ? 0.02 : 0.005));
+    } else if (e.key === "Home" && hasClip()) {
+      e.preventDefault();
+      scrub(tStart());
+    } else if (e.key === "End" && hasClip()) {
+      e.preventDefault();
+      scrub(tEnd());
     }
   };
 
@@ -2007,6 +2051,20 @@ function App() {
                 <rect x="13.6" y="5" width="4.4" height="14" rx="1" />
               </svg>
             </Show>
+          </button>
+          <button
+            class="tbtn"
+            classList={{ on: looping() }}
+            title="Loop playback — preview the clip the way the GIF loops"
+            disabled={!hasClip()}
+            onClick={() => setLooping(!looping())}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 2l4 4-4 4" />
+              <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+              <path d="M7 22l-4-4 4-4" />
+              <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+            </svg>
           </button>
           <span class="time">
             {fmtT(playhead())} <span class="time-sep">/</span> {fmt(duration())}

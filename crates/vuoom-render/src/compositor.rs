@@ -608,8 +608,11 @@ impl Compositor {
                 height: out_h,
             },
         );
-        let mut text_buffers = Vec::with_capacity(scene.texts.len());
-        for label in &scene.texts {
+        // Annotation labels + keystroke-overlay labels share one glyph pass.
+        let labels: Vec<&crate::scene::ResolvedText> =
+            scene.texts.iter().chain(&scene.key_texts).collect();
+        let mut text_buffers = Vec::with_capacity(labels.len());
+        for label in &labels {
             let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
             let mut buf = TextBuffer::new(font_system, metrics);
             let mut attrs = Attrs::new().family(Family::SansSerif);
@@ -624,7 +627,7 @@ impl Compositor {
         }
         let text_areas: Vec<TextArea> = text_buffers
             .iter()
-            .zip(&scene.texts)
+            .zip(&labels)
             .map(|(buf, label)| TextArea {
                 buffer: buf,
                 left: label.x as f32,

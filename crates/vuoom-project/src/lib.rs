@@ -49,6 +49,15 @@ pub struct SpeedRegion {
     pub factor: f64,
 }
 
+/// A labeled key press (e.g. `"Ctrl+Shift+P"`) for the optional keystroke overlay.
+/// Only shortcuts and special keys are recorded — never plain typed text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeyTap {
+    /// Press time in seconds from the start of the recording.
+    pub t: f64,
+    pub label: String,
+}
+
 /// The whole editable project.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -73,6 +82,12 @@ pub struct Project {
     /// Render an expanding ripple at every recorded mouse click (preview + export).
     #[serde(default)]
     pub show_clicks: bool,
+    /// Shortcut/special key presses, captured at stop time for the keystroke overlay.
+    #[serde(default)]
+    pub key_taps: Vec<KeyTap>,
+    /// Render the keystroke overlay (chips at the bottom of the frame).
+    #[serde(default)]
+    pub show_keys: bool,
     pub frame: FrameStyle,
     pub aspect: AspectRatio,
 }
@@ -97,6 +112,8 @@ impl Project {
             speed_regions: Vec::new(),
             cuts: Vec::new(),
             show_clicks: false,
+            key_taps: Vec::new(),
+            show_keys: false,
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,
         }

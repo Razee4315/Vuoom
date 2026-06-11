@@ -483,6 +483,12 @@ pub fn set_show_clicks(engine: tauri::State<'_, Engine>, on: bool) -> Result<(),
     engine.session()?.set_show_clicks(on)
 }
 
+/// Toggle the keystroke overlay — shortcut chips (Ctrl+C…) at the bottom of the frame.
+#[tauri::command]
+pub fn set_show_keys(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
+    engine.session()?.set_show_keys(on)
+}
+
 /// Apply a framing preset ("none" | "subtle" | "studio") to preview and export.
 #[tauri::command]
 pub fn set_frame_preset(engine: tauri::State<'_, Engine>, preset: String) -> Result<(), String> {

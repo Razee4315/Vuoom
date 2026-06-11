@@ -94,6 +94,7 @@ interface ClipState {
   cuts: Trim[];
   zooms: ZoomSeg[];
   show_clicks: boolean;
+  show_keys: boolean;
   frame_preset: string;
 }
 
@@ -201,6 +202,7 @@ function App() {
   const [selCut, setSelCut] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
+  const [showKeys, setShowKeys] = createSignal(false);
   const [framePreset, setFramePreset] = createSignal("none");
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
@@ -381,6 +383,7 @@ function App() {
       setSpeed(cs.speed_regions);
       setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
+      setShowKeys(cs.show_keys);
       setFramePreset(cs.frame_preset);
     } catch {
       /* no recording */
@@ -1196,6 +1199,24 @@ function App() {
       setStatus(on ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
     } catch (e) {
       setStatus(`Click ripples failed: ${String(e)}`);
+    }
+  };
+
+  // ── keystroke overlay ──────────────────────────────────────────────────────────
+  const toggleKeys = async () => {
+    if (!hasClip()) return;
+    try {
+      const on = !showKeys();
+      await invoke("set_show_keys", { on });
+      setShowKeys(on);
+      await pushSeek(playhead());
+      setStatus(
+        on
+          ? "Shortcuts you pressed will show as chips (plain typing never does)"
+          : "Keystroke overlay off",
+      );
+    } catch (e) {
+      setStatus(`Keystroke overlay failed: ${String(e)}`);
     }
   };
 
@@ -2340,6 +2361,19 @@ function App() {
               <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" />
             </svg>
             <span>Clicks</span>
+          </button>
+          <button
+            class="tbtn wide"
+            classList={{ on: showKeys() }}
+            title="Show pressed shortcuts (Ctrl+C…) as chips in the GIF — plain typing is never shown"
+            disabled={!hasClip()}
+            onClick={() => void toggleKeys()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="6" width="19" height="12" rx="2" />
+              <path d="M6.5 10h0M10.3 10h0M14.1 10h0M17.7 10h0M7.5 14h9" />
+            </svg>
+            <span>Keys</span>
           </button>
           <span class="statusline">{status()}</span>
         </div>

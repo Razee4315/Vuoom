@@ -8,6 +8,7 @@
 mod clock;
 mod dpi;
 mod event;
+mod keys;
 mod normalize;
 #[cfg(windows)]
 mod recorder;
@@ -15,6 +16,7 @@ mod recorder;
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
 pub use event::{MouseButton, RawEvent, RawEventKind};
+pub use keys::{is_standalone, key_name, modifier, Modifier};
 pub use normalize::{normalize, zoom_marks, CaptureRegion};
 #[cfg(windows)]
 pub use recorder::InputRecorder;

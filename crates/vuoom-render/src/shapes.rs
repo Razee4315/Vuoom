@@ -137,7 +137,12 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
-    for h in scene.highlights.iter().chain(&scene.ripples) {
+    for h in scene
+        .highlights
+        .iter()
+        .chain(&scene.ripples)
+        .chain(&scene.key_chips)
+    {
         if h.ellipse {
             ellipse(&mut out, h);
         } else {

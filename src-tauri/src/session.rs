@@ -25,7 +25,7 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, ArrowAnnotation, Background, Color, FrameStyle,
-    HighlightBox, HighlightShape, Project, Rect, Shadow, SourceInfo, SpeedRegion,
+    HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
@@ -57,6 +57,7 @@ pub struct ClipState {
     pub cuts: Vec<Trim>,
     pub zooms: Vec<ZoomKeyframe>,
     pub show_clicks: bool,
+    pub show_keys: bool,
     /// Active framing preset name, derived from the padding (the editor's frame picker).
     pub frame_preset: String,
 }
@@ -326,6 +327,10 @@ impl Session {
         project.zoom_config = cfg; // so a reopened project re-simulates at the same zoom level
         project.zooms = zooms;
         project.events = events; // persisted so a reopened project can re-simulate panning
+
+        // Shortcut/special key taps for the optional keystroke overlay. Plain typing is
+        // deliberately never labeled (privacy + noise) — see vuoom_input::keys.
+        project.key_taps = extract_key_taps(&raw_events, self.clock, session.start_qpc, duration);
 
         // Paused spans become ordinary cuts: skipped by playback/export, but visible and
         // restorable in the editor if a pause was hit by mistake.
@@ -685,6 +690,7 @@ impl Session {
             cuts: project.cuts.clone(),
             zooms: project.zooms.clone(),
             show_clicks: project.show_clicks,
+            show_keys: project.show_keys,
             frame_preset: match project.frame.padding {
                 p if p <= 0.0 => "none",
                 p if p < 0.06 => "subtle",
@@ -698,6 +704,14 @@ impl Session {
     pub fn set_show_clicks(&self, on: bool) -> Result<(), String> {
         self.with_project("", |p| {
             p.show_clicks = on;
+            Ok(())
+        })
+    }
+
+    /// Toggle the keystroke overlay (shortcut chips at the bottom of the frame).
+    pub fn set_show_keys(&self, on: bool) -> Result<(), String> {
+        self.with_project("", |p| {
+            p.show_keys = on;
             Ok(())
         })
     }
@@ -1350,6 +1364,75 @@ fn nearest_frame(
         let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
         da.total_cmp(&db)
     })
+}
+
+/// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
+/// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced.
+fn extract_key_taps(
+    raw: &[RawEvent],
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<KeyTap> {
+    use vuoom_input::{is_standalone, key_name, modifier, Modifier, RawEventKind};
+
+    let (mut shift, mut ctrl, mut alt, mut win) = (false, false, false, false);
+    let mut taps: Vec<KeyTap> = Vec::new();
+    for e in raw {
+        let down = match e.kind {
+            RawEventKind::KeyDown(_) => true,
+            RawEventKind::KeyUp(_) => false,
+            _ => continue,
+        };
+        let vk = match e.kind {
+            RawEventKind::KeyDown(vk) | RawEventKind::KeyUp(vk) => vk,
+            _ => continue,
+        };
+        if let Some(m) = modifier(vk) {
+            match m {
+                Modifier::Shift => shift = down,
+                Modifier::Ctrl => ctrl = down,
+                Modifier::Alt => alt = down,
+                Modifier::Win => win = down,
+            }
+            continue;
+        }
+        if !down {
+            continue;
+        }
+        let t = clock.seconds_between(start_qpc, e.qpc);
+        if t < 0.0 || t > duration {
+            continue;
+        }
+        let Some(name) = key_name(vk) else { continue };
+        let chord = ctrl || alt || win;
+        if !chord && !is_standalone(vk) {
+            continue; // plain typing — never labeled
+        }
+        let mut label = String::new();
+        if win {
+            label.push_str("Win+");
+        }
+        if ctrl {
+            label.push_str("Ctrl+");
+        }
+        if alt {
+            label.push_str("Alt+");
+        }
+        if shift && chord {
+            label.push_str("Shift+");
+        }
+        label.push_str(name);
+        // Coalesce key auto-repeat into the original press.
+        if taps
+            .last()
+            .is_some_and(|p| p.label == label && t - p.t < 0.5)
+        {
+            continue;
+        }
+        taps.push(KeyTap { t, label });
+    }
+    taps
 }
 
 /// Keep speed regions in timeline order (the editor identifies them by sorted index).

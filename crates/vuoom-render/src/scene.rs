@@ -57,6 +57,10 @@ pub struct Scene {
     /// the live preview clears the annotation lists (the editor overlay draws those)
     /// but ripples must still show.
     pub ripples: Vec<ResolvedHighlight>,
+    /// Keystroke-overlay chip backgrounds (separate from `highlights` for the same reason).
+    pub key_chips: Vec<ResolvedHighlight>,
+    /// Keystroke-overlay labels (separate from `texts` for the same reason).
+    pub key_texts: Vec<ResolvedText>,
 }
 
 fn fade(color: Color, opacity: f64) -> Color {
@@ -161,12 +165,61 @@ pub fn build_scene(
         }
     }
 
+    // Keystroke overlay: the latest few shortcut chips, stacked above the bottom edge.
+    let mut key_chips = Vec::new();
+    let mut key_texts = Vec::new();
+    if project.show_keys {
+        /// How long a chip stays up (s) and how long it fades at the end.
+        const SHOW: f64 = 1.1;
+        const FADE: f64 = 0.25;
+        let visible: Vec<_> = project
+            .key_taps
+            .iter()
+            .filter(|k| t >= k.t && t < k.t + SHOW)
+            .collect();
+        for (slot, k) in visible.iter().rev().take(3).enumerate() {
+            let age = t - k.t;
+            let o = if age > SHOW - FADE {
+                ((SHOW - age) / FADE).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            let font = 0.034 * oh;
+            let pad_x = font * 0.7;
+            let chip_h = font * 1.8;
+            let text_w = k.label.chars().count() as f64 * font * 0.62;
+            let chip_w = text_w + pad_x * 2.0;
+            let y = oh * 0.94 - chip_h - slot as f64 * (chip_h + 0.012 * oh);
+            key_chips.push(ResolvedHighlight {
+                x: ow / 2.0 - chip_w / 2.0,
+                y,
+                w: chip_w,
+                h: chip_h,
+                thickness_px: 0.0,
+                filled: true,
+                ellipse: false,
+                color: fade(Color::rgb(0.04, 0.04, 0.05).with_alpha(0.82), o),
+            });
+            key_texts.push(ResolvedText {
+                text: k.label.clone(),
+                x: ow / 2.0 - text_w / 2.0,
+                y: y + (chip_h - font * 1.25) / 2.0,
+                font_px: font,
+                color: fade(Color::WHITE, o),
+                bold: true,
+                italic: false,
+            });
+        }
+    }
+
     Scene {
         layout,
         texts,
         arrows,
         highlights,
         ripples,
+        key_chips,
+        key_texts,
     }
 }
 

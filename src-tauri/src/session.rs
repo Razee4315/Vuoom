@@ -303,11 +303,13 @@ impl Session {
         project.events = events; // persisted so a reopened project can re-simulate panning
 
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
             frames,
             project: Some(project),
             track: Some(track),
             start_qpc: session.start_qpc,
+            ..Edited::default()
         };
 
         Ok(RecordingSummary {
@@ -1092,11 +1094,13 @@ impl Session {
             zooms: project.zooms.len(),
         };
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
             frames,
             project: Some(project),
             track: Some(track),
             start_qpc: base,
+            ..Edited::default()
         };
         Ok(summary)
     }

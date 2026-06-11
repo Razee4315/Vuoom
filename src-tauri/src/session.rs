@@ -25,8 +25,8 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, ArrowAnnotation, Background, Color, FrameStyle,
-    HighlightBox, HighlightShape, Project, Rect, SourceInfo, SpeedRegion, TextAnnotation,
-    TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    HighlightBox, HighlightShape, Project, Rect, Shadow, SourceInfo, SpeedRegion,
+    TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
@@ -57,6 +57,8 @@ pub struct ClipState {
     pub cuts: Vec<Trim>,
     pub zooms: Vec<ZoomKeyframe>,
     pub show_clicks: bool,
+    /// Active framing preset name, derived from the padding (the editor's frame picker).
+    pub frame_preset: String,
 }
 
 struct Active {
@@ -617,6 +619,12 @@ impl Session {
             cuts: project.cuts.clone(),
             zooms: project.zooms.clone(),
             show_clicks: project.show_clicks,
+            frame_preset: match project.frame.padding {
+                p if p <= 0.0 => "none",
+                p if p < 0.06 => "subtle",
+                _ => "studio",
+            }
+            .into(),
         })
     }
 
@@ -624,6 +632,36 @@ impl Session {
     pub fn set_show_clicks(&self, on: bool) -> Result<(), String> {
         self.with_project("", |p| {
             p.show_clicks = on;
+            Ok(())
+        })
+    }
+
+    /// Apply a framing preset: `"none"` (edge-to-edge), `"subtle"` (slim dark mat), or
+    /// `"studio"` (generous light mat + shadow). The compositor renders padding, rounded
+    /// corners and shadow; preview and export both honor it.
+    pub fn set_frame_preset(&self, preset: &str) -> Result<(), String> {
+        self.with_project("", |p| {
+            p.frame = match preset {
+                "subtle" => FrameStyle {
+                    background: Background::Solid(Color::rgb(0.10, 0.11, 0.12)),
+                    padding: 0.04,
+                    corner_radius: 0.012,
+                    shadow: Shadow {
+                        strength: 0.3,
+                        ..Shadow::default()
+                    },
+                },
+                "studio" => FrameStyle {
+                    background: Background::Solid(Color::rgb(0.90, 0.89, 0.87)),
+                    padding: 0.075,
+                    corner_radius: 0.02,
+                    shadow: Shadow {
+                        strength: 0.5,
+                        ..Shadow::default()
+                    },
+                },
+                _ => FrameStyle::default(),
+            };
             Ok(())
         })
     }
@@ -1133,13 +1171,10 @@ impl Session {
     /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
     /// the camera from the persisted events, and repopulate the editor. Returns a summary.
     pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
-        let mut project = Project::from_json(
+        let project = Project::from_json(
             &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        // The border/framing feature was removed from the product; bundles saved by older
-        // builds may still carry a decorated FrameStyle — normalize so nothing is baked in.
-        project.frame = FrameStyle::default();
         let frames_dir = dir.join("frames");
         let index: Vec<FrameIndex> = serde_json::from_str(
             &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,

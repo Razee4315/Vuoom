@@ -94,6 +94,7 @@ interface ClipState {
   cuts: Trim[];
   zooms: ZoomSeg[];
   show_clicks: boolean;
+  frame_preset: string;
 }
 
 /** Played duration after trim + speed regions + cuts (mirrors vuoom_project::output_duration).
@@ -200,6 +201,7 @@ function App() {
   const [selCut, setSelCut] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
+  const [framePreset, setFramePreset] = createSignal("none");
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -379,6 +381,7 @@ function App() {
       setSpeed(cs.speed_regions);
       setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
+      setFramePreset(cs.frame_preset);
     } catch {
       /* no recording */
     }
@@ -1167,6 +1170,21 @@ function App() {
     }
   };
 
+  // ── frame preset (padding + rounded corners + shadow around the recording) ──────
+  const applyFramePreset = async (preset: string) => {
+    if (!hasClip()) return;
+    try {
+      await invoke("set_frame_preset", { preset });
+      setFramePreset(preset);
+      await pushSeek(playhead());
+      setStatus(
+        preset === "none" ? "Frame removed — edge-to-edge export" : `Frame: ${preset}`,
+      );
+    } catch (e) {
+      setStatus(`Frame failed: ${String(e)}`);
+    }
+  };
+
   // ── click ripples ──────────────────────────────────────────────────────────────
   const toggleClicks = async () => {
     if (!hasClip()) return;
@@ -1616,6 +1634,17 @@ function App() {
             Save
           </button>
           <span class="toolbar-sep" />
+          <select
+            class="tbtn-sel"
+            title="Frame the recording on a padded backdrop with rounded corners + shadow"
+            disabled={!hasClip()}
+            value={framePreset()}
+            onChange={(e) => void applyFramePreset(e.currentTarget.value)}
+          >
+            <option value="none">No frame</option>
+            <option value="subtle">Subtle frame</option>
+            <option value="studio">Studio frame</option>
+          </select>
           <button class="btn export" disabled={!hasClip()} title="Export an optimized GIF (Ctrl+E)" onClick={() => setShowExport(true)}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />

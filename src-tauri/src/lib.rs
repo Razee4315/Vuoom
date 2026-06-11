@@ -99,6 +99,7 @@ pub fn run() {
             commands::list_annotations,
             commands::clip_state,
             commands::set_show_clicks,
+            commands::set_frame_preset,
             commands::set_trim,
             commands::auto_speed,
             commands::clear_speed,

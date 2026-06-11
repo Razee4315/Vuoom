@@ -466,6 +466,12 @@ pub fn set_show_clicks(engine: tauri::State<'_, Engine>, on: bool) -> Result<(),
     engine.session()?.set_show_clicks(on)
 }
 
+/// Apply a framing preset ("none" | "subtle" | "studio") to preview and export.
+#[tauri::command]
+pub fn set_frame_preset(engine: tauri::State<'_, Engine>, preset: String) -> Result<(), String> {
+    engine.session()?.set_frame_preset(&preset)
+}
+
 /// Move/edit a text label (omit a field to leave it unchanged).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

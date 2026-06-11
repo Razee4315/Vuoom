@@ -1528,29 +1528,35 @@ function App() {
                 }}
               </For>
             </div>
-            <div class="tl-track">
+            {/* One lane per annotation — its own layer, individually visible and draggable. */}
+            <div class="tl-lanes">
               <span class="tl-tracklabel">Notes</span>
+              <Show when={annBars().length === 0}>
+                <div class="tl-lane" />
+              </Show>
               <For each={annBars()}>
                 {(b) => {
                   const g = () => annGeom(b);
                   return (
-                    <button
-                      classList={{
-                        "tl-ann": true,
-                        [`tl-${b.kind}`]: true,
-                        selected: selected()?.kind === b.kind && selected()?.id === b.id,
-                      }}
-                      style={{
-                        left: `${pct(g().start)}%`,
-                        width: `${Math.max(pct(g().end) - pct(g().start), 1)}%`,
-                      }}
-                      title={`${b.label} · drag to move, drag an edge to set how long it shows`}
-                      onPointerDown={onAnnDown(b)}
-                      onPointerMove={onAnnMove}
-                      onPointerUp={() => void onAnnUp()}
-                    >
-                      {b.label}
-                    </button>
+                    <div class="tl-lane">
+                      <button
+                        classList={{
+                          "tl-ann": true,
+                          [`tl-${b.kind}`]: true,
+                          selected: selected()?.kind === b.kind && selected()?.id === b.id,
+                        }}
+                        style={{
+                          left: `${pct(g().start)}%`,
+                          width: `${Math.max(pct(g().end) - pct(g().start), 1)}%`,
+                        }}
+                        title={`${b.label} · drag to move, drag an edge to set how long it shows`}
+                        onPointerDown={onAnnDown(b)}
+                        onPointerMove={onAnnMove}
+                        onPointerUp={() => void onAnnUp()}
+                      >
+                        {b.label}
+                      </button>
+                    </div>
                   );
                 }}
               </For>

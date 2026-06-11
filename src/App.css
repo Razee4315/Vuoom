@@ -717,10 +717,11 @@ kbd {
   max-width: 50%;
 }
 
-/* The track surface: ruler + zoom segments + annotation bars + playhead. */
+/* The track surface: ruler + zoom segments + annotation lanes + playhead. */
 .tl {
   position: relative;
-  height: 86px;
+  height: auto;
+  min-height: 86px;
   margin: 0 16px 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -732,6 +733,7 @@ kbd {
   display: grid;
   place-items: center;
   cursor: default;
+  height: 86px;
 }
 .tl-empty {
   font-size: 12px;
@@ -767,6 +769,29 @@ kbd {
 }
 .tl-track + .tl-track {
   border-top: 1px solid var(--line);
+}
+/* One slim lane per annotation, scrolling past three. */
+.tl-lanes {
+  position: relative;
+  max-height: 67px; /* 3 lanes + separators */
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-top: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.tl-lane {
+  position: relative;
+  height: 22px;
+}
+.tl-lane + .tl-lane {
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.tl-lane .tl-ann {
+  top: 2px;
+  bottom: 2px;
+}
+.tl-lanes .tl-tracklabel {
+  top: 11px;
 }
 .tl-tracklabel {
   position: absolute;

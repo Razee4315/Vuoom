@@ -304,7 +304,9 @@ pub fn update_speed(
     end: f64,
     factor: f64,
 ) -> Result<Vec<SpeedRegion>, String> {
-    engine.session()?.update_speed_region(index, start, end, factor)
+    engine
+        .session()?
+        .update_speed_region(index, start, end, factor)
 }
 
 /// Delete the speed region at `index`; returns the updated region list.

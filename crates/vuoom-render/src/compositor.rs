@@ -11,8 +11,8 @@ use crate::scene::Scene;
 use crate::shapes::{build_shape_vertices, ShapeVertex};
 use glyphon::{
     Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
-    Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds,
-    TextRenderer, Viewport, Weight,
+    Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
+    Viewport, Weight,
 };
 use std::sync::Mutex;
 

@@ -55,6 +55,7 @@ pub struct ClipState {
     pub trim: Option<Trim>,
     pub speed_regions: Vec<SpeedRegion>,
     pub zooms: Vec<ZoomKeyframe>,
+    pub show_clicks: bool,
 }
 
 struct Active {
@@ -546,6 +547,15 @@ impl Session {
             trim: project.trim,
             speed_regions: project.speed_regions.clone(),
             zooms: project.zooms.clone(),
+            show_clicks: project.show_clicks,
+        })
+    }
+
+    /// Toggle click ripples (drawn in both the preview and the exported GIF).
+    pub fn set_show_clicks(&self, on: bool) -> Result<(), String> {
+        self.with_project(|p| {
+            p.show_clicks = on;
+            Ok(())
         })
     }
 

@@ -92,6 +92,7 @@ interface ClipState {
   trim: Trim | null;
   speed_regions: SpeedRegion[];
   zooms: ZoomSeg[];
+  show_clicks: boolean;
 }
 
 /** Played duration after trim + speed regions (mirrors vuoom_project::output_duration). */
@@ -185,6 +186,7 @@ function App() {
   const [selZoom, setSelZoom] = createSignal<number | null>(null);
   const [selSpeed, setSelSpeed] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
+  const [showClicks, setShowClicks] = createSignal(false);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -351,6 +353,7 @@ function App() {
       setZooms(cs.zooms);
       setTrimState(cs.trim);
       setSpeed(cs.speed_regions);
+      setShowClicks(cs.show_clicks);
     } catch {
       /* no recording */
     }
@@ -992,6 +995,20 @@ function App() {
       setSelSpeed(null);
     } catch (e) {
       setStatus(`Speed delete failed: ${String(e)}`);
+    }
+  };
+
+  // ── click ripples ──────────────────────────────────────────────────────────────
+  const toggleClicks = async () => {
+    if (!hasClip()) return;
+    try {
+      const on = !showClicks();
+      await invoke("set_show_clicks", { on });
+      setShowClicks(on);
+      await pushSeek(playhead());
+      setStatus(on ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
+    } catch (e) {
+      setStatus(`Click ripples failed: ${String(e)}`);
     }
   };
 
@@ -1982,6 +1999,20 @@ function App() {
               <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
             </svg>
             <span>Speed</span>
+          </button>
+          <button
+            class="tbtn wide"
+            classList={{ on: showClicks() }}
+            title="Draw an expanding ripple at every recorded mouse click (shows in the GIF)"
+            disabled={!hasClip()}
+            onClick={() => void toggleClicks()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+              <circle cx="12" cy="12" r="6.5" />
+              <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" />
+            </svg>
+            <span>Clicks</span>
           </button>
           <span class="statusline">{status()}</span>
         </div>

@@ -97,6 +97,7 @@ pub fn run() {
             commands::add_ellipse,
             commands::list_annotations,
             commands::clip_state,
+            commands::set_show_clicks,
             commands::set_trim,
             commands::auto_speed,
             commands::clear_speed,

@@ -5,7 +5,7 @@
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
 use crate::layout::{compute_layout, CompositeLayout};
-use vuoom_project::{Color, HighlightShape, Project};
+use vuoom_project::{Color, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
@@ -53,6 +53,10 @@ pub struct Scene {
     pub texts: Vec<ResolvedText>,
     pub arrows: Vec<ResolvedArrow>,
     pub highlights: Vec<ResolvedHighlight>,
+    /// Click ripples (expanding fading rings), kept separate from `highlights` because
+    /// the live preview clears the annotation lists (the editor overlay draws those)
+    /// but ripples must still show.
+    pub ripples: Vec<ResolvedHighlight>,
 }
 
 fn fade(color: Color, opacity: f64) -> Color {
@@ -124,11 +128,45 @@ pub fn build_scene(
         });
     }
 
+    let mut ripples = Vec::new();
+    if project.show_clicks {
+        /// How long one ripple lives (s).
+        const RIPPLE_LEN: f64 = 0.45;
+        let src = layout.src_rect;
+        let dst = layout.dst_rect;
+        for e in &project.events {
+            let &InputEvent::Click { t: ct, pos, .. } = e else {
+                continue;
+            };
+            let age = t - ct;
+            if !(0.0..RIPPLE_LEN).contains(&age) {
+                continue;
+            }
+            let p = age / RIPPLE_LEN;
+            // Click positions are in source space; map through the camera crop into the
+            // drawn content rect so ripples stay glued to the content while zoomed.
+            let cx = dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w;
+            let cy = dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h;
+            let r = (0.008 + 0.030 * p) * oh;
+            ripples.push(ResolvedHighlight {
+                x: cx - r,
+                y: cy - r,
+                w: r * 2.0,
+                h: r * 2.0,
+                thickness_px: (0.0035 * oh).max(1.5),
+                filled: false,
+                ellipse: true,
+                color: Color::rgb(1.0, 1.0, 1.0).with_alpha((1.0 - p) as f32 * 0.9),
+            });
+        }
+    }
+
     Scene {
         layout,
         texts,
         arrows,
         highlights,
+        ripples,
     }
 }
 

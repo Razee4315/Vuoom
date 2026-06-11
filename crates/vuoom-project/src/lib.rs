@@ -67,6 +67,9 @@ pub struct Project {
     pub highlights: Vec<HighlightBox>,
     pub trim: Option<Trim>,
     pub speed_regions: Vec<SpeedRegion>,
+    /// Render an expanding ripple at every recorded mouse click (preview + export).
+    #[serde(default)]
+    pub show_clicks: bool,
     pub frame: FrameStyle,
     pub aspect: AspectRatio,
 }
@@ -89,6 +92,7 @@ impl Project {
             highlights: Vec::new(),
             trim: None,
             speed_regions: Vec::new(),
+            show_clicks: false,
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,
         }

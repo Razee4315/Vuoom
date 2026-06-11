@@ -403,9 +403,11 @@ function App() {
   };
   const px = (n: Vec2) => ({ x: n.x * stage().w, y: n.y * stage().h });
 
-  // visible at the current playhead (or selected so it stays editable when scrubbed past)
+  // Visible at the current playhead. A selected element also shows while PAUSED (so it
+  // stays editable when scrubbed past its window) — but never during playback, which
+  // must match the exported GIF exactly.
   const inView = (r: TimeRange, sel: boolean) =>
-    sel || (playhead() >= r.start && playhead() < r.end);
+    (playhead() >= r.start && playhead() < r.end) || (sel && !playing());
 
   // ── live edit (update + re-composite), throttled ─────────────────────────────────
   let editBusy = false;

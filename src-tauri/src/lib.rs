@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod frame_store;
 mod hotkey;
 mod live_preview;
 mod mp4;
@@ -137,6 +138,8 @@ pub fn run() {
             commands::set_zoom_amount,
             commands::save_project_bundle,
             commands::open_project_bundle,
+            commands::check_recovery,
+            commands::recover_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

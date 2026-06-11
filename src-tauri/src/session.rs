@@ -1,16 +1,21 @@
 //! Recording → project → preview/export orchestration — the engine glue.
 //!
 //! Ties the pieces together: capture + global input → auto-zoom plan + camera track →
-//! composite → preview stream / GIF export. Frame storage is in-memory for v1 (a disk
-//! intermediate is the documented next step). See `docs/02-Architecture.md`.
+//! composite → preview stream / GIF export. Frames stream to a disk-backed
+//! [`FrameStore`] while recording, so clip length is bounded by disk, not RAM — and a
+//! crashed session can be recovered on the next launch. See `docs/02-Architecture.md`.
 //!
 //! Runtime behaviour (capture/GPU/input) is verified by running on a real Windows machine;
 //! CI verifies it compiles.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
+use crate::frame_store::{self, FrameStore, FrameWriter};
 use crate::live_preview::LivePreview;
 use crate::zoom_chord::ZoomChordPoller;
 use base64::Engine;
@@ -72,7 +77,10 @@ pub struct ClipState {
 }
 
 struct Active {
-    frames_rx: Receiver<CapturedFrame>,
+    /// Streams frames from the capture channel to the disk store (see `frame_store`).
+    drain: Option<JoinHandle<Result<FrameStore, String>>>,
+    /// Tells the drain thread to stop waiting for further frames.
+    drain_stop: Arc<AtomicBool>,
     capture: CaptureHandle,
     recorder: InputRecorder,
     events_rx: Receiver<RawEvent>,
@@ -92,7 +100,7 @@ struct Active {
 
 #[derive(Default)]
 struct Edited {
-    frames: Vec<CapturedFrame>,
+    frames: Option<FrameStore>,
     project: Option<Project>,
     track: Option<CameraTrack>,
     start_qpc: i64,
@@ -227,12 +235,39 @@ impl Session {
         let mon_name = monitor.as_ref().map(|m| m.name.clone());
         let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
         let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
+
+        // Drop the previous clip BEFORE recreating the store files: its open handles point
+        // at the same recovery directory this recording is about to replace.
+        *self.edited.lock().map_err(|_| "lock poisoned")? = Edited::default();
+        let writer = FrameWriter::create(frame_store::recovery_dir())?;
+
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview — its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, mon_name, mon_origin, amount, self.preview.sink());
+
+        // Stream frames straight to disk so recording length is bounded by disk, not RAM.
+        let drain_stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&drain_stop);
+        let drain = std::thread::spawn(move || -> Result<FrameStore, String> {
+            let mut writer = writer;
+            loop {
+                match frames_rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(f) => writer.push(&f)?,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if stop_flag.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            writer.finish()
+        });
+
         *active = Some(Active {
-            frames_rx,
+            drain: Some(drain),
+            drain_stop,
             capture,
             region,
             mon_origin,
@@ -274,18 +309,25 @@ impl Session {
         session.capture.stop();
         session.recorder.stop();
 
-        let frames: Vec<CapturedFrame> = session.frames_rx.try_iter().collect();
+        // Let the drain thread flush remaining frames and hand back the disk store.
+        session.drain_stop.store(true, Ordering::Relaxed);
+        let store = session
+            .drain
+            .take()
+            .ok_or("recording already stopped")?
+            .join()
+            .map_err(|_| "frame drain thread panicked")??;
         let raw_events: Vec<RawEvent> = session.events_rx.try_iter().collect();
 
         // No frames means the screen capture never started (or was stopped instantly) — fail
         // loudly so the editor shows a clear message instead of a silent, empty player.
-        if frames.is_empty() {
+        if store.is_empty() {
             return Err("No frames were captured — screen capture failed to start.".into());
         }
 
-        let (width, height) = frames.first().map_or((1920, 1080), |f| (f.width, f.height));
-        let duration = frames.last().map_or(0.0, |f| {
-            self.clock.seconds_between(session.start_qpc, f.qpc)
+        let (width, height) = store.recs().first().map_or((1920, 1080), |r| (r.w, r.h));
+        let duration = store.recs().last().map_or(0.0, |r| {
+            self.clock.seconds_between(session.start_qpc, r.qpc)
         });
 
         // Map the cursor into the captured area. Cursor events are in virtual-desktop
@@ -344,7 +386,7 @@ impl Session {
         };
         let zooms = plan_zooms(&events, duration, &cfg);
         let fps = if duration > 0.0 {
-            frames.len() as f64 / duration
+            store.len() as f64 / duration
         } else {
             60.0
         };
@@ -358,7 +400,7 @@ impl Session {
             duration,
         });
         let zoom_count = zooms.len();
-        let frame_count = frames.len();
+        let frame_count = store.len();
         project.zoom_config = cfg; // so a reopened project re-simulates at the same zoom level
         project.zooms = zooms;
         project.events = events; // persisted so a reopened project can re-simulate panning
@@ -385,10 +427,19 @@ impl Session {
         sort_cuts(&mut cuts);
         project.cuts = cuts;
 
+        // Persist the manifest next to the on-disk frames: together they make the
+        // recording recoverable if the app crashes or is closed before exporting.
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(
+                frame_store::project_path(&frame_store::recovery_dir()),
+                json,
+            );
+        }
+
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
-            frames,
+            frames: Some(store),
             project: Some(project),
             track: Some(track),
             start_qpc: session.start_qpc,
@@ -408,8 +459,9 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
-        let frame =
-            nearest_frame(&edited.frames, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        let idx = nearest_idx(store, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+        let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
         let mut scene = build_scene(project, track, out_w, out_h, t);
@@ -484,7 +536,8 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
-        if edited.frames.is_empty() {
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        if store.is_empty() {
             return Err("no frames".into());
         }
 
@@ -511,8 +564,8 @@ impl Session {
         for i in 0..total {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
-                .ok_or("no frames")?;
+            let idx = nearest_idx(store, self.clock, edited.start_qpc, t_src).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
             let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
@@ -612,7 +665,8 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
-        if edited.frames.is_empty() {
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        if store.is_empty() {
             return Err("no frames".into());
         }
 
@@ -625,8 +679,8 @@ impl Session {
         for (done, &i) in indices.iter().enumerate() {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let frame = nearest_frame(&edited.frames, self.clock, edited.start_qpc, t_src)
-                .ok_or("no frames")?;
+            let idx = nearest_idx(store, self.clock, edited.start_qpc, t_src).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
             let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
@@ -1258,11 +1312,13 @@ impl Session {
     pub fn save_bundle(&self, dir: &Path) -> Result<(), String> {
         let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
+        let store = edited.frames.as_ref().ok_or("no recording")?;
         let frames_dir = dir.join("frames");
         std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
 
-        let mut index = Vec::with_capacity(edited.frames.len());
-        for (n, f) in edited.frames.iter().enumerate() {
+        let mut index = Vec::with_capacity(store.len());
+        for n in 0..store.len() {
+            let f = store.frame(n)?;
             // Stored as RGBA (write_png's format); capture buffers are BGRA.
             let img = RgbaImage::new(f.width, f.height, swizzle_rb(&f.bgra));
             write_png(&frames_dir.join(format!("{n:05}.png")), &img).map_err(|e| e.to_string())?;
@@ -1301,16 +1357,28 @@ impl Session {
 
         let freq = self.clock.freq();
         let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
-        let mut frames = Vec::with_capacity(index.len());
+
+        // Decode into the recovery-dir frame store: one frame in memory at a time, and the
+        // opened project becomes the recoverable session like a fresh recording would.
+        // Drop the current clip first — its store handles point at the same files.
+        *self.edited.lock().map_err(|_| "lock poisoned")? = Edited::default();
+        let mut writer = FrameWriter::create(frame_store::recovery_dir())?;
         for fi in &index {
             let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
                 .map_err(|e| e.to_string())?;
-            frames.push(CapturedFrame {
+            writer.push(&CapturedFrame {
                 width: fi.w,
                 height: fi.h,
                 bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
                 qpc: base + (fi.t * freq as f64) as i64,
-            });
+            })?;
+        }
+        let store = writer.finish()?;
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(
+                frame_store::project_path(&frame_store::recovery_dir()),
+                json,
+            );
         }
 
         let track = simulate(
@@ -1322,16 +1390,68 @@ impl Session {
         );
         let summary = RecordingSummary {
             duration: project.source.duration,
-            frames: frames.len(),
+            frames: store.len(),
             zooms: project.zooms.len(),
         };
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
-            frames,
+            frames: Some(store),
             project: Some(project),
             track: Some(track),
             start_qpc: base,
+            ..Edited::default()
+        };
+        Ok(summary)
+    }
+
+    /// Whether a recoverable session (frames + manifest from a crash or accidental close)
+    /// is sitting in the recovery directory. Returns its duration in seconds.
+    pub fn recovery_available(&self) -> Option<f64> {
+        let dir = frame_store::recovery_dir();
+        let json = std::fs::read_to_string(frame_store::project_path(&dir)).ok()?;
+        let project = Project::from_json(&json).ok()?;
+        let store = FrameStore::open(&dir).ok()?;
+        (!store.is_empty()).then_some(project.source.duration)
+    }
+
+    /// Reload the session left in the recovery directory (last recording + its edits as
+    /// of stop time). Returns a summary like `stop_recording`.
+    pub fn recover_session(&self) -> Result<RecordingSummary, String> {
+        let dir = frame_store::recovery_dir();
+        let project = Project::from_json(
+            &std::fs::read_to_string(frame_store::project_path(&dir))
+                .map_err(|e| format!("no recoverable session: {e}"))?,
+        )
+        .map_err(|e| e.to_string())?;
+        let store = FrameStore::open(&dir)?;
+        if store.is_empty() {
+            return Err("no recoverable session".into());
+        }
+
+        // The stored QPC stamps all come from the crashed session, so they stay mutually
+        // consistent; anchoring the epoch on the first frame reproduces the timeline
+        // (within the first frame's capture latency).
+        let start_qpc = store.recs().first().map_or(0, |r| r.qpc);
+
+        let track = simulate(
+            &project.events,
+            &project.zooms,
+            project.source.duration,
+            project.source.fps.max(1.0),
+            &project.zoom_config,
+        );
+        let summary = RecordingSummary {
+            duration: project.source.duration,
+            frames: store.len(),
+            zooms: project.zooms.len(),
+        };
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        *edited = Edited {
+            frames: Some(store),
+            project: Some(project),
+            track: Some(track),
+            start_qpc,
             ..Edited::default()
         };
         Ok(summary)
@@ -1391,17 +1511,18 @@ fn encode_sample_bytes(
     Ok(bytes)
 }
 
-fn nearest_frame(
-    frames: &[CapturedFrame],
-    clock: Clock,
-    start_qpc: i64,
-    t: f64,
-) -> Option<&CapturedFrame> {
-    frames.iter().min_by(|a, b| {
-        let da = (clock.seconds_between(start_qpc, a.qpc) - t).abs();
-        let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
-        da.total_cmp(&db)
-    })
+/// Index of the stored frame whose timestamp is closest to `t` (metadata only — no disk).
+fn nearest_idx(store: &FrameStore, clock: Clock, start_qpc: i64, t: f64) -> Option<usize> {
+    store
+        .recs()
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            let da = (clock.seconds_between(start_qpc, a.qpc) - t).abs();
+            let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
+            da.total_cmp(&db)
+        })
+        .map(|(i, _)| i)
 }
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and

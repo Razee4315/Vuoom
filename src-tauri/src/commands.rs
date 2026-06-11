@@ -207,6 +207,18 @@ pub async fn open_project_bundle(
     engine.session()?.open_bundle(std::path::Path::new(&dir))
 }
 
+/// Duration (s) of a recoverable session left by a crash/close, if one exists.
+#[tauri::command]
+pub fn check_recovery(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, String> {
+    Ok(engine.session()?.recovery_available())
+}
+
+/// Reload the recoverable session into the editor.
+#[tauri::command]
+pub async fn recover_session(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {
+    engine.session()?.recover_session()
+}
+
 // ── Recording / preview / export ──────────────────────────────────────────────
 
 /// The localhost port the webview connects to for the live preview stream.

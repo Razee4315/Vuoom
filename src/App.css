@@ -481,6 +481,10 @@ kbd {
   font-size: 11.5px;
   color: var(--muted);
 }
+.btn.recover {
+  margin-top: 14px;
+  border-style: dashed;
+}
 
 /* ---- Properties ---- */
 .properties {

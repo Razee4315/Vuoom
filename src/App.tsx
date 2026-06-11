@@ -204,6 +204,7 @@ function App() {
   const [showClicks, setShowClicks] = createSignal(false);
   const [showKeys, setShowKeys] = createSignal(false);
   const [framePreset, setFramePreset] = createSignal("none");
+  const [recoverable, setRecoverable] = createSignal<number | null>(null);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -319,6 +320,10 @@ function App() {
         preview.connect(port);
         setStatus("Ready — press Record to capture your screen");
         hideSplash();
+        // A previous session's frames are still on disk (crash or accidental close)?
+        invoke<number | null>("check_recovery")
+          .then((d) => setRecoverable(d ?? null))
+          .catch(() => setRecoverable(null));
         return;
       } catch (e) {
         const msg = String(e);
@@ -1583,6 +1588,19 @@ function App() {
     }
   };
 
+  const onRecover = async () => {
+    setStatus("Recovering your last session…");
+    try {
+      const summary = await invoke<RecordingSummary>("recover_session");
+      setRecoverable(null);
+      await loadFinishedClip(summary);
+      setStatus(`Recovered ${summary.duration.toFixed(1)}s — don't forget to export`);
+    } catch (e) {
+      setRecoverable(null);
+      setStatus(`Recovery failed: ${String(e)}`);
+    }
+  };
+
   const onOpenProject = async () => {
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
@@ -1722,6 +1740,11 @@ function App() {
                   <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom ·{" "}
                   <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
+                <Show when={recoverable() !== null}>
+                  <button class="btn recover" onClick={() => void onRecover()}>
+                    Recover last session · {recoverable()!.toFixed(1)}s
+                  </button>
+                </Show>
               </div>
             </Show>
 

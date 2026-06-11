@@ -118,6 +118,8 @@ pub fn run() {
             commands::update_annotation_range,
             commands::duplicate_annotation,
             commands::delete_annotation,
+            commands::undo,
+            commands::redo,
             commands::enter_overlay,
             commands::enter_stopbar,
             commands::finish_recording,

@@ -513,6 +513,18 @@ pub fn update_annotation_range(
     engine.session()?.update_annotation_range(id, start, end)
 }
 
+/// Revert the most recent edit; returns whether anything was undone.
+#[tauri::command]
+pub async fn undo(engine: tauri::State<'_, Engine>) -> Result<bool, String> {
+    engine.session()?.undo()
+}
+
+/// Re-apply the most recently undone edit; returns whether anything was redone.
+#[tauri::command]
+pub async fn redo(engine: tauri::State<'_, Engine>) -> Result<bool, String> {
+    engine.session()?.redo()
+}
+
 /// Duplicate an annotation (same style/timing, nudged); returns the new id.
 #[tauri::command]
 pub fn duplicate_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<u32, String> {

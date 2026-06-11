@@ -214,6 +214,17 @@ function App() {
   ]);
   const onGlobalKey = (e: KeyboardEvent) => {
     const inField = (e.target as HTMLElement).closest("input, textarea");
+    // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) — inputs keep their native undo.
+    if (e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
+      e.preventDefault();
+      void (e.shiftKey ? doRedo() : doUndo());
+      return;
+    }
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
+      e.preventDefault();
+      void doRedo();
+      return;
+    }
     if (e.ctrlKey && !e.shiftKey && !e.altKey) {
       if (e.code === "KeyS") {
         e.preventDefault();
@@ -767,6 +778,44 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
+  // ── undo / redo ────────────────────────────────────────────────────────────────
+  const refreshAll = async () => {
+    // An undo can change anything — clear selections that may now dangle, resync all.
+    setSelected(null);
+    setSelZoom(null);
+    setSelSpeed(null);
+    setEditingText(null);
+    await refresh();
+    await refreshClip();
+    await pushSeek(playhead());
+  };
+  const doUndo = async () => {
+    if (!hasClip()) return;
+    try {
+      if (!(await invoke<boolean>("undo"))) {
+        setStatus("Nothing to undo");
+        return;
+      }
+      await refreshAll();
+      setStatus("Undone");
+    } catch (e) {
+      setStatus(`Undo failed: ${String(e)}`);
+    }
+  };
+  const doRedo = async () => {
+    if (!hasClip()) return;
+    try {
+      if (!(await invoke<boolean>("redo"))) {
+        setStatus("Nothing to redo");
+        return;
+      }
+      await refreshAll();
+      setStatus("Redone");
+    } catch (e) {
+      setStatus(`Redo failed: ${String(e)}`);
+    }
+  };
+
   const duplicateSelected = async () => {
     const s = selected();
     if (!s) return;
@@ -1359,6 +1408,17 @@ function App() {
         </div>
 
         <div class="toolbar-group">
+          <button class="btn ghost" disabled={!hasClip()} title="Undo (Ctrl+Z)" onClick={() => void doUndo()}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8.5 5L4 9.5 8.5 14M4 9.5h10a6 6 0 0 1 0 12h-3" />
+            </svg>
+          </button>
+          <button class="btn ghost" disabled={!hasClip()} title="Redo (Ctrl+Y)" onClick={() => void doRedo()}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15.5 5L20 9.5 15.5 14M20 9.5H10a6 6 0 0 0 0 12h3" />
+            </svg>
+          </button>
+          <span class="toolbar-sep" />
           <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />

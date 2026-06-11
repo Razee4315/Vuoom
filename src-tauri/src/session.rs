@@ -78,6 +78,30 @@ struct Edited {
     project: Option<Project>,
     track: Option<CameraTrack>,
     start_qpc: i64,
+    /// Undo history: `(coalesce_tag, project_before_the_edit)`. The tag lets rapid-fire
+    /// edits (typing, slider drags) collapse into one undo step.
+    undo: Vec<(String, Project)>,
+    redo: Vec<Project>,
+}
+
+/// Undo history depth (project snapshots are small — frames are not copied).
+const UNDO_CAP: usize = 100;
+
+/// Record the current project state before a mutation. Consecutive snapshots carrying the
+/// same non-empty `tag` coalesce: only the first keeps its pre-state, so a typing run or a
+/// slider drag undoes as a single step. Any snapshot clears the redo branch.
+fn snapshot(edited: &mut Edited, tag: &str) {
+    let Some(p) = edited.project.as_ref() else {
+        return;
+    };
+    edited.redo.clear();
+    if !tag.is_empty() && edited.undo.last().is_some_and(|(t, _)| t == tag) {
+        return;
+    }
+    edited.undo.push((tag.to_string(), p.clone()));
+    if edited.undo.len() > UNDO_CAP {
+        edited.undo.remove(0);
+    }
 }
 
 /// One entry in a saved bundle's `frames/index.json`: frame number, time from start
@@ -470,6 +494,7 @@ impl Session {
     /// Add a text label at normalized `(x, y)`, visible for ~3s from time `t`. Returns its id.
     pub fn add_text(&self, text: String, x: f64, y: f64, t: f64) -> Result<u32, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
@@ -489,6 +514,7 @@ impl Session {
     /// Add an arrow between normalized points, visible for ~3s from time `t`. Returns its id.
     pub fn add_arrow(&self, fx: f64, fy: f64, tx: f64, ty: f64, t: f64) -> Result<u32, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
@@ -523,6 +549,7 @@ impl Session {
         shape: HighlightShape,
     ) -> Result<u32, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
@@ -553,7 +580,7 @@ impl Session {
 
     /// Toggle click ripples (drawn in both the preview and the exported GIF).
     pub fn set_show_clicks(&self, on: bool) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             p.show_clicks = on;
             Ok(())
         })
@@ -561,7 +588,7 @@ impl Session {
 
     /// Set the trim range (seconds). A range covering the whole clip clears the trim.
     pub fn set_trim(&self, start: f64, end: f64) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, d);
             let e = end.clamp(0.0, d);
@@ -587,6 +614,7 @@ impl Session {
         const TAIL: f64 = 0.4;
 
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let factor = factor.clamp(1.5, 16.0);
@@ -617,7 +645,7 @@ impl Session {
 
     /// Remove all speed regions (play everything at 1×).
     pub fn clear_speed(&self) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             p.speed_regions.clear();
             Ok(())
         })
@@ -631,6 +659,7 @@ impl Session {
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let s = start.min(end).clamp(0.0, (d - 0.2).max(0.0));
@@ -653,6 +682,7 @@ impl Session {
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let s = start.min(end).clamp(0.0, (d - 0.2).max(0.0));
@@ -673,6 +703,7 @@ impl Session {
     /// Delete the speed region at `index`. Returns the updated list.
     pub fn delete_speed_region(&self, index: usize) -> Result<Vec<SpeedRegion>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         if index >= project.speed_regions.len() {
             return Err("no such speed region".into());
@@ -686,6 +717,7 @@ impl Session {
     pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
         const DEFAULT_LEN: f64 = 2.0;
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let start = t.clamp(0.0, (d - vuoom_zoom::MIN_LEN).max(0.0));
@@ -722,6 +754,7 @@ impl Session {
         amount: f64,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         if !vuoom_zoom::resize(&mut project.zooms, index, start, end, d) {
@@ -744,6 +777,7 @@ impl Session {
         focus: Option<(f64, f64)>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project
             .zooms
@@ -764,6 +798,7 @@ impl Session {
     /// Returns the updated segment list.
     pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         vuoom_zoom::remove(&mut project.zooms, index).ok_or("no such zoom segment")?;
         let zooms = project.zooms.clone();
@@ -794,7 +829,16 @@ impl Session {
         bold: Option<bool>,
         italic: Option<bool>,
     ) -> Result<(), String> {
-        self.with_project(|p| {
+        // Typing and the size slider fire per keystroke / per tick — coalesce each run
+        // into one undo step. Geometry / style commits stay discrete.
+        let tag = if text.is_some() {
+            format!("text:{id}")
+        } else if font_size.is_some() {
+            format!("font:{id}")
+        } else {
+            String::new()
+        };
+        self.with_project(&tag, |p| {
             let a = p
                 .texts
                 .iter_mut()
@@ -824,7 +868,7 @@ impl Session {
 
     /// Move an arrow's endpoints.
     pub fn update_arrow(&self, id: u32, fx: f64, fy: f64, tx: f64, ty: f64) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             let a = p
                 .arrows
                 .iter_mut()
@@ -838,7 +882,7 @@ impl Session {
 
     /// Move/resize a highlight box.
     pub fn update_box(&self, id: u32, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             let b = p
                 .highlights
                 .iter_mut()
@@ -852,7 +896,8 @@ impl Session {
     /// Tint any annotation (text, arrow, or box) by id.
     pub fn set_annotation_color(&self, id: u32, r: f64, g: f64, b: f64) -> Result<(), String> {
         let color = Color::rgb(r as f32, g as f32, b as f32);
-        self.with_project(|p| {
+        // The color picker streams values while dragging — coalesce into one undo step.
+        self.with_project(&format!("color:{id}"), |p| {
             if let Some(a) = p.texts.iter_mut().find(|a| a.id == id) {
                 a.color = color;
             } else if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
@@ -874,7 +919,8 @@ impl Session {
         thickness: Option<f64>,
         filled: Option<bool>,
     ) -> Result<(), String> {
-        self.with_project(|p| {
+        // The thickness slider streams values while dragging — coalesce per element.
+        self.with_project(&format!("style:{id}"), |p| {
             let th = thickness.map(|t| (t as f32).clamp(0.001, 0.05));
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 if let Some(t) = th {
@@ -897,7 +943,7 @@ impl Session {
 
     /// Retime any annotation (text, arrow, or box): set when it appears/disappears.
     pub fn update_annotation_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, (d - 0.1).max(0.0));
             let e = end.clamp(s + 0.1, d.max(s + 0.1));
@@ -934,6 +980,7 @@ impl Session {
     pub fn duplicate_annotation(&self, id: u32) -> Result<u32, String> {
         const NUDGE: f64 = 0.03;
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let new_id = next_id(project);
         if let Some(t) = project.texts.iter().find(|t| t.id == id).cloned() {
@@ -964,7 +1011,7 @@ impl Session {
 
     /// Delete any annotation (text, arrow, or box) by id.
     pub fn delete_annotation(&self, id: u32) -> Result<(), String> {
-        self.with_project(|p| {
+        self.with_project("", |p| {
             p.texts.retain(|a| a.id != id);
             p.arrows.retain(|a| a.id != id);
             p.highlights.retain(|a| a.id != id);
@@ -1057,14 +1104,42 @@ impl Session {
         Ok(summary)
     }
 
-    /// Run `f` against the editable project, erroring if there is no recording.
-    fn with_project<F>(&self, f: F) -> Result<(), String>
+    /// Run `f` against the editable project, recording an undo snapshot first.
+    /// `tag` controls undo coalescing — see [`snapshot`].
+    fn with_project<F>(&self, tag: &str, f: F) -> Result<(), String>
     where
         F: FnOnce(&mut Project) -> Result<(), String>,
     {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, tag);
         let project = edited.project.as_mut().ok_or("no recording")?;
         f(project)
+    }
+
+    /// Revert the most recent edit. Returns `false` if there is nothing to undo.
+    pub fn undo(&self) -> Result<bool, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let Some((_, prev)) = edited.undo.pop() else {
+            return Ok(false);
+        };
+        if let Some(cur) = edited.project.replace(prev) {
+            edited.redo.push(cur);
+        }
+        resimulate(&mut edited);
+        Ok(true)
+    }
+
+    /// Re-apply the most recently undone edit. Returns `false` if there is nothing to redo.
+    pub fn redo(&self) -> Result<bool, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let Some(next) = edited.redo.pop() else {
+            return Ok(false);
+        };
+        if let Some(cur) = edited.project.replace(next) {
+            edited.undo.push((String::new(), cur));
+        }
+        resimulate(&mut edited);
+        Ok(true)
     }
 }
 

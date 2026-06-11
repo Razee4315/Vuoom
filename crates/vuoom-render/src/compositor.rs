@@ -11,8 +11,8 @@ use crate::scene::Scene;
 use crate::shapes::{build_shape_vertices, ShapeVertex};
 use glyphon::{
     Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
-    Metrics, Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
-    Viewport,
+    Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds,
+    TextRenderer, Viewport, Weight,
 };
 use std::sync::Mutex;
 
@@ -612,12 +612,14 @@ impl Compositor {
         for label in &scene.texts {
             let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
             let mut buf = TextBuffer::new(font_system, metrics);
-            buf.set_text(
-                font_system,
-                &label.text,
-                &Attrs::new().family(Family::SansSerif),
-                Shaping::Advanced,
-            );
+            let mut attrs = Attrs::new().family(Family::SansSerif);
+            if label.bold {
+                attrs = attrs.weight(Weight::BOLD);
+            }
+            if label.italic {
+                attrs = attrs.style(Style::Italic);
+            }
+            buf.set_text(font_system, &label.text, &attrs, Shaping::Advanced);
             text_buffers.push(buf);
         }
         let text_areas: Vec<TextArea> = text_buffers

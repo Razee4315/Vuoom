@@ -19,6 +19,12 @@ pub struct TextAnnotation {
     /// Font size as a fraction of output height (e.g. 0.05 = 5% of height).
     pub font_size: f32,
     pub color: Color,
+    /// Render with a bold weight (defaults off so older projects keep their look).
+    #[serde(default)]
+    pub bold: bool,
+    /// Render italic.
+    #[serde(default)]
+    pub italic: bool,
     pub range: TimeRange,
 }
 

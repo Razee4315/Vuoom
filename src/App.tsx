@@ -41,6 +41,8 @@ interface TextAnn {
   pos: SerVec;
   font_size: number;
   color: Color;
+  bold: boolean;
+  italic: boolean;
   range: TimeRange;
 }
 interface ArrowAnn {
@@ -113,6 +115,9 @@ interface Selection {
   kind: Kind;
   id: number;
 }
+
+/// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
+const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: "select", label: "Select", hint: "Click an element to select, drag to move, drag a handle to resize." },
@@ -675,6 +680,27 @@ function App() {
     const s = selected();
     if (s?.kind !== "text") return;
     await invoke("update_text", { id: s.id, fontSize: size });
+    await refresh();
+    await pushSeek(playhead());
+  };
+  const editTextStyle = async (patch: { bold?: boolean; italic?: boolean }) => {
+    const s = selected();
+    if (s?.kind !== "text") return;
+    await invoke("update_text", { id: s.id, ...patch });
+    await refresh();
+    await pushSeek(playhead());
+  };
+  const selectedRange = (): TimeRange | undefined => {
+    const s = selected();
+    if (!s) return undefined;
+    if (s.kind === "text") return anns().texts.find((t) => t.id === s.id)?.range;
+    if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.range;
+    return anns().highlights.find((b) => b.id === s.id)?.range;
+  };
+  const editRange = async (start: number, end: number) => {
+    const s = selected();
+    if (!s || Number.isNaN(start) || Number.isNaN(end)) return;
+    await invoke("update_annotation_range", { id: s.id, start, end });
     await refresh();
     await pushSeek(playhead());
   };
@@ -1373,7 +1399,11 @@ function App() {
                                 y={p().y + fs()}
                                 font-size={String(fs())}
                                 fill={cssColor(tx.color)}
-                                style={{ "font-family": "Inter, sans-serif", "font-weight": "600" }}
+                                style={{
+                                  "font-family": "Inter, sans-serif",
+                                  "font-weight": tx.bold ? "700" : "400",
+                                  "font-style": tx.italic ? "italic" : "normal",
+                                }}
                               >
                                 {tx.text}
                               </text>
@@ -1422,7 +1452,13 @@ function App() {
                   return (
                     <input
                       class="text-edit"
-                      style={{ left: `${p.x}px`, top: `${p.y}px`, "font-size": `${fs}px` }}
+                      style={{
+                        left: `${p.x}px`,
+                        top: `${p.y}px`,
+                        "font-size": `${fs}px`,
+                        "font-weight": ta.bold ? "700" : "400",
+                        "font-style": ta.italic ? "italic" : "normal",
+                      }}
                       value={ta.text}
                       spellcheck={false}
                       ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
@@ -1467,8 +1503,27 @@ function App() {
                   onInput={(e) => void editText(e.currentTarget.value)}
                 />
               </label>
+              <div class="field">
+                <span>Style</span>
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, on: selectedText()!.bold }}
+                    title="Bold"
+                    onClick={() => void editTextStyle({ bold: !selectedText()!.bold })}
+                  >
+                    B
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, italic: true, on: selectedText()!.italic }}
+                    title="Italic"
+                    onClick={() => void editTextStyle({ italic: !selectedText()!.italic })}
+                  >
+                    I
+                  </button>
+                </div>
+              </div>
               <label class="field">
-                <span>Size</span>
+                <span>Size · {Math.round(selectedText()!.font_size * 100)}% of height</span>
                 <input
                   type="range"
                   min="0.02"
@@ -1481,14 +1536,57 @@ function App() {
             </Show>
 
             <Show when={selectedColor()}>
-              <label class="field">
+              <div class="field">
                 <span>Color</span>
+                <div class="swatch-row">
+                  <For each={PRESET_COLORS}>
+                    {(c) => (
+                      <button
+                        classList={{ swatchbtn: true, active: rgbHex(selectedColor()!) === c }}
+                        style={{ background: c }}
+                        title={c}
+                        onClick={() => void setColor(c)}
+                      />
+                    )}
+                  </For>
+                </div>
                 <input
                   type="color"
                   value={rgbHex(selectedColor()!)}
                   onInput={(e) => void setColor(e.currentTarget.value)}
                 />
-              </label>
+              </div>
+            </Show>
+
+            <Show when={selectedRange()}>
+              <div class="field">
+                <span>Timing (seconds)</span>
+                <div class="time-row">
+                  <input
+                    type="number"
+                    min="0"
+                    max={duration()}
+                    step="0.1"
+                    title="Appears at"
+                    value={Number(selectedRange()!.start.toFixed(1))}
+                    onChange={(e) =>
+                      void editRange(Number(e.currentTarget.value), selectedRange()!.end)
+                    }
+                  />
+                  <span class="time-dash">–</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={duration()}
+                    step="0.1"
+                    title="Disappears at"
+                    value={Number(selectedRange()!.end.toFixed(1))}
+                    onChange={(e) =>
+                      void editRange(selectedRange()!.start, Number(e.currentTarget.value))
+                    }
+                  />
+                </div>
+              </div>
             </Show>
 
             <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>

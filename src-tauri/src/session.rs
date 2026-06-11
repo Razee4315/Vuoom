@@ -478,6 +478,8 @@ impl Session {
             pos: DVec2::new(x, y),
             font_size: 0.05,
             color: Color::WHITE,
+            bold: true, // labels over video read best bold; toggleable in the inspector
+            italic: false,
             range,
         });
         Ok(id)
@@ -729,6 +731,7 @@ impl Session {
     }
 
     /// Move/edit a text label. `None` fields keep their current value.
+    #[allow(clippy::too_many_arguments)]
     pub fn update_text(
         &self,
         id: u32,
@@ -736,6 +739,8 @@ impl Session {
         y: Option<f64>,
         text: Option<String>,
         font_size: Option<f32>,
+        bold: Option<bool>,
+        italic: Option<bool>,
     ) -> Result<(), String> {
         self.with_project(|p| {
             let a = p
@@ -754,6 +759,12 @@ impl Session {
             }
             if let Some(fs) = font_size {
                 a.font_size = fs.clamp(0.01, 0.5);
+            }
+            if let Some(b) = bold {
+                a.bold = b;
+            }
+            if let Some(i) = italic {
+                a.italic = i;
             }
             Ok(())
         })

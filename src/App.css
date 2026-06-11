@@ -620,6 +620,74 @@ kbd {
   background: var(--panel-2);
   cursor: pointer;
 }
+/* Bold / italic toggles */
+.style-row {
+  display: flex;
+  gap: 6px;
+}
+.stylebtn {
+  width: 34px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.stylebtn.italic {
+  font-style: italic;
+  font-weight: 500;
+}
+.stylebtn:hover {
+  background: var(--hover);
+}
+.stylebtn.on {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+/* Color preset swatches */
+.swatch-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.swatchbtn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+}
+.swatchbtn.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Annotation timing inputs */
+.time-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.time-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.time-dash {
+  color: var(--muted);
+}
+
 .muted {
   color: var(--muted);
   font-size: 12px;

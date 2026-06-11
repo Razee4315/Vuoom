@@ -363,6 +363,7 @@ pub fn clip_state(engine: tauri::State<'_, Engine>) -> Result<ClipState, String>
 
 /// Move/edit a text label (omit a field to leave it unchanged).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn update_text(
     engine: tauri::State<'_, Engine>,
     id: u32,
@@ -370,8 +371,12 @@ pub fn update_text(
     y: Option<f64>,
     text: Option<String>,
     font_size: Option<f32>,
+    bold: Option<bool>,
+    italic: Option<bool>,
 ) -> Result<(), String> {
-    engine.session()?.update_text(id, x, y, text, font_size)
+    engine
+        .session()?
+        .update_text(id, x, y, text, font_size, bold, italic)
 }
 
 /// Move an arrow's endpoints.

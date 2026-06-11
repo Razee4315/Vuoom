@@ -17,6 +17,8 @@ pub struct ResolvedText {
     pub y: f64,
     pub font_px: f64,
     pub color: Color,
+    pub bold: bool,
+    pub italic: bool,
 }
 
 /// An arrow resolved to output pixels.
@@ -81,6 +83,8 @@ pub fn build_scene(
             y: ta.pos.y * oh,
             font_px: f64::from(ta.font_size) * oh,
             color: fade(ta.color, o),
+            bold: ta.bold,
+            italic: ta.italic,
         });
     }
 
@@ -145,6 +149,8 @@ mod tests {
             pos: DVec2::new(0.1, 0.2),
             font_size: 0.05,
             color: Color::WHITE,
+            bold: false,
+            italic: false,
             range: TimeRange::new(1.0, 3.0),
         });
         p

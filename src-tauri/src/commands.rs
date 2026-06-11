@@ -249,6 +249,38 @@ pub fn clear_speed(engine: tauri::State<'_, Engine>) -> Result<(), String> {
     engine.session()?.clear_speed()
 }
 
+/// Manually mark `[start, end]` to play at `factor`×; returns the updated region list.
+#[tauri::command]
+pub fn add_speed(
+    engine: tauri::State<'_, Engine>,
+    start: f64,
+    end: f64,
+    factor: f64,
+) -> Result<Vec<SpeedRegion>, String> {
+    engine.session()?.add_speed_region(start, end, factor)
+}
+
+/// Retime / re-level the speed region at `index`; returns the updated region list.
+#[tauri::command]
+pub fn update_speed(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+    start: f64,
+    end: f64,
+    factor: f64,
+) -> Result<Vec<SpeedRegion>, String> {
+    engine.session()?.update_speed_region(index, start, end, factor)
+}
+
+/// Delete the speed region at `index`; returns the updated region list.
+#[tauri::command]
+pub fn delete_speed(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+) -> Result<Vec<SpeedRegion>, String> {
+    engine.session()?.delete_speed_region(index)
+}
+
 /// Insert a manual zoom segment at time `t`; returns the updated segment list.
 #[tauri::command]
 pub async fn add_zoom(

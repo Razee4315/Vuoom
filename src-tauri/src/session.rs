@@ -593,6 +593,64 @@ impl Session {
         })
     }
 
+    /// Manually mark `[start, end]` to play at `factor`×. Returns the updated, sorted list.
+    pub fn add_speed_region(
+        &self,
+        start: f64,
+        end: f64,
+        factor: f64,
+    ) -> Result<Vec<SpeedRegion>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let s = start.min(end).clamp(0.0, (d - 0.2).max(0.0));
+        let e = end.max(start).clamp(s + 0.2, d.max(s + 0.2));
+        project.speed_regions.push(SpeedRegion {
+            start: s,
+            end: e,
+            factor: factor.clamp(1.25, 16.0),
+        });
+        sort_speed(&mut project.speed_regions);
+        Ok(project.speed_regions.clone())
+    }
+
+    /// Retime / re-level the speed region at `index`. Returns the updated, sorted list.
+    pub fn update_speed_region(
+        &self,
+        index: usize,
+        start: f64,
+        end: f64,
+        factor: f64,
+    ) -> Result<Vec<SpeedRegion>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        let s = start.min(end).clamp(0.0, (d - 0.2).max(0.0));
+        let e = end.max(start).clamp(s + 0.2, d.max(s + 0.2));
+        let r = project
+            .speed_regions
+            .get_mut(index)
+            .ok_or("no such speed region")?;
+        *r = SpeedRegion {
+            start: s,
+            end: e,
+            factor: factor.clamp(1.25, 16.0),
+        };
+        sort_speed(&mut project.speed_regions);
+        Ok(project.speed_regions.clone())
+    }
+
+    /// Delete the speed region at `index`. Returns the updated list.
+    pub fn delete_speed_region(&self, index: usize) -> Result<Vec<SpeedRegion>, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        if index >= project.speed_regions.len() {
+            return Err("no such speed region".into());
+        }
+        project.speed_regions.remove(index);
+        Ok(project.speed_regions.clone())
+    }
+
     /// Insert a manual zoom segment at time `t` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
@@ -911,6 +969,11 @@ fn nearest_frame(
         let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
         da.total_cmp(&db)
     })
+}
+
+/// Keep speed regions in timeline order (the editor identifies them by sorted index).
+fn sort_speed(regions: &mut [SpeedRegion]) {
+    regions.sort_by(|a, b| a.start.total_cmp(&b.start));
 }
 
 /// Recompute the camera track from the project's persisted events + (edited) zoom

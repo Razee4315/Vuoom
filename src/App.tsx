@@ -170,6 +170,8 @@ function App() {
   const [trim, setTrimState] = createSignal<Trim | null>(null);
   const [speed, setSpeed] = createSignal<SpeedRegion[]>([]);
   const [selZoom, setSelZoom] = createSignal<number | null>(null);
+  const [selSpeed, setSelSpeed] = createSignal<number | null>(null);
+  const [skimFactor, setSkimFactor] = createSignal(3);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
@@ -384,12 +386,16 @@ function App() {
     } else if ((e.key === "Delete" || e.key === "Backspace") && selZoom() !== null) {
       e.preventDefault();
       void deleteSelectedZoom();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selSpeed() !== null) {
+      e.preventDefault();
+      void deleteSelectedSpeed();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
       void deleteSelected();
-    } else if (e.key === "Escape" && (selected() || selZoom() !== null)) {
+    } else if (e.key === "Escape" && (selected() || selZoom() !== null || selSpeed() !== null)) {
       setSelected(null);
       setSelZoom(null);
+      setSelSpeed(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
@@ -550,6 +556,8 @@ function App() {
     }
     const hit = hitTest(p);
     if (hit) {
+      setSelZoom(null);
+      setSelSpeed(null);
       setSelected(hit);
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
@@ -739,6 +747,7 @@ function App() {
     setDuration(summary.duration);
     setSelected(null);
     setSelZoom(null);
+    setSelSpeed(null);
     setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
     await refresh();
     await refreshClip();
@@ -757,6 +766,7 @@ function App() {
       setZooms(list);
       const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
       setSelected(null);
+      setSelSpeed(null);
       setSelZoom(idx >= 0 ? idx : null);
       await pushSeek(playhead());
       setStatus("Zoom added — drag its edges on the timeline to retime");
@@ -795,18 +805,67 @@ function App() {
       if (speed().length > 0) {
         await invoke("clear_speed");
         setSpeed([]);
+        setSelSpeed(null);
         setStatus("Idle stretches back to normal speed");
       } else {
-        const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: 3.0 });
+        const f = skimFactor();
+        const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: f });
         setSpeed(regions);
         setStatus(
           regions.length > 0
-            ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at 3×`
+            ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at ${f}×`
             : "No idle stretches longer than ~2.5s found",
         );
       }
     } catch (e) {
       setStatus(`Speed-up failed: ${String(e)}`);
+    }
+  };
+
+  // ── manual speed regions ───────────────────────────────────────────────────────
+  const selectedSpeed = () => {
+    const i = selSpeed();
+    return i === null ? undefined : speed()[i];
+  };
+  const addSpeedAtPlayhead = async () => {
+    if (!hasClip()) return;
+    try {
+      const start = Math.min(playhead(), Math.max(0, duration() - 0.5));
+      const end = Math.min(start + 2, duration());
+      const list = await invoke<SpeedRegion[]>("add_speed", {
+        start,
+        end,
+        factor: skimFactor(),
+      });
+      setSpeed(list);
+      const idx = list.findIndex((r) => Math.abs(r.start - start) < 0.01);
+      setSelected(null);
+      setSelZoom(null);
+      setSelSpeed(idx >= 0 ? idx : null);
+      setStatus("Speed region added — drag it on the timeline to retime");
+    } catch (e) {
+      setStatus(`Could not add speed region: ${String(e)}`);
+    }
+  };
+  const applySpeedEdit = async (index: number, start: number, end: number, factor: number) => {
+    try {
+      const list = await invoke<SpeedRegion[]>("update_speed", { index, start, end, factor });
+      setSpeed(list);
+      // Re-find the edited region (the list re-sorts by start).
+      const idx = list.findIndex((r) => Math.abs(r.start - Math.min(start, end)) < 0.25);
+      if (idx >= 0) setSelSpeed(idx);
+    } catch (e) {
+      setStatus(`Speed edit failed: ${String(e)}`);
+    }
+  };
+  const deleteSelectedSpeed = async () => {
+    const i = selSpeed();
+    if (i === null) return;
+    try {
+      setSpeed(await invoke<SpeedRegion[]>("delete_speed", { index: i }));
+      setSelSpeed(null);
+    } catch (e) {
+      setStatus(`Speed delete failed: ${String(e)}`);
     }
   };
 
@@ -898,6 +957,7 @@ function App() {
     if (!d) return;
     setZoomDrag(null);
     setSelected(null);
+    setSelSpeed(null);
     if (d.moved) {
       await applyZoomEdit(d.idx, d.cur.start, d.cur.end, zooms()[d.idx]?.amount ?? 1.8);
     } else {
@@ -906,6 +966,65 @@ function App() {
       scrub(d.orig.start);
     }
   };
+  // Speed-band dragging: grab the chip to move the region, its edges (8px) to resize.
+  const [speedDrag, setSpeedDrag] = createSignal<{
+    idx: number;
+    mode: "move" | "l" | "r";
+    grabT: number;
+    orig: SpeedRegion;
+    cur: { start: number; end: number };
+    moved: boolean;
+  } | null>(null);
+  const speedGeom = (idx: number, r: SpeedRegion) => {
+    const d = speedDrag();
+    return d && d.idx === idx ? d.cur : { start: r.start, end: r.end };
+  };
+  const onSpeedDown = (idx: number, r: SpeedRegion) => (e: PointerEvent) => {
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    const mode = e.clientX - rect.left < 8 ? "l" : rect.right - e.clientX < 8 ? "r" : "move";
+    setSpeedDrag({
+      idx,
+      mode,
+      grabT: tlTime(e),
+      orig: { ...r },
+      cur: { start: r.start, end: r.end },
+      moved: false,
+    });
+  };
+  const onSpeedMove = (e: PointerEvent) => {
+    const d = speedDrag();
+    if (!d) return;
+    const dt = tlTime(e) - d.grabT;
+    let { start, end } = d.orig;
+    if (d.mode === "move") {
+      const len = end - start;
+      start = Math.min(Math.max(0, start + dt), duration() - len);
+      end = start + len;
+    } else if (d.mode === "l") {
+      start = Math.min(Math.max(0, start + dt), end - 0.2);
+    } else {
+      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
+    }
+    setSpeedDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
+  };
+  const onSpeedUp = async () => {
+    const d = speedDrag();
+    if (!d) return;
+    setSpeedDrag(null);
+    setSelected(null);
+    setSelZoom(null);
+    if (d.moved) {
+      await applySpeedEdit(d.idx, d.cur.start, d.cur.end, speed()[d.idx]?.factor ?? skimFactor());
+    } else {
+      // A plain click: select the region and jump to it.
+      setSelSpeed(d.idx);
+      scrub(d.orig.start);
+    }
+  };
+
   const pct = (t: number) => (duration() > 0 ? (t / duration()) * 100 : 0);
   const tickStep = () => {
     for (const s of [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60]) {
@@ -972,6 +1091,7 @@ function App() {
     if (!d) return;
     setAnnDrag(null);
     setSelZoom(null);
+    setSelSpeed(null);
     setSelected({ kind: d.kind, id: d.id });
     if (d.moved) {
       try {
@@ -1022,7 +1142,7 @@ function App() {
       /* storage unavailable */
     }
   };
-  const inspectorOpen = () => !!selected() || selZoom() !== null;
+  const inspectorOpen = () => !!selected() || selZoom() !== null || selSpeed() !== null;
 
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -1417,6 +1537,46 @@ function App() {
             </button>
           </aside>
         </Show>
+
+        <Show when={selSpeed() !== null && selectedSpeed()}>
+          <aside class="properties">
+            <div
+              class="panel-resizer"
+              title="Drag to resize"
+              onPointerDown={onInspDown}
+              onPointerMove={onInspMove}
+              onPointerUp={onInspUp}
+            />
+            <div class="inspector-head">
+              <h2>Speed</h2>
+              <button class="icon-btn" title="Done" onClick={() => setSelSpeed(null)}>
+                ✕
+              </button>
+            </div>
+
+            <label class="field">
+              <span>Speed · {selectedSpeed()!.factor}×</span>
+              <input
+                type="range"
+                min="1.25"
+                max="8"
+                step="0.25"
+                value={selectedSpeed()!.factor}
+                onChange={(e) => {
+                  const r = selectedSpeed()!;
+                  void applySpeedEdit(selSpeed()!, r.start, r.end, Number(e.currentTarget.value));
+                }}
+              />
+            </label>
+            <p class="muted small">
+              {fmt(selectedSpeed()!.start)} – {fmt(selectedSpeed()!.end)} · drag the band on the
+              timeline to retime, drag its edges to resize.
+            </p>
+            <button class="btn danger" onClick={() => void deleteSelectedSpeed()}>
+              Delete speed region
+            </button>
+          </aside>
+        </Show>
       </div>
 
       <footer class="timeline">
@@ -1464,7 +1624,7 @@ function App() {
           <button
             class="tbtn wide"
             classList={{ on: speed().length > 0 }}
-            title="Play idle stretches at 3× (auto-detected from your activity)"
+            title={`Play idle stretches at ${skimFactor()}× (auto-detected from your activity)`}
             disabled={!hasClip()}
             onClick={() => void toggleSkim()}
           >
@@ -1472,6 +1632,26 @@ function App() {
               <path d="M3 6.5v11a.8.8 0 0 0 1.25.66L12 13v4.5a.8.8 0 0 0 1.25.66l8.3-5.5a.8.8 0 0 0 0-1.32l-8.3-5.5A.8.8 0 0 0 12 6.5V11L4.25 5.84A.8.8 0 0 0 3 6.5z" />
             </svg>
             <span>Skim idle</span>
+          </button>
+          <select
+            class="tbtn-sel"
+            title="Speed-up factor for Skim idle and new speed regions"
+            disabled={!hasClip()}
+            value={String(skimFactor())}
+            onChange={(e) => setSkimFactor(Number(e.currentTarget.value))}
+          >
+            <For each={[2, 3, 4, 6, 8]}>{(f) => <option value={String(f)}>{f}×</option>}</For>
+          </select>
+          <button
+            class="tbtn wide"
+            title={`Mark 2s at the playhead to play at ${skimFactor()}× — drag the band to retime`}
+            disabled={!hasClip()}
+            onClick={() => void addSpeedAtPlayhead()}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
+            </svg>
+            <span>Speed</span>
           </button>
           <span class="statusline">{status()}</span>
         </div>
@@ -1561,17 +1741,30 @@ function App() {
                 }}
               </For>
             </div>
-            {/* Speed-up bands (idle stretches playing at N×) */}
+            {/* Speed-up bands — click the chip to select, drag to move, drag an edge to resize. */}
             <For each={speed()}>
-              {(r) => (
-                <div
-                  class="tl-speedband"
-                  style={{ left: `${pct(r.start)}%`, width: `${pct(r.end) - pct(r.start)}%` }}
-                  title={`Plays at ${r.factor.toFixed(0)}× (idle stretch)`}
-                >
-                  <span>{r.factor.toFixed(0)}×</span>
-                </div>
-              )}
+              {(r, i) => {
+                const g = () => speedGeom(i(), r);
+                return (
+                  <div
+                    classList={{ "tl-speedband": true, selected: selSpeed() === i() }}
+                    style={{
+                      left: `${pct(g().start)}%`,
+                      width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                    }}
+                  >
+                    <button
+                      class="tl-speedchip"
+                      title={`Plays at ${r.factor}× · drag to move, drag an edge to resize`}
+                      onPointerDown={onSpeedDown(i(), r)}
+                      onPointerMove={onSpeedMove}
+                      onPointerUp={() => void onSpeedUp()}
+                    >
+                      {r.factor}×
+                    </button>
+                  </div>
+                );
+              }}
             </For>
 
             {/* Trim: dimmed cut-off areas + draggable in/out handles */}

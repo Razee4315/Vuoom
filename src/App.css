@@ -692,6 +692,23 @@ kbd {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
+/* Compact select that sits among the transport buttons (skim factor). */
+.tbtn-sel {
+  height: 34px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.tbtn-sel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .time {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
@@ -901,14 +918,11 @@ kbd {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
-/* Idle stretches playing at N× */
+/* Stretches playing at N× (auto-skimmed idle or manually added) */
 .tl-speedband {
   position: absolute;
   top: 20px;
   bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
   background: repeating-linear-gradient(
     -55deg,
     transparent 0 6px,
@@ -919,11 +933,36 @@ kbd {
   pointer-events: none;
   z-index: 0;
 }
-.tl-speedband span {
+.tl-speedband.selected {
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+}
+/* The grabbable chip along the bottom of a band (the band itself is click-through
+   so timeline scrubbing keeps working inside it). */
+.tl-speedchip {
+  pointer-events: auto;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 15px;
+  width: 100%;
+  border: none;
+  border-radius: 5px 5px 0 0;
+  padding: 0;
   font-size: 8.5px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--note-box) 80%, var(--text));
-  padding-bottom: 2px;
+  background: color-mix(in srgb, var(--note-box) 22%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+.tl-speedchip:active {
+  cursor: grabbing;
+}
+.tl-speedband.selected .tl-speedchip {
+  outline: 1px solid var(--accent);
 }
 
 /* Trim: dimmed cut-off areas + draggable in/out handles */

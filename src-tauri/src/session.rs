@@ -69,6 +69,9 @@ struct Active {
     /// Poll-based Ctrl+Shift+Z recorder — catches chord presses the keyboard hook misses
     /// (e.g. while an elevated window has focus). Merged with hook marks at stop time.
     zoom_poll: ZoomChordPoller,
+    /// Pause spans `(start_qpc, end_qpc)` — an open span means "currently paused".
+    /// Converted to cuts at stop time, so pauses stay editable in the timeline.
+    pauses: Vec<(i64, Option<i64>)>,
     /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
     _preview: LivePreview,
 }
@@ -200,8 +203,27 @@ impl Session {
             events_rx,
             start_qpc: self.clock.now(),
             zoom_poll: ZoomChordPoller::start(),
+            pauses: Vec::new(),
             _preview: preview,
         });
+        Ok(())
+    }
+
+    /// Pause / resume the running recording. Capture keeps running; the paused span is
+    /// turned into a cut at stop time, so it never appears in the output (and can be
+    /// restored in the editor if the pause was a mistake).
+    pub fn set_record_paused(&self, paused: bool) -> Result<(), String> {
+        let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
+        let session = active.as_mut().ok_or("not recording")?;
+        let now = self.clock.now();
+        let open = session.pauses.last().is_some_and(|(_, e)| e.is_none());
+        if paused && !open {
+            session.pauses.push((now, None));
+        } else if !paused && open {
+            if let Some((_, e)) = session.pauses.last_mut() {
+                *e = Some(now);
+            }
+        }
         Ok(())
     }
 
@@ -302,6 +324,22 @@ impl Session {
         project.zoom_config = cfg; // so a reopened project re-simulates at the same zoom level
         project.zooms = zooms;
         project.events = events; // persisted so a reopened project can re-simulate panning
+
+        // Paused spans become ordinary cuts: skipped by playback/export, but visible and
+        // restorable in the editor if a pause was hit by mistake.
+        let mut cuts: Vec<Trim> = session
+            .pauses
+            .iter()
+            .filter_map(|&(s, e)| {
+                let start = self.clock.seconds_between(session.start_qpc, s).max(0.0);
+                let end = e
+                    .map_or(duration, |e| self.clock.seconds_between(session.start_qpc, e))
+                    .min(duration);
+                (end - start > 0.05).then_some(Trim { start, end })
+            })
+            .collect();
+        sort_cuts(&mut cuts);
+        project.cuts = cuts;
 
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         // Fresh clip → fresh (empty) undo history.

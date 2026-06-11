@@ -356,6 +356,23 @@
 .rec-stop:hover {
   filter: brightness(1.08);
 }
+.rec-live.paused {
+  border-color: rgba(255, 210, 63, 0.6);
+  color: #ffd23f;
+}
+.rec-pause {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rec-pause:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
 .rec-cancel {
   margin-left: auto;
   padding: 8px 16px;

@@ -56,6 +56,7 @@ export default function RecordOverlay(props: {
   const [sel, setSel] = createSignal<Rect | null>(null);
   const [count, setCount] = createSignal(3);
   const [elapsed, setElapsed] = createSignal(0);
+  const [paused, setPaused] = createSignal(false);
   let start: { x: number; y: number } | null = null;
   let elapsedTimer: number | undefined;
   let startMs = 0;
@@ -140,6 +141,24 @@ export default function RecordOverlay(props: {
     }
   };
 
+  // Pause/resume: capture keeps running, the paused span becomes a cut at stop time.
+  // The elapsed counter freezes so the readout matches what will actually be kept.
+  const togglePause = async () => {
+    const next = !paused();
+    try {
+      await invoke("set_record_paused", { paused: next });
+    } catch {
+      return; // not recording (race with stop) — leave the UI as is
+    }
+    setPaused(next);
+    if (next) {
+      stopTimer();
+    } else {
+      startMs = Date.now() - elapsed() * 1000;
+      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
+    }
+  };
+
   // ── region drawing (select phase) ──────────────────────────────────────────────
   const onDown = (e: PointerEvent) => {
     if (phase() !== "select" || preset().ratio === "full") return;
@@ -217,9 +236,16 @@ export default function RecordOverlay(props: {
                 </div>
               </Show>
               <Show when={phase() === "recording"}>
-                <span class="rec-live">
-                  <span class="rec-dot" /> LIVE
-                </span>
+                <Show
+                  when={paused()}
+                  fallback={
+                    <span class="rec-live">
+                      <span class="rec-dot" /> LIVE
+                    </span>
+                  }
+                >
+                  <span class="rec-live paused">⏸ PAUSED</span>
+                </Show>
                 <span class="rec-previewtag">Zoom preview</span>
               </Show>
             </div>
@@ -236,6 +262,13 @@ export default function RecordOverlay(props: {
                 <span class="rec-hint">
                   <kbd>Ctrl+Shift+Z</kbd> zoom · <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
+                <button
+                  class="rec-pause"
+                  title={paused() ? "Resume recording" : "Pause — the gap is cut from the GIF"}
+                  onClick={() => void togglePause()}
+                >
+                  {paused() ? "Resume" : "Pause"}
+                </button>
                 <button class="rec-stop" onClick={() => void stop()}>
                   Stop
                 </button>

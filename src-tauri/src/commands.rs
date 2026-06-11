@@ -212,6 +212,12 @@ pub async fn start_recording(
     Ok(())
 }
 
+/// Pause / resume the running recording (the paused span becomes a cut).
+#[tauri::command]
+pub fn set_record_paused(engine: tauri::State<'_, Engine>, paused: bool) -> Result<(), String> {
+    engine.session()?.set_record_paused(paused)
+}
+
 /// Composite the frame at time `t` (seconds) and push it to the preview.
 #[tauri::command]
 pub async fn seek(engine: tauri::State<'_, Engine>, t: f64) -> Result<(), String> {

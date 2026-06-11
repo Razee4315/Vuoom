@@ -89,6 +89,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::preview_port,
             commands::start_recording,
+            commands::set_record_paused,
             commands::seek,
             commands::export_gif,
             commands::add_text,

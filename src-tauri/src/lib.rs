@@ -7,6 +7,7 @@
 mod commands;
 mod hotkey;
 mod live_preview;
+mod region_border;
 mod session;
 mod windows_ext;
 mod zoom_chord;
@@ -75,6 +76,7 @@ pub fn run() {
             let cell: Arc<OnceLock<Result<session::Session, String>>> = Arc::new(OnceLock::new());
             app.manage(Engine(Arc::clone(&cell)));
             app.manage(hotkey::RecordingHotkey::default());
+            app.manage(commands::BorderState::default());
             std::thread::spawn(move || {
                 let _ = cell.set(session::Session::new());
             });

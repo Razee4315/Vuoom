@@ -6,13 +6,25 @@
 //! so they run off the main thread and never freeze the UI.
 
 use crate::hotkey::{RecordingHotkey, StopHotkey};
+use crate::region_border::RegionBorder;
 use crate::session::{AnnotationSet, ClipState, RecordingSummary};
 use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
 use crate::Engine;
 use serde::Serialize;
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
 use vuoom_capture::CropRegion;
 use vuoom_project::{SpeedRegion, ZoomKeyframe};
+
+/// The visible frame around the recorded region, plus the region it should frame.
+/// Held as Tauri managed state so the record-flow commands can show/clear it.
+#[derive(Default)]
+pub struct BorderState {
+    /// A copy of the region chosen by the selector (physical px); `None` = full screen.
+    pub region: Mutex<Option<CropRegion>>,
+    /// The live strips while recording; dropping them removes the frame.
+    pub border: Mutex<Option<RegionBorder>>,
+}
 
 // ── Recording flow ───────────────────────────────────────────────────────────────
 //
@@ -83,8 +95,10 @@ pub async fn finish_recording(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
     hotkey: tauri::State<'_, RecordingHotkey>,
+    border: tauri::State<'_, BorderState>,
 ) -> Result<RecordingSummary, String> {
     drop_hotkey(&hotkey);
+    drop_border(&border);
     let result = engine.session()?.stop_recording();
     restore_editor(&app); // always, even if stop failed
     result
@@ -95,10 +109,19 @@ pub async fn finish_recording(
 pub fn cancel_record_flow(
     app: AppHandle,
     hotkey: tauri::State<'_, RecordingHotkey>,
+    border: tauri::State<'_, BorderState>,
 ) -> Result<(), String> {
     drop_hotkey(&hotkey);
+    drop_border(&border);
     restore_editor(&app);
     Ok(())
+}
+
+/// Remove the recorded-region frame, if one is showing.
+fn drop_border(border: &BorderState) {
+    if let Ok(mut slot) = border.border.lock() {
+        *slot = None;
+    }
 }
 
 /// Stop the Ctrl+Shift+X watcher, if one is running.
@@ -112,6 +135,7 @@ fn drop_hotkey(hotkey: &RecordingHotkey) {
 #[tauri::command]
 pub fn set_region(
     engine: tauri::State<'_, Engine>,
+    border: tauri::State<'_, BorderState>,
     x: Option<u32>,
     y: Option<u32>,
     w: Option<u32>,
@@ -121,6 +145,9 @@ pub fn set_region(
         (Some(x), Some(y), Some(w), Some(h)) if w > 0 && h > 0 => Some(CropRegion { x, y, w, h }),
         _ => None,
     };
+    if let Ok(mut slot) = border.region.lock() {
+        *slot = region;
+    }
     engine.session()?.set_region(region)
 }
 
@@ -169,8 +196,16 @@ pub async fn start_recording(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
     hotkey: tauri::State<'_, RecordingHotkey>,
+    border: tauri::State<'_, BorderState>,
 ) -> Result<(), String> {
     engine.session()?.start_recording()?;
+    // Frame the recorded region so the user always sees what's being captured. The strips
+    // sit outside the crop AND are capture-excluded, so they never land in the recording.
+    // Full-screen recordings skip the frame — the screen edge is the region.
+    let region = border.region.lock().ok().and_then(|r| *r);
+    if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
+        *slot = RegionBorder::show(r.x as i32, r.y as i32, r.w as i32, r.h as i32);
+    }
     if let Ok(mut slot) = hotkey.0.lock() {
         *slot = Some(StopHotkey::watch(app));
     }

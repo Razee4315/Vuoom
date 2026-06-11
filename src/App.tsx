@@ -419,8 +419,11 @@ function App() {
   // Visible at the current playhead. A selected element also shows while PAUSED (so it
   // stays editable when scrubbed past its window) — but never during playback, which
   // must match the exported GIF exactly.
-  const inView = (r: TimeRange, sel: boolean) =>
-    (playhead() >= r.start && playhead() < r.end) || (sel && !playing());
+  const inWindow = (r: TimeRange) => playhead() >= r.start && playhead() < r.end;
+  const inView = (r: TimeRange, sel: boolean) => inWindow(r) || (sel && !playing());
+  // Selected but outside its window → drawn ghosted, so it's obvious the element is NOT
+  // visible at this moment (it's only on screen to stay editable).
+  const isGhost = (r: TimeRange, sel: boolean) => sel && !playing() && !inWindow(r);
 
   // ── live edit (update + re-composite), throttled ─────────────────────────────────
   let editBusy = false;
@@ -575,9 +578,12 @@ function App() {
       setSelected(hit);
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
+    } else {
+      // Clicking empty space deselects (Esc and the inspector's ✕ work too).
+      setSelected(null);
+      setSelZoom(null);
+      setSelSpeed(null);
     }
-    // Clicking empty space keeps the current selection so the inspector stays open;
-    // deselect deliberately with Esc or the inspector's ✕.
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -1343,7 +1349,7 @@ function App() {
                           const a = () => px({ x: g()[0], y: g()[1] });
                           const s = () => px({ x: g()[2], y: g()[3] });
                           return (
-                            <>
+                            <g opacity={isGhost(b.range, sel()) ? 0.35 : 1}>
                               <rect
                                 x={a().x}
                                 y={a().y}
@@ -1363,7 +1369,7 @@ function App() {
                                   ]}
                                 />
                               </Show>
-                            </>
+                            </g>
                           );
                         })()}
                       </Show>
@@ -1382,12 +1388,12 @@ function App() {
                           const f = () => px({ x: g()[0], y: g()[1] });
                           const tp = () => px({ x: g()[2], y: g()[3] });
                           return (
-                            <>
+                            <g opacity={isGhost(ar.range, sel()) ? 0.35 : 1}>
                               <ArrowLine from={f()} to={tp()} color={cssColor(ar.color)} />
                               <Show when={sel()}>
                                 <Handles pts={[f(), tp()]} />
                               </Show>
-                            </>
+                            </g>
                           );
                         })()}
                       </Show>
@@ -1400,13 +1406,13 @@ function App() {
                   {(tx) => {
                     const sel = () => selected()?.kind === "text" && selected()?.id === tx.id;
                     return (
-                      <Show when={inView(tx.range, sel())}>
+                      <Show when={inView(tx.range, sel()) && editingText() !== tx.id}>
                         {(() => {
                           const g = () => liveGeom("text", tx.id);
                           const p = () => px({ x: g()[0], y: g()[1] });
                           const fs = () => tx.font_size * stage().h;
                           return (
-                            <>
+                            <g opacity={isGhost(tx.range, sel()) ? 0.35 : 1}>
                               <text
                                 x={p().x}
                                 y={p().y + fs()}
@@ -1429,7 +1435,7 @@ function App() {
                                   height={fs() + 8}
                                 />
                               </Show>
-                            </>
+                            </g>
                           );
                         })()}
                       </Show>
@@ -1602,6 +1608,12 @@ function App() {
               </div>
             </Show>
 
+            <Show when={selectedRange() && isGhost(selectedRange()!, true)}>
+              <p class="muted small ghost-note">
+                Hidden at the playhead (shown dimmed for editing) — it appears from{" "}
+                {fmt(selectedRange()!.start)} to {fmt(selectedRange()!.end)}.
+              </p>
+            </Show>
             <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>
             <button class="btn danger" onClick={() => void deleteSelected()}>
               Delete element

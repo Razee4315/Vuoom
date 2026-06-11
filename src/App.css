@@ -688,6 +688,12 @@ kbd {
   color: var(--muted);
 }
 
+.ghost-note {
+  padding: 7px 9px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
 .muted {
   color: var(--muted);
   font-size: 12px;

@@ -36,6 +36,7 @@ vuoom-input.workspace = true
 vuoom-capture.workspace = true
 vuoom-render.workspace = true
 vuoom-preview.workspace = true
+vuoom-control.workspace = true
 
 # Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
 # CF_HDROP clipboard file copy, hotkey polling. Match the version vuoom-input /

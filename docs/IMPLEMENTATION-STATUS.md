@@ -77,6 +77,23 @@ a GPU-less CI runner, so they're compile-verified here and confirmed by running 
 
 ---
 
+## AI Demo Director (MCP) — agent-driven demo generation
+
+An AI agent (Claude) can drive Vuoom to generate a demo: drive a target app, record with
+auto-zoom, *see* the output via sampled frames, and re-record to improve it. Setup in
+`docs/AI_DEMO_DIRECTOR.md`; research in `docs/13-AI-Demo-Director-Research.md`.
+
+| Area | Crate | Status |
+|---|---|---|
+| Control protocol (newline-JSON req/resp, client, port discovery) | `vuoom-control` | ✅ |
+| Input injection (SendInput move/click/type/key/scroll) + coord/key math | `vuoom-input` | 🟡 (math ✅; SendInput runtime) |
+| In-app control server (opt-in `VUOOM_ENABLE_CONTROL`, loopback) | `src-tauri` | 🟡 |
+| `Session::sample_frames` (composite → base64 PNG) + `clip_info` | `src-tauri` | 🟡 |
+| MCP sidecar — 19 tools over stdio (rmcp) | `vuoom-mcp` | ✅ (builds + `tools/list` smoke-tested) |
+
+Runtime-verify on a real machine: actual SendInput driving a target app, capture + auto-zoom
+from injected clicks, and the full record→get_frames→export loop (CI is headless/GPU-less).
+
 ## Why the 🟡 / ⬜ boundary
 
 The capture, GPU compositor, and live preview need a **real GPU + display** to verify (does it

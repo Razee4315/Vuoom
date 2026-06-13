@@ -12,6 +12,7 @@ members = [
     "crates/vuoom-encode",
     "crates/vuoom-project",
     "crates/vuoom-preview",
+    "crates/vuoom-control",
 ]
 
 [workspace.package]
@@ -33,6 +34,7 @@ vuoom-render  = { path = "crates/vuoom-render" }
 vuoom-encode  = { path = "crates/vuoom-encode" }
 vuoom-project = { path = "crates/vuoom-project" }
 vuoom-preview = { path = "crates/vuoom-preview" }
+vuoom-control = { path = "crates/vuoom-control" }
 
 # Third-party (versions are starting points — confirm latest when first pulled)
 serde       = { version = "1", features = ["derive"] }

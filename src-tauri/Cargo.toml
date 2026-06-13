@@ -18,6 +18,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+# Auto-update from GitHub Releases: the updater checks/downloads/installs the
+# signed bundle; the process plugin relaunches the app afterwards.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"

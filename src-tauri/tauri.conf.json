@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,5 +37,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Razee4315/Vuoom/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQyOTkzNDg1OEMzMzU3RTAKUldUZ1Z6T01oVFNaMGdwMGdxMjFvclJLK2p4K1dBcmZLeWZXVE1wZmdjVVRiWnUyS2Y0RS9lY24K"
+    }
   }
 }

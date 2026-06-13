@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
@@ -218,6 +220,9 @@ function App() {
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
   const [zoomAmount, setZoomAmount] = createSignal(1.8);
+  // Auto-update: a pending update (if any) and whether we're mid-download.
+  const [update, setUpdate] = createSignal<Update | null>(null);
+  const [updating, setUpdating] = createSignal(false);
 
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
@@ -307,6 +312,7 @@ function App() {
       onCleanup(() => ro.disconnect());
     }
     await connectEngine();
+    void checkForUpdate();
   });
 
   // The engine (GPU compositor + preview server) boots on a background thread; retry
@@ -343,6 +349,46 @@ function App() {
     setStatus("The engine did not start — try restarting Vuoom.");
     hideSplash();
   };
+
+  // ── auto-update (signed GitHub releases) ───────────────────────────────────────
+  // Check once on launch; surfaces an "Update" pill in the top bar if one is ready.
+  const checkForUpdate = async () => {
+    try {
+      const u = await check();
+      if (u) setUpdate(u);
+    } catch {
+      /* updater not configured (dev) or offline — silently ignore */
+    }
+  };
+  const runUpdate = async () => {
+    const u = update();
+    if (!u || updating()) return;
+    setUpdating(true);
+    setStatus(`Downloading update v${u.version}…`);
+    try {
+      let total = 0;
+      let got = 0;
+      await u.downloadAndInstall((ev) => {
+        if (ev.event === "Started") {
+          total = ev.data.contentLength ?? 0;
+        } else if (ev.event === "Progress") {
+          got += ev.data.chunkLength;
+          setStatus(
+            total > 0
+              ? `Downloading update… ${Math.round((got / total) * 100)}%`
+              : "Downloading update…",
+          );
+        } else if (ev.event === "Finished") {
+          setStatus("Update downloaded — restarting…");
+        }
+      });
+      await relaunch();
+    } catch (e) {
+      setUpdating(false);
+      setStatus(`Update failed: ${String(e)}`);
+    }
+  };
+
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("keydown", onGlobalKey, true);
@@ -1699,6 +1745,19 @@ function App() {
           </svg>
           Export
         </button>
+        <Show when={update()}>
+          <button
+            class="btn update-pill"
+            disabled={updating()}
+            title={`Update to v${update()!.version} and restart`}
+            onClick={() => void runUpdate()}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v10m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+            </svg>
+            {updating() ? "Updating…" : `Update ${update()!.version}`}
+          </button>
+        </Show>
         <span class="toolbar-sep" />
         <ThemeMenu current={theme()} onSelect={setTheme} />
         <WindowControls />

@@ -384,6 +384,22 @@ kbd {
   border: 1px solid var(--line);
 }
 
+/* Auto-update pill — appears in the top bar only when an update is ready. */
+.btn.update-pill {
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+  animation: update-glow 2.6s ease-in-out infinite;
+}
+.btn.update-pill:hover:not(:disabled) {
+  background: var(--hover);
+}
+@keyframes update-glow {
+  50% {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  }
+}
+
 /* ---- Workspace ---- */
 .workspace {
   display: grid;

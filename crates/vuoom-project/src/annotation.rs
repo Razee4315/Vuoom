@@ -28,6 +28,18 @@ pub struct TextAnnotation {
     pub range: TimeRange,
 }
 
+/// How an arrow's ends are capped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ArrowStyle {
+    /// A single head at `to` (the classic pointer).
+    #[default]
+    Arrow,
+    /// No heads — a plain line.
+    Line,
+    /// Heads at both ends.
+    DoubleArrow,
+}
+
 /// An arrow from `from` to `to` (rendered via lyon at composite time).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ArrowAnnotation {
@@ -37,6 +49,9 @@ pub struct ArrowAnnotation {
     pub color: Color,
     /// Stroke thickness as a fraction of output height.
     pub thickness: f32,
+    /// Head style. Defaults to `Arrow` so projects saved before this existed still load.
+    #[serde(default)]
+    pub style: ArrowStyle,
     pub range: TimeRange,
 }
 

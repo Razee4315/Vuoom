@@ -13,7 +13,7 @@ import { PreviewClient } from "./preview";
 import { LogoWordmark } from "./Logo";
 import "./App.css";
 
-type Tool = "select" | "text" | "arrow" | "box" | "ellipse";
+type Tool = "select" | "text" | "arrow" | "line" | "shape" | "highlight";
 type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -53,6 +53,8 @@ interface ArrowAnn {
   to: SerVec;
   color: Color;
   thickness: number;
+  /// Mirrors vuoom_project::ArrowStyle — externally tagged unit variants serialize as the name.
+  style?: "Arrow" | "Line" | "DoubleArrow";
   range: TimeRange;
 }
 interface BoxAnn {
@@ -141,9 +143,10 @@ const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#
 const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
   { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click an element to select, drag to move, drag a handle to resize. (V)" },
   { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click on the video to drop a text label. (T)" },
-  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag on the video to draw an arrow. (A)" },
-  { id: "box", label: "Box", key: "B", code: "KeyB", hint: "Drag on the video to draw a highlight box. (B)" },
-  { id: "ellipse", label: "Ellipse", key: "E", code: "KeyE", hint: "Drag on the video to draw an ellipse highlight. (E)" },
+  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag on the video to draw an arrow — switch to line/double in the panel. (A)" },
+  { id: "line", label: "Line", key: "L", code: "KeyL", hint: "Drag on the video to draw a plain line (no arrowhead). (L)" },
+  { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to draw a box — switch to ellipse in the panel. (S)" },
+  { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag to highlight an area with a translucent marker. (H)" },
 ];
 // e.code → tool, for single-key tool switching (only while a clip is loaded).
 const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));
@@ -166,6 +169,13 @@ const fmt = (t: number) => {
 };
 // Playhead readout with tenths, so annotations can be aligned precisely.
 const fmtT = (t: number) => `${fmt(t)}.${Math.floor((t % 1) * 10)}`;
+// Which ends of an arrow carry a head, mirroring vuoom_render's resolution of ArrowStyle.
+const arrowHeads = (style?: string) =>
+  style === "Line"
+    ? { from: false, to: false }
+    : style === "DoubleArrow"
+      ? { from: true, to: true }
+      : { from: false, to: true };
 const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -178,8 +188,10 @@ const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
 // Drag state for the interactive overlay.
 type Drag =
   | { mode: "create-arrow"; start: Vec2; cur: Vec2 }
+  | { mode: "create-line"; start: Vec2; cur: Vec2 }
   | { mode: "create-box"; start: Vec2; cur: Vec2 }
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
+  | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
   | { mode: "move"; kind: Kind; id: number; grab: Vec2; orig: number[]; geom: number[] }
   | { mode: "resize"; kind: Kind; id: number; handle: string; orig: number[]; geom: number[] }
   | null;
@@ -715,8 +727,16 @@ function App() {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
-    if (t === "box" || t === "ellipse") {
-      setDrag({ mode: t === "box" ? "create-box" : "create-ellipse", start: p, cur: p });
+    if (t === "line") {
+      setDrag({ mode: "create-line", start: p, cur: p });
+      return;
+    }
+    if (t === "shape") {
+      setDrag({ mode: "create-box", start: p, cur: p });
+      return;
+    }
+    if (t === "highlight") {
+      setDrag({ mode: "create-highlight", start: p, cur: p });
       return;
     }
 
@@ -757,7 +777,13 @@ function App() {
     const d = drag();
     if (!d) return;
     const p = norm(e);
-    if (d.mode === "create-arrow" || d.mode === "create-box" || d.mode === "create-ellipse") {
+    if (
+      d.mode === "create-arrow" ||
+      d.mode === "create-line" ||
+      d.mode === "create-box" ||
+      d.mode === "create-ellipse" ||
+      d.mode === "create-highlight"
+    ) {
       setDrag({ ...d, cur: p });
       return;
     }
@@ -794,7 +820,8 @@ function App() {
     const d = drag();
     if (!d) return;
     const p = norm(e);
-    if (d.mode === "create-arrow") {
+    if (d.mode === "create-arrow" || d.mode === "create-line") {
+      const isLine = d.mode === "create-line";
       setDrag(null);
       if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.01) {
         const id = await invoke<number>("add_arrow", {
@@ -804,6 +831,7 @@ function App() {
           ty: p.y,
           t: playhead(),
         });
+        if (isLine) await invoke("set_arrow_style", { id, style: "line" });
         await refresh();
         await pushSeek(playhead());
         setSelZoom(null);
@@ -811,8 +839,17 @@ function App() {
         setSelected({ kind: "arrow", id });
         if (!toolLock()) setTool("select");
       }
-    } else if (d.mode === "create-box" || d.mode === "create-ellipse") {
-      const cmd = d.mode === "create-box" ? "add_box" : "add_ellipse";
+    } else if (
+      d.mode === "create-box" ||
+      d.mode === "create-ellipse" ||
+      d.mode === "create-highlight"
+    ) {
+      const cmd =
+        d.mode === "create-box"
+          ? "add_box"
+          : d.mode === "create-ellipse"
+            ? "add_ellipse"
+            : "add_highlighter";
       setDrag(null);
       const x = Math.min(d.start.x, p.x);
       const y = Math.min(d.start.y, p.y);
@@ -856,9 +893,36 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
+  const setShape = async (ellipse: boolean) => {
+    const s = selected();
+    if (s?.kind !== "box") return;
+    await invoke("set_highlight_shape", { id: s.id, ellipse });
+    await refresh();
+    await pushSeek(playhead());
+  };
+  const setArrowStyle = async (style: "arrow" | "line" | "double") => {
+    const s = selected();
+    if (s?.kind !== "arrow") return;
+    await invoke("set_arrow_style", { id: s.id, style });
+    await refresh();
+    await pushSeek(playhead());
+  };
+  const setOpacity = async (a: number) => {
+    const s = selected();
+    if (!s) return;
+    await invoke("set_annotation_opacity", { id: s.id, a });
+    await refresh();
+    await pushSeek(playhead());
+  };
   const inspTitle = () => {
     const s = selected()!;
-    if (s.kind === "box" && selectedBox()?.shape === "Ellipse") return "Ellipse";
+    if (s.kind === "box") {
+      const b = selectedBox();
+      if (b?.shape === "Ellipse") return "Ellipse";
+      if (b?.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
+      return "Box";
+    }
+    if (s.kind === "arrow") return selectedArrow()?.style === "Line" ? "Line" : "Arrow";
     return s.kind[0].toUpperCase() + s.kind.slice(1);
   };
   const selectedColor = (): Color | undefined => {
@@ -1589,7 +1653,13 @@ function App() {
     for (const t of a.texts)
       bars.push({ kind: "text", id: t.id, start: t.range.start, end: t.range.end, label: t.text || "Text" });
     for (const ar of a.arrows)
-      bars.push({ kind: "arrow", id: ar.id, start: ar.range.start, end: ar.range.end, label: "Arrow" });
+      bars.push({
+        kind: "arrow",
+        id: ar.id,
+        start: ar.range.start,
+        end: ar.range.end,
+        label: ar.style === "Line" ? "Line" : "Arrow",
+      });
     for (const b of a.highlights)
       bars.push({
         kind: "box",
@@ -1922,6 +1992,8 @@ function App() {
                                 to={tp()}
                                 color={cssColor(ar.color)}
                                 width={Math.max(ar.thickness * stage().h, 1.5)}
+                                headFrom={arrowHeads(ar.style).from}
+                                headTo={arrowHeads(ar.style).to}
                               />
                               <Show when={sel()}>
                                 <Handles pts={[f(), tp()]} />
@@ -1983,6 +2055,12 @@ function App() {
                     return <ArrowLine from={px(d.start)} to={px(d.cur)} color="#e5484d" />;
                   })()}
                 </Show>
+                <Show when={drag()?.mode === "create-line"}>
+                  {(() => {
+                    const d = drag() as { start: Vec2; cur: Vec2 };
+                    return <ArrowLine from={px(d.start)} to={px(d.cur)} color="#e5484d" headTo={false} />;
+                  })()}
+                </Show>
                 <Show when={drag()?.mode === "create-box"}>
                   {(() => {
                     const d = drag() as { start: Vec2; cur: Vec2 };
@@ -1991,6 +2069,17 @@ function App() {
                     const h = Math.abs(d.cur.y - d.start.y) * stage().h;
                     return (
                       <rect x={a.x} y={a.y} width={w} height={h} fill="none" stroke="#ffd23f" stroke-width={2} />
+                    );
+                  })()}
+                </Show>
+                <Show when={drag()?.mode === "create-highlight"}>
+                  {(() => {
+                    const d = drag() as { start: Vec2; cur: Vec2 };
+                    const a = px({ x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y) });
+                    const w = Math.abs(d.cur.x - d.start.x) * stage().w;
+                    const h = Math.abs(d.cur.y - d.start.y) * stage().h;
+                    return (
+                      <rect x={a.x} y={a.y} width={w} height={h} fill="rgba(255,214,63,0.3)" stroke="#ffd23f" stroke-width={1.5} />
                     );
                   })()}
                 </Show>
@@ -2115,6 +2204,23 @@ function App() {
 
             <Show when={selectedBox()}>
               <div class="field">
+                <span>Shape</span>
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedBox()!.shape !== "Ellipse" }}
+                    onClick={() => void setShape(false)}
+                  >
+                    Rectangle
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedBox()!.shape === "Ellipse" }}
+                    onClick={() => void setShape(true)}
+                  >
+                    Ellipse
+                  </button>
+                </div>
+              </div>
+              <div class="field">
                 <span>Fill</span>
                 <div class="style-row">
                   <button
@@ -2128,6 +2234,42 @@ function App() {
                     onClick={() => void editStyle({ filled: true })}
                   >
                     Filled
+                  </button>
+                </div>
+              </div>
+              <label class="field">
+                <span>Opacity · {Math.round((selectedBox()!.color.a ?? 1) * 100)}%</span>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1"
+                  step="0.05"
+                  value={selectedBox()!.color.a ?? 1}
+                  onInput={(e) => void setOpacity(Number(e.currentTarget.value))}
+                />
+              </label>
+            </Show>
+            <Show when={selectedArrow()}>
+              <div class="field">
+                <span>Ends</span>
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, label: true, on: (selectedArrow()!.style ?? "Arrow") === "Arrow" }}
+                    onClick={() => void setArrowStyle("arrow")}
+                  >
+                    Arrow
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "Line" }}
+                    onClick={() => void setArrowStyle("line")}
+                  >
+                    Line
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "DoubleArrow" }}
+                    onClick={() => void setArrowStyle("double")}
+                  >
+                    Double
                   </button>
                 </div>
               </div>
@@ -2685,10 +2827,12 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
       return <svg {...common}><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>;
     case "arrow":
       return <svg {...common}><path d="M5 19L19 5M11 5h8v8" /></svg>;
-    case "box":
-      return <svg {...common}><rect x="4" y="6" width="16" height="12" rx="1" /></svg>;
-    case "ellipse":
-      return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>;
+    case "line":
+      return <svg {...common}><path d="M5 19L19 5" /></svg>;
+    case "shape":
+      return <svg {...common}><rect x="3.5" y="6.5" width="11" height="11" rx="1.5" /><ellipse cx="16.5" cy="14" rx="4.5" ry="4" /></svg>;
+    case "highlight":
+      return <svg {...common}><path d="M4 20h6M14.5 4.5l5 5L10 19l-5 1 1-5z" /></svg>;
   }
 }
 
@@ -2740,21 +2884,34 @@ function Handles(props: { pts: Vec2[] }): JSX.Element {
   );
 }
 
-function ArrowLine(props: { from: Vec2; to: Vec2; color: string; width?: number }): JSX.Element {
+function ArrowLine(props: {
+  from: Vec2;
+  to: Vec2;
+  color: string;
+  width?: number;
+  headFrom?: boolean;
+  headTo?: boolean;
+}): JSX.Element {
   const w = () => props.width ?? 3;
-  const headLen = () => Math.max(w() * 3.5, 9); // mirrors the export head (thickness × 3.5)
+  const headLen = () => Math.max(w() * 4, 10); // mirrors the export head (thickness × 4, min 10)
   const ang = () => Math.atan2(props.to.y - props.from.y, props.to.x - props.from.x);
-  const head = (off: number) => ({
-    x: props.to.x - headLen() * Math.cos(ang() - off),
-    y: props.to.y - headLen() * Math.sin(ang() - off),
-  });
+  const headTo = () => props.headTo ?? true;
+  const headFrom = () => props.headFrom ?? false;
+  // Triangle for a head whose tip is at `tip`, pointing along angle `a`.
+  const tri = (tip: Vec2, a: number) => {
+    const p1 = { x: tip.x - headLen() * Math.cos(a - 0.5), y: tip.y - headLen() * Math.sin(a - 0.5) };
+    const p2 = { x: tip.x - headLen() * Math.cos(a + 0.5), y: tip.y - headLen() * Math.sin(a + 0.5) };
+    return `${tip.x},${tip.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`;
+  };
   return (
     <g stroke={props.color} fill={props.color} stroke-width={w()} stroke-linecap="round">
       <line x1={props.from.x} y1={props.from.y} x2={props.to.x} y2={props.to.y} />
-      <polygon
-        points={`${props.to.x},${props.to.y} ${head(0.5).x},${head(0.5).y} ${head(-0.5).x},${head(-0.5).y}`}
-        stroke="none"
-      />
+      <Show when={headTo()}>
+        <polygon points={tri(props.to, ang())} stroke="none" />
+      </Show>
+      <Show when={headFrom()}>
+        <polygon points={tri(props.from, ang() + Math.PI)} stroke="none" />
+      </Show>
     </g>
   );
 }

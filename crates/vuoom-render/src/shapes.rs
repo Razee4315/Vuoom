@@ -106,31 +106,52 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     let dir = [dx / len, dy / len];
     let perp = [-dir[1], dir[0]];
     let th = (a.thickness_px as f32).max(1.0);
-    let head = th * 3.5;
-    let shaft_end = [to[0] - dir[0] * head, to[1] - dir[1] * head];
+    // A slightly larger head with a guaranteed minimum so thin arrows still read, capped
+    // so it never overruns a short arrow.
+    let head = (th * 4.0).max(10.0).min(len * 0.5);
+    let head_hw = head * 0.55;
     let h = th / 2.0;
+
+    // Pull the shaft in on whichever end carries a head, so the head isn't doubled over.
+    let s_from = if a.head_from {
+        [from[0] + dir[0] * head, from[1] + dir[1] * head]
+    } else {
+        from
+    };
+    let s_to = if a.head_to {
+        [to[0] - dir[0] * head, to[1] - dir[1] * head]
+    } else {
+        to
+    };
 
     push_quad(
         out,
         [
-            [from[0] + perp[0] * h, from[1] + perp[1] * h],
-            [shaft_end[0] + perp[0] * h, shaft_end[1] + perp[1] * h],
-            [shaft_end[0] - perp[0] * h, shaft_end[1] - perp[1] * h],
-            [from[0] - perp[0] * h, from[1] - perp[1] * h],
+            [s_from[0] + perp[0] * h, s_from[1] + perp[1] * h],
+            [s_to[0] + perp[0] * h, s_to[1] + perp[1] * h],
+            [s_to[0] - perp[0] * h, s_to[1] - perp[1] * h],
+            [s_from[0] - perp[0] * h, s_from[1] - perp[1] * h],
         ],
         color,
     );
 
-    let hw = head * 0.6;
-    out.push(ShapeVertex {
-        pos: [shaft_end[0] + perp[0] * hw, shaft_end[1] + perp[1] * hw],
-        color,
-    });
-    out.push(ShapeVertex { pos: to, color });
-    out.push(ShapeVertex {
-        pos: [shaft_end[0] - perp[0] * hw, shaft_end[1] - perp[1] * hw],
-        color,
-    });
+    let mut head_tri = |base: [f32; 2], tip: [f32; 2]| {
+        out.push(ShapeVertex {
+            pos: [base[0] + perp[0] * head_hw, base[1] + perp[1] * head_hw],
+            color,
+        });
+        out.push(ShapeVertex { pos: tip, color });
+        out.push(ShapeVertex {
+            pos: [base[0] - perp[0] * head_hw, base[1] - perp[1] * head_hw],
+            color,
+        });
+    };
+    if a.head_to {
+        head_tri(s_to, to);
+    }
+    if a.head_from {
+        head_tri(s_from, from);
+    }
 }
 
 /// Build the triangle list for all of a scene's highlights and arrows.

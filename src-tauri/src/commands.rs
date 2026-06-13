@@ -504,6 +504,19 @@ pub fn add_ellipse(
     engine.session()?.add_ellipse(x, y, w, h, t)
 }
 
+/// Add a translucent filled highlighter rectangle from time `t`.
+#[tauri::command]
+pub fn add_highlighter(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_highlighter(x, y, w, h, t)
+}
+
 /// Snapshot every annotation (for the editor overlay).
 #[tauri::command]
 pub fn list_annotations(engine: tauri::State<'_, Engine>) -> Result<AnnotationSet, String> {
@@ -601,6 +614,36 @@ pub fn set_annotation_style(
     engine
         .session()?
         .set_annotation_style(id, thickness, filled)
+}
+
+/// Set the alpha/opacity (0..1) of an annotation's color.
+#[tauri::command]
+pub fn set_annotation_opacity(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    a: f64,
+) -> Result<(), String> {
+    engine.session()?.set_annotation_opacity(id, a)
+}
+
+/// Switch a highlight between rectangle (`false`) and ellipse (`true`).
+#[tauri::command]
+pub fn set_highlight_shape(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    ellipse: bool,
+) -> Result<(), String> {
+    engine.session()?.set_highlight_shape(id, ellipse)
+}
+
+/// Set an arrow's head style: "arrow", "line", or "double".
+#[tauri::command]
+pub fn set_arrow_style(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    style: String,
+) -> Result<(), String> {
+    engine.session()?.set_arrow_style(id, &style)
 }
 
 /// Retime an annotation (text, arrow, or box): when it appears / disappears.

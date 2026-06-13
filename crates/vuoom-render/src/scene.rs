@@ -5,7 +5,7 @@
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
 use crate::layout::{compute_layout, CompositeLayout};
-use vuoom_project::{Color, HighlightShape, InputEvent, Project};
+use vuoom_project::{ArrowStyle, Color, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
@@ -30,6 +30,9 @@ pub struct ResolvedArrow {
     pub to_y: f64,
     pub thickness_px: f64,
     pub color: Color,
+    /// Draw a head at the `from` end / the `to` end.
+    pub head_from: bool,
+    pub head_to: bool,
 }
 
 /// A highlight box resolved to output pixels.
@@ -104,6 +107,11 @@ pub fn build_scene(
         if o <= 0.0 {
             continue;
         }
+        let (head_from, head_to) = match a.style {
+            ArrowStyle::Arrow => (false, true),
+            ArrowStyle::Line => (false, false),
+            ArrowStyle::DoubleArrow => (true, true),
+        };
         arrows.push(ResolvedArrow {
             from_x: a.from.x * ow,
             from_y: a.from.y * oh,
@@ -111,6 +119,8 @@ pub fn build_scene(
             to_y: a.to.y * oh,
             thickness_px: f64::from(a.thickness) * oh,
             color: fade(a.color, o),
+            head_from,
+            head_to,
         });
     }
 

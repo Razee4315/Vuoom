@@ -29,7 +29,7 @@ use vuoom_encode::{
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    output_duration, output_to_source, ArrowAnnotation, Background, Color, FrameStyle,
+    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, FrameStyle,
     HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
@@ -730,6 +730,7 @@ impl Session {
             to: DVec2::new(tx, ty),
             color: Color::rgb(0.95, 0.25, 0.25),
             thickness: 0.006,
+            style: ArrowStyle::Arrow,
             range,
         });
         Ok(id)
@@ -766,6 +767,26 @@ impl Session {
             thickness: 0.005,
             filled: false,
             shape,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add a translucent filled highlighter (marker-style) rectangle. Returns its id.
+    pub fn add_highlighter(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            // Warm marker yellow at low opacity so content shows through.
+            color: Color::rgba(1.0, 0.86, 0.18, 0.35),
+            thickness: 0.005,
+            filled: true,
+            shape: HighlightShape::Rect,
             range,
         });
         Ok(id)
@@ -1183,18 +1204,70 @@ impl Session {
 
     /// Tint any annotation (text, arrow, or box) by id.
     pub fn set_annotation_color(&self, id: u32, r: f64, g: f64, b: f64) -> Result<(), String> {
-        let color = Color::rgb(r as f32, g as f32, b as f32);
+        let (r, g, b) = (r as f32, g as f32, b as f32);
         // The color picker streams values while dragging — coalesce into one undo step.
+        // Preserve each element's current alpha so recoloring a highlighter keeps its opacity.
         self.with_project(&format!("color:{id}"), |p| {
             if let Some(a) = p.texts.iter_mut().find(|a| a.id == id) {
-                a.color = color;
+                a.color = Color::rgba(r, g, b, a.color.a);
             } else if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
-                a.color = color;
+                a.color = Color::rgba(r, g, b, a.color.a);
             } else if let Some(a) = p.highlights.iter_mut().find(|a| a.id == id) {
-                a.color = color;
+                a.color = Color::rgba(r, g, b, a.color.a);
             } else {
                 return Err("no such annotation".into());
             }
+            Ok(())
+        })
+    }
+
+    /// Set the alpha (0..1) of any annotation's color — backs the opacity slider.
+    pub fn set_annotation_opacity(&self, id: u32, a: f64) -> Result<(), String> {
+        let alpha = (a as f32).clamp(0.0, 1.0);
+        self.with_project(&format!("opacity:{id}"), |p| {
+            if let Some(x) = p.texts.iter_mut().find(|x| x.id == id) {
+                x.color = x.color.with_alpha(alpha);
+            } else if let Some(x) = p.arrows.iter_mut().find(|x| x.id == id) {
+                x.color = x.color.with_alpha(alpha);
+            } else if let Some(x) = p.highlights.iter_mut().find(|x| x.id == id) {
+                x.color = x.color.with_alpha(alpha);
+            } else {
+                return Err("no such annotation".into());
+            }
+            Ok(())
+        })
+    }
+
+    /// Switch a highlight between rectangle and ellipse.
+    pub fn set_highlight_shape(&self, id: u32, ellipse: bool) -> Result<(), String> {
+        self.with_project(&format!("shape:{id}"), |p| {
+            let b = p
+                .highlights
+                .iter_mut()
+                .find(|b| b.id == id)
+                .ok_or("no such highlight")?;
+            b.shape = if ellipse {
+                HighlightShape::Ellipse
+            } else {
+                HighlightShape::Rect
+            };
+            Ok(())
+        })
+    }
+
+    /// Set an arrow's head style: "arrow" (single), "line" (none), or "double" (both ends).
+    pub fn set_arrow_style(&self, id: u32, style: &str) -> Result<(), String> {
+        self.with_project(&format!("arrowstyle:{id}"), |p| {
+            let a = p
+                .arrows
+                .iter_mut()
+                .find(|a| a.id == id)
+                .ok_or("no such arrow")?;
+            a.style = match style {
+                "line" => ArrowStyle::Line,
+                "double" => ArrowStyle::DoubleArrow,
+                _ => ArrowStyle::Arrow,
+            };
             Ok(())
         })
     }

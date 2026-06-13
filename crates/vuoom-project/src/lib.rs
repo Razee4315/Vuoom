@@ -11,9 +11,7 @@ mod frame;
 mod timeline;
 mod timing;
 
-pub use annotation::{
-    ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation,
-};
+pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
 pub use color::{Color, Rect};
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
 pub use timeline::{output_duration, output_to_source};

@@ -5307,7 +5307,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "base64 0.22.1",
  "glam",
@@ -5331,7 +5331,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5340,8 +5340,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vuoom-control"
+version = "0.1.27"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "vuoom-encode"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "color_quant",
  "gif",
@@ -5354,7 +5362,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5365,7 +5373,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "futures-util",
  "thiserror 2.0.18",
@@ -5376,7 +5384,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "glam",
  "serde",
@@ -5386,7 +5394,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5401,7 +5409,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.26"
+version = "0.1.27"
 dependencies = [
  "glam",
  "serde",

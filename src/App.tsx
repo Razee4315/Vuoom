@@ -1717,42 +1717,50 @@ function App() {
       <div
         class="workspace"
         style={{
-          "grid-template-columns": inspectorOpen() ? `76px 1fr ${inspectorW()}px` : "76px 1fr",
+          // The tool rail only matters once there's a clip to annotate, so it (and its
+          // 76px column) drops out of the empty editor — keeping the focus on Record.
+          "grid-template-columns": hasClip()
+            ? inspectorOpen()
+              ? `76px 1fr ${inspectorW()}px`
+              : "76px 1fr"
+            : "1fr",
         }}
       >
-        <nav class="toolrail">
-          <For each={TOOLS}>
-            {(t) => (
-              <button
-                classList={{ tool: true, active: tool() === t.id }}
-                disabled={!hasClip()}
-                onClick={() => setTool(t.id)}
-                title={t.hint}
-              >
-                <ToolIcon tool={t.id} />
-                <span>{t.label}</span>
-                <kbd class="tool-key">{t.key}</kbd>
-              </button>
-            )}
-          </For>
-          <div class="toolrail-spacer" />
-          <button
-            classList={{ tool: true, "tool-lock": true, active: toolLock() }}
-            disabled={!hasClip()}
-            title={
-              toolLock()
-                ? "Tool lock on — the drawing tool stays active so you can add several in a row"
-                : "Tool lock off — switches back to Select after you add an element"
-            }
-            onClick={() => setToolLock(!toolLock())}
-          >
-            <LockIcon locked={toolLock()} />
-            <span>Lock</span>
-          </button>
-        </nav>
+        <Show when={hasClip()}>
+          <nav class="toolrail">
+            <For each={TOOLS}>
+              {(t) => (
+                <button
+                  classList={{ tool: true, active: tool() === t.id }}
+                  onClick={() => setTool(t.id)}
+                  title={t.hint}
+                >
+                  <ToolIcon tool={t.id} />
+                  <span>{t.label}</span>
+                  <kbd class="tool-key">{t.key}</kbd>
+                </button>
+              )}
+            </For>
+            <div class="toolrail-spacer" />
+            <button
+              classList={{ tool: true, "tool-lock": true, active: toolLock() }}
+              title={
+                toolLock()
+                  ? "Tool lock on — the drawing tool stays active so you can add several in a row"
+                  : "Tool lock off — switches back to Select after you add an element"
+              }
+              onClick={() => setToolLock(!toolLock())}
+            >
+              <LockIcon locked={toolLock()} />
+              <span>Lock</span>
+            </button>
+          </nav>
+        </Show>
 
         <main class="canvas">
-          <div class="tool-hint">{TOOLS.find((t) => t.id === tool())?.hint}</div>
+          <Show when={hasClip()}>
+            <div class="tool-hint">{TOOLS.find((t) => t.id === tool())?.hint}</div>
+          </Show>
           <div
             class="canvas-frame"
             ref={(el) => (stageEl = el)}
@@ -1766,6 +1774,10 @@ function App() {
             <Show when={!hasClip()}>
               <div class="canvas-placeholder">
                 <p class="big">Ready when you are</p>
+                <p class="sub">
+                  Record your screen — Vuoom zooms in where you click, then exports a crisp
+                  GIF or MP4.
+                </p>
                 <button class="btn record cta" onClick={() => void startRecord()}>
                   <span class="dot" /> Start recording
                 </button>
@@ -2309,6 +2321,7 @@ function App() {
 
       <footer class="timeline">
         <div class="transport">
+          <Show when={hasClip()}>
           {/* Playback transport */}
           <div class="tgroup">
             <button class="tbtn" title="Back to start" disabled={!hasClip()} onClick={restart}>
@@ -2448,6 +2461,7 @@ function App() {
               <span>Keys</span>
             </button>
           </div>
+          </Show>
 
           <span class="statusline">{status()}</span>
         </div>

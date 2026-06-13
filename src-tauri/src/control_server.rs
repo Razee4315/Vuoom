@@ -9,7 +9,7 @@
 //! `VUOOM_ENABLE_CONTROL` environment variable is set, and it binds loopback only.
 
 use crate::Engine;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
 use tauri::{AppHandle, Manager};
 use vuoom_capture::CropRegion;

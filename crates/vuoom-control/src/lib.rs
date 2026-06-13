@@ -14,6 +14,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 
 /// A mouse button for an injected click.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -244,6 +245,55 @@ impl ControlResponse {
     }
 }
 
+/// On-disk record of the port the control server bound to, for sidecar discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct PortFile {
+    port: u16,
+}
+
+/// The well-known file the control server writes its chosen port to, so the standalone
+/// MCP sidecar (a separate process) can find it: `%TEMP%/vuoom-control.json`.
+#[must_use]
+pub fn port_file_path() -> PathBuf {
+    std::env::temp_dir().join("vuoom-control.json")
+}
+
+/// Write `port` to `path` as `{"port": N}`.
+///
+/// # Errors
+/// Returns any serialization or I/O error.
+pub fn write_port_file_at(path: &Path, port: u16) -> io::Result<()> {
+    let bytes = serde_json::to_vec(&PortFile { port })?;
+    std::fs::write(path, bytes)
+}
+
+/// Write the control port to the well-known [`port_file_path`].
+///
+/// # Errors
+/// Returns any serialization or I/O error.
+pub fn write_port_file(port: u16) -> io::Result<()> {
+    write_port_file_at(&port_file_path(), port)
+}
+
+/// Read a control port from `path`, returning `None` if it is missing or malformed.
+#[must_use]
+pub fn read_port_at(path: &Path) -> Option<u16> {
+    let data = std::fs::read(path).ok()?;
+    let pf: PortFile = serde_json::from_slice(&data).ok()?;
+    Some(pf.port)
+}
+
+/// Discover the control port: the `VUOOM_CONTROL_PORT` env var wins, else the port file.
+#[must_use]
+pub fn discover_port() -> Option<u16> {
+    if let Ok(p) = std::env::var("VUOOM_CONTROL_PORT") {
+        if let Ok(port) = p.trim().parse::<u16>() {
+            return Some(port);
+        }
+    }
+    read_port_at(&port_file_path())
+}
+
 /// Write `msg` as a single newline-terminated JSON line and flush.
 ///
 /// # Errors
@@ -406,6 +456,20 @@ mod tests {
             let back: ControlResponse = serde_json::from_str(&line).expect("deserialize");
             assert_eq!(resp, back);
         }
+    }
+
+    /// The port file round-trips, and a missing/garbage file reads back as `None`.
+    #[test]
+    fn port_file_round_trips() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("vuoom-control-test-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read_port_at(&path), None);
+        write_port_file_at(&path, 54321).expect("write");
+        assert_eq!(read_port_at(&path), Some(54321));
+        std::fs::write(&path, b"not json").expect("write garbage");
+        assert_eq!(read_port_at(&path), None);
+        let _ = std::fs::remove_file(&path);
     }
 
     /// `write_message` emits exactly one trailing newline and a parseable body.

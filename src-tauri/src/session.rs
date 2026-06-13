@@ -33,6 +33,7 @@ use vuoom_project::{
     HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
+use vuoom_control::{ClipInfo, FrameShot};
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
 
@@ -890,6 +891,69 @@ impl Session {
             }
             .into(),
         })
+    }
+
+    /// A compact, serializable view of the clip for the AI Demo Director's control API.
+    pub fn clip_info(&self) -> Result<ClipInfo, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        Ok(ClipInfo {
+            duration: project.source.duration,
+            zooms: project.zooms.len(),
+            cuts: project.cuts.len(),
+            speed_regions: project.speed_regions.len(),
+        })
+    }
+
+    /// Composite the clip at each of `times` (seconds) and return the frames as base64 PNGs,
+    /// so the AI Demo Director can *see* its output and critique it. Annotations are baked in
+    /// (unlike the live preview), so the agent sees exactly what export will produce. Pass
+    /// `max_width` to downscale each frame and keep the vision payload small.
+    pub fn sample_frames(
+        &self,
+        times: &[f64],
+        max_width: Option<u32>,
+    ) -> Result<Vec<FrameShot>, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let track = edited.track.as_ref().ok_or("no recording")?;
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        if store.is_empty() {
+            return Err("no frames".into());
+        }
+        let (out_w, out_h) = project.output_dims();
+        let bg = background_color(&project.frame);
+        let mut shots = Vec::with_capacity(times.len());
+        for &t in times {
+            let idx = nearest_idx(store, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
+            let scene = build_scene(project, track, out_w, out_h, t);
+            let rgba = compositor.composite_scene(
+                &frame.bgra,
+                frame.width,
+                frame.height,
+                out_w,
+                out_h,
+                &scene,
+                bg,
+            );
+            let mut img = RgbaImage::new(out_w, out_h, rgba);
+            if let Some(mw) = max_width {
+                if mw > 0 && mw < out_w {
+                    img = downscale_rgba(&img, mw);
+                }
+            }
+            let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+            shots.push(FrameShot {
+                t,
+                width: img.width,
+                height: img.height,
+                png_base64: b64,
+            });
+        }
+        Ok(shots)
     }
 
     /// Toggle click ripples (drawn in both the preview and the exported GIF).

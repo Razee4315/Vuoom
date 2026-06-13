@@ -13,6 +13,7 @@ members = [
     "crates/vuoom-project",
     "crates/vuoom-preview",
     "crates/vuoom-control",
+    "crates/vuoom-mcp",
 ]
 
 [workspace.package]

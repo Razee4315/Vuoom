@@ -2309,132 +2309,146 @@ function App() {
 
       <footer class="timeline">
         <div class="transport">
-          <button class="tbtn" title="Back to start" disabled={!hasClip()} onClick={restart}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M6 5h2.5v14H6zM20 5.8v12.4a.8.8 0 0 1-1.25.66L9.6 12.66a.8.8 0 0 1 0-1.32l9.15-6.2A.8.8 0 0 1 20 5.8z" />
-            </svg>
-          </button>
-          <button class="tbtn play" title="Play / Pause (Space)" disabled={!hasClip()} onClick={togglePlay}>
-            <Show
-              when={playing()}
-              fallback={
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5.6v12.8a.9.9 0 0 0 1.38.76l10.1-6.4a.9.9 0 0 0 0-1.52l-10.1-6.4A.9.9 0 0 0 8 5.6z" />
-                </svg>
-              }
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="5" width="4.4" height="14" rx="1" />
-                <rect x="13.6" y="5" width="4.4" height="14" rx="1" />
+          {/* Playback transport */}
+          <div class="tgroup">
+            <button class="tbtn" title="Back to start" disabled={!hasClip()} onClick={restart}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 5h2.5v14H6zM20 5.8v12.4a.8.8 0 0 1-1.25.66L9.6 12.66a.8.8 0 0 1 0-1.32l9.15-6.2A.8.8 0 0 1 20 5.8z" />
               </svg>
-            </Show>
-          </button>
-          <button
-            class="tbtn"
-            classList={{ on: looping() }}
-            title="Loop playback — preview the clip the way the GIF loops"
-            disabled={!hasClip()}
-            onClick={() => setLooping(!looping())}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 2l4 4-4 4" />
-              <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-              <path d="M7 22l-4-4 4-4" />
-              <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-            </svg>
-          </button>
-          <span class="time">
-            {fmtT(playhead())} <span class="time-sep">/</span> {fmt(duration())}
-            <Show when={trim() || speed().length > 0 || cuts().length > 0}>
-              <span class="time-out" title="Final GIF duration after trim + speed-up + cuts">
-                → {outputDuration(duration(), trim(), speed(), cuts()).toFixed(1)}s
-              </span>
-            </Show>
-          </span>
-          <button
-            class="tbtn wide"
-            title="Add a zoom segment at the playhead"
-            disabled={!hasClip()}
-            onClick={() => void addZoomAtPlayhead()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <circle cx="10.5" cy="10.5" r="6.5" />
-              <path d="M15.5 15.5L21 21M10.5 7.5v6M7.5 10.5h6" />
-            </svg>
-            <span>Zoom</span>
-          </button>
-          <button
-            class="tbtn wide"
-            classList={{ on: speed().length > 0 }}
-            title={`Play idle stretches at ${skimFactor()}× (auto-detected from your activity)`}
-            disabled={!hasClip()}
-            onClick={() => void toggleSkim()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 6.5v11a.8.8 0 0 0 1.25.66L12 13v4.5a.8.8 0 0 0 1.25.66l8.3-5.5a.8.8 0 0 0 0-1.32l-8.3-5.5A.8.8 0 0 0 12 6.5V11L4.25 5.84A.8.8 0 0 0 3 6.5z" />
-            </svg>
-            <span>Skim idle</span>
-          </button>
-          <select
-            class="tbtn-sel"
-            title="Speed-up factor for Skim idle and new speed regions"
-            disabled={!hasClip()}
-            value={String(skimFactor())}
-            onChange={(e) => setSkimFactor(Number(e.currentTarget.value))}
-          >
-            <For each={[2, 3, 4, 6, 8]}>{(f) => <option value={String(f)}>{f}×</option>}</For>
-          </select>
-          <button
-            class="tbtn wide"
-            title={`Mark 2s at the playhead to play at ${skimFactor()}× — drag the band to retime`}
-            disabled={!hasClip()}
-            onClick={() => void addSpeedAtPlayhead()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
-            </svg>
-            <span>Speed</span>
-          </button>
-          <button
-            class="tbtn wide"
-            title="Remove 1s at the playhead from the GIF — drag the band to choose the exact section"
-            disabled={!hasClip()}
-            onClick={() => void addCutAtPlayhead()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="6" cy="6" r="2.6" />
-              <circle cx="6" cy="18" r="2.6" />
-              <path d="M8.1 7.8L20 19M8.1 16.2L20 5" />
-            </svg>
-            <span>Cut</span>
-          </button>
-          <button
-            class="tbtn wide"
-            classList={{ on: showClicks() }}
-            title="Draw an expanding ripple at every recorded mouse click (shows in the GIF)"
-            disabled={!hasClip()}
-            onClick={() => void toggleClicks()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
-              <circle cx="12" cy="12" r="6.5" />
-              <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" />
-            </svg>
-            <span>Clicks</span>
-          </button>
-          <button
-            class="tbtn wide"
-            classList={{ on: showKeys() }}
-            title="Show pressed shortcuts (Ctrl+C…) as chips in the GIF — plain typing is never shown"
-            disabled={!hasClip()}
-            onClick={() => void toggleKeys()}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2.5" y="6" width="19" height="12" rx="2" />
-              <path d="M6.5 10h0M10.3 10h0M14.1 10h0M17.7 10h0M7.5 14h9" />
-            </svg>
-            <span>Keys</span>
-          </button>
+            </button>
+            <button class="tbtn play" title="Play / Pause (Space)" disabled={!hasClip()} onClick={togglePlay}>
+              <Show
+                when={playing()}
+                fallback={
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5.6v12.8a.9.9 0 0 0 1.38.76l10.1-6.4a.9.9 0 0 0 0-1.52l-10.1-6.4A.9.9 0 0 0 8 5.6z" />
+                  </svg>
+                }
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4.4" height="14" rx="1" />
+                  <rect x="13.6" y="5" width="4.4" height="14" rx="1" />
+                </svg>
+              </Show>
+            </button>
+            <button
+              class="tbtn"
+              classList={{ on: looping() }}
+              title="Loop playback — preview the clip the way the GIF loops"
+              disabled={!hasClip()}
+              onClick={() => setLooping(!looping())}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 2l4 4-4 4" />
+                <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+                <path d="M7 22l-4-4 4-4" />
+                <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+              </svg>
+            </button>
+            <span class="time">
+              {fmtT(playhead())} <span class="time-sep">/</span> {fmt(duration())}
+              <Show when={trim() || speed().length > 0 || cuts().length > 0}>
+                <span class="time-out" title="Final GIF duration after trim + speed-up + cuts">
+                  → {outputDuration(duration(), trim(), speed(), cuts()).toFixed(1)}s
+                </span>
+              </Show>
+            </span>
+          </div>
+
+          {/* Insert a segment at the playhead — each becomes a draggable band on the timeline */}
+          <div class="tgroup labeled">
+            <span class="tgroup-label">Insert</span>
+            <button
+              class="tbtn wide"
+              title="Add a zoom segment at the playhead"
+              disabled={!hasClip()}
+              onClick={() => void addZoomAtPlayhead()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <circle cx="10.5" cy="10.5" r="6.5" />
+                <path d="M15.5 15.5L21 21M10.5 7.5v6M7.5 10.5h6" />
+              </svg>
+              <span>Zoom</span>
+            </button>
+            <button
+              class="tbtn wide"
+              title={`Mark 2s at the playhead to play at ${skimFactor()}× — drag the band to retime`}
+              disabled={!hasClip()}
+              onClick={() => void addSpeedAtPlayhead()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
+              </svg>
+              <span>Speed</span>
+            </button>
+            <button
+              class="tbtn wide"
+              title="Remove 1s at the playhead from the GIF — drag the band to choose the exact section"
+              disabled={!hasClip()}
+              onClick={() => void addCutAtPlayhead()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="2.6" />
+                <circle cx="6" cy="18" r="2.6" />
+                <path d="M8.1 7.8L20 19M8.1 16.2L20 5" />
+              </svg>
+              <span>Cut</span>
+            </button>
+          </div>
+
+          {/* Whole-clip enhancements you toggle on or off */}
+          <div class="tgroup labeled">
+            <span class="tgroup-label">Enhance</span>
+            <button
+              class="tbtn wide"
+              classList={{ on: speed().length > 0 }}
+              title={`Play idle stretches at ${skimFactor()}× (auto-detected from your activity)`}
+              disabled={!hasClip()}
+              onClick={() => void toggleSkim()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 6.5v11a.8.8 0 0 0 1.25.66L12 13v4.5a.8.8 0 0 0 1.25.66l8.3-5.5a.8.8 0 0 0 0-1.32l-8.3-5.5A.8.8 0 0 0 12 6.5V11L4.25 5.84A.8.8 0 0 0 3 6.5z" />
+              </svg>
+              <span>Skim idle</span>
+            </button>
+            <select
+              class="tbtn-sel"
+              title="Speed-up factor for Skim idle and new speed regions"
+              disabled={!hasClip()}
+              value={String(skimFactor())}
+              onChange={(e) => setSkimFactor(Number(e.currentTarget.value))}
+            >
+              <For each={[2, 3, 4, 6, 8]}>{(f) => <option value={String(f)}>{f}×</option>}</For>
+            </select>
+            <button
+              class="tbtn wide"
+              classList={{ on: showClicks() }}
+              title="Draw an expanding ripple at every recorded mouse click (shows in the GIF)"
+              disabled={!hasClip()}
+              onClick={() => void toggleClicks()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+                <circle cx="12" cy="12" r="6.5" />
+                <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" />
+              </svg>
+              <span>Clicks</span>
+            </button>
+            <button
+              class="tbtn wide"
+              classList={{ on: showKeys() }}
+              title="Show pressed shortcuts (Ctrl+C…) as chips in the GIF — plain typing is never shown"
+              disabled={!hasClip()}
+              onClick={() => void toggleKeys()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2.5" y="6" width="19" height="12" rx="2" />
+                <path d="M6.5 10h0M10.3 10h0M14.1 10h0M17.7 10h0M7.5 14h9" />
+              </svg>
+              <span>Keys</span>
+            </button>
+          </div>
+
           <span class="statusline">{status()}</span>
         </div>
 

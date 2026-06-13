@@ -794,9 +794,28 @@ kbd {
 .transport {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   height: 48px;
   padding: 0 16px;
+}
+/* Transport is split into labelled clusters (transport · insert · enhance). */
+.tgroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tgroup + .tgroup {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.tgroup-label {
+  margin-right: 2px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
 }
 .tbtn {
   width: 34px;

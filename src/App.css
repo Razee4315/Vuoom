@@ -387,11 +387,8 @@ kbd {
 /* ---- Workspace ---- */
 .workspace {
   display: grid;
-  grid-template-columns: 76px 1fr;
+  /* grid-template-columns is set inline (depends on clip + inspector state). */
   min-height: 0;
-}
-.workspace.has-inspector {
-  grid-template-columns: 76px 1fr 296px;
 }
 .toolrail {
   display: flex;

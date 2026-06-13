@@ -2012,21 +2012,13 @@ function App() {
         </main>
 
         <Show when={selected()}>
-          <aside class="properties">
-            <div
-              class="panel-resizer"
-              title="Drag to resize"
-              onPointerDown={onInspDown}
-              onPointerMove={onInspMove}
-              onPointerUp={onInspUp}
-            />
-            <div class="inspector-head">
-              <h2>{inspTitle()}</h2>
-              <button class="icon-btn" title="Done" onClick={() => setSelected(null)}>
-                ✕
-              </button>
-            </div>
-
+          <InspectorPanel
+            title={inspTitle()}
+            onClose={() => setSelected(null)}
+            onResizeDown={onInspDown}
+            onResizeMove={onInspMove}
+            onResizeUp={onInspUp}
+          >
             <Show when={selectedText()}>
               <label class="field">
                 <span>Text</span>
@@ -2174,25 +2166,17 @@ function App() {
             <button class="btn danger" onClick={() => void deleteSelected()}>
               Delete element
             </button>
-          </aside>
+          </InspectorPanel>
         </Show>
 
         <Show when={selZoom() !== null && selectedZoom()}>
-          <aside class="properties">
-            <div
-              class="panel-resizer"
-              title="Drag to resize"
-              onPointerDown={onInspDown}
-              onPointerMove={onInspMove}
-              onPointerUp={onInspUp}
-            />
-            <div class="inspector-head">
-              <h2>Zoom</h2>
-              <button class="icon-btn" title="Done" onClick={() => setSelZoom(null)}>
-                ✕
-              </button>
-            </div>
-
+          <InspectorPanel
+            title="Zoom"
+            onClose={() => setSelZoom(null)}
+            onResizeDown={onInspDown}
+            onResizeMove={onInspMove}
+            onResizeUp={onInspUp}
+          >
             <label class="field">
               <span>Strength · {selectedZoom()!.amount.toFixed(1)}×</span>
               <input
@@ -2238,25 +2222,17 @@ function App() {
             <button class="btn danger" onClick={() => void deleteSelectedZoom()}>
               Delete zoom
             </button>
-          </aside>
+          </InspectorPanel>
         </Show>
 
         <Show when={selSpeed() !== null && selectedSpeed()}>
-          <aside class="properties">
-            <div
-              class="panel-resizer"
-              title="Drag to resize"
-              onPointerDown={onInspDown}
-              onPointerMove={onInspMove}
-              onPointerUp={onInspUp}
-            />
-            <div class="inspector-head">
-              <h2>Speed</h2>
-              <button class="icon-btn" title="Done" onClick={() => setSelSpeed(null)}>
-                ✕
-              </button>
-            </div>
-
+          <InspectorPanel
+            title="Speed"
+            onClose={() => setSelSpeed(null)}
+            onResizeDown={onInspDown}
+            onResizeMove={onInspMove}
+            onResizeUp={onInspUp}
+          >
             <label class="field">
               <span>Speed · {selectedSpeed()!.factor}×</span>
               <input
@@ -2278,25 +2254,17 @@ function App() {
             <button class="btn danger" onClick={() => void deleteSelectedSpeed()}>
               Delete speed region
             </button>
-          </aside>
+          </InspectorPanel>
         </Show>
 
         <Show when={selCut() !== null && selectedCut()}>
-          <aside class="properties">
-            <div
-              class="panel-resizer"
-              title="Drag to resize"
-              onPointerDown={onInspDown}
-              onPointerMove={onInspMove}
-              onPointerUp={onInspUp}
-            />
-            <div class="inspector-head">
-              <h2>Cut</h2>
-              <button class="icon-btn" title="Done" onClick={() => setSelCut(null)}>
-                ✕
-              </button>
-            </div>
-
+          <InspectorPanel
+            title="Cut"
+            onClose={() => setSelCut(null)}
+            onResizeDown={onInspDown}
+            onResizeMove={onInspMove}
+            onResizeUp={onInspUp}
+          >
             <p class="muted small">
               {fmt(selectedCut()!.start)} – {fmt(selectedCut()!.end)} is removed from the GIF —
               playback and export skip straight over it. Drag the band on the timeline to retime,
@@ -2305,7 +2273,7 @@ function App() {
             <button class="btn danger" onClick={() => void deleteSelectedCut()}>
               Restore this section
             </button>
-          </aside>
+          </InspectorPanel>
         </Show>
       </div>
 
@@ -2661,6 +2629,35 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
     case "ellipse":
       return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>;
   }
+}
+
+/** Shared chrome for every right-hand inspector: resizer + titled header + a Done button. */
+function InspectorPanel(props: {
+  title: string;
+  onClose: () => void;
+  onResizeDown: (e: PointerEvent) => void;
+  onResizeMove: (e: PointerEvent) => void;
+  onResizeUp: () => void;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <aside class="properties">
+      <div
+        class="panel-resizer"
+        title="Drag to resize"
+        onPointerDown={props.onResizeDown}
+        onPointerMove={props.onResizeMove}
+        onPointerUp={props.onResizeUp}
+      />
+      <div class="inspector-head">
+        <h2>{props.title}</h2>
+        <button class="icon-btn" title="Done" onClick={props.onClose}>
+          ✕
+        </button>
+      </div>
+      {props.children}
+    </aside>
+  );
 }
 
 function LockIcon(props: { locked: boolean }): JSX.Element {

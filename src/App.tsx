@@ -732,7 +732,7 @@ function App() {
       }
     }
 
-    // select tool: handle → resize, body → move, empty → deselect
+    // select tool: handle → resize, body → move, empty → keep selection (closes on ✕/Esc)
     const h = handleAt(p);
     if (h && selected()) {
       const s = selected()!;
@@ -748,13 +748,9 @@ function App() {
       setSelected(hit);
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
-    } else {
-      // Clicking empty space deselects (Esc and the inspector's ✕ work too).
-      setSelected(null);
-      setSelZoom(null);
-      setSelSpeed(null);
-      setSelCut(null);
     }
+    // Clicking empty space keeps the current selection (and its inspector) open —
+    // it only closes on the inspector's ✕ or Esc, so the layout doesn't jump around.
   };
 
   const onPointerMove = (e: PointerEvent) => {

@@ -136,13 +136,15 @@ interface Selection {
 /// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
 const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
 
-const TOOLS: { id: Tool; label: string; hint: string }[] = [
-  { id: "select", label: "Select", hint: "Click an element to select, drag to move, drag a handle to resize." },
-  { id: "text", label: "Text", hint: "Click on the video to drop a text label." },
-  { id: "arrow", label: "Arrow", hint: "Drag on the video to draw an arrow." },
-  { id: "box", label: "Box", hint: "Drag on the video to draw a highlight box." },
-  { id: "ellipse", label: "Ellipse", hint: "Drag on the video to draw an ellipse highlight." },
+const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
+  { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click an element to select, drag to move, drag a handle to resize. (V)" },
+  { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click on the video to drop a text label. (T)" },
+  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag on the video to draw an arrow. (A)" },
+  { id: "box", label: "Box", key: "B", code: "KeyB", hint: "Drag on the video to draw a highlight box. (B)" },
+  { id: "ellipse", label: "Ellipse", key: "E", code: "KeyE", hint: "Drag on the video to draw an ellipse highlight. (E)" },
 ];
+// e.code → tool, for single-key tool switching (only while a clip is loaded).
+const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));
 
 // ── small helpers ──────────────────────────────────────────────────────────────
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -182,6 +184,9 @@ type Drag =
 
 function App() {
   const [tool, setTool] = createSignal<Tool>("select");
+  // When locked, a drawing tool stays active after creating an element (draw several in a
+  // row); when unlocked (default) we fall back to Select so the new element is editable.
+  const [toolLock, setToolLock] = createSignal(false);
   const [status, setStatus] = createSignal("Ready");
   const [projectName, setProjectName] = createSignal("Untitled");
   const [editingText, setEditingText] = createSignal<number | null>(null);
@@ -511,6 +516,18 @@ function App() {
     } else if (e.key === "End" && hasClip()) {
       e.preventDefault();
       scrub(tEnd());
+    } else if (
+      hasClip() &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      TOOL_KEYS[e.code] &&
+      editingText() === null
+    ) {
+      // Single-key tool switching (V/T/A/B/E) — matches the badges on the tool rail.
+      e.preventDefault();
+      setTool(TOOL_KEYS[e.code]);
     }
   };
 
@@ -645,7 +662,7 @@ function App() {
       setSelCut(null);
       setSelected({ kind: "text", id });
       setEditingText(id);
-      setTool("select");
+      if (!toolLock()) setTool("select");
       return;
     }
     if (t === "arrow") {
@@ -750,7 +767,7 @@ function App() {
         setSelZoom(null);
         setSelSpeed(null);
         setSelected({ kind: "arrow", id });
-        setTool("select");
+        if (!toolLock()) setTool("select");
       }
     } else if (d.mode === "create-box" || d.mode === "create-ellipse") {
       const cmd = d.mode === "create-box" ? "add_box" : "add_ellipse";
@@ -766,7 +783,7 @@ function App() {
         setSelZoom(null);
         setSelSpeed(null);
         setSelected({ kind: "box", id });
-        setTool("select");
+        if (!toolLock()) setTool("select");
       }
     } else {
       // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
@@ -1708,14 +1725,30 @@ function App() {
             {(t) => (
               <button
                 classList={{ tool: true, active: tool() === t.id }}
+                disabled={!hasClip()}
                 onClick={() => setTool(t.id)}
                 title={t.hint}
               >
                 <ToolIcon tool={t.id} />
                 <span>{t.label}</span>
+                <kbd class="tool-key">{t.key}</kbd>
               </button>
             )}
           </For>
+          <div class="toolrail-spacer" />
+          <button
+            classList={{ tool: true, "tool-lock": true, active: toolLock() }}
+            disabled={!hasClip()}
+            title={
+              toolLock()
+                ? "Tool lock on — the drawing tool stays active so you can add several in a row"
+                : "Tool lock off — switches back to Select after you add an element"
+            }
+            onClick={() => setToolLock(!toolLock())}
+          >
+            <LockIcon locked={toolLock()} />
+            <span>Lock</span>
+          </button>
         </nav>
 
         <main class="canvas">
@@ -2610,6 +2643,17 @@ function ToolIcon(props: { tool: Tool }): JSX.Element {
     case "ellipse":
       return <svg {...common}><ellipse cx="12" cy="12" rx="8" ry="6" /></svg>;
   }
+}
+
+function LockIcon(props: { locked: boolean }): JSX.Element {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <Show when={props.locked} fallback={<path d="M8 11V7a4 4 0 0 1 7.5-2" />}>
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </Show>
+    </svg>
+  );
 }
 
 function Handles(props: { pts: Vec2[] }): JSX.Element {

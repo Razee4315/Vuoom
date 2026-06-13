@@ -404,6 +404,7 @@ kbd {
   border-right: 1px solid var(--line);
 }
 .tool {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -413,7 +414,7 @@ kbd {
   color: var(--muted);
   border-radius: var(--radius);
   padding: 10px 4px 8px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.1s ease, color 0.1s ease;
@@ -421,7 +422,7 @@ kbd {
 .tool svg {
   pointer-events: none;
 }
-.tool:hover {
+.tool:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
 }
@@ -429,6 +430,41 @@ kbd {
   background: var(--hover);
   color: var(--text);
   border-color: var(--accent);
+}
+.tool:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+/* Single-key shortcut badge — appears on hover / for the active tool. */
+.tool-key {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  border-bottom-width: 1px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  pointer-events: none;
+}
+.tool:hover:not(:disabled) .tool-key,
+.tool.active .tool-key {
+  opacity: 0.85;
+}
+/* Pushes the lock toggle to the bottom of the rail. */
+.toolrail-spacer {
+  flex: 1;
+}
+.tool-lock {
+  margin-top: 4px;
+}
+.tool-lock.active {
+  color: var(--accent);
 }
 
 /* ---- Canvas ---- */

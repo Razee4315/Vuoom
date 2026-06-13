@@ -1342,13 +1342,19 @@ function App() {
     const d = zoomDrag();
     return d && d.idx === idx ? d.cur : { start: z.start, end: z.end };
   };
-  const onZoomDown = (idx: number, z: ZoomSeg) => (e: PointerEvent) => {
+  // `force` is set by the explicit edge handles ("l"/"r") and the body ("move"); a forced
+  // l/r counts as moved immediately so a small edge drag resizes instead of scrubbing.
+  const onZoomDown = (idx: number, z: ZoomSeg, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const r = el.getBoundingClientRect();
-    const mode = e.clientX - r.left < 8 ? "l" : r.right - e.clientX < 8 ? "r" : "move";
-    setZoomDrag({ idx, mode, grabT: tlTime(e), orig: { ...z }, cur: { start: z.start, end: z.end }, moved: false });
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setZoomDrag({
+      idx,
+      mode: force,
+      grabT: tlTime(e),
+      orig: { ...z },
+      cur: { start: z.start, end: z.end },
+      moved: force !== "move",
+    });
   };
   const onZoomMove = (e: PointerEvent) => {
     const d = zoomDrag();
@@ -1395,19 +1401,16 @@ function App() {
     const d = speedDrag();
     return d && d.idx === idx ? d.cur : { start: r.start, end: r.end };
   };
-  const onSpeedDown = (idx: number, r: SpeedRegion) => (e: PointerEvent) => {
+  const onSpeedDown = (idx: number, r: SpeedRegion, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const rect = el.getBoundingClientRect();
-    const mode = e.clientX - rect.left < 8 ? "l" : rect.right - e.clientX < 8 ? "r" : "move";
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setSpeedDrag({
       idx,
-      mode,
+      mode: force,
       grabT: tlTime(e),
       orig: { ...r },
       cur: { start: r.start, end: r.end },
-      moved: false,
+      moved: force !== "move",
     });
   };
   const onSpeedMove = (e: PointerEvent) => {
@@ -1455,19 +1458,16 @@ function App() {
     const d = cutDrag();
     return d && d.idx === idx ? d.cur : { start: c.start, end: c.end };
   };
-  const onCutDown = (idx: number, c: Trim) => (e: PointerEvent) => {
+  const onCutDown = (idx: number, c: Trim, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const rect = el.getBoundingClientRect();
-    const mode = e.clientX - rect.left < 8 ? "l" : rect.right - e.clientX < 8 ? "r" : "move";
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setCutDrag({
       idx,
-      mode,
+      mode: force,
       grabT: tlTime(e),
       orig: { ...c },
       cur: { start: c.start, end: c.end },
-      moved: false,
+      moved: force !== "move",
     });
   };
   const onCutMove = (e: PointerEvent) => {
@@ -1531,20 +1531,18 @@ function App() {
     return d && d.kind === b.kind && d.id === b.id ? d.cur : { start: b.start, end: b.end };
   };
   const onAnnDown =
-    (b: { kind: Kind; id: number; start: number; end: number }) => (e: PointerEvent) => {
+    (b: { kind: Kind; id: number; start: number; end: number }, force: "l" | "r" | "move") =>
+    (e: PointerEvent) => {
       e.stopPropagation();
-      const el = e.currentTarget as HTMLElement;
-      el.setPointerCapture(e.pointerId);
-      const r = el.getBoundingClientRect();
-      const mode = e.clientX - r.left < 8 ? "l" : r.right - e.clientX < 8 ? "r" : "move";
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setAnnDrag({
         kind: b.kind,
         id: b.id,
-        mode,
+        mode: force,
         grabT: tlTime(e),
         orig: { start: b.start, end: b.end },
         cur: { start: b.start, end: b.end },
-        moved: false,
+        moved: force !== "move",
       });
     };
   const onAnnMove = (e: PointerEvent) => {
@@ -2518,14 +2516,16 @@ function App() {
                       classList={{ "tl-seg": true, selected: selZoom() === i() }}
                       style={{
                         left: `${pct(g().start)}%`,
-                        width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 1.6)}%`,
                       }}
                       title={`Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`}
-                      onPointerDown={onZoomDown(i(), z)}
+                      onPointerDown={onZoomDown(i(), z, "move")}
                       onPointerMove={onZoomMove}
                       onPointerUp={() => void onZoomUp()}
                     >
+                      <div class="tl-handle l" onPointerDown={onZoomDown(i(), z, "l")} onPointerMove={onZoomMove} onPointerUp={() => void onZoomUp()} />
                       {z.amount.toFixed(1)}×
+                      <div class="tl-handle r" onPointerDown={onZoomDown(i(), z, "r")} onPointerMove={onZoomMove} onPointerUp={() => void onZoomUp()} />
                     </div>
                   );
                 }}
@@ -2550,14 +2550,16 @@ function App() {
                         }}
                         style={{
                           left: `${pct(g().start)}%`,
-                          width: `${Math.max(pct(g().end) - pct(g().start), 1)}%`,
+                          width: `${Math.max(pct(g().end) - pct(g().start), 2.4)}%`,
                         }}
                         title={`${b.label} · drag to move, drag an edge to set how long it shows`}
-                        onPointerDown={onAnnDown(b)}
+                        onPointerDown={onAnnDown(b, "move")}
                         onPointerMove={onAnnMove}
                         onPointerUp={() => void onAnnUp()}
                       >
+                        <span class="tl-handle l" onPointerDown={onAnnDown(b, "l")} onPointerMove={onAnnMove} onPointerUp={() => void onAnnUp()} />
                         {b.label}
+                        <span class="tl-handle r" onPointerDown={onAnnDown(b, "r")} onPointerMove={onAnnMove} onPointerUp={() => void onAnnUp()} />
                       </button>
                     </div>
                   );
@@ -2573,18 +2575,20 @@ function App() {
                     classList={{ "tl-speedband": true, selected: selSpeed() === i() }}
                     style={{
                       left: `${pct(g().start)}%`,
-                      width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                      width: `${Math.max(pct(g().end) - pct(g().start), 1.2)}%`,
                     }}
                   >
+                    <div class="tl-handle l" onPointerDown={onSpeedDown(i(), r, "l")} onPointerMove={onSpeedMove} onPointerUp={() => void onSpeedUp()} />
                     <button
                       class="tl-speedchip"
-                      title={`Plays at ${r.factor}× · drag to move, drag an edge to resize`}
-                      onPointerDown={onSpeedDown(i(), r)}
+                      title={`Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`}
+                      onPointerDown={onSpeedDown(i(), r, "move")}
                       onPointerMove={onSpeedMove}
                       onPointerUp={() => void onSpeedUp()}
                     >
                       {r.factor}×
                     </button>
+                    <div class="tl-handle r" onPointerDown={onSpeedDown(i(), r, "r")} onPointerMove={onSpeedMove} onPointerUp={() => void onSpeedUp()} />
                   </div>
                 );
               }}
@@ -2599,18 +2603,20 @@ function App() {
                     classList={{ "tl-cutband": true, selected: selCut() === i() }}
                     style={{
                       left: `${pct(g().start)}%`,
-                      width: `${Math.max(pct(g().end) - pct(g().start), 0.6)}%`,
+                      width: `${Math.max(pct(g().end) - pct(g().start), 1.2)}%`,
                     }}
                   >
+                    <div class="tl-handle l" onPointerDown={onCutDown(i(), c, "l")} onPointerMove={onCutMove} onPointerUp={() => void onCutUp()} />
                     <button
                       class="tl-cutchip"
-                      title="Removed from the GIF · drag to move, drag an edge to resize, Delete to restore"
-                      onPointerDown={onCutDown(i(), c)}
+                      title="Removed from the GIF · drag the chip to move, drag an edge to resize, Delete to restore"
+                      onPointerDown={onCutDown(i(), c, "move")}
                       onPointerMove={onCutMove}
                       onPointerUp={() => void onCutUp()}
                     >
                       ✂
                     </button>
+                    <div class="tl-handle r" onPointerDown={onCutDown(i(), c, "r")} onPointerMove={onCutMove} onPointerUp={() => void onCutUp()} />
                   </div>
                 );
               }}

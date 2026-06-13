@@ -1040,21 +1040,44 @@ kbd {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
-/* edge affordances for resizing */
-.tl-seg::before,
-.tl-seg::after {
-  content: "";
+/* Real, grabbable resize handles on every draggable timeline segment. They sit on top
+   of the body (which moves/selects) and extend a few px past the edge so even short
+   segments can be resized. The grip line shows on hover. */
+.tl-handle {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  width: 12px;
+  pointer-events: auto;
   cursor: ew-resize;
+  touch-action: none;
+  z-index: 4;
 }
-.tl-seg::before {
+.tl-handle.l {
   left: 0;
 }
-.tl-seg::after {
+.tl-handle.r {
   right: 0;
+}
+.tl-handle::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.tl-seg:hover .tl-handle::after,
+.tl-ann:hover .tl-handle::after,
+.tl-speedband:hover .tl-handle::after,
+.tl-cutband:hover .tl-handle::after,
+.tl-handle:hover::after {
+  opacity: 0.85;
 }
 .tl-ann {
   position: absolute;
@@ -1076,21 +1099,6 @@ kbd {
 }
 .tl-ann:active {
   cursor: grabbing;
-}
-.tl-ann::before,
-.tl-ann::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  cursor: ew-resize;
-}
-.tl-ann::before {
-  left: 0;
-}
-.tl-ann::after {
-  right: 0;
 }
 .tl-text {
   background: color-mix(in srgb, var(--note-text) 26%, transparent);

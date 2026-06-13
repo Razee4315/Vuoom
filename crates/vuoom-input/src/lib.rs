@@ -8,6 +8,7 @@
 mod clock;
 mod dpi;
 mod event;
+mod inject;
 mod keys;
 mod normalize;
 #[cfg(windows)]
@@ -16,6 +17,9 @@ mod recorder;
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
 pub use event::{MouseButton, RawEvent, RawEventKind};
+#[cfg(windows)]
+pub use inject::{click, key_chord, move_cursor, scroll, type_text, virtual_screen};
+pub use inject::{key_to_vk, normalize_abs, InjectButton};
 pub use keys::{is_standalone, key_name, modifier, Modifier};
 pub use normalize::{normalize, zoom_marks, CaptureRegion};
 #[cfg(windows)]

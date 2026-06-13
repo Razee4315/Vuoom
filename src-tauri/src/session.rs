@@ -22,6 +22,7 @@ use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
+use vuoom_control::{ClipInfo, FrameShot};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png,
     swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -33,7 +34,6 @@ use vuoom_project::{
     HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
-use vuoom_control::{ClipInfo, FrameShot};
 use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
 

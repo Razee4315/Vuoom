@@ -119,7 +119,7 @@ kbd {
    ============================================================ */
 .editor {
   display: grid;
-  grid-template-rows: 44px 58px 1fr auto;
+  grid-template-rows: 52px 1fr auto;
   height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -127,14 +127,31 @@ kbd {
   overflow: hidden;
 }
 
-/* ---- Custom frameless titlebar ---- */
-.titlebar {
+/* ---- Single frameless top bar: brand · record · name · actions · window controls ---- */
+.topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding-left: 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+/* Flexible, draggable gap that pins the action cluster to the right edge. */
+.topbar-drag {
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 12px;
+}
+/* Theme + window controls stretch to the full bar height like the old titlebar. */
+.topbar > .thememenu,
+.topbar > .winctl {
+  align-self: stretch;
+}
+/* Everything except the name and the drag gap holds its size. */
+.topbar > .brand,
+.topbar > .btn,
+.topbar > .tbtn-sel {
+  flex: none;
 }
 .brand {
   display: inline-flex;
@@ -151,12 +168,6 @@ kbd {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.titlebar-right {
-  display: flex;
-  align-items: stretch;
-  height: 100%;
-}
-
 /* window controls group — lay the three buttons out horizontally, full titlebar height */
 .winctl {
   display: flex;
@@ -258,45 +269,27 @@ kbd {
   background: #111722;
 }
 
-/* ---- Action toolbar ---- */
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 16px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
+/* Thin vertical divider between action groups in the top bar. */
 .toolbar-sep {
   width: 1px;
   height: 22px;
   background: var(--line);
   margin: 0 4px;
+  flex: none;
 }
-.project-title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  justify-content: center;
-}
+/* Project name sits just right of Record; shrinks first when the bar gets tight. */
 .project-name {
-  width: min(100%, 340px);
-  min-width: 0;
+  flex: 0 1 220px;
+  min-width: 60px;
   margin: 0;
-  padding: 8px 14px;
+  padding: 7px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 550;
-  text-align: center;
+  text-align: left;
   transition: background 0.1s ease;
 }
 .project-name:hover {
@@ -306,7 +299,6 @@ kbd {
   outline: none;
   background: var(--panel-2);
   border-color: var(--line);
-  text-align: left;
 }
 .btn {
   display: inline-flex;

@@ -1635,84 +1635,74 @@ function App() {
 
   return (
     <div class="editor">
-      <header class="titlebar" data-tauri-drag-region="">
+      <header class="topbar" data-tauri-drag-region="">
         <LogoWordmark />
-        <div class="titlebar-right">
-          <ThemeMenu current={theme()} onSelect={setTheme} />
-          <WindowControls />
-        </div>
+        <button
+          class="btn record"
+          title="Record your screen (Ctrl+Shift+R) — captures the monitor Vuoom is on"
+          onClick={() => void startRecord()}
+        >
+          <span class="dot" /> Record
+        </button>
+        <input
+          class="project-name"
+          value={projectName()}
+          spellcheck={false}
+          aria-label="Project name"
+          title="Rename project"
+          onInput={(e) => setProjectName(e.currentTarget.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => {
+            if (!e.currentTarget.value.trim()) setProjectName("Untitled");
+          }}
+        />
+
+        {/* Flexible draggable gap — keeps the window movable and pins actions right. */}
+        <div class="topbar-drag" data-tauri-drag-region="" />
+
+        <button class="btn ghost" disabled={!hasClip()} title="Undo (Ctrl+Z)" onClick={() => void doUndo()}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 5L4 9.5 8.5 14M4 9.5h10a6 6 0 0 1 0 12h-3" />
+          </svg>
+        </button>
+        <button class="btn ghost" disabled={!hasClip()} title="Redo (Ctrl+Y)" onClick={() => void doRedo()}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.5 5L20 9.5 15.5 14M20 9.5H10a6 6 0 0 0 0 12h3" />
+          </svg>
+        </button>
+        <span class="toolbar-sep" />
+        <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
+          </svg>
+        </button>
+        <button class="btn ghost" disabled={!hasClip()} title="Save project — video + edits (Ctrl+S)" onClick={() => void onSaveProject()}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 3v5h8V3M7 21v-7h10v7" />
+          </svg>
+        </button>
+        <span class="toolbar-sep" />
+        <select
+          class="tbtn-sel"
+          title="Frame the recording on a padded backdrop with rounded corners + shadow"
+          disabled={!hasClip()}
+          value={framePreset()}
+          onChange={(e) => void applyFramePreset(e.currentTarget.value)}
+        >
+          <option value="none">No frame</option>
+          <option value="subtle">Subtle frame</option>
+          <option value="studio">Studio frame</option>
+        </select>
+        <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
+          </svg>
+          Export
+        </button>
+        <span class="toolbar-sep" />
+        <ThemeMenu current={theme()} onSelect={setTheme} />
+        <WindowControls />
       </header>
-
-      <div class="toolbar">
-        <div class="toolbar-group">
-          <button
-            class="btn record"
-            title="Record your screen (Ctrl+Shift+R) — captures the monitor Vuoom is on"
-            onClick={() => void startRecord()}
-          >
-            <span class="dot" /> Record
-          </button>
-        </div>
-
-        <div class="project-title">
-          <input
-            class="project-name"
-            value={projectName()}
-            spellcheck={false}
-            aria-label="Project name"
-            title="Rename project"
-            onInput={(e) => setProjectName(e.currentTarget.value)}
-            onFocus={(e) => e.currentTarget.select()}
-            onBlur={(e) => {
-              if (!e.currentTarget.value.trim()) setProjectName("Untitled");
-            }}
-          />
-        </div>
-
-        <div class="toolbar-group">
-          <button class="btn ghost" disabled={!hasClip()} title="Undo (Ctrl+Z)" onClick={() => void doUndo()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8.5 5L4 9.5 8.5 14M4 9.5h10a6 6 0 0 1 0 12h-3" />
-            </svg>
-          </button>
-          <button class="btn ghost" disabled={!hasClip()} title="Redo (Ctrl+Y)" onClick={() => void doRedo()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M15.5 5L20 9.5 15.5 14M20 9.5H10a6 6 0 0 0 0 12h3" />
-            </svg>
-          </button>
-          <span class="toolbar-sep" />
-          <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
-            </svg>
-            Open
-          </button>
-          <button class="btn ghost" disabled={!hasClip()} title="Save project — video + edits (Ctrl+S)" onClick={() => void onSaveProject()}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 3v5h8V3M7 21v-7h10v7" />
-            </svg>
-            Save
-          </button>
-          <span class="toolbar-sep" />
-          <select
-            class="tbtn-sel"
-            title="Frame the recording on a padded backdrop with rounded corners + shadow"
-            disabled={!hasClip()}
-            value={framePreset()}
-            onChange={(e) => void applyFramePreset(e.currentTarget.value)}
-          >
-            <option value="none">No frame</option>
-            <option value="subtle">Subtle frame</option>
-            <option value="studio">Studio frame</option>
-          </select>
-          <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
-            </svg>
-            Export
-          </button>
-        </div>
-      </div>
 
       <div
         class="workspace"

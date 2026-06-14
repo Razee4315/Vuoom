@@ -22,6 +22,7 @@ use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
+use vuoom_control::{ClipInfo, FrameShot};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png,
     swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -154,6 +155,9 @@ pub struct Session {
     pending_monitor: Mutex<Option<MonitorInfo>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
+    /// Whether clicks auto-seed zooms for the next recording. Off for the interactive default
+    /// (manual hotkey); the AI Demo Director turns it on since the agent drives via clicks.
+    pending_auto_click: Mutex<bool>,
 }
 
 impl Session {
@@ -173,6 +177,7 @@ impl Session {
             pending_region: Mutex::new(None),
             pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
+            pending_auto_click: Mutex::new(ZoomConfig::default().auto_zoom_on_click),
         })
     }
 
@@ -191,6 +196,15 @@ impl Session {
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
     pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
         *self.pending_zoom.lock().map_err(|_| "lock poisoned")? = amount.clamp(1.0, 4.0);
+        Ok(())
+    }
+
+    /// Enable/disable click-driven auto-zoom for the next recording (see [`Session`]).
+    pub fn set_auto_zoom_on_click(&self, on: bool) -> Result<(), String> {
+        *self
+            .pending_auto_click
+            .lock()
+            .map_err(|_| "lock poisoned")? = on;
         Ok(())
     }
 
@@ -380,8 +394,13 @@ impl Session {
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
+        let auto_zoom_on_click = *self
+            .pending_auto_click
+            .lock()
+            .map_err(|_| "lock poisoned")?;
         let cfg = ZoomConfig {
             amount,
+            auto_zoom_on_click,
             ..ZoomConfig::default()
         };
         let zooms = plan_zooms(&events, duration, &cfg);
@@ -811,6 +830,69 @@ impl Session {
             }
             .into(),
         })
+    }
+
+    /// A compact, serializable view of the clip for the AI Demo Director's control API.
+    pub fn clip_info(&self) -> Result<ClipInfo, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        Ok(ClipInfo {
+            duration: project.source.duration,
+            zooms: project.zooms.len(),
+            cuts: project.cuts.len(),
+            speed_regions: project.speed_regions.len(),
+        })
+    }
+
+    /// Composite the clip at each of `times` (seconds) and return the frames as base64 PNGs,
+    /// so the AI Demo Director can *see* its output and critique it. Annotations are baked in
+    /// (unlike the live preview), so the agent sees exactly what export will produce. Pass
+    /// `max_width` to downscale each frame and keep the vision payload small.
+    pub fn sample_frames(
+        &self,
+        times: &[f64],
+        max_width: Option<u32>,
+    ) -> Result<Vec<FrameShot>, String> {
+        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let track = edited.track.as_ref().ok_or("no recording")?;
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        if store.is_empty() {
+            return Err("no frames".into());
+        }
+        let (out_w, out_h) = project.output_dims();
+        let bg = background_color(&project.frame);
+        let mut shots = Vec::with_capacity(times.len());
+        for &t in times {
+            let idx = nearest_idx(store, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
+            let scene = build_scene(project, track, out_w, out_h, t);
+            let rgba = compositor.composite_scene(
+                &frame.bgra,
+                frame.width,
+                frame.height,
+                out_w,
+                out_h,
+                &scene,
+                bg,
+            );
+            let mut img = RgbaImage::new(out_w, out_h, rgba);
+            if let Some(mw) = max_width {
+                if mw > 0 && mw < out_w {
+                    img = downscale_rgba(&img, mw);
+                }
+            }
+            let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+            shots.push(FrameShot {
+                t,
+                width: img.width,
+                height: img.height,
+                png_base64: b64,
+            });
+        }
+        Ok(shots)
     }
 
     /// Toggle click ripples (drawn in both the preview and the exported GIF).

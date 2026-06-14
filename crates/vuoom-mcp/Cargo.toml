@@ -1,0 +1,24 @@
+# Standalone MCP server (the "AI Demo Director" sidecar). An AI agent launches this over
+# stdio; it bridges MCP tool calls to Vuoom's localhost control server via vuoom-control.
+# See docs/13-AI-Demo-Director-Research.md.
+[package]
+name = "vuoom-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "vuoom-mcp"
+path = "src/main.rs"
+
+[dependencies]
+vuoom-control = { workspace = true }
+rmcp = { version = "1.7", features = ["transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = "1"
+anyhow = { workspace = true }

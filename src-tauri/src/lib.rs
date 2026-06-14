@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod control_server;
 mod frame_store;
 mod hotkey;
 mod live_preview;
@@ -88,6 +89,8 @@ pub fn run() {
                 let _ = main.maximize();
             }
             build_tray(app.handle())?;
+            // AI Demo Director control server (opt-in via VUOOM_ENABLE_CONTROL); no-op otherwise.
+            control_server::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

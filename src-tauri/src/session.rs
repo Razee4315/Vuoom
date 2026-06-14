@@ -158,6 +158,9 @@ pub struct Session {
     pending_monitor: Mutex<Option<MonitorInfo>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
+    /// Whether clicks auto-seed zooms for the next recording. Off for the interactive default
+    /// (manual hotkey); the AI Demo Director turns it on since the agent drives via clicks.
+    pending_auto_click: Mutex<bool>,
 }
 
 impl Session {
@@ -177,6 +180,7 @@ impl Session {
             pending_region: Mutex::new(None),
             pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
+            pending_auto_click: Mutex::new(ZoomConfig::default().auto_zoom_on_click),
         })
     }
 
@@ -201,6 +205,15 @@ impl Session {
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
     pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
         *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner()) = amount.clamp(1.0, 4.0);
+        Ok(())
+    }
+
+    /// Enable/disable click-driven auto-zoom for the next recording (see [`Session`]).
+    pub fn set_auto_zoom_on_click(&self, on: bool) -> Result<(), String> {
+        *self
+            .pending_auto_click
+            .lock()
+            .map_err(|_| "lock poisoned")? = on;
         Ok(())
     }
 
@@ -394,8 +407,13 @@ impl Session {
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
+        let auto_zoom_on_click = *self
+            .pending_auto_click
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cfg = ZoomConfig {
             amount,
+            auto_zoom_on_click,
             ..ZoomConfig::default()
         };
         let zooms = plan_zooms(&events, duration, &cfg);

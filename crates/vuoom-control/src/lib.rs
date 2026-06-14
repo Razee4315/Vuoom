@@ -59,6 +59,12 @@ pub enum ControlRequest {
         /// Multiplier in `[1.0, 4.0]` (clamped server-side).
         amount: f64,
     },
+    /// Enable/disable click-driven auto-zoom for the next recording. The agent drives via
+    /// clicks, so this is on for agent recordings (Vuoom's interactive default is manual).
+    SetAutoZoomOnClick {
+        /// `true` = every click seeds a cinematic zoom; `false` = manual hotkey only.
+        on: bool,
+    },
     /// Begin capturing the screen + global input.
     StartRecording,
     /// Stop capturing and build the editable project; answered with [`ControlResponse::Recording`].
@@ -365,6 +371,7 @@ mod tests {
                 h: None,
             },
             ControlRequest::SetZoomAmount { amount: 2.0 },
+            ControlRequest::SetAutoZoomOnClick { on: true },
             ControlRequest::StartRecording,
             ControlRequest::StopRecording,
             ControlRequest::SetPaused { paused: true },

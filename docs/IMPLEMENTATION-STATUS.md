@@ -86,13 +86,17 @@ auto-zoom, *see* the output via sampled frames, and re-record to improve it. Set
 | Area | Crate | Status |
 |---|---|---|
 | Control protocol (newline-JSON req/resp, client, port discovery) | `vuoom-control` | ✅ |
-| Input injection (SendInput move/click/type/key/scroll) + coord/key math | `vuoom-input` | 🟡 (math ✅; SendInput runtime) |
-| In-app control server (opt-in `VUOOM_ENABLE_CONTROL`, loopback) | `src-tauri` | 🟡 |
-| `Session::sample_frames` (composite → base64 PNG) + `clip_info` | `src-tauri` | 🟡 |
-| MCP sidecar — 19 tools over stdio (rmcp) | `vuoom-mcp` | ✅ (builds + `tools/list` smoke-tested) |
+| Input injection (SendInput move/click/type/key/scroll) + coord/key math | `vuoom-input` | ✅ runtime-verified |
+| In-app control server (opt-in `VUOOM_ENABLE_CONTROL`, loopback) | `src-tauri` | ✅ runtime-verified |
+| `Session::sample_frames` (composite → base64 PNG) + `clip_info` | `src-tauri` | ✅ runtime-verified |
+| MCP sidecar — 20 tools over stdio (rmcp) | `vuoom-mcp` | ✅ runtime-verified |
+| Click-to-zoom for agent recordings (`SetAutoZoomOnClick`, default on) | all | ✅ runtime-verified |
 
-Runtime-verify on a real machine: actual SendInput driving a target app, capture + auto-zoom
-from injected clicks, and the full record→get_frames→export loop (CI is headless/GPU-less).
+**Runtime-verified on a real Windows machine (2026-06-14):** a sequential MCP agent drove the
+live app end to end — `start_recording` → injected clicks/typing into a target app (Notepad) →
+`stop_recording` (158 frames, **1 cinematic zoom planned from the injected clicks**) →
+`get_frames` (real composited PNGs) → `export_gif` (real GIF written). The one runtime bug found
+and fixed: click-to-zoom defaults off for the interactive UI, so the agent path now opts it on.
 
 ## Why the 🟡 / ⬜ boundary
 

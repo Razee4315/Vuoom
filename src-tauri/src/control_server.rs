@@ -157,6 +157,7 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             unit(session.set_region(region))
         }
         ControlRequest::SetZoomAmount { amount } => unit(session.set_zoom_amount(amount)),
+        ControlRequest::SetAutoZoomOnClick { on } => unit(session.set_auto_zoom_on_click(on)),
         ControlRequest::StartRecording => unit(session.start_recording()),
         ControlRequest::StopRecording => match session.stop_recording() {
             Ok(s) => ControlResponse::Recording(RecordingSummary {

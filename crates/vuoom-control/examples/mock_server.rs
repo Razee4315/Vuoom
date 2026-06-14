@@ -56,6 +56,7 @@ fn respond(req: ControlRequest) -> ControlResponse {
         ControlRequest::Ping
         | ControlRequest::SetRegion { .. }
         | ControlRequest::SetZoomAmount { .. }
+        | ControlRequest::SetAutoZoomOnClick { .. }
         | ControlRequest::StartRecording
         | ControlRequest::SetPaused { .. }
         | ControlRequest::MoveCursor { .. }

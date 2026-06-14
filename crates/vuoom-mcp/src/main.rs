@@ -135,6 +135,13 @@ struct ZoomParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct StartParams {
+    /// Seed a cinematic zoom on every click you inject (default true — the agent drives via
+    /// clicks). Set false for a static recording where you'll add zooms manually.
+    auto_zoom_on_click: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PointParams {
     /// X in virtual-desktop physical px.
     x: i32,
@@ -274,9 +281,16 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "Start recording the screen + global input. Auto-zoom is planned from the clicks you inject during the recording."
+        description = "Start recording the screen + global input. By default every click you inject seeds a cinematic auto-zoom; pass auto_zoom_on_click=false for a static recording."
     )]
-    async fn start_recording(&self) -> Result<CallToolResult, McpError> {
+    async fn start_recording(
+        &self,
+        Parameters(p): Parameters<StartParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.call(ControlRequest::SetAutoZoomOnClick {
+            on: p.auto_zoom_on_click.unwrap_or(true),
+        })
+        .await?;
         self.call(ControlRequest::StartRecording).await?;
         Ok(text("recording started"))
     }

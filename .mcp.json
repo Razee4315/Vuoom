@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vuoom": {
+      "command": "D:\\Vuoom\\target\\release\\vuoom-mcp.exe",
+      "args": []
+    }
+  }
+}

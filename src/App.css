@@ -662,6 +662,10 @@ kbd {
   stroke: rgba(0, 0, 0, 0.45);
   stroke-width: 3px;
 }
+/* Translucent plate behind a text label (legibility over busy footage). */
+.text-plate {
+  fill: rgba(13, 13, 15, 0.7);
+}
 .handle {
   fill: var(--accent);
   stroke: var(--accent-text);

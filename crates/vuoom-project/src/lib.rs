@@ -186,6 +186,7 @@ mod tests {
             color: Color::WHITE,
             bold: true,
             italic: false,
+            background: false,
             range: TimeRange::with_fade(1.0, 4.0, 0.3),
         });
         p.aspect = AspectRatio::Widescreen;

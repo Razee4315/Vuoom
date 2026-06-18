@@ -559,10 +559,11 @@ pub fn update_text(
     font_size: Option<f32>,
     bold: Option<bool>,
     italic: Option<bool>,
+    background: Option<bool>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .update_text(id, x, y, text, font_size, bold, italic)
+        .update_text(id, x, y, text, font_size, bold, italic, background)
 }
 
 /// Move an arrow's endpoints.

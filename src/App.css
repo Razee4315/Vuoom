@@ -454,7 +454,8 @@ kbd {
   font-size: var(--fs-xs);
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s ease, color 0.1s ease;
+  transition: background var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease),
+    transform var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
 }
 .tool svg {
   pointer-events: none;
@@ -462,6 +463,8 @@ kbd {
 .tool:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 .tool.active {
   background: var(--hover);
@@ -575,6 +578,18 @@ kbd {
   border-left: 1px solid var(--line);
   padding: 16px;
   overflow-y: auto;
+}
+/* Accent spine: marks the inspector as the active editing surface. */
+.properties::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  pointer-events: none;
+  z-index: 6;
 }
 .panel-resizer {
   position: absolute;
@@ -894,6 +909,11 @@ kbd {
   border-radius: 50%;
   cursor: pointer;
   padding: 0;
+  transition: transform var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
+}
+.swatchbtn:hover {
+  transform: scale(1.12);
+  box-shadow: var(--shadow-sm);
 }
 .swatchbtn.active {
   outline: 2px solid var(--accent);
@@ -1469,7 +1489,8 @@ kbd {
   font-weight: 600;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.1s ease;
+  transition: border-color var(--dur-hover) var(--ease), transform var(--dur-hover) var(--ease),
+    box-shadow var(--dur-hover) var(--ease);
 }
 .chip small {
   font-weight: 400;
@@ -1478,6 +1499,8 @@ kbd {
 }
 .chip:hover {
   border-color: var(--muted);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 .chip.active {
   border-color: var(--accent);

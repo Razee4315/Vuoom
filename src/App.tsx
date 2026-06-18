@@ -1977,8 +1977,12 @@ function App() {
       /* storage unavailable */
     }
   };
-  const inspectorOpen = () =>
+  const somethingSelected = () =>
     !!selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null;
+  // A drawing tool is armed (not Select). We reserve the inspector column for it so the
+  // canvas doesn't reflow the moment you place an element (which would jump the editor box).
+  const drawingToolActive = () => hasClip() && tool() !== "select";
+  const inspectorOpen = () => somethingSelected() || drawingToolActive();
 
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -2460,21 +2464,29 @@ function App() {
 
               <Show when={editingTextAnn()}>
                 {(() => {
-                  const ta = editingTextAnn()!;
-                  const p = px({ x: v2(ta.pos).x, y: v2(ta.pos).y });
-                  const fs = ta.font_size * stage().h;
+                  const id = editingText()!;
+                  // Reactive accessors so the editor box tracks the label as the canvas
+                  // resizes (e.g. when the inspector opens). The value stays uncontrolled
+                  // (seeded once) so typing never resets the caret.
+                  const live = () => anns().texts.find((t) => t.id === id);
+                  const initial = live()?.text ?? "";
+                  const p = () => {
+                    const t = live();
+                    return t ? px({ x: v2(t.pos).x, y: v2(t.pos).y }) : { x: 0, y: 0 };
+                  };
+                  const fs = () => (live()?.font_size ?? 0.05) * stage().h;
                   return (
                     <input
                       class="text-edit"
                       style={{
-                        left: `${p.x}px`,
-                        top: `${p.y}px`,
-                        "font-size": `${fs}px`,
-                        "font-family": fontCss(ta.font),
-                        "font-weight": ta.bold ? "700" : "400",
-                        "font-style": ta.italic ? "italic" : "normal",
+                        left: `${p().x}px`,
+                        top: `${p().y}px`,
+                        "font-size": `${fs()}px`,
+                        "font-family": fontCss(live()?.font ?? ""),
+                        "font-weight": live()?.bold ? "700" : "400",
+                        "font-style": live()?.italic ? "italic" : "normal",
                       }}
-                      value={ta.text}
+                      value={initial}
                       spellcheck={false}
                       ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
                       onInput={(e) => editTextLive(e.currentTarget.value)}
@@ -2849,6 +2861,21 @@ function App() {
             </button>
           </InspectorPanel>
         </Show>
+
+        {/* Tool-context panel: holds the inspector column while a drawing tool is armed
+            (nothing selected yet) so placing an element never reflows the canvas. */}
+        <Show when={drawingToolActive() && !somethingSelected()}>
+          <aside class="properties">
+            <div class="inspector-head">
+              <h2>{TOOLS.find((t) => t.id === tool())?.label}</h2>
+            </div>
+            <p class="muted small">{TOOLS.find((t) => t.id === tool())?.hint}</p>
+            <p class="muted small">
+              Press <kbd>V</kbd> for Select, or pick another tool on the left. Its options appear
+              here once you place an element.
+            </p>
+          </aside>
+        </Show>
       </div>
 
       <footer class="timeline">
@@ -3207,15 +3234,15 @@ function App() {
             <LogoWordmark />
             <h2 class="welcome-title">Record. Auto-zoom. Ship.</h2>
             <p class="welcome-sub">
-              Vuoom records your screen, zooms in where you click, and exports a crisp GIF or
-              MP4 — ready for your README, Slack, or socials.
+              Record your screen, auto-zoom where you click, and export a crisp GIF or MP4 for
+              your README, Slack, or socials.
             </p>
             <div class="welcome-steps">
               <div class="welcome-step">
                 <span class="welcome-num">1</span>
                 <div>
                   <strong>Record</strong>
-                  <small>Pick an area and hit record — your clicks drive cinematic zooms.</small>
+                  <small>Pick an area and hit record. Your clicks drive the zoom.</small>
                 </div>
               </div>
               <div class="welcome-step">
@@ -3234,11 +3261,11 @@ function App() {
               </div>
             </div>
             <div class="welcome-actions">
-              <button class="btn" onClick={() => dismissWelcome(true)}>
-                Maybe later
+              <button class="btn welcome-skip" onClick={() => dismissWelcome(true)}>
+                Skip
               </button>
               <button
-                class="btn record cta welcome-cta"
+                class="btn record welcome-cta"
                 onClick={() => {
                   dismissWelcome(false);
                   void startRecord();
@@ -3256,7 +3283,7 @@ function App() {
         <div class="coachmark" style={{ left: `${coachPos().x}px`, top: `${coachPos().y + 10}px` }}>
           <span class="coach-arrow" />
           <p>
-            Start here — or press <kbd>Ctrl+Shift+R</kbd> any time.
+            Click to start, or press <kbd>Ctrl+Shift+R</kbd> any time.
           </p>
           <button class="btn ghost coach-dismiss" onClick={() => setCoachRecord(false)}>
             Got it

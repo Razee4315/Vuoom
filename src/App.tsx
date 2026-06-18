@@ -2183,9 +2183,25 @@ function App() {
                   <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
                 <Show when={recoverable() !== null}>
-                  <button class="btn recover" onClick={() => void onRecover()}>
-                    Recover last session · {recoverable()!.toFixed(1)}s
-                  </button>
+                  <div class="recents">
+                    <span class="recents-label">Pick up where you left off</span>
+                    <button
+                      class="recent-card"
+                      title="Recover your last recording and its edits"
+                      onClick={() => void onRecover()}
+                    >
+                      <div class="recent-thumb">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
+                        </svg>
+                      </div>
+                      <div class="recent-meta">
+                        <strong>Last session</strong>
+                        <small>{recoverable()!.toFixed(1)}s · recover</small>
+                      </div>
+                    </button>
+                  </div>
                 </Show>
               </div>
             </Show>

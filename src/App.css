@@ -1592,6 +1592,111 @@ kbd {
 }
 
 /* ============================================================
+   Onboarding — first-run welcome card + Record coachmark
+   ============================================================ */
+.welcome-backdrop {
+  z-index: 60;
+}
+.welcome-card {
+  width: min(520px, 92vw);
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.welcome-title {
+  margin: 18px 0 8px;
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.welcome-sub {
+  margin: 0 auto 22px;
+  max-width: 400px;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--muted);
+}
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-12);
+  margin-bottom: var(--sp-24);
+  text-align: left;
+}
+.welcome-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-12);
+}
+.welcome-num {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+.welcome-step strong {
+  display: block;
+  font-size: var(--fs-md);
+}
+.welcome-step small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.welcome-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-10);
+}
+.welcome-cta {
+  margin-top: 0;
+}
+/* Coachmark bubble pointing up at the Record button. */
+.coachmark {
+  position: fixed;
+  z-index: 55;
+  max-width: 250px;
+  padding: 12px 14px;
+  background: var(--prominent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.coach-arrow {
+  position: absolute;
+  top: -6px;
+  left: 22px;
+  width: 11px;
+  height: 11px;
+  background: var(--prominent);
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+.coachmark p {
+  margin: 0 0 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+}
+.coach-dismiss {
+  padding: 5px 12px;
+  font-size: var(--fs-sm);
+}
+
+/* ============================================================
    Responsive — small laptops through large / 4K displays
    ============================================================ */
 

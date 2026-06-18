@@ -248,6 +248,11 @@ function App() {
   // Auto-update: a pending update (if any) and whether we're mid-download.
   const [update, setUpdate] = createSignal<Update | null>(null);
   const [updating, setUpdating] = createSignal(false);
+  // First-run onboarding: a one-time welcome card, then a coachmark pointing at Record.
+  const [showWelcome, setShowWelcome] = createSignal(false);
+  const [coachRecord, setCoachRecord] = createSignal(false);
+  const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
+  let recordBtnEl: HTMLButtonElement | undefined;
 
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
@@ -364,6 +369,7 @@ function App() {
         preview.connect(port);
         setStatus("Ready — press Record to capture your screen");
         hideSplash();
+        maybeShowWelcome();
         // A previous session's frames are still on disk (crash or accidental close)?
         invoke<number | null>("check_recovery")
           .then((d) => setRecoverable(d ?? null))
@@ -419,6 +425,29 @@ function App() {
     } catch (e) {
       setUpdating(false);
       setStatus(`Update failed: ${String(e)}`);
+    }
+  };
+
+  // ── first-run onboarding ───────────────────────────────────────────────────────
+  const maybeShowWelcome = () => {
+    try {
+      if (!localStorage.getItem("vuoom-seen-welcome")) setShowWelcome(true);
+    } catch {
+      /* storage unavailable — skip onboarding */
+    }
+  };
+  // Dismiss the welcome card; `hint` pops a coachmark pointing at Record for skippers.
+  const dismissWelcome = (hint: boolean) => {
+    try {
+      localStorage.setItem("vuoom-seen-welcome", "1");
+    } catch {
+      /* ignore */
+    }
+    setShowWelcome(false);
+    if (hint && recordBtnEl) {
+      const r = recordBtnEl.getBoundingClientRect();
+      setCoachPos({ x: r.left, y: r.bottom });
+      setCoachRecord(true);
     }
   };
 
@@ -1188,6 +1217,7 @@ function App() {
   // this window — the window is excluded from the capture and grown/shrunk by the backend,
   // so the overlay never lands in the recording and we avoid fragile extra webviews.
   const startRecord = async () => {
+    setCoachRecord(false);
     try {
       setStatus("Choose the area to record…");
       await invoke("enter_overlay"); // hide editor from capture + go fullscreen
@@ -1982,6 +2012,7 @@ function App() {
         <LogoWordmark />
         <button
           class="btn record"
+          ref={(el) => (recordBtnEl = el)}
           title="Record your screen (Ctrl+Shift+R) — captures the monitor Vuoom is on"
           onClick={() => void startRecord()}
         >
@@ -3097,6 +3128,70 @@ function App() {
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
         />
+      </Show>
+
+      {/* First-run welcome card. */}
+      <Show when={showWelcome()}>
+        <div class="modal-backdrop welcome-backdrop">
+          <div class="welcome-card">
+            <LogoWordmark />
+            <h2 class="welcome-title">Record. Auto-zoom. Ship.</h2>
+            <p class="welcome-sub">
+              Vuoom records your screen, zooms in where you click, and exports a crisp GIF or
+              MP4 — ready for your README, Slack, or socials.
+            </p>
+            <div class="welcome-steps">
+              <div class="welcome-step">
+                <span class="welcome-num">1</span>
+                <div>
+                  <strong>Record</strong>
+                  <small>Pick an area and hit record — your clicks drive cinematic zooms.</small>
+                </div>
+              </div>
+              <div class="welcome-step">
+                <span class="welcome-num">2</span>
+                <div>
+                  <strong>Polish</strong>
+                  <small>Trim, speed up idle time, and add text, arrows, and highlights.</small>
+                </div>
+              </div>
+              <div class="welcome-step">
+                <span class="welcome-num">3</span>
+                <div>
+                  <strong>Export</strong>
+                  <small>One click to a GIF or MP4 you can paste anywhere.</small>
+                </div>
+              </div>
+            </div>
+            <div class="welcome-actions">
+              <button class="btn" onClick={() => dismissWelcome(true)}>
+                Maybe later
+              </button>
+              <button
+                class="btn record cta welcome-cta"
+                onClick={() => {
+                  dismissWelcome(false);
+                  void startRecord();
+                }}
+              >
+                <span class="dot" /> Start recording
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      {/* Coachmark pointing at the Record button for users who skipped the welcome. */}
+      <Show when={coachRecord()}>
+        <div class="coachmark" style={{ left: `${coachPos().x}px`, top: `${coachPos().y + 10}px` }}>
+          <span class="coach-arrow" />
+          <p>
+            Start here — or press <kbd>Ctrl+Shift+R</kbd> any time.
+          </p>
+          <button class="btn ghost coach-dismiss" onClick={() => setCoachRecord(false)}>
+            Got it
+          </button>
+        </div>
       </Show>
     </div>
   );

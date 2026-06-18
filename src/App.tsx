@@ -195,6 +195,9 @@ type Drag =
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
   | { mode: "move"; kind: Kind; id: number; grab: Vec2; orig: number[]; geom: number[] }
   | { mode: "resize"; kind: Kind; id: number; handle: string; orig: number[]; geom: number[] }
+  // Corner-dragging a text label scales its font size (anchored to the opposite corner),
+  // so text scales typographically instead of stretching.
+  | { mode: "scale-text"; id: number; anchor: Vec2; startFont: number; startDist: number; cur: number }
   | null;
 
 function App() {
@@ -667,6 +670,15 @@ function App() {
       await invoke("update_arrow", { id, fx: g[0], fy: g[1], tx: g[2], ty: g[3] });
     else await invoke("update_text", { id, x: g[0], y: g[1] });
   };
+  // Approximate width of a text label in normalized-X space (glyph width is in height-
+  // fraction units; convert to width fraction). Shared by hit-testing and resize handles.
+  const textWNorm = (t: TextAnn) =>
+    Math.max(t.text.length * t.font_size * 0.6 * (stage().h / Math.max(stage().w, 1)), 0.05);
+  // The live font size for a text label (the scale-text drag override, else the stored size).
+  const liveFont = (id: number, fallback: number) => {
+    const d = drag();
+    return d && d.mode === "scale-text" && d.id === id ? d.cur : fallback;
+  };
   // ── hit testing (normalized) ─────────────────────────────────────────────────────
   const TOL = () => 11 / Math.max(stage().w, stage().h); // ~11px grab radius in normalized space
   const handleAt = (p: Vec2): string | null => {
@@ -683,6 +695,17 @@ function App() {
     } else if (s.kind === "arrow") {
       if (near(g[0], g[1])) return "from";
       if (near(g[2], g[3])) return "to";
+    } else if (s.kind === "text") {
+      const t = anns().texts.find((x) => x.id === s.id);
+      if (t) {
+        const pos = v2(t.pos);
+        const w = textWNorm(t);
+        const h = t.font_size;
+        if (near(pos.x, pos.y)) return "nw";
+        if (near(pos.x + w, pos.y)) return "ne";
+        if (near(pos.x, pos.y + h)) return "sw";
+        if (near(pos.x + w, pos.y + h)) return "se";
+      }
     }
     return null;
   };
@@ -700,12 +723,7 @@ function App() {
     for (const t of anns().texts) {
       if (!inView(t.range, false)) continue;
       const pos = v2(t.pos);
-      // font_size is a fraction of stage HEIGHT; convert the glyph width into
-      // width-normalized space or wide text on a wide stage can't be clicked.
-      const wApprox = Math.max(
-        t.text.length * t.font_size * 0.6 * (stage().h / Math.max(stage().w, 1)),
-        0.05,
-      );
+      const wApprox = textWNorm(t);
       // The glyphs sit between pos.y (top) and pos.y + font_size (baseline); pad by TOL.
       if (
         p.x >= pos.x - TOL() &&
@@ -770,6 +788,23 @@ function App() {
     const h = handleAt(p);
     if (h && selected()) {
       const s = selected()!;
+      if (s.kind === "text") {
+        // Corner-resize a text label = scale its font, anchored to the opposite corner.
+        const tx = anns().texts.find((x) => x.id === s.id)!;
+        const pos = v2(tx.pos);
+        const w = textWNorm(tx);
+        const ht = tx.font_size;
+        const opp: Record<string, Vec2> = {
+          nw: { x: pos.x + w, y: pos.y + ht },
+          ne: { x: pos.x, y: pos.y + ht },
+          sw: { x: pos.x + w, y: pos.y },
+          se: { x: pos.x, y: pos.y },
+        };
+        const anchor = opp[h];
+        const startDist = Math.hypot(p.x - anchor.x, p.y - anchor.y) || 1e-4;
+        setDrag({ mode: "scale-text", id: s.id, anchor, startFont: tx.font_size, startDist, cur: tx.font_size });
+        return;
+      }
       const g = geomOf(s.kind, s.id);
       setDrag({ mode: "resize", kind: s.kind, id: s.id, handle: h, orig: g, geom: g.slice() });
       return;
@@ -799,6 +834,13 @@ function App() {
       d.mode === "create-highlight"
     ) {
       setDrag({ ...d, cur: p });
+      return;
+    }
+    if (d.mode === "scale-text") {
+      // Font scales with the cursor's distance from the anchored opposite corner.
+      const dist = Math.hypot(p.x - d.anchor.x, p.y - d.anchor.y);
+      const f = Math.min(0.2, Math.max(0.02, (d.startFont * dist) / d.startDist));
+      setDrag({ ...d, cur: f });
       return;
     }
     if (d.mode === "move") {
@@ -878,6 +920,12 @@ function App() {
         setSelected({ kind: "box", id });
         if (!toolLock()) setTool("select");
       }
+    } else if (d.mode === "scale-text") {
+      const f = d.cur;
+      setDrag(null);
+      await invoke("update_text", { id: d.id, fontSize: f });
+      await refresh();
+      await pushSeek(playhead());
     } else {
       // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
       // the drag, so the overlay never flashes back to the pre-drag position for a frame.
@@ -2139,7 +2187,8 @@ function App() {
                         {(() => {
                           const g = () => liveGeom("text", tx.id);
                           const p = () => px({ x: g()[0], y: g()[1] });
-                          const fs = () => tx.font_size * stage().h;
+                          const fs = () => liveFont(tx.id, tx.font_size) * stage().h;
+                          const wbox = () => Math.max(40, tx.text.length * fs() * 0.6);
                           return (
                             <g opacity={isGhost(tx.range, sel()) ? 0.35 : 1}>
                               <text
@@ -2160,8 +2209,16 @@ function App() {
                                   class="sel-outline"
                                   x={p().x - 4}
                                   y={p().y - 4}
-                                  width={Math.max(40, tx.text.length * fs() * 0.6) + 8}
+                                  width={wbox() + 8}
                                   height={fs() + 8}
+                                />
+                                <Handles
+                                  pts={[
+                                    { x: p().x, y: p().y },
+                                    { x: p().x + wbox(), y: p().y },
+                                    { x: p().x, y: p().y + fs() },
+                                    { x: p().x + wbox(), y: p().y + fs() },
+                                  ]}
                                 />
                               </Show>
                             </g>

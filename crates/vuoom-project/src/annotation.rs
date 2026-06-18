@@ -29,6 +29,10 @@ pub struct TextAnnotation {
     /// footage. Defaults off so older projects keep their look.
     #[serde(default)]
     pub background: bool,
+    /// Font family name (e.g. "Anton"); empty = the default sans-serif. Defaults empty so
+    /// older projects keep the sans look.
+    #[serde(default)]
+    pub font: String,
     pub range: TimeRange,
 }
 

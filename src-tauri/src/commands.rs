@@ -560,10 +560,11 @@ pub fn update_text(
     bold: Option<bool>,
     italic: Option<bool>,
     background: Option<bool>,
+    font: Option<String>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .update_text(id, x, y, text, font_size, bold, italic, background)
+        .update_text(id, x, y, text, font_size, bold, italic, background, font)
 }
 
 /// Move an arrow's endpoints.

@@ -187,6 +187,7 @@ mod tests {
             bold: true,
             italic: false,
             background: false,
+            font: String::new(),
             range: TimeRange::with_fade(1.0, 4.0, 0.3),
         });
         p.aspect = AspectRatio::Widescreen;

@@ -19,6 +19,8 @@ pub struct ResolvedText {
     pub color: Color,
     pub bold: bool,
     pub italic: bool,
+    /// Font family name; empty = the default sans-serif.
+    pub font: String,
 }
 
 /// An arrow resolved to output pixels.
@@ -117,6 +119,7 @@ pub fn build_scene(
             color: fade(ta.color, o),
             bold: ta.bold,
             italic: ta.italic,
+            font: ta.font.clone(),
         });
     }
 
@@ -236,6 +239,7 @@ pub fn build_scene(
                 color: fade(Color::WHITE, o),
                 bold: true,
                 italic: false,
+                font: String::new(),
             });
         }
     }
@@ -274,6 +278,7 @@ mod tests {
             bold: false,
             italic: false,
             background: false,
+            font: String::new(),
             range: TimeRange::new(1.0, 3.0),
         });
         p

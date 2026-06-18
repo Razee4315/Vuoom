@@ -47,6 +47,7 @@ interface TextAnn {
   bold: boolean;
   italic: boolean;
   background: boolean;
+  font: string;
   range: TimeRange;
 }
 interface ArrowAnn {
@@ -141,6 +142,19 @@ interface Selection {
 
 /// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
 const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
+
+/// Bundled text fonts. `id` is the family name sent to the renderer (empty = default sans);
+/// `css` styles the on-canvas preview + the in-typeface picker. Mirrors the @font-face set
+/// in App.css and the fonts loaded into glyphon for export.
+const TEXT_FONTS: { id: string; label: string; css: string }[] = [
+  { id: "", label: "Default", css: "Inter, sans-serif" },
+  { id: "Anton", label: "Anton", css: "Anton, sans-serif" },
+  { id: "Bebas Neue", label: "Bebas", css: "'Bebas Neue', sans-serif" },
+  { id: "Poppins", label: "Poppins", css: "Poppins, sans-serif" },
+  { id: "Permanent Marker", label: "Marker", css: "'Permanent Marker', cursive" },
+  { id: "Shrikhand", label: "Shrikhand", css: "Shrikhand, serif" },
+];
+const fontCss = (name: string) => TEXT_FONTS.find((f) => f.id === name)?.css ?? "Inter, sans-serif";
 
 const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
   { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click an element to select, drag to move, drag a handle to resize. (V)" },
@@ -1107,7 +1121,12 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
-  const editTextStyle = async (patch: { bold?: boolean; italic?: boolean; background?: boolean }) => {
+  const editTextStyle = async (patch: {
+    bold?: boolean;
+    italic?: boolean;
+    background?: boolean;
+    font?: string;
+  }) => {
     const s = selected();
     if (s?.kind !== "text") return;
     await invoke("update_text", { id: s.id, ...patch });
@@ -2300,7 +2319,7 @@ function App() {
                                 font-size={String(fs())}
                                 fill={cssColor(tx.color)}
                                 style={{
-                                  "font-family": "Inter, sans-serif",
+                                  "font-family": fontCss(tx.font),
                                   "font-weight": tx.bold ? "700" : "400",
                                   "font-style": tx.italic ? "italic" : "normal",
                                 }}
@@ -2435,6 +2454,7 @@ function App() {
                         left: `${p.x}px`,
                         top: `${p.y}px`,
                         "font-size": `${fs}px`,
+                        "font-family": fontCss(ta.font),
                         "font-weight": ta.bold ? "700" : "400",
                         "font-style": ta.italic ? "italic" : "normal",
                       }}
@@ -2499,6 +2519,22 @@ function App() {
                     >
                       BG
                     </button>
+                  </div>
+                </InspRow>
+                <InspRow label="Font" stack>
+                  <div class="font-grid">
+                    <For each={TEXT_FONTS}>
+                      {(f) => (
+                        <button
+                          classList={{ fontbtn: true, on: (selectedText()!.font || "") === f.id }}
+                          style={{ "font-family": f.css }}
+                          title={f.label}
+                          onClick={() => void editTextStyle({ font: f.id })}
+                        >
+                          {f.label}
+                        </button>
+                      )}
+                    </For>
                   </div>
                 </InspRow>
                 <InspRow label="Size">

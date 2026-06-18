@@ -237,6 +237,10 @@ function App() {
   const [tlWidth, setTlWidth] = createSignal(800);
   // While a timeline band is dragged, the time it snapped to (for the guide line), or null.
   const [snapGuide, setSnapGuide] = createSignal<number | null>(null);
+  // While an annotation is dragged on the canvas, the normalized x/y of an active
+  // center/edge snap guide (or null). Drawn as crosshair lines on the overlay.
+  const [snapX, setSnapX] = createSignal<number | null>(null);
+  const [snapY, setSnapY] = createSignal<number | null>(null);
   const [showExport, setShowExport] = createSignal(false);
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
@@ -736,6 +740,60 @@ function App() {
     return null;
   };
 
+  // Snap a moved annotation's geometry to the canvas edges/center (0, 0.5, 1) within a
+  // pixel-constant threshold, shifting the whole element and flashing crosshair guides.
+  const CANVAS_SNAPS = [0, 0.5, 1];
+  const snapMoveGeom = (kind: Kind, g: number[]): number[] => {
+    const tx = 8 / Math.max(stage().w, 1);
+    const ty = 8 / Math.max(stage().h, 1);
+    let xs: number[];
+    let ys: number[];
+    if (kind === "box") {
+      xs = [g[0], g[0] + g[2] / 2, g[0] + g[2]];
+      ys = [g[1], g[1] + g[3] / 2, g[1] + g[3]];
+    } else if (kind === "arrow") {
+      xs = [g[0], g[2], (g[0] + g[2]) / 2];
+      ys = [g[1], g[3], (g[1] + g[3]) / 2];
+    } else {
+      xs = [g[0]];
+      ys = [g[1]];
+    }
+    let offX = 0;
+    let gx: number | null = null;
+    let bestX = tx;
+    for (const x of xs)
+      for (const s of CANVAS_SNAPS) {
+        const dd = Math.abs(x - s);
+        if (dd < bestX) {
+          bestX = dd;
+          offX = s - x;
+          gx = s;
+        }
+      }
+    let offY = 0;
+    let gy: number | null = null;
+    let bestY = ty;
+    for (const y of ys)
+      for (const s of CANVAS_SNAPS) {
+        const dd = Math.abs(y - s);
+        if (dd < bestY) {
+          bestY = dd;
+          offY = s - y;
+          gy = s;
+        }
+      }
+    const ng = g.slice();
+    ng[0] += offX;
+    ng[1] += offY;
+    if (kind === "arrow") {
+      ng[2] += offX;
+      ng[3] += offY;
+    }
+    setSnapX(gx);
+    setSnapY(gy);
+    return ng;
+  };
+
   // ── pointer interaction on the overlay ───────────────────────────────────────────
   const onPointerDown = async (e: PointerEvent) => {
     if (!hasClip()) return;
@@ -852,6 +910,7 @@ function App() {
       else if (d.kind === "arrow")
         g = [clamp01(og[0] + dx), clamp01(og[1] + dy), clamp01(og[2] + dx), clamp01(og[3] + dy)];
       else g = [clamp01(og[0] + dx), clamp01(og[1] + dy)];
+      g = snapMoveGeom(d.kind, g);
       setDrag({ ...d, geom: g });
     } else if (d.mode === "resize") {
       const og = d.orig;
@@ -875,6 +934,8 @@ function App() {
   const onPointerUp = async (e: PointerEvent) => {
     const d = drag();
     if (!d) return;
+    setSnapX(null);
+    setSnapY(null);
     const p = norm(e);
     if (d.mode === "create-arrow" || d.mode === "create-line") {
       const isLine = d.mode === "create-line";
@@ -2297,6 +2358,26 @@ function App() {
                       </g>
                     );
                   })()}
+                </Show>
+
+                {/* Canvas alignment guides — flash when a dragged element snaps. */}
+                <Show when={snapX() !== null}>
+                  <line
+                    class="canvas-snap"
+                    x1={snapX()! * stage().w}
+                    y1={0}
+                    x2={snapX()! * stage().w}
+                    y2={stage().h}
+                  />
+                </Show>
+                <Show when={snapY() !== null}>
+                  <line
+                    class="canvas-snap"
+                    x1={0}
+                    y1={snapY()! * stage().h}
+                    x2={stage().w}
+                    y2={snapY()! * stage().h}
+                  />
                 </Show>
               </svg>
 

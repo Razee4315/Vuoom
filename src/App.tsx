@@ -11,6 +11,7 @@ import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
 import { PreviewClient } from "./preview";
 import { LogoWordmark } from "./Logo";
+import ScrubField from "./ScrubField";
 import "./App.css";
 
 type Tool = "select" | "text" | "arrow" | "line" | "shape" | "highlight";
@@ -2162,190 +2163,203 @@ function App() {
             onResizeUp={onInspUp}
           >
             <Show when={selectedText()}>
-              <label class="field">
-                <span>Text</span>
-                <input
-                  type="text"
-                  value={selectedText()!.text}
-                  onInput={(e) => void editText(e.currentTarget.value)}
-                />
-              </label>
-              <div class="field">
-                <span>Style</span>
-                <div class="style-row">
-                  <button
-                    classList={{ stylebtn: true, on: selectedText()!.bold }}
-                    title="Bold"
-                    onClick={() => void editTextStyle({ bold: !selectedText()!.bold })}
-                  >
-                    B
-                  </button>
-                  <button
-                    classList={{ stylebtn: true, italic: true, on: selectedText()!.italic }}
-                    title="Italic"
-                    onClick={() => void editTextStyle({ italic: !selectedText()!.italic })}
-                  >
-                    I
-                  </button>
-                </div>
-              </div>
-              <label class="field">
-                <span>Size · {Math.round(selectedText()!.font_size * 100)}% of height</span>
-                <input
-                  type="range"
-                  min="0.02"
-                  max="0.2"
-                  step="0.005"
-                  value={selectedText()!.font_size}
-                  onInput={(e) => void editFontSize(Number(e.currentTarget.value))}
-                />
-              </label>
+              <InspSection title="Text">
+                <InspRow label="Content" stack>
+                  <input
+                    class="insp-text-input"
+                    type="text"
+                    spellcheck={false}
+                    value={selectedText()!.text}
+                    onInput={(e) => void editText(e.currentTarget.value)}
+                  />
+                </InspRow>
+                <InspRow label="Style">
+                  <div class="style-row">
+                    <button
+                      classList={{ stylebtn: true, on: selectedText()!.bold }}
+                      title="Bold"
+                      onClick={() => void editTextStyle({ bold: !selectedText()!.bold })}
+                    >
+                      B
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, italic: true, on: selectedText()!.italic }}
+                      title="Italic"
+                      onClick={() => void editTextStyle({ italic: !selectedText()!.italic })}
+                    >
+                      I
+                    </button>
+                  </div>
+                </InspRow>
+                <InspRow label="Size">
+                  <ScrubField
+                    value={selectedText()!.font_size}
+                    min={0.02}
+                    max={0.2}
+                    step={0.005}
+                    displayScale={100}
+                    suffix="%"
+                    title="Font size as a percent of the video height — drag to scrub, click to type"
+                    onInput={(v) => void editFontSize(v)}
+                    onCommit={(v) => void editFontSize(v)}
+                  />
+                </InspRow>
+              </InspSection>
             </Show>
 
             <Show when={selectedBox()}>
-              <div class="field">
-                <span>Shape</span>
-                <div class="style-row">
-                  <button
-                    classList={{ stylebtn: true, label: true, on: selectedBox()!.shape !== "Ellipse" }}
-                    onClick={() => void setShape(false)}
-                  >
-                    Rectangle
-                  </button>
-                  <button
-                    classList={{ stylebtn: true, label: true, on: selectedBox()!.shape === "Ellipse" }}
-                    onClick={() => void setShape(true)}
-                  >
-                    Ellipse
-                  </button>
-                </div>
-              </div>
-              <div class="field">
-                <span>Fill</span>
-                <div class="style-row">
-                  <button
-                    classList={{ stylebtn: true, label: true, on: !selectedBox()!.filled }}
-                    onClick={() => void editStyle({ filled: false })}
-                  >
-                    Outline
-                  </button>
-                  <button
-                    classList={{ stylebtn: true, label: true, on: selectedBox()!.filled }}
-                    onClick={() => void editStyle({ filled: true })}
-                  >
-                    Filled
-                  </button>
-                </div>
-              </div>
-              <label class="field">
-                <span>Opacity · {Math.round((selectedBox()!.color.a ?? 1) * 100)}%</span>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="1"
-                  step="0.05"
-                  value={selectedBox()!.color.a ?? 1}
-                  onInput={(e) => void setOpacity(Number(e.currentTarget.value))}
-                />
-              </label>
+              <InspSection title="Shape">
+                <InspRow label="Shape">
+                  <div class="style-row">
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedBox()!.shape !== "Ellipse" }}
+                      onClick={() => void setShape(false)}
+                    >
+                      Rectangle
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedBox()!.shape === "Ellipse" }}
+                      onClick={() => void setShape(true)}
+                    >
+                      Ellipse
+                    </button>
+                  </div>
+                </InspRow>
+                <InspRow label="Fill">
+                  <div class="style-row">
+                    <button
+                      classList={{ stylebtn: true, label: true, on: !selectedBox()!.filled }}
+                      onClick={() => void editStyle({ filled: false })}
+                    >
+                      Outline
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedBox()!.filled }}
+                      onClick={() => void editStyle({ filled: true })}
+                    >
+                      Filled
+                    </button>
+                  </div>
+                </InspRow>
+                <InspRow label="Opacity">
+                  <ScrubField
+                    value={selectedBox()!.color.a ?? 1}
+                    min={0.1}
+                    max={1}
+                    step={0.05}
+                    displayScale={100}
+                    suffix="%"
+                    title="Opacity — drag to scrub, click to type"
+                    onInput={(v) => void setOpacity(v)}
+                    onCommit={(v) => void setOpacity(v)}
+                  />
+                </InspRow>
+                <Show when={!selectedBox()!.filled}>
+                  <InspRow label="Thickness">
+                    <ScrubField
+                      value={selectedBox()!.thickness}
+                      min={0.002}
+                      max={0.02}
+                      step={0.001}
+                      displayScale={100}
+                      suffix="%"
+                      title="Outline thickness as a percent of height"
+                      onInput={(v) => void editStyle({ thickness: v })}
+                      onCommit={(v) => void editStyle({ thickness: v })}
+                    />
+                  </InspRow>
+                </Show>
+              </InspSection>
             </Show>
             <Show when={selectedArrow()}>
-              <div class="field">
-                <span>Ends</span>
-                <div class="style-row">
-                  <button
-                    classList={{ stylebtn: true, label: true, on: (selectedArrow()!.style ?? "Arrow") === "Arrow" }}
-                    onClick={() => void setArrowStyle("arrow")}
-                  >
-                    Arrow
-                  </button>
-                  <button
-                    classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "Line" }}
-                    onClick={() => void setArrowStyle("line")}
-                  >
-                    Line
-                  </button>
-                  <button
-                    classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "DoubleArrow" }}
-                    onClick={() => void setArrowStyle("double")}
-                  >
-                    Double
-                  </button>
-                </div>
-              </div>
-            </Show>
-            <Show when={selectedArrow() || (selectedBox() && !selectedBox()!.filled)}>
-              <label class="field">
-                <span>
-                  Thickness ·{" "}
-                  {(
-                    (selectedArrow()?.thickness ?? selectedBox()?.thickness ?? 0.006) * 100
-                  ).toFixed(1)}
-                  % of height
-                </span>
-                <input
-                  type="range"
-                  min="0.002"
-                  max="0.02"
-                  step="0.001"
-                  value={selectedArrow()?.thickness ?? selectedBox()?.thickness ?? 0.006}
-                  onInput={(e) => void editStyle({ thickness: Number(e.currentTarget.value) })}
-                />
-              </label>
+              <InspSection title="Style">
+                <InspRow label="Ends">
+                  <div class="style-row">
+                    <button
+                      classList={{ stylebtn: true, label: true, on: (selectedArrow()!.style ?? "Arrow") === "Arrow" }}
+                      onClick={() => void setArrowStyle("arrow")}
+                    >
+                      Arrow
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "Line" }}
+                      onClick={() => void setArrowStyle("line")}
+                    >
+                      Line
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedArrow()!.style === "DoubleArrow" }}
+                      onClick={() => void setArrowStyle("double")}
+                    >
+                      Double
+                    </button>
+                  </div>
+                </InspRow>
+                <InspRow label="Thickness">
+                  <ScrubField
+                    value={selectedArrow()!.thickness}
+                    min={0.002}
+                    max={0.02}
+                    step={0.001}
+                    displayScale={100}
+                    suffix="%"
+                    title="Stroke thickness as a percent of height"
+                    onInput={(v) => void editStyle({ thickness: v })}
+                    onCommit={(v) => void editStyle({ thickness: v })}
+                  />
+                </InspRow>
+              </InspSection>
             </Show>
 
             <Show when={selectedColor()}>
-              <div class="field">
-                <span>Color</span>
-                <div class="swatch-row">
-                  <For each={PRESET_COLORS}>
-                    {(c) => (
-                      <button
-                        classList={{ swatchbtn: true, active: rgbHex(selectedColor()!) === c }}
-                        style={{ background: c }}
-                        title={c}
-                        onClick={() => void setColor(c)}
-                      />
-                    )}
-                  </For>
-                </div>
-                <input
-                  type="color"
-                  value={rgbHex(selectedColor()!)}
-                  onInput={(e) => void setColor(e.currentTarget.value)}
-                />
-              </div>
+              <InspSection title="Color">
+                <InspRow label="Color" stack>
+                  <div class="swatch-row">
+                    <For each={PRESET_COLORS}>
+                      {(c) => (
+                        <button
+                          classList={{ swatchbtn: true, active: rgbHex(selectedColor()!) === c }}
+                          style={{ background: c }}
+                          title={c}
+                          onClick={() => void setColor(c)}
+                        />
+                      )}
+                    </For>
+                  </div>
+                  <input
+                    type="color"
+                    value={rgbHex(selectedColor()!)}
+                    onInput={(e) => void setColor(e.currentTarget.value)}
+                  />
+                </InspRow>
+              </InspSection>
             </Show>
 
             <Show when={selectedRange()}>
-              <div class="field">
-                <span>Timing (seconds)</span>
-                <div class="time-row">
-                  <input
-                    type="number"
-                    min="0"
-                    max={duration()}
-                    step="0.1"
-                    title="Appears at"
+              <InspSection title="Timing">
+                <InspRow label="Appears">
+                  <ScrubField
                     value={Number(selectedRange()!.start.toFixed(1))}
-                    onChange={(e) =>
-                      void editRange(Number(e.currentTarget.value), selectedRange()!.end)
-                    }
-                  />
-                  <span class="time-dash">–</span>
-                  <input
-                    type="number"
-                    min="0"
+                    min={0}
                     max={duration()}
-                    step="0.1"
-                    title="Disappears at"
-                    value={Number(selectedRange()!.end.toFixed(1))}
-                    onChange={(e) =>
-                      void editRange(selectedRange()!.start, Number(e.currentTarget.value))
-                    }
+                    step={0.1}
+                    suffix="s"
+                    title="When this appears — drag to scrub, click to type"
+                    onCommit={(v) => void editRange(v, selectedRange()!.end)}
                   />
-                </div>
-              </div>
+                </InspRow>
+                <InspRow label="Disappears">
+                  <ScrubField
+                    value={Number(selectedRange()!.end.toFixed(1))}
+                    min={0}
+                    max={duration()}
+                    step={0.1}
+                    suffix="s"
+                    title="When this disappears — drag to scrub, click to type"
+                    onCommit={(v) => void editRange(selectedRange()!.start, v)}
+                  />
+                </InspRow>
+              </InspSection>
             </Show>
 
             <Show when={selectedRange() && isGhost(selectedRange()!, true)}>
@@ -2372,41 +2386,42 @@ function App() {
             onResizeMove={onInspMove}
             onResizeUp={onInspUp}
           >
-            <label class="field">
-              <span>Strength · {selectedZoom()!.amount.toFixed(1)}×</span>
-              <input
-                type="range"
-                min="1.2"
-                max="4"
-                step="0.1"
-                value={selectedZoom()!.amount}
-                onChange={(e) => {
-                  const z = selectedZoom()!;
-                  void applyZoomEdit(selZoom()!, z.start, z.end, Number(e.currentTarget.value));
-                }}
-              />
-            </label>
-            <div class="field">
-              <span>Focus</span>
-              <div class="style-row">
-                <button
-                  classList={{ stylebtn: true, label: true, on: !selZoomFocus() }}
-                  title="The camera follows your recorded cursor"
-                  onClick={() => void applyZoomFocus(null)}
-                >
-                  Follow cursor
-                </button>
-                <button
-                  classList={{ stylebtn: true, label: true, on: !!selZoomFocus() }}
-                  title="Hold one spot — drag the crosshair on the video to aim"
-                  onClick={() => {
-                    if (!selZoomFocus()) void applyZoomFocus({ x: 0.5, y: 0.5 });
+            <InspSection title="Zoom">
+              <InspRow label="Strength">
+                <ScrubField
+                  value={selectedZoom()!.amount}
+                  min={1.2}
+                  max={4}
+                  step={0.1}
+                  suffix="×"
+                  title="Zoom strength — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const z = selectedZoom()!;
+                    void applyZoomEdit(selZoom()!, z.start, z.end, v);
                   }}
-                >
-                  Fixed point
-                </button>
-              </div>
-            </div>
+                />
+              </InspRow>
+              <InspRow label="Focus">
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, label: true, on: !selZoomFocus() }}
+                    title="The camera follows your recorded cursor"
+                    onClick={() => void applyZoomFocus(null)}
+                  >
+                    Follow cursor
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: !!selZoomFocus() }}
+                    title="Hold one spot — drag the crosshair on the video to aim"
+                    onClick={() => {
+                      if (!selZoomFocus()) void applyZoomFocus({ x: 0.5, y: 0.5 });
+                    }}
+                  >
+                    Fixed point
+                  </button>
+                </div>
+              </InspRow>
+            </InspSection>
             <Show when={selZoomFocus()}>
               <p class="muted small">Drag the crosshair on the video to aim this zoom.</p>
             </Show>
@@ -2428,20 +2443,22 @@ function App() {
             onResizeMove={onInspMove}
             onResizeUp={onInspUp}
           >
-            <label class="field">
-              <span>Speed · {selectedSpeed()!.factor}×</span>
-              <input
-                type="range"
-                min="1.25"
-                max="8"
-                step="0.25"
-                value={selectedSpeed()!.factor}
-                onChange={(e) => {
-                  const r = selectedSpeed()!;
-                  void applySpeedEdit(selSpeed()!, r.start, r.end, Number(e.currentTarget.value));
-                }}
-              />
-            </label>
+            <InspSection title="Speed">
+              <InspRow label="Rate">
+                <ScrubField
+                  value={selectedSpeed()!.factor}
+                  min={1.25}
+                  max={8}
+                  step={0.25}
+                  suffix="×"
+                  title="Playback rate — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const r = selectedSpeed()!;
+                    void applySpeedEdit(selSpeed()!, r.start, r.end, v);
+                  }}
+                />
+              </InspRow>
+            </InspSection>
             <p class="muted small">
               {fmt(selectedSpeed()!.start)} – {fmt(selectedSpeed()!.end)} · drag the band on the
               timeline to retime, drag its edges to resize.
@@ -2862,6 +2879,26 @@ function InspectorPanel(props: {
       </div>
       {props.children}
     </aside>
+  );
+}
+
+/** A titled inspector group — a tiny uppercase header over its rows. */
+function InspSection(props: { title: string; children: JSX.Element }): JSX.Element {
+  return (
+    <div class="insp-section">
+      <div class="insp-section-title">{props.title}</div>
+      {props.children}
+    </div>
+  );
+}
+
+/** One inspector row: a label on the left, the control right-aligned (or stacked). */
+function InspRow(props: { label: string; stack?: boolean; children: JSX.Element }): JSX.Element {
+  return (
+    <div class="insp-row" classList={{ stack: props.stack }}>
+      <span class="insp-row-label">{props.label}</span>
+      <div class="insp-row-value">{props.children}</div>
+    </div>
   );
 }
 

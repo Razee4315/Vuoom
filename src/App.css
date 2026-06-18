@@ -1136,8 +1136,15 @@ kbd {
 .tl-tick i {
   display: block;
   width: 1px;
-  height: 6px;
+  height: 4px;
   background: var(--line);
+}
+.tl-tick.mid i {
+  height: 7px;
+}
+.tl-tick.major i {
+  height: 9px;
+  background: color-mix(in srgb, var(--muted) 70%, var(--line));
 }
 .tl-track {
   position: relative;

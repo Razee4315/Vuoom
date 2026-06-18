@@ -229,6 +229,9 @@ function App() {
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
+  // Pixel width of the timeline track surface — drives adaptive ruler ticks and the
+  // pixel-constant snap threshold (kept in sync via a ResizeObserver in onMount).
+  const [tlWidth, setTlWidth] = createSignal(800);
   const [showExport, setShowExport] = createSignal(false);
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
@@ -323,6 +326,14 @@ function App() {
       });
       ro.observe(stageEl);
       onCleanup(() => ro.disconnect());
+    }
+    if (tlEl) {
+      const tro = new ResizeObserver(() => {
+        if (tlEl) setTlWidth(tlEl.clientWidth || 800);
+      });
+      tro.observe(tlEl);
+      setTlWidth(tlEl.clientWidth || 800);
+      onCleanup(() => tro.disconnect());
     }
     await connectEngine();
     void checkForUpdate();
@@ -1568,16 +1579,37 @@ function App() {
   };
 
   const pct = (t: number) => (duration() > 0 ? (t / duration()) * 100 : 0);
+  // Adaptive ruler: pick a "nice" major interval targeting ~90px between labels, then a
+  // minor subdivision that keeps minor ticks ≥11px apart. The midpoint minor is drawn
+  // taller. Mirrors the spacing logic in pro editors instead of a fixed tick count.
+  const NICE_STEPS = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600];
+  const pxPerSec = () => (duration() > 0 ? tlWidth() / duration() : 0);
   const tickStep = () => {
-    for (const s of [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60]) {
-      if (duration() / s <= 12) return s;
-    }
-    return 120;
+    const target = pxPerSec() > 0 ? 90 / pxPerSec() : duration();
+    return NICE_STEPS.find((s) => s >= target) ?? NICE_STEPS[NICE_STEPS.length - 1];
   };
-  const ticks = () => {
-    const s = tickStep();
-    const out: number[] = [];
-    for (let t = 0; t <= duration() + 1e-9; t += s) out.push(t);
+  const minorStep = (major: number) => {
+    for (const div of [5, 4, 2]) {
+      const s = major / div;
+      if (s * pxPerSec() >= 11) return s;
+    }
+    return major;
+  };
+  const tickMarks = () => {
+    const d = duration();
+    if (d <= 0) return [];
+    const major = tickStep();
+    const minor = minorStep(major);
+    const out: { t: number; major: boolean; mid: boolean }[] = [];
+    const count = Math.floor(d / minor + 1e-9);
+    for (let i = 0; i <= count; i++) {
+      const t = i * minor;
+      const ratio = t / major;
+      const isMajor = Math.abs(ratio - Math.round(ratio)) < 1e-6;
+      const frac = ((t % major) + major) % major;
+      const isMid = !isMajor && Math.abs(frac - major / 2) < minor / 8;
+      out.push({ t, major: isMajor, mid: isMid });
+    }
     return out;
   };
   // Annotation bar dragging: grab the middle to move it in time, the edges to resize
@@ -2656,11 +2688,15 @@ function App() {
             fallback={<div class="tl-empty">Your recording's timeline appears here</div>}
           >
             <div class="tl-ruler">
-              <For each={ticks()}>
-                {(t) => (
-                  <span class="tl-tick" style={{ left: `${pct(t)}%` }}>
+              <For each={tickMarks()}>
+                {(m) => (
+                  <span
+                    class="tl-tick"
+                    classList={{ major: m.major, mid: m.mid }}
+                    style={{ left: `${pct(m.t)}%` }}
+                  >
                     <i />
-                    {fmt(t)}
+                    <Show when={m.major}>{fmt(m.t)}</Show>
                   </span>
                 )}
               </For>

@@ -1547,17 +1547,6 @@ kbd {
   background: var(--accent);
 }
 
-/* Snap guide — a dashed accent line that flashes where a dragged band catches. */
-.tl-snapguide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 0;
-  border-left: 1px dashed var(--accent);
-  opacity: 0.85;
-  pointer-events: none;
-  z-index: 5;
-}
 .tl-playhead {
   position: absolute;
   top: 0;

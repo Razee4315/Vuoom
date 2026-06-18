@@ -675,6 +675,14 @@ kbd {
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
 }
+/* Canvas alignment guides (center/edge snap while dragging an annotation). */
+.canvas-snap {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+  opacity: 0.75;
+  pointer-events: none;
+}
 /* Zoom focus crosshair */
 .focus-reticle {
   cursor: move;

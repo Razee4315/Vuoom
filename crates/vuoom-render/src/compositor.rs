@@ -16,6 +16,17 @@ use glyphon::{
 };
 use std::sync::Mutex;
 
+/// Load the bundled display fonts into the glyphon font DB so text annotations can be
+/// rendered by family name (matching the `@font-face` set the web UI previews with).
+fn load_bundled_fonts(font_system: &mut FontSystem) {
+    let db = font_system.db_mut();
+    db.load_font_data(include_bytes!("../../../assets/fonts/Anton-Regular.ttf").to_vec());
+    db.load_font_data(include_bytes!("../../../assets/fonts/BebasNeue-Regular.ttf").to_vec());
+    db.load_font_data(include_bytes!("../../../assets/fonts/Poppins-Bold.ttf").to_vec());
+    db.load_font_data(include_bytes!("../../../assets/fonts/PermanentMarker-Regular.ttf").to_vec());
+    db.load_font_data(include_bytes!("../../../assets/fonts/Shrikhand-Regular.ttf").to_vec());
+}
+
 struct TextState {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -230,8 +241,10 @@ impl Compositor {
             wgpu::MultisampleState::default(),
             None,
         );
+        let mut font_system = FontSystem::new();
+        load_bundled_fonts(&mut font_system);
         let text = Mutex::new(TextState {
-            font_system: FontSystem::new(),
+            font_system,
             swash_cache: SwashCache::new(),
             atlas: text_atlas,
             viewport,
@@ -615,7 +628,12 @@ impl Compositor {
         for label in &labels {
             let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
             let mut buf = TextBuffer::new(font_system, metrics);
-            let mut attrs = Attrs::new().family(Family::SansSerif);
+            let family = if label.font.is_empty() {
+                Family::SansSerif
+            } else {
+                Family::Name(label.font.as_str())
+            };
+            let mut attrs = Attrs::new().family(family);
             if label.bold {
                 attrs = attrs.weight(Weight::BOLD);
             }

@@ -110,6 +110,35 @@
   color: var(--text);
 }
 
+/* Bundled display fonts for text annotations (OFL / Apache; see assets/fonts/). The same
+   files are loaded into the glyphon renderer so the export matches this preview. */
+@font-face {
+  font-family: "Anton";
+  src: url("../assets/fonts/Anton-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bebas Neue";
+  src: url("../assets/fonts/BebasNeue-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("../assets/fonts/Poppins-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Permanent Marker";
+  src: url("../assets/fonts/PermanentMarker-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Shrikhand";
+  src: url("../assets/fonts/Shrikhand-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -873,6 +902,33 @@ kbd {
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   cursor: pointer;
+}
+/* In-typeface font picker — each button renders its own font. */
+.font-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-6);
+}
+.fontbtn {
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.1;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: border-color var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease);
+}
+.fontbtn:hover {
+  background: var(--hover);
+}
+.fontbtn.on {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
 }
 /* Bold / italic toggles */
 .style-row {

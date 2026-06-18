@@ -713,6 +713,7 @@ impl Session {
             bold: true, // labels over video read best bold; toggleable in the inspector
             italic: false,
             background: false,
+            font: String::new(),
             range,
         });
         Ok(id)
@@ -1140,6 +1141,7 @@ impl Session {
         bold: Option<bool>,
         italic: Option<bool>,
         background: Option<bool>,
+        font: Option<String>,
     ) -> Result<(), String> {
         // Typing and the size slider fire per keystroke / per tick — coalesce each run
         // into one undo step. Geometry / style commits stay discrete.
@@ -1176,6 +1178,9 @@ impl Session {
             }
             if let Some(bg) = background {
                 a.background = bg;
+            }
+            if let Some(f) = font {
+                a.font = f;
             }
             Ok(())
         })

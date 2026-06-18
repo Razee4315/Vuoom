@@ -595,9 +595,58 @@ kbd {
   font-size: var(--fs-sm);
   color: var(--muted);
 }
-.btn.recover {
-  margin-top: 14px;
-  border-style: dashed;
+/* Recents — pick up where you left off (the recoverable session as a card). */
+.recents {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-10);
+}
+.recents-label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.recent-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  width: 220px;
+  padding: var(--sp-10);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-hover) var(--ease), transform var(--dur-hover) var(--ease),
+    box-shadow var(--dur-hover) var(--ease);
+}
+.recent-card:hover {
+  border-color: var(--muted);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.recent-thumb {
+  flex: none;
+  width: 56px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(150deg, var(--canvas-a), var(--canvas-b));
+  color: var(--muted);
+}
+.recent-meta strong {
+  display: block;
+  font-size: var(--fs-md);
+}
+.recent-meta small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Properties ---- */

@@ -232,6 +232,8 @@ function App() {
   // Pixel width of the timeline track surface — drives adaptive ruler ticks and the
   // pixel-constant snap threshold (kept in sync via a ResizeObserver in onMount).
   const [tlWidth, setTlWidth] = createSignal(800);
+  // While a timeline band is dragged, the time it snapped to (for the guide line), or null.
+  const [snapGuide, setSnapGuide] = createSignal<number | null>(null);
   const [showExport, setShowExport] = createSignal(false);
   const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
   const [backdrop, setBackdrop] = createSignal<string | null>(null);
@@ -1381,7 +1383,10 @@ function App() {
   };
   const onTrimMove = (e: PointerEvent) => {
     if (!trimDrag || !tlEl) return;
-    const t = tlTime(e);
+    const raw = tlTime(e);
+    const hit = nearestTarget(raw, snapTargets({ kind: "trim" }));
+    setSnapGuide(hit);
+    const t = hit ?? raw;
     const cur = trim() ?? { start: 0, end: duration() };
     const next =
       trimDrag === "start"
@@ -1392,6 +1397,7 @@ function App() {
     setTrimState(next);
   };
   const onTrimUp = async () => {
+    setSnapGuide(null);
     if (!trimDrag) return;
     trimDrag = null;
     const t = trim();
@@ -1447,10 +1453,12 @@ function App() {
     } else {
       end = Math.max(Math.min(duration(), end + dt), start + 0.2);
     }
+    ({ start, end } = snapBand(start, end, d.mode, snapTargets({ kind: "zoom", idx: d.idx }), 0.2));
     setZoomDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onZoomUp = async () => {
     const d = zoomDrag();
+    setSnapGuide(null);
     if (!d) return;
     setZoomDrag(null);
     setSelected(null);
@@ -1503,10 +1511,12 @@ function App() {
     } else {
       end = Math.max(Math.min(duration(), end + dt), start + 0.2);
     }
+    ({ start, end } = snapBand(start, end, d.mode, snapTargets({ kind: "speed", idx: d.idx }), 0.2));
     setSpeedDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onSpeedUp = async () => {
     const d = speedDrag();
+    setSnapGuide(null);
     if (!d) return;
     setSpeedDrag(null);
     setSelected(null);
@@ -1560,10 +1570,12 @@ function App() {
     } else {
       end = Math.max(Math.min(duration(), end + dt), start + 0.1);
     }
+    ({ start, end } = snapBand(start, end, d.mode, snapTargets({ kind: "cut", idx: d.idx }), 0.1));
     setCutDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onCutUp = async () => {
     const d = cutDrag();
+    setSnapGuide(null);
     if (!d) return;
     setCutDrag(null);
     setSelected(null);
@@ -1612,6 +1624,83 @@ function App() {
     }
     return out;
   };
+
+  // ── timeline snapping (pixel-constant, zoom-independent) ────────────────────────
+  // A dragged band's edges snap to the playhead, the clip bounds, major ruler ticks, and
+  // every other band's edges — within ~8px regardless of clip length — and a guide line
+  // flashes at the catch point.
+  const snapThresholdT = () => 8 / Math.max(pxPerSec(), 1e-6);
+  const snapTargets = (exclude?: {
+    kind: "zoom" | "speed" | "cut" | "ann" | "trim";
+    idx?: number;
+    id?: number;
+  }): number[] => {
+    const ts: number[] = [0, duration(), playhead()];
+    for (const m of tickMarks()) if (m.major) ts.push(m.t);
+    zooms().forEach((z, i) => {
+      if (!(exclude?.kind === "zoom" && exclude.idx === i)) ts.push(z.start, z.end);
+    });
+    speed().forEach((r, i) => {
+      if (!(exclude?.kind === "speed" && exclude.idx === i)) ts.push(r.start, r.end);
+    });
+    cuts().forEach((c, i) => {
+      if (!(exclude?.kind === "cut" && exclude.idx === i)) ts.push(c.start, c.end);
+    });
+    annBars().forEach((b) => {
+      if (!(exclude?.kind === "ann" && exclude.id === b.id)) ts.push(b.start, b.end);
+    });
+    return ts;
+  };
+  const nearestTarget = (t: number, targets: number[]): number | null => {
+    let hit: number | null = null;
+    let bestD = snapThresholdT();
+    for (const tg of targets) {
+      const dd = Math.abs(t - tg);
+      if (dd <= bestD) {
+        bestD = dd;
+        hit = tg;
+      }
+    }
+    return hit;
+  };
+  // Snap a dragged band for the given mode; updates the guide and returns the new band.
+  const snapBand = (
+    start: number,
+    end: number,
+    mode: "move" | "l" | "r",
+    targets: number[],
+    minGap: number,
+  ): { start: number; end: number } => {
+    const d = duration();
+    if (mode === "l") {
+      const hit = nearestTarget(start, targets);
+      const v = hit === null ? start : Math.min(Math.max(0, hit), end - minGap);
+      setSnapGuide(hit !== null && v === hit ? hit : null);
+      return { start: v, end };
+    }
+    if (mode === "r") {
+      const hit = nearestTarget(end, targets);
+      const v = hit === null ? end : Math.max(Math.min(d, hit), start + minGap);
+      setSnapGuide(hit !== null && v === hit ? hit : null);
+      return { start, end: v };
+    }
+    // move: snap whichever edge lands closest to a target, shifting the whole band.
+    const hs = nearestTarget(start, targets);
+    const he = nearestTarget(end, targets);
+    const ds = hs !== null ? Math.abs(start - hs) : Infinity;
+    const de = he !== null ? Math.abs(end - he) : Infinity;
+    const len = end - start;
+    if (ds <= de && hs !== null && hs >= 0 && hs + len <= d) {
+      setSnapGuide(hs);
+      return { start: hs, end: hs + len };
+    }
+    if (he !== null && he - len >= 0 && he <= d) {
+      setSnapGuide(he);
+      return { start: he - len, end: he };
+    }
+    setSnapGuide(null);
+    return { start, end };
+  };
   // Annotation bar dragging: grab the middle to move it in time, the edges to resize
   // how long it stays on screen.
   const [annDrag, setAnnDrag] = createSignal<{
@@ -1656,10 +1745,12 @@ function App() {
     } else {
       end = Math.max(Math.min(duration(), end + dt), start + 0.2);
     }
+    ({ start, end } = snapBand(start, end, d.mode, snapTargets({ kind: "ann", id: d.id }), 0.2));
     setAnnDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onAnnUp = async () => {
     const d = annDrag();
+    setSnapGuide(null);
     if (!d) return;
     setAnnDrag(null);
     setSelZoom(null);
@@ -2840,6 +2931,10 @@ function App() {
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
               <i />
             </div>
+
+            <Show when={snapGuide() !== null}>
+              <div class="tl-snapguide" style={{ left: `${pct(snapGuide()!)}%` }} />
+            </Show>
           </Show>
         </div>
       </footer>

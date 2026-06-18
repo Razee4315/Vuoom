@@ -85,16 +85,35 @@ pub fn build_scene(
     let oh = f64::from(out_h);
 
     let mut texts = Vec::new();
+    let mut highlights = Vec::new();
     for ta in &project.texts {
         let o = ta.range.opacity_at(t);
         if o <= 0.0 {
             continue;
         }
+        let font_px = f64::from(ta.font_size) * oh;
+        if ta.background {
+            // A translucent plate behind the glyphs (estimated text box), drawn in the
+            // shape pass so it sits under the text. Mirrors the keystroke-chip backing.
+            let tw = ta.text.chars().count() as f64 * font_px * 0.6;
+            let pad_x = font_px * 0.3;
+            let pad_y = font_px * 0.16;
+            highlights.push(ResolvedHighlight {
+                x: ta.pos.x * ow - pad_x,
+                y: ta.pos.y * oh - pad_y,
+                w: tw + pad_x * 2.0,
+                h: font_px * 1.25 + pad_y * 2.0,
+                thickness_px: 0.0,
+                filled: true,
+                ellipse: false,
+                color: fade(Color::rgb(0.05, 0.05, 0.06).with_alpha(0.7), o),
+            });
+        }
         texts.push(ResolvedText {
             text: ta.text.clone(),
             x: ta.pos.x * ow,
             y: ta.pos.y * oh,
-            font_px: f64::from(ta.font_size) * oh,
+            font_px,
             color: fade(ta.color, o),
             bold: ta.bold,
             italic: ta.italic,
@@ -124,7 +143,6 @@ pub fn build_scene(
         });
     }
 
-    let mut highlights = Vec::new();
     for h in &project.highlights {
         let o = h.range.opacity_at(t);
         if o <= 0.0 {
@@ -255,6 +273,7 @@ mod tests {
             color: Color::WHITE,
             bold: false,
             italic: false,
+            background: false,
             range: TimeRange::new(1.0, 3.0),
         });
         p

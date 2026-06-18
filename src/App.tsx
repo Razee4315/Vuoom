@@ -46,6 +46,7 @@ interface TextAnn {
   color: Color;
   bold: boolean;
   italic: boolean;
+  background: boolean;
   range: TimeRange;
 }
 interface ArrowAnn {
@@ -1106,7 +1107,7 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
-  const editTextStyle = async (patch: { bold?: boolean; italic?: boolean }) => {
+  const editTextStyle = async (patch: { bold?: boolean; italic?: boolean; background?: boolean }) => {
     const s = selected();
     if (s?.kind !== "text") return;
     await invoke("update_text", { id: s.id, ...patch });
@@ -2283,6 +2284,16 @@ function App() {
                           const wbox = () => Math.max(40, tx.text.length * fs() * 0.6);
                           return (
                             <g opacity={isGhost(tx.range, sel()) ? 0.35 : 1}>
+                              <Show when={tx.background}>
+                                <rect
+                                  class="text-plate"
+                                  x={p().x - fs() * 0.3}
+                                  y={p().y - fs() * 0.16}
+                                  width={wbox() + fs() * 0.6}
+                                  height={fs() * 1.25 + fs() * 0.32}
+                                  rx={fs() * 0.12}
+                                />
+                              </Show>
                               <text
                                 x={p().x}
                                 y={p().y + fs()}
@@ -2480,6 +2491,13 @@ function App() {
                       onClick={() => void editTextStyle({ italic: !selectedText()!.italic })}
                     >
                       I
+                    </button>
+                    <button
+                      classList={{ stylebtn: true, label: true, on: selectedText()!.background }}
+                      title="Background plate — keeps the caption legible over busy footage"
+                      onClick={() => void editTextStyle({ background: !selectedText()!.background })}
+                    >
+                      BG
                     </button>
                   </div>
                 </InspRow>

@@ -25,6 +25,10 @@ pub struct TextAnnotation {
     /// Render italic.
     #[serde(default)]
     pub italic: bool,
+    /// Draw a translucent plate behind the glyphs so captions stay legible over busy
+    /// footage. Defaults off so older projects keep their look.
+    #[serde(default)]
+    pub background: bool,
     pub range: TimeRange,
 }
 

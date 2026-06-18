@@ -712,6 +712,7 @@ impl Session {
             color: Color::WHITE,
             bold: true, // labels over video read best bold; toggleable in the inspector
             italic: false,
+            background: false,
             range,
         });
         Ok(id)
@@ -1128,6 +1129,7 @@ impl Session {
 
     /// Move/edit a text label. `None` fields keep their current value.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn update_text(
         &self,
         id: u32,
@@ -1137,6 +1139,7 @@ impl Session {
         font_size: Option<f32>,
         bold: Option<bool>,
         italic: Option<bool>,
+        background: Option<bool>,
     ) -> Result<(), String> {
         // Typing and the size slider fire per keystroke / per tick — coalesce each run
         // into one undo step. Geometry / style commits stay discrete.
@@ -1170,6 +1173,9 @@ impl Session {
             }
             if let Some(i) = italic {
                 a.italic = i;
+            }
+            if let Some(bg) = background {
+                a.background = bg;
             }
             Ok(())
         })

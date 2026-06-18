@@ -6,6 +6,7 @@
   --bg: #0e0e0f;
   --panel: #161617;
   --panel-2: #1e1e20;
+  --prominent: #26262a;
   --line: #2a2a2d;
   --text: #f2f2f3;
   --muted: #8d8d93;
@@ -19,6 +20,7 @@
   --bg: #ffffff;
   --panel: #f7f7f8;
   --panel-2: #efeff1;
+  --prominent: #ffffff;
   --line: #e3e3e6;
   --text: #161617;
   --muted: #6b6b71;
@@ -32,6 +34,7 @@
   --bg: #1a1c1e;
   --panel: #212427;
   --panel-2: #2a2e31;
+  --prominent: #33383c;
   --line: #34383c;
   --text: #e8eaec;
   --muted: #9aa0a6;
@@ -45,6 +48,7 @@
   --bg: #f6f4ef;
   --panel: #efece4;
   --panel-2: #e6e2d8;
+  --prominent: #f1eee7;
   --line: #ddd8cc;
   --text: #2b2a26;
   --muted: #7a766c;
@@ -58,6 +62,7 @@
   --bg: #0b0f17;
   --panel: #111722;
   --panel-2: #18202c;
+  --prominent: #1f2a39;
   --line: #232c3a;
   --text: #e6ebf2;
   --muted: #8a93a3;
@@ -72,6 +77,9 @@
   --record: #e5484d;
   --note-box: #ffd23f;
   --note-text: #6ea8ff;
+  /* Radius ramp (continuous-feel corners), small → large. */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
   --radius: 9px;
   --radius-lg: 14px;
   /* One deliberate type scale, used everywhere instead of ad-hoc px sizes. */
@@ -80,6 +88,24 @@
   --fs-md: 13px; /* body: buttons, inputs, primary controls */
   --fs-sm: 12px; /* secondary labels, hints, chips */
   --fs-xs: 11px; /* micro: timeline ticks, badges, track labels */
+  /* Even-only spacing scale. Screen edges use --sp-24; controls use --sp-6/8/10. */
+  --sp-2: 2px;
+  --sp-4: 4px;
+  --sp-6: 6px;
+  --sp-8: 8px;
+  --sp-10: 10px;
+  --sp-12: 12px;
+  --sp-16: 16px;
+  --sp-20: 20px;
+  --sp-24: 24px;
+  /* Three elevation shadow tiers (resting → floating → modal). */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.42);
+  /* Exactly two motion durations + one easing — consistency is the polish. */
+  --dur-hover: 0.15s;
+  --dur-transition: 0.2s;
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
   font-family: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--text);
 }

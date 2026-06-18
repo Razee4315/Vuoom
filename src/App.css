@@ -1766,11 +1766,33 @@ kbd {
 }
 .welcome-actions {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: var(--sp-10);
 }
+/* Secondary "Skip" — quiet, so it doesn't compete with the CTA. */
+.welcome-skip {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.welcome-skip:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+/* Primary CTA — filled red, but the same height as Skip (no oversized type). */
 .welcome-cta {
-  margin-top: 0;
+  background: var(--record);
+  border-color: var(--record);
+  color: #fff;
+  font-weight: 600;
+}
+.welcome-cta:hover {
+  background: var(--record);
+  filter: brightness(1.08);
+}
+.welcome-cta .dot {
+  background: #fff;
 }
 /* Coachmark bubble pointing up at the Record button. */
 .coachmark {

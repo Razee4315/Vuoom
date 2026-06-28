@@ -31,6 +31,9 @@ export class PreviewClient {
   private ctx: CanvasRenderingContext2D | null = null;
   private aspect = 0;
   private onAspect: ((aspect: number) => void) | null = null;
+  private port = 0;
+  private reconnectTimer: number | undefined;
+  private closed = true; // true once disconnect() is called — suppresses reconnects
 
   /** Bind the canvas frames will be drawn into. */
   attach(canvas: HTMLCanvasElement): void {
@@ -44,21 +47,64 @@ export class PreviewClient {
     this.onAspect = cb;
   }
 
-  /** Connect to the engine's preview server on `port` (from the Rust side). */
+  /** Connect to the engine's preview server on `port` (from the Rust side). The socket
+   *  auto-reconnects with a short backoff if the engine drops it, until `disconnect()`. */
   connect(port: number): void {
     this.disconnect();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    this.port = port;
+    this.closed = false;
+    this.open();
+  }
+
+  private open(): void {
+    this.closeSocket();
+    const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) this.draw(ev.data);
     };
+    ws.onclose = () => this.scheduleReconnect();
+    ws.onerror = () => {
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+    };
     this.ws = ws;
   }
 
-  /** Close the connection. */
+  private scheduleReconnect(): void {
+    if (this.closed || this.reconnectTimer !== undefined || !this.port) return;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined;
+      if (!this.closed) this.open();
+    }, 1000);
+  }
+
+  private closeSocket(): void {
+    const ws = this.ws;
+    if (ws) {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+      this.ws = null;
+    }
+  }
+
+  /** Close the connection and stop reconnecting. */
   disconnect(): void {
-    this.ws?.close();
-    this.ws = null;
+    this.closed = true;
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.closeSocket();
   }
 
   private draw(buf: ArrayBuffer): void {

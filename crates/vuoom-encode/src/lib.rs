@@ -18,6 +18,9 @@ pub use error::EncodeError;
 pub use export::export_gif;
 pub use gifski::{build_gifsicle_args, build_gifski_args, run_gifsicle, run_gifski};
 pub use image::{encode_png_to_vec, read_png, swizzle_rb, write_png, RgbaImage};
-pub use native::{downscale_rgba, export_gif_native, frame_delay_cs, quality_to_speed};
+pub use native::{
+    downscale_rgba, export_gif_native, export_gif_native_streaming, frame_delay_cs,
+    quality_to_speed,
+};
 pub use plan::{estimate_delta_total_bytes, estimate_total_bytes, plan_frames, EmittedFrame};
 pub use settings::GifSettings;

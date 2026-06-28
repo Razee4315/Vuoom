@@ -26,6 +26,9 @@ const PALETTE_COLORS: usize = 255;
 /// Pixel budget for training the global palette (~1 MB of RGBA samples, spread evenly
 /// across the whole clip so late scenes get palette slots too).
 const PALETTE_SAMPLE_PIXELS: usize = 1 << 18;
+/// Frames the streaming encoder composites to train the global palette — enough spread for
+/// a representative palette without holding the whole clip in RAM.
+const PALETTE_SAMPLE_FRAMES: usize = 48;
 
 /// Box-filter downscale to `target_w`, preserving aspect ratio. Never upscales: returns a
 /// clone when `target_w` is zero or already ≥ the source width.
@@ -291,6 +294,137 @@ pub fn export_gif_native(
     Ok(())
 }
 
+/// Streaming variant of [`export_gif_native`] for long clips. Instead of taking every
+/// composited frame up front (each is `out_w*out_h*4` bytes — gigabytes for a long 1080p
+/// export, which OOMs), it pulls frames one at a time from `frame(i)` and keeps only the
+/// current and previous indexed frames resident.
+///
+/// `frame(i)` composites and returns output frame `i` at full output resolution (this
+/// function applies the `settings.width` downscale and must be able to be called repeatedly
+/// with the same index). `progress(done, total)` ticks while the palette is sampled and
+/// while frames are encoded.
+///
+/// # Errors
+/// Returns [`EncodeError`] for zero frames, a `frame(i)` failure, mismatched/zero-size
+/// frame dimensions, or a write/encode failure.
+pub fn export_gif_native_streaming<F>(
+    count: usize,
+    mut frame: F,
+    settings: &GifSettings,
+    out: &Path,
+    progress: &dyn Fn(usize, usize),
+) -> Result<(), EncodeError>
+where
+    F: FnMut(usize) -> Result<RgbaImage, String>,
+{
+    if count == 0 {
+        return Err(EncodeError::NoFrames);
+    }
+    let scale = |img: RgbaImage| match settings.width {
+        Some(cap) => downscale_rgba(&img, cap),
+        None => img,
+    };
+
+    let sample_count = count.min(PALETTE_SAMPLE_FRAMES);
+    let total_work = sample_count + count;
+    let mut work = 0usize;
+
+    // ---- Pass 1: train the global palette on a spread of sample frames ----
+    let mut samples: Vec<RgbaImage> = Vec::with_capacity(sample_count);
+    let (mut w, mut h) = (0u32, 0u32);
+    for s in 0..sample_count {
+        let i = if sample_count <= 1 {
+            0
+        } else {
+            s * (count - 1) / (sample_count - 1)
+        };
+        let img = scale(frame(i).map_err(EncodeError::Gif)?);
+        if s == 0 {
+            w = img.width;
+            h = img.height;
+        } else if img.width != w || img.height != h {
+            return Err(EncodeError::Gif("frame dimensions differ".into()));
+        }
+        samples.push(img);
+        work += 1;
+        progress(work, total_work);
+    }
+    if w == 0 || h == 0 {
+        return Err(EncodeError::Gif("zero-size frame".into()));
+    }
+    let mut quant = GlobalQuantizer::train(&samples, quality_to_speed(settings.quality));
+    drop(samples); // free the sample frames before the encode pass
+    let palette = quant.palette();
+    let (wu, hu) = (w as usize, h as usize);
+
+    // ---- Pass 2: encode, holding only the current + previous indexed frame ----
+    let file = File::create(out)?;
+    let mut encoder = gif::Encoder::new(BufWriter::new(file), w as u16, h as u16, &palette)
+        .map_err(|e| EncodeError::Gif(e.to_string()))?;
+    encoder
+        .set_repeat(gif::Repeat::Infinite)
+        .map_err(|e| EncodeError::Gif(e.to_string()))?;
+
+    let delay = u32::from(frame_delay_cs(settings.fps));
+    let first = scale(frame(0).map_err(EncodeError::Gif)?);
+    if first.width != w || first.height != h {
+        return Err(EncodeError::Gif("frame dimensions differ".into()));
+    }
+    let mut prev = quant.index_frame(&first);
+    drop(first);
+    let mut pending = PendingFrame {
+        left: 0,
+        top: 0,
+        width: w as u16,
+        height: h as u16,
+        buffer: prev.clone(),
+        delay_cs: delay,
+    };
+    work += 1;
+    progress(work, total_work);
+
+    for i in 1..count {
+        let img = scale(frame(i).map_err(EncodeError::Gif)?);
+        if img.width != w || img.height != h {
+            return Err(EncodeError::Gif("frame dimensions differ".into()));
+        }
+        let cur = quant.index_frame(&img);
+        match diff_bbox(&prev, &cur, wu, hu) {
+            // Identical frame: hold the pending frame on screen longer instead.
+            None => pending.delay_cs += delay,
+            Some((x0, y0, x1, y1)) => {
+                write_pending(&mut encoder, &pending)?;
+                let (bw, bh) = (x1 - x0, y1 - y0);
+                let mut buf = Vec::with_capacity(bw * bh);
+                for y in y0..y1 {
+                    let row = y * wu;
+                    for x in x0..x1 {
+                        let p = row + x;
+                        buf.push(if cur[p] == prev[p] {
+                            TRANSPARENT_INDEX
+                        } else {
+                            cur[p]
+                        });
+                    }
+                }
+                pending = PendingFrame {
+                    left: x0 as u16,
+                    top: y0 as u16,
+                    width: bw as u16,
+                    height: bh as u16,
+                    buffer: buf,
+                    delay_cs: delay,
+                };
+                prev = cur;
+            }
+        }
+        work += 1;
+        progress(work, total_work);
+    }
+    write_pending(&mut encoder, &pending)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +464,55 @@ mod tests {
         let src = solid(2, 2, [0, 0, 0, 255]);
         let out = downscale_rgba(&src, 8);
         assert_eq!((out.width, out.height), (2, 2));
+    }
+
+    #[test]
+    fn streaming_encoder_matches_frame_geometry() {
+        // The streaming encoder must produce the same frame layout as the in-memory one:
+        // a full keyframe then a delta rectangle over the changed pixels.
+        let base = solid(8, 8, [200, 30, 30, 255]);
+        let mut changed = base.clone();
+        // Flip a 2x2 block at (4,4) to a colour that's present in frame 0's palette set.
+        for y in 4..6 {
+            for x in 4..6 {
+                let o = ((y * 8 + x) * 4) as usize;
+                changed.pixels[o..o + 4].copy_from_slice(&[30, 30, 200, 255]);
+            }
+        }
+        let frames = [base, changed];
+        let out = std::env::temp_dir().join("vuoom-stream-test.gif");
+        let ticks = std::cell::Cell::new(0u32);
+        export_gif_native_streaming(
+            frames.len(),
+            |i| Ok(frames[i].clone()),
+            &GifSettings {
+                width: None,
+                ..GifSettings::readme()
+            },
+            &out,
+            &|_done, _total| ticks.set(ticks.get() + 1),
+        )
+        .unwrap();
+        assert!(ticks.get() > 0, "progress callback never fired");
+        let (has_global, decoded) = decode(&out);
+        assert!(has_global);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!((decoded[0].width, decoded[0].height), (8, 8)); // keyframe
+                                                                   // Second frame is a delta rectangle, smaller than the full frame.
+        assert!(decoded[1].width <= 8 && decoded[1].height <= 8);
+    }
+
+    #[test]
+    fn streaming_zero_count_is_an_error() {
+        let out = std::env::temp_dir().join("vuoom-stream-empty.gif");
+        let r = export_gif_native_streaming(
+            0,
+            |_i| Ok(solid(2, 2, [0, 0, 0, 255])),
+            &GifSettings::readme(),
+            &out,
+            &|_, _| {},
+        );
+        assert!(matches!(r, Err(EncodeError::NoFrames)));
     }
 
     #[test]

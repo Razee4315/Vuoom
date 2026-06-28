@@ -59,7 +59,13 @@ export default function RecordOverlay(props: {
   const [paused, setPaused] = createSignal(false);
   let start: { x: number; y: number } | null = null;
   let elapsedTimer: number | undefined;
+  let countTimer: number | undefined;
   let startMs = 0;
+
+  const clearCountdown = () => {
+    if (countTimer) clearTimeout(countTimer);
+    countTimer = undefined;
+  };
 
   // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
   const preview = new PreviewClient();
@@ -71,6 +77,7 @@ export default function RecordOverlay(props: {
   };
 
   const cancel = () => {
+    clearCountdown();
     stopTimer();
     void invoke("cancel_record_flow").finally(() => props.onCancel());
   };
@@ -96,16 +103,19 @@ export default function RecordOverlay(props: {
 
   const runCountdown = () => {
     const tick = () => {
+      countTimer = undefined;
+      // Cancelled (Cancel/Esc) during the 3-2-1: stop here, never start the recording.
+      if (phase() !== "countdown") return;
       const c = count() - 1;
       if (c <= 0) {
         setCount(0);
         void beginRecording();
       } else {
         setCount(c);
-        window.setTimeout(tick, 1000);
+        countTimer = window.setTimeout(tick, 1000);
       }
     };
-    window.setTimeout(tick, 1000);
+    countTimer = window.setTimeout(tick, 1000);
   };
 
   const beginRecording = async () => {
@@ -180,9 +190,13 @@ export default function RecordOverlay(props: {
   };
 
   const onKey = (e: KeyboardEvent) => {
+    // Esc aborts both while picking a region and during the 3-2-1 countdown.
+    if (e.key === "Escape" && (phase() === "select" || phase() === "countdown")) {
+      cancel();
+      return;
+    }
     if (phase() !== "select") return;
-    if (e.key === "Escape") cancel();
-    else if (e.key === "Enter") void beginCountdown();
+    if (e.key === "Enter") void beginCountdown();
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
@@ -194,6 +208,7 @@ export default function RecordOverlay(props: {
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
       void unlistenStop.then((un) => un());
+      clearCountdown();
       stopTimer();
       preview.disconnect();
     });

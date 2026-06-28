@@ -51,17 +51,26 @@ fn restore_editor(app: &AppHandle) {
     }
 }
 
-/// Step 1 — the user clicked Record: hide the editor from the capture and blow it up to
-/// fullscreen so the in-window region selector covers the display.
+/// Step 1 — the user clicked Record: capture the desktop for the selector backdrop, then
+/// blow the editor up to fullscreen (excluded from capture) so the in-window region
+/// selector covers the display. Returns the backdrop as a `data:image/png;base64,…` URL
+/// (empty string if the grab failed — the selector then just shows a dark canvas).
 ///
 /// The recording targets the monitor the editor is on right now — fullscreen lands there,
 /// so drag Vuoom to another monitor to record that one.
+///
+/// Why the screenshot is taken while the window is **hidden** rather than relying on
+/// `WDA_EXCLUDEFROMCAPTURE`: on Windows 11 a *fullscreen* excluded window is composited
+/// through the direct-flip path and Windows Graphics Capture records its area as solid
+/// black (the desktop behind it is never sampled) — that produced the blank selector
+/// backdrop. Windows 10 happens to composite the desktop behind the excluded window, so it
+/// worked there. Hiding the window for the single grab is correct on both.
 #[tauri::command]
 pub fn enter_overlay(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
     border: tauri::State<'_, BorderState>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
     let monitor = main.current_monitor().ok().flatten();
     if let Ok(mut slot) = border.origin.lock() {
@@ -79,11 +88,24 @@ pub fn enter_overlay(
         });
         let _ = session.set_monitor(info);
     }
+
+    // Hide the window and let DWM recompose without it before grabbing the clean desktop.
+    let _ = main.hide();
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    let backdrop = engine
+        .session()
+        .ok()
+        .and_then(|s| s.screenshot().ok())
+        .unwrap_or_default();
+
+    // Best-effort from here on: the window is currently hidden, so `show()` MUST run on
+    // every path — bailing early with `?` would strand an invisible window.
     let _ = exclude_from_capture(&main);
-    main.set_always_on_top(true).map_err(|e| e.to_string())?;
-    main.set_fullscreen(true).map_err(|e| e.to_string())?;
+    let _ = main.set_always_on_top(true);
+    let _ = main.set_fullscreen(true);
+    let _ = main.show();
     let _ = main.set_focus();
-    Ok(())
+    Ok(backdrop)
 }
 
 /// Width/height (logical px) of the recording panel — a live zoom preview + Stop controls.

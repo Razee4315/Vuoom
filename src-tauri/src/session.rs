@@ -23,8 +23,8 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
 use vuoom_encode::{
-    downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native, read_png,
-    swizzle_rb, write_png, GifSettings, RgbaImage,
+    downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
+    export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -100,7 +100,10 @@ struct Active {
 
 #[derive(Default)]
 struct Edited {
-    frames: Option<FrameStore>,
+    /// `Arc` so an export can clone a handle under a short lock and then composite/encode
+    /// (minutes of work) without holding the `edited` mutex — keeping scrub/edit/record
+    /// responsive during export. The store reads frames from disk on demand.
+    frames: Option<Arc<FrameStore>>,
     project: Option<Project>,
     track: Option<CameraTrack>,
     start_qpc: i64,
@@ -440,7 +443,7 @@ impl Session {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
-            frames: Some(store),
+            frames: Some(Arc::new(store)),
             project: Some(project),
             track: Some(track),
             start_qpc: session.start_qpc,
@@ -505,12 +508,29 @@ impl Session {
         quality: u8,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
-        let images = self.composite_output_frames(&edited, fps, 1, &|done, total| {
-            // Reserve the last tick for the encode step.
-            progress(done, total + 1);
-        })?;
-        let total = images.len() as u32 + 1;
+        // Snapshot the minimal state under a short lock, then release it so the (minutes-long)
+        // encode never blocks scrubbing/editing/starting a new recording. The frame store is
+        // shared via `Arc` and reads from disk on demand — frames are never all resident, so
+        // even an hour-long 1080p export stays within a bounded memory budget.
+        let (project, track, store, start_qpc) = {
+            let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+            (
+                edited.project.as_ref().ok_or("no recording")?.clone(),
+                edited.track.as_ref().ok_or("no recording")?.clone(),
+                Arc::clone(edited.frames.as_ref().ok_or("no frames")?),
+                edited.start_qpc,
+            )
+        };
+        if store.is_empty() {
+            return Err("no frames".into());
+        }
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+
+        let (out_w, out_h) = project.output_dims();
+        let bg = background_color(&project.frame);
+        let (t0, span, regions, cuts) = out_mapping(&project);
+        let d_out = output_duration(span, &regions, &cuts);
+        let count = ((d_out * f64::from(fps)).ceil() as usize).max(1);
 
         let settings = GifSettings {
             fps,
@@ -518,9 +538,36 @@ impl Session {
             quality,
             ..GifSettings::readme()
         };
-        export_gif_native(&images, &settings, Path::new(&out_path)).map_err(|e| e.to_string())?;
-        progress(total, total);
-        Ok(())
+
+        // Composite one output frame on demand — the streaming encoder pulls these and keeps
+        // only the current + previous frame resident.
+        let compose = |i: usize| -> Result<RgbaImage, String> {
+            let t_out = (i as f64 / f64::from(fps)).min(d_out);
+            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+            let idx = nearest_idx(&store, self.clock, start_qpc, t_src).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
+            let scene = build_scene(&project, &track, out_w, out_h, t_src);
+            let rgba = compositor.composite_scene(
+                &frame.bgra,
+                frame.width,
+                frame.height,
+                out_w,
+                out_h,
+                &scene,
+                bg,
+            );
+            Ok(RgbaImage::new(out_w, out_h, rgba))
+        };
+        export_gif_native_streaming(
+            count,
+            compose,
+            &settings,
+            Path::new(&out_path),
+            &|done, total| {
+                progress(done as u32, total as u32);
+            },
+        )
+        .map_err(|e| e.to_string())
     }
 
     /// Composite the output timeline and encode an H.264 MP4 to `out_path`, streaming one
@@ -533,18 +580,25 @@ impl Session {
         quality: u8,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
-        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
-        let project = edited.project.as_ref().ok_or("no recording")?;
-        let track = edited.track.as_ref().ok_or("no recording")?;
-        let store = edited.frames.as_ref().ok_or("no frames")?;
+        // Snapshot under a short lock, then release it so the long encode doesn't freeze
+        // scrub/edit/record (see `export_gif`). MP4 already streams frame-by-frame.
+        let (project, track, store, start_qpc) = {
+            let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+            (
+                edited.project.as_ref().ok_or("no recording")?.clone(),
+                edited.track.as_ref().ok_or("no recording")?.clone(),
+                Arc::clone(edited.frames.as_ref().ok_or("no frames")?),
+                edited.start_qpc,
+            )
+        };
         if store.is_empty() {
             return Err("no frames".into());
         }
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
 
         let (out_w, out_h) = project.output_dims();
         let bg = background_color(&project.frame);
-        let (t0, span, regions, cuts) = out_mapping(project);
+        let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
 
@@ -568,7 +622,7 @@ impl Session {
         for i in 0..total {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = match nearest_idx(store, self.clock, edited.start_qpc, t_src) {
+            let idx = match nearest_idx(&store, self.clock, start_qpc, t_src) {
                 Some(idx) => idx,
                 None => {
                     frame_err = Some("no frames".into());
@@ -582,7 +636,7 @@ impl Session {
                     break;
                 }
             };
-            let scene = build_scene(project, track, out_w, out_h, t_src);
+            let scene = build_scene(&project, &track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -665,19 +719,6 @@ impl Session {
         let (_, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
         Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
-    }
-
-    /// Composite every `stride`-th output-timeline frame (honoring trim + speed regions).
-    fn composite_output_frames(
-        &self,
-        edited: &Edited,
-        fps: u32,
-        stride: usize,
-        progress: &dyn Fn(u32, u32),
-    ) -> Result<Vec<RgbaImage>, String> {
-        let total = self.output_frame_count(edited, fps)?;
-        let indices: Vec<usize> = (0..total).step_by(stride.max(1)).collect();
-        self.composite_indices(edited, fps, &indices, progress)
     }
 
     /// Composite specific output-timeline frame indices (honoring trim + speed regions).
@@ -1506,7 +1547,7 @@ impl Session {
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
-            frames: Some(store),
+            frames: Some(Arc::new(store)),
             project: Some(project),
             track: Some(track),
             start_qpc: base,
@@ -1558,7 +1599,7 @@ impl Session {
         };
         let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
         *edited = Edited {
-            frames: Some(store),
+            frames: Some(Arc::new(store)),
             project: Some(project),
             track: Some(track),
             start_qpc,

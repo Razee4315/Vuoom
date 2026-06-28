@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::frame_store::{self, FrameStore, FrameWriter};
+use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::LivePreview;
 use crate::zoom_chord::ZoomChordPoller;
 use base64::Engine;
@@ -181,19 +181,25 @@ impl Session {
 
     /// Set the capture region (physical px) for the next recording; `None` = full display.
     pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
-        *self.pending_region.lock().map_err(|_| "lock poisoned")? = region;
+        *self
+            .pending_region
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = region;
         Ok(())
     }
 
     /// Set the monitor the next recording (and its selector screenshot) captures.
     pub fn set_monitor(&self, monitor: Option<MonitorInfo>) -> Result<(), String> {
-        *self.pending_monitor.lock().map_err(|_| "lock poisoned")? = monitor;
+        *self
+            .pending_monitor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = monitor;
         Ok(())
     }
 
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
     pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
-        *self.pending_zoom.lock().map_err(|_| "lock poisoned")? = amount.clamp(1.0, 4.0);
+        *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner()) = amount.clamp(1.0, 4.0);
         Ok(())
     }
 
@@ -203,7 +209,7 @@ impl Session {
         let monitor = self
             .pending_monitor
             .lock()
-            .map_err(|_| "lock poisoned")?
+            .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .map(|m| m.name.clone());
         let (rx, handle) = spawn_region(None, monitor);
@@ -226,23 +232,26 @@ impl Session {
 
     /// Begin capturing the primary display + global input.
     pub fn start_recording(&self) -> Result<(), String> {
-        let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         if active.is_some() {
             return Err("already recording".into());
         }
-        let region = *self.pending_region.lock().map_err(|_| "lock poisoned")?;
+        let region = *self
+            .pending_region
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let monitor = self
             .pending_monitor
             .lock()
-            .map_err(|_| "lock poisoned")?
+            .unwrap_or_else(|e| e.into_inner())
             .clone();
         let mon_name = monitor.as_ref().map(|m| m.name.clone());
         let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
-        let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
+        let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
 
         // Drop the previous clip BEFORE recreating the store files: its open handles point
         // at the same recovery directory this recording is about to replace.
-        *self.edited.lock().map_err(|_| "lock poisoned")? = Edited::default();
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
         let writer = FrameWriter::create(frame_store::recovery_dir())?;
 
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
@@ -289,7 +298,7 @@ impl Session {
     /// turned into a cut at stop time, so it never appears in the output (and can be
     /// restored in the editor if the pause was a mistake).
     pub fn set_record_paused(&self, paused: bool) -> Result<(), String> {
-        let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         let session = active.as_mut().ok_or("not recording")?;
         let now = self.clock.now();
         let open = session.pauses.last().is_some_and(|(_, e)| e.is_none());
@@ -305,7 +314,7 @@ impl Session {
 
     /// Stop capturing and build the editable project (plan zooms, simulate the camera).
     pub fn stop_recording(&self) -> Result<RecordingSummary, String> {
-        let mut active = self.active.lock().map_err(|_| "lock poisoned")?;
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         let Some(mut session) = active.take() else {
             return Err("not recording".into());
         };
@@ -383,7 +392,7 @@ impl Session {
         }
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
-        let amount = *self.pending_zoom.lock().map_err(|_| "lock poisoned")?;
+        let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
         let cfg = ZoomConfig {
             amount,
             ..ZoomConfig::default()
@@ -440,7 +449,7 @@ impl Session {
             );
         }
 
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
             frames: Some(Arc::new(store)),
@@ -459,12 +468,12 @@ impl Session {
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
     pub fn seek(&self, t: f64) -> Result<(), String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
         let store = edited.frames.as_ref().ok_or("no frames")?;
-        let idx = nearest_idx(store, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+        let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t).ok_or("no frames")?;
         let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
@@ -513,7 +522,7 @@ impl Session {
         // shared via `Arc` and reads from disk on demand — frames are never all resident, so
         // even an hour-long 1080p export stays within a bounded memory budget.
         let (project, track, store, start_qpc) = {
-            let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
             (
                 edited.project.as_ref().ok_or("no recording")?.clone(),
                 edited.track.as_ref().ok_or("no recording")?.clone(),
@@ -544,7 +553,7 @@ impl Session {
         let compose = |i: usize| -> Result<RgbaImage, String> {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = nearest_idx(&store, self.clock, start_qpc, t_src).ok_or("no frames")?;
+            let idx = nearest_idx(store.recs(), self.clock, start_qpc, t_src).ok_or("no frames")?;
             let frame = store.frame(idx)?;
             let scene = build_scene(&project, &track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
@@ -583,7 +592,7 @@ impl Session {
         // Snapshot under a short lock, then release it so the long encode doesn't freeze
         // scrub/edit/record (see `export_gif`). MP4 already streams frame-by-frame.
         let (project, track, store, start_qpc) = {
-            let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
             (
                 edited.project.as_ref().ok_or("no recording")?.clone(),
                 edited.track.as_ref().ok_or("no recording")?.clone(),
@@ -622,7 +631,7 @@ impl Session {
         for i in 0..total {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = match nearest_idx(&store, self.clock, start_qpc, t_src) {
+            let idx = match nearest_idx(store.recs(), self.clock, start_qpc, t_src) {
                 Some(idx) => idx,
                 None => {
                     frame_err = Some("no frames".into());
@@ -682,7 +691,7 @@ impl Session {
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
 
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let total = self.output_frame_count(&edited, fps)?;
         let win = WINDOW.min(total);
         // One mid-clip window for short clips, two spread out for longer ones.
@@ -746,7 +755,8 @@ impl Session {
         for (done, &i) in indices.iter().enumerate() {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = nearest_idx(store, self.clock, edited.start_qpc, t_src).ok_or("no frames")?;
+            let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
+                .ok_or("no frames")?;
             let frame = store.frame(idx)?;
             let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
@@ -766,7 +776,7 @@ impl Session {
 
     /// Add a text label at normalized `(x, y)`, visible for ~3s from time `t`. Returns its id.
     pub fn add_text(&self, text: String, x: f64, y: f64, t: f64) -> Result<u32, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
@@ -788,7 +798,7 @@ impl Session {
 
     /// Add an arrow between normalized points, visible for ~3s from time `t`. Returns its id.
     pub fn add_arrow(&self, fx: f64, fy: f64, tx: f64, ty: f64, t: f64) -> Result<u32, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
@@ -824,7 +834,7 @@ impl Session {
         t: f64,
         shape: HighlightShape,
     ) -> Result<u32, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
@@ -843,7 +853,7 @@ impl Session {
 
     /// Add a translucent filled highlighter (marker-style) rectangle. Returns its id.
     pub fn add_highlighter(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
@@ -863,7 +873,7 @@ impl Session {
 
     /// Snapshot everything the editor timeline binds to.
     pub fn clip_state(&self) -> Result<ClipState, String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
         Ok(ClipState {
             duration: project.source.duration,
@@ -955,7 +965,7 @@ impl Session {
         const LEAD: f64 = 0.6;
         const TAIL: f64 = 0.4;
 
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1000,7 +1010,7 @@ impl Session {
         end: f64,
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1023,7 +1033,7 @@ impl Session {
         end: f64,
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1044,7 +1054,7 @@ impl Session {
 
     /// Delete the speed region at `index`. Returns the updated list.
     pub fn delete_speed_region(&self, index: usize) -> Result<Vec<SpeedRegion>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         if index >= project.speed_regions.len() {
@@ -1056,7 +1066,7 @@ impl Session {
 
     /// Remove `[start, end]` from the output entirely. Returns the updated, sorted list.
     pub fn add_cut(&self, start: f64, end: f64) -> Result<Vec<Trim>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1069,7 +1079,7 @@ impl Session {
 
     /// Retime the cut at `index`. Returns the updated, sorted list.
     pub fn update_cut(&self, index: usize, start: f64, end: f64) -> Result<Vec<Trim>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1083,7 +1093,7 @@ impl Session {
 
     /// Restore the cut at `index` (the section plays again). Returns the updated list.
     pub fn delete_cut(&self, index: usize) -> Result<Vec<Trim>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         if index >= project.cuts.len() {
@@ -1097,7 +1107,7 @@ impl Session {
     /// Returns the updated segment list.
     pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
         const DEFAULT_LEN: f64 = 2.0;
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1134,7 +1144,7 @@ impl Session {
         end: f64,
         amount: f64,
     ) -> Result<Vec<ZoomKeyframe>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1157,7 +1167,7 @@ impl Session {
         index: usize,
         focus: Option<(f64, f64)>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
@@ -1175,7 +1185,7 @@ impl Session {
     /// Delete the zoom segment at `index` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         vuoom_zoom::remove(&mut project.zooms, index).ok_or("no such zoom segment")?;
@@ -1186,7 +1196,7 @@ impl Session {
 
     /// Snapshot every annotation for the editor overlay.
     pub fn annotations(&self) -> Result<AnnotationSet, String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
         Ok(AnnotationSet {
             texts: project.texts.clone(),
@@ -1418,7 +1428,7 @@ impl Session {
     /// visible next to the original. Returns the new id.
     pub fn duplicate_annotation(&self, id: u32) -> Result<u32, String> {
         const NUDGE: f64 = 0.03;
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let new_id = next_id(project);
@@ -1461,7 +1471,7 @@ impl Session {
     /// Save the recording as a `dir.vuoom` bundle: the project manifest plus every frame
     /// as a lossless PNG and a time index. Reopenable with [`Self::open_bundle`].
     pub fn save_bundle(&self, dir: &Path) -> Result<(), String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
         let store = edited.frames.as_ref().ok_or("no recording")?;
         let frames_dir = dir.join("frames");
@@ -1512,7 +1522,7 @@ impl Session {
         // Decode into the recovery-dir frame store: one frame in memory at a time, and the
         // opened project becomes the recoverable session like a fresh recording would.
         // Drop the current clip first — its store handles point at the same files.
-        *self.edited.lock().map_err(|_| "lock poisoned")? = Edited::default();
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
         let mut writer = FrameWriter::create(frame_store::recovery_dir())?;
         for fi in &index {
             let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
@@ -1544,7 +1554,7 @@ impl Session {
             frames: store.len(),
             zooms: project.zooms.len(),
         };
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
             frames: Some(Arc::new(store)),
@@ -1597,7 +1607,7 @@ impl Session {
             frames: store.len(),
             zooms: project.zooms.len(),
         };
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         *edited = Edited {
             frames: Some(Arc::new(store)),
             project: Some(project),
@@ -1614,7 +1624,7 @@ impl Session {
     where
         F: FnOnce(&mut Project) -> Result<(), String>,
     {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, tag);
         let project = edited.project.as_mut().ok_or("no recording")?;
         f(project)
@@ -1622,7 +1632,7 @@ impl Session {
 
     /// Revert the most recent edit. Returns `false` if there is nothing to undo.
     pub fn undo(&self) -> Result<bool, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let Some((_, prev)) = edited.undo.pop() else {
             return Ok(false);
         };
@@ -1635,7 +1645,7 @@ impl Session {
 
     /// Re-apply the most recently undone edit. Returns `false` if there is nothing to redo.
     pub fn redo(&self) -> Result<bool, String> {
-        let mut edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let Some(next) = edited.redo.pop() else {
             return Ok(false);
         };
@@ -1663,17 +1673,27 @@ fn encode_sample_bytes(
 }
 
 /// Index of the stored frame whose timestamp is closest to `t` (metadata only — no disk).
-fn nearest_idx(store: &FrameStore, clock: Clock, start_qpc: i64, t: f64) -> Option<usize> {
-    store
-        .recs()
-        .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| {
-            let da = (clock.seconds_between(start_qpc, a.qpc) - t).abs();
-            let db = (clock.seconds_between(start_qpc, b.qpc) - t).abs();
-            da.total_cmp(&db)
-        })
-        .map(|(i, _)| i)
+/// Index of the stored frame whose capture time is nearest `t` seconds from `start_qpc`.
+///
+/// Frames are stored in capture order — ascending QPC — and time is linear in QPC, so this
+/// binary-searches instead of scanning every frame. That matters during export, which calls
+/// it once per output frame: the old linear scan made export O(frames × output_frames).
+fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Option<usize> {
+    if recs.is_empty() {
+        return None;
+    }
+    let target = start_qpc as f64 + t * clock.freq() as f64;
+    let hi = recs.partition_point(|r| (r.qpc as f64) < target);
+    if hi == 0 {
+        return Some(0);
+    }
+    if hi >= recs.len() {
+        return Some(recs.len() - 1);
+    }
+    let prev = hi - 1;
+    let d_prev = (recs[prev].qpc as f64 - target).abs();
+    let d_hi = (recs[hi].qpc as f64 - target).abs();
+    Some(if d_hi < d_prev { hi } else { prev })
 }
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
@@ -1823,4 +1843,39 @@ fn next_id(project: &Project) -> u32 {
 
 fn default_end(t: f64, duration: f64) -> f64 {
     (t + 3.0).min(duration.max(t + 0.5))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(qpc: i64) -> FrameRec {
+        FrameRec {
+            qpc,
+            w: 2,
+            h: 2,
+            offset: 0,
+            len: 16,
+        }
+    }
+
+    #[test]
+    fn nearest_idx_picks_closest_frame_by_time() {
+        let clock = Clock::new();
+        let f = clock.freq();
+        let start = 1000;
+        // Frames captured 1s apart at t = 0, 1, 2, 3.
+        let recs: Vec<FrameRec> = (0..4i64).map(|i| rec(start + i * f)).collect();
+
+        assert_eq!(nearest_idx(&[], clock, start, 1.0), None);
+        // Exact hits.
+        assert_eq!(nearest_idx(&recs, clock, start, 0.0), Some(0));
+        assert_eq!(nearest_idx(&recs, clock, start, 2.0), Some(2));
+        // Out of range clamps to the ends.
+        assert_eq!(nearest_idx(&recs, clock, start, -5.0), Some(0));
+        assert_eq!(nearest_idx(&recs, clock, start, 99.0), Some(3));
+        // Rounds to the nearer neighbour.
+        assert_eq!(nearest_idx(&recs, clock, start, 1.4), Some(1));
+        assert_eq!(nearest_idx(&recs, clock, start, 1.6), Some(2));
+    }
 }

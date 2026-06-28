@@ -1051,6 +1051,14 @@ function App() {
     const s = selected();
     return s?.kind === "arrow" ? anns().arrows.find((a) => a.id === s.id) : undefined;
   };
+  // The inspector "Content" field is seeded from the model only while it is NOT focused, so
+  // the async edit→refresh round-trip can't reset the caret to the end mid-typing.
+  let contentInput: HTMLInputElement | undefined;
+  createEffect(() => {
+    const t = selectedText();
+    const el = contentInput;
+    if (el && t && document.activeElement !== el) el.value = t.text;
+  });
   const editStyle = async (patch: { thickness?: number; filled?: boolean }) => {
     const s = selected();
     if (!s) return;
@@ -1238,13 +1246,13 @@ function App() {
     setCoachRecord(false);
     try {
       setStatus("Choose the area to record…");
-      await invoke("enter_overlay"); // hide editor from capture + go fullscreen
       setBackdrop(null);
       setRecordPhase("active"); // overlay shows immediately (dark + presets)
-      // Freeze the desktop behind us as a backdrop to draw on (non-blocking).
-      invoke<string>("screenshot")
-        .then(setBackdrop)
-        .catch(() => setBackdrop(null));
+      // enter_overlay hides the editor, grabs the desktop as the selector backdrop, then
+      // brings the window back fullscreen + excluded from capture. It returns the frozen
+      // desktop as a data-URL (empty string if the grab failed → dark canvas fallback).
+      const shot = await invoke<string>("enter_overlay");
+      setBackdrop(shot || null);
     } catch (e) {
       setRecordPhase("idle");
       setStatus(`Error: ${String(e)}`);
@@ -2430,7 +2438,7 @@ function App() {
                     class="insp-text-input"
                     type="text"
                     spellcheck={false}
-                    value={selectedText()!.text}
+                    ref={(el) => (contentInput = el)}
                     onInput={(e) => void editText(e.currentTarget.value)}
                   />
                 </InspRow>

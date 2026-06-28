@@ -225,6 +225,11 @@ pub fn export_gif_native(
     if scaled.iter().any(|f| f.width != w || f.height != h) {
         return Err(EncodeError::Gif("frame dimensions differ".into()));
     }
+    if w == 0 || h == 0 {
+        // A zero-pixel frame yields an empty palette sample set, which would panic the
+        // quantizer (`NeuQuant::new` on an empty slice divides by zero).
+        return Err(EncodeError::Gif("zero-size frame".into()));
+    }
     let (wu, hu) = (w as usize, h as usize);
 
     let mut quant = GlobalQuantizer::train(&scaled, quality_to_speed(settings.quality));
@@ -325,6 +330,15 @@ mod tests {
         let src = solid(2, 2, [0, 0, 0, 255]);
         let out = downscale_rgba(&src, 8);
         assert_eq!((out.width, out.height), (2, 2));
+    }
+
+    #[test]
+    fn zero_size_frame_is_an_error_not_a_panic() {
+        // A 0x0 frame used to reach the quantizer with an empty sample set and panic.
+        let frames = vec![solid(0, 0, [0, 0, 0, 255])];
+        let out = std::env::temp_dir().join("vuoom-zero-frame-test.gif");
+        let r = export_gif_native(&frames, &GifSettings::readme(), &out);
+        assert!(matches!(r, Err(EncodeError::Gif(_))));
     }
 
     #[test]

@@ -14,13 +14,15 @@ use std::process::Command;
 /// Build the gifski CLI arguments for the given settings, PNG frame paths, and output.
 #[must_use]
 pub fn build_gifski_args(settings: &GifSettings, frames: &[String], out: &str) -> Vec<String> {
+    // gifski rejects quality outside 1..=100 with an opaque error; clamp defensively.
+    let quality = settings.quality.clamp(1, 100);
     let mut args = vec![
         "-o".to_string(),
         out.to_string(),
         "--fps".to_string(),
         settings.fps.to_string(),
         "--quality".to_string(),
-        settings.quality.to_string(),
+        quality.to_string(),
         "--quiet".to_string(),
     ];
     if let Some(w) = settings.width {
@@ -34,6 +36,8 @@ pub fn build_gifski_args(settings: &GifSettings, frames: &[String], out: &str) -
 /// Build a gifsicle "shrink more" second-pass command (lossy + dedup), editing in place.
 #[must_use]
 pub fn build_gifsicle_args(lossy: u8, gif_path: &str) -> Vec<String> {
+    // gifsicle's `--lossy` tops out around 200; clamp so a stray value can't fail the pass.
+    let lossy = lossy.min(200);
     vec![
         "-O3".to_string(),
         format!("--lossy={lossy}"),
@@ -120,6 +124,24 @@ mod tests {
         assert!(args.contains(&"--lossy=80".to_string()));
         assert!(args.contains(&"-b".to_string()));
         assert_eq!(args.last().unwrap(), "out.gif");
+    }
+
+    #[test]
+    fn quality_is_clamped_to_gifski_range() {
+        let s = GifSettings {
+            quality: 250,
+            ..GifSettings::readme()
+        };
+        let args = build_gifski_args(&s, &["f.png".to_string()], "o.gif");
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--quality" && w[1] == "100"));
+    }
+
+    #[test]
+    fn lossy_is_clamped_to_gifsicle_range() {
+        let args = build_gifsicle_args(255, "o.gif");
+        assert!(args.contains(&"--lossy=200".to_string()));
     }
 
     #[test]

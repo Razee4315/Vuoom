@@ -30,6 +30,9 @@ impl Default for CameraState {
 ///
 /// `hl` is the half-life in seconds (time to close half the remaining distance).
 pub fn spring_update(x: &mut f64, v: &mut f64, goal: f64, hl: f64, dt: f64) {
+    // Guard against a zero/negative half-life: it would make `y` infinite and poison the
+    // whole track with NaN (every `hl_*` is user-editable in the inspector).
+    let hl = hl.max(1e-4);
     // Critical damping derived from the half-life: y = 2*ln2 / hl.
     let y = 2.0 * LN_2 / hl;
     let j0 = *x - goal;
@@ -128,6 +131,8 @@ pub fn simulate(
     fps: f64,
     cfg: &ZoomConfig,
 ) -> CameraTrack {
+    // A zero/negative fps would make `dt` infinite and NaN-poison the whole track.
+    let fps = fps.max(1.0);
     let frame_count = (duration * fps).ceil().max(1.0) as usize + 1;
     let dt = 1.0 / fps;
 
@@ -233,5 +238,24 @@ mod tests {
         assert_eq!(c, DVec2::new(0.25, 0.75));
         // At zoom 1.0 the only valid center is the middle.
         assert_eq!(clamp_camera(DVec2::new(0.0, 0.0), 1.0), DVec2::splat(0.5));
+    }
+
+    #[test]
+    fn spring_zero_half_life_does_not_nan() {
+        // hl=0 used to make `y` infinite -> NaN; the guard must keep it finite.
+        let (mut x, mut v) = (0.0, 0.0);
+        spring_update(&mut x, &mut v, 1.0, 0.0, 1.0 / 60.0);
+        assert!(x.is_finite() && v.is_finite(), "x={x} v={v}");
+    }
+
+    #[test]
+    fn simulate_zero_fps_produces_finite_track() {
+        // fps=0 used to make `dt` infinite -> a NaN-poisoned track.
+        let track = simulate(&[], &[], 1.0, 0.0, &ZoomConfig::default());
+        assert!(!track.frames().is_empty());
+        assert!(track
+            .frames()
+            .iter()
+            .all(|f| f.zoom.is_finite() && f.center.x.is_finite() && f.center.y.is_finite()));
     }
 }

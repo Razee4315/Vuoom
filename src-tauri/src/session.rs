@@ -204,10 +204,11 @@ impl Session {
             .as_ref()
             .map(|m| m.name.clone());
         let (rx, handle) = spawn_region(None, monitor);
-        let frame = rx
-            .recv_timeout(std::time::Duration::from_secs(3))
-            .map_err(|e| format!("screenshot capture failed: {e}"))?;
+        let frame = rx.recv_timeout(std::time::Duration::from_secs(3));
+        // Stop the capture thread on every path — including a timeout — so a slow or failed
+        // grab can't leak a live capture session and its GPU/duplication resources.
         handle.stop();
+        let frame = frame.map_err(|e| format!("screenshot capture failed: {e}"))?;
         let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
         let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
@@ -561,11 +562,26 @@ impl Session {
 
         let encoder =
             crate::mp4::Mp4Encoder::new(Path::new(&out_path), enc_w, enc_h, fps, quality)?;
+        // Track the first frame error instead of `?`-ing out mid-stream, so a failure can
+        // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
+        let mut frame_err: Option<String> = None;
         for i in 0..total {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = nearest_idx(store, self.clock, edited.start_qpc, t_src).ok_or("no frames")?;
-            let frame = store.frame(idx)?;
+            let idx = match nearest_idx(store, self.clock, edited.start_qpc, t_src) {
+                Some(idx) => idx,
+                None => {
+                    frame_err = Some("no frames".into());
+                    break;
+                }
+            };
+            let frame = match store.frame(idx) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    frame_err = Some(e);
+                    break;
+                }
+            };
             let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
@@ -582,10 +598,20 @@ impl Session {
             } else {
                 img
             };
-            encoder.write_rgba(&img.pixels, img.width, img.height, i as u32)?;
+            if let Err(e) = encoder.write_rgba(&img.pixels, img.width, img.height, i as u32) {
+                frame_err = Some(e);
+                break;
+            }
             progress(i as u32 + 1, total as u32 + 1);
         }
-        encoder.finish()?;
+        let result = match frame_err {
+            Some(e) => Err(e),
+            None => encoder.finish(),
+        };
+        if result.is_err() {
+            let _ = std::fs::remove_file(&out_path);
+        }
+        result?;
         progress(total as u32 + 1, total as u32 + 1);
         Ok(())
     }

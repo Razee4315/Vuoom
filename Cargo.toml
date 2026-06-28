@@ -19,7 +19,7 @@ version = "0.1.29"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["The Vuoom Authors"]
-repository = "https://github.com/vuoom/vuoom"
+repository = "https://github.com/Razee4315/Vuoom"
 rust-version = "1.80"
 
 # Shared dependency versions — pin once, reference with `dep.workspace = true`.

@@ -132,7 +132,7 @@ impl FrameStore {
     /// Load frame `i` (cached for repeat hits).
     pub fn frame(&self, i: usize) -> Result<Arc<CapturedFrame>, String> {
         let rec = *self.index.get(i).ok_or("no such frame")?;
-        let mut rs = self.read.lock().map_err(|_| "lock poisoned")?;
+        let mut rs = self.read.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((ci, f)) = &rs.cache {
             if *ci == i {
                 return Ok(Arc::clone(f));

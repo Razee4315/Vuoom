@@ -106,8 +106,7 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             });
         }
         ControlRequest::MoveCursor { x, y } => {
-            vuoom_input::move_cursor(*x, *y);
-            return ControlResponse::Ok;
+            return unit(vuoom_input::move_cursor_smooth(*x, *y, None));
         }
         ControlRequest::Click {
             x,
@@ -115,16 +114,19 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             button,
             double,
         } => {
-            vuoom_input::click(*x, *y, map_button(*button), *double);
-            return ControlResponse::Ok;
+            return unit(vuoom_input::click(
+                *x,
+                *y,
+                map_button(*button),
+                *double,
+                None,
+            ));
         }
         ControlRequest::TypeText { text } => {
-            vuoom_input::type_text(text);
-            return ControlResponse::Ok;
+            return unit(vuoom_input::type_text(text, None));
         }
         ControlRequest::Scroll { x, y, delta } => {
-            vuoom_input::scroll(*x, *y, *delta);
-            return ControlResponse::Ok;
+            return unit(vuoom_input::scroll(*x, *y, *delta, None));
         }
         ControlRequest::KeyChord { keys } => {
             let mut vks = Vec::with_capacity(keys.len());
@@ -134,8 +136,7 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
                     None => return ControlResponse::error(format!("unknown key: {k}")),
                 }
             }
-            vuoom_input::key_chord(&vks);
-            return ControlResponse::Ok;
+            return unit(vuoom_input::key_chord(&vks));
         }
         _ => {}
     }

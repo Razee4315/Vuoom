@@ -8,13 +8,25 @@
 //! one line. That keeps the server trivial (read a line → dispatch → write a line) and the
 //! whole crate dependency-light (just serde), so it compiles fast and is fully
 //! unit-testable without a GPU/display. See `docs/13-AI-Demo-Director-Research.md`.
+//!
+//! **Authentication.** Loopback is not a trust boundary — any local process could otherwise
+//! drive input injection. The server generates a random [`generate_token`] at startup,
+//! publishes it in the discovery file next to the port, and requires it as the first line
+//! of every connection before any request is served.
 
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// How long the client waits for a connection to be accepted.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long the client waits for a single reply. Generous because `get_frames` composites
+/// on the GPU; exports are asynchronous jobs precisely so they never hit this.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A mouse button for an injected click.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -34,7 +46,9 @@ pub enum Button {
 /// All screen coordinates are **virtual-desktop physical pixels** — the same space the
 /// capture and auto-zoom planner work in — so an injected click lands exactly where the
 /// agent saw it and the zoom centres on the right spot. Use [`ControlRequest::ScreenGeometry`]
-/// to learn the desktop bounds first.
+/// to learn the desktop bounds first. Clip/edit times are seconds; unless stated otherwise
+/// they are **output-timeline** for sampling and **source-timeline** for edit ops (matching
+/// the editor UI).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ControlRequest {
@@ -42,6 +56,12 @@ pub enum ControlRequest {
     Ping,
     /// Ask for the virtual-desktop bounds (so the agent can reason in screen pixels).
     ScreenGeometry,
+    /// Capture the screen **right now** (independent of any recording) so the agent can see
+    /// the current state and locate what to click. Answered with [`ControlResponse::Shot`].
+    Screenshot {
+        /// Optional max width (px) to downscale the returned PNG.
+        width: Option<u32>,
+    },
     /// Set the capture region (physical px) for the next recording. Omit all fields (or pass
     /// a zero-area rect) to capture the full screen.
     SetRegion {
@@ -59,30 +79,47 @@ pub enum ControlRequest {
         /// Multiplier in `[1.0, 4.0]` (clamped server-side).
         amount: f64,
     },
-    /// Enable/disable click-driven auto-zoom for the next recording. The agent drives via
-    /// clicks, so this is on for agent recordings (Vuoom's interactive default is manual).
-    SetAutoZoomOnClick {
-        /// `true` = every click seeds a cinematic zoom; `false` = manual hotkey only.
-        on: bool,
+    /// Tune the auto-zoom *feel* for the next recording. `None` fields keep the defaults.
+    SetZoomStyle {
+        /// Seconds of inactivity before the camera zooms back out.
+        hold: Option<f64>,
+        /// Seconds of anticipation before a click that the zoom-in begins.
+        pre_roll: Option<f64>,
+        /// Half-life (s) of the zoom spring — smaller = snappier zoom.
+        hl_zoom: Option<f64>,
+        /// Half-life (s) of the pan spring — smaller = snappier follow.
+        hl_pan: Option<f64>,
     },
-    /// Begin capturing the screen + global input.
-    StartRecording,
+    /// Begin capturing the screen + global input. `auto_zoom_on_click` defaults to `true`
+    /// for agent recordings (the agent drives via clicks); the flag applies to **this**
+    /// recording only and never leaks into interactive use.
+    StartRecording {
+        /// `true` (default) = every click seeds a cinematic zoom; `false` = manual only.
+        auto_zoom_on_click: Option<bool>,
+    },
     /// Stop capturing and build the editable project; answered with [`ControlResponse::Recording`].
     StopRecording,
+    /// Stop capturing and **discard** the take (no project is built).
+    CancelRecording,
     /// Pause or resume the running recording (a paused span becomes a cut).
     SetPaused {
         /// `true` to pause, `false` to resume.
         paused: bool,
     },
-    /// Move the cursor to `(x, y)` without clicking.
+    /// Ask what the engine is doing; answered with [`ControlResponse::Status`].
+    Status,
+    /// Glide the cursor to `(x, y)` without clicking (minimum-jerk path).
     MoveCursor {
         /// Target x (physical px).
         x: i32,
         /// Target y (physical px).
         y: i32,
+        /// Glide time in ms; `None` = distance-scaled, `0` = instant warp.
+        duration_ms: Option<u32>,
     },
-    /// Click at `(x, y)`. These synthetic clicks flow through Vuoom's input hook exactly like
-    /// real ones, so they drive both the target app and the cinematic auto-zoom.
+    /// Glide to `(x, y)`, settle, and click. These synthetic clicks flow through Vuoom's
+    /// input hook exactly like real ones, so they drive both the target app and the
+    /// cinematic auto-zoom.
     Click {
         /// Click x (physical px).
         x: i32,
@@ -94,19 +131,39 @@ pub enum ControlRequest {
         /// `true` for a double-click.
         #[serde(default)]
         double: bool,
+        /// Glide time in ms; `None` = distance-scaled, `0` = instant warp.
+        glide_ms: Option<u32>,
     },
-    /// Type a string of Unicode text into the focused control.
+    /// Press-drag from `(x1, y1)` to `(x2, y2)` — sliders, drag-and-drop, text selection.
+    Drag {
+        /// Drag start x (physical px).
+        x1: i32,
+        /// Drag start y (physical px).
+        y1: i32,
+        /// Drag end x (physical px).
+        x2: i32,
+        /// Drag end y (physical px).
+        y2: i32,
+        /// Which button to hold (defaults to left).
+        #[serde(default)]
+        button: Button,
+        /// Duration of the dragging portion in ms; `None` = distance-scaled.
+        duration_ms: Option<u32>,
+    },
+    /// Type a string of Unicode text into the focused control at a human cadence.
     TypeText {
-        /// The text to type.
+        /// The text to type. `\n`/`\t` press real Enter/Tab.
         text: String,
+        /// Characters per second; `None` = ~15 with natural jitter.
+        cps: Option<f64>,
     },
     /// Press a key chord, e.g. `["ctrl", "c"]` or `["enter"]`. Modifiers are held while the
     /// final key is tapped, then released in reverse order.
     KeyChord {
-        /// Key names (modifiers first); see [`crate::key`] for accepted names.
+        /// Key names (modifiers first); see the injection key table for accepted names.
         keys: Vec<String>,
     },
-    /// Scroll the wheel at `(x, y)`; positive `delta` scrolls up.
+    /// Scroll the wheel at `(x, y)`; positive `delta` scrolls up, one notch per step.
     Scroll {
         /// Pointer x (physical px).
         x: i32,
@@ -114,23 +171,93 @@ pub enum ControlRequest {
         y: i32,
         /// Wheel delta in notches (positive = up).
         delta: i32,
+        /// Gap between notches in ms; `None` = 40, `0` = all at once.
+        step_ms: Option<u32>,
     },
-    /// Composite and publish the preview frame at time `t` (seconds).
+    /// Composite and publish the preview frame at time `t` (seconds, output timeline).
     Seek {
         /// Time from the clip start, in seconds.
         t: f64,
     },
-    /// Ask for a summary of the current clip (duration, zoom/cut counts).
+    /// Ask for the full editable state of the clip (durations, zoom/cut/speed spans).
     ClipState,
-    /// Composite the given times and return them as PNGs so the agent can *see* the result
-    /// and critique it. Sample sparsely (e.g. around each zoom) to keep cost down.
+    /// Composite the given **output-timeline** times and return them as PNGs so the agent
+    /// can *see* exactly what the export will produce, and critique it. Sample sparsely
+    /// (e.g. around each zoom span from [`ControlRequest::ClipState`]) to keep cost down.
     GetFrames {
-        /// Times (seconds) to sample.
+        /// Times (seconds, output timeline) to sample.
         times: Vec<f64>,
         /// Optional max width (px) to downscale each returned frame.
         width: Option<u32>,
     },
-    /// Export the edited clip to an animated GIF.
+    /// Insert a zoom segment starting at source time `t`; answered with the updated list.
+    AddZoom {
+        /// Source-timeline start (seconds); the segment gets a default length.
+        t: f64,
+    },
+    /// Retime / re-level the zoom at `index`; answered with the updated list.
+    UpdateZoom {
+        /// Index into the sorted zoom list (see [`ControlRequest::ClipState`]).
+        index: usize,
+        /// New start (source seconds).
+        start: f64,
+        /// New end (source seconds).
+        end: f64,
+        /// New zoom multiplier (clamped to `[1.1, 4.0]`).
+        amount: f64,
+    },
+    /// Re-centre the zoom at `index`: fixed normalized focus, or follow the cursor again.
+    SetZoomFocus {
+        /// Index into the sorted zoom list.
+        index: usize,
+        /// Normalized focus x in `[0, 1]`; omit both to follow the cursor.
+        x: Option<f64>,
+        /// Normalized focus y in `[0, 1]`.
+        y: Option<f64>,
+    },
+    /// Delete the zoom at `index`; answered with the updated list.
+    RemoveZoom {
+        /// Index into the sorted zoom list.
+        index: usize,
+    },
+    /// Remove `[start, end]` (source seconds) from the output; answered with updated cuts.
+    AddCut {
+        /// Cut start (source seconds).
+        start: f64,
+        /// Cut end (source seconds).
+        end: f64,
+    },
+    /// Retime the cut at `index`; answered with the updated list.
+    UpdateCut {
+        /// Index into the sorted cut list.
+        index: usize,
+        /// New start (source seconds).
+        start: f64,
+        /// New end (source seconds).
+        end: f64,
+    },
+    /// Restore the cut at `index`; answered with the updated list.
+    RemoveCut {
+        /// Index into the sorted cut list.
+        index: usize,
+    },
+    /// Detect idle stretches and mark them to play at `factor`× (replaces existing speed
+    /// regions); answered with the new list.
+    AutoSpeed {
+        /// Speed-up factor (clamped to `[1.5, 16.0]`).
+        factor: f64,
+    },
+    /// Remove all speed regions (play everything at 1×).
+    ClearSpeed,
+    /// Trim the clip to `[start, end]` (source seconds); the full range clears the trim.
+    SetTrim {
+        /// Trim start (source seconds).
+        start: f64,
+        /// Trim end (source seconds).
+        end: f64,
+    },
+    /// Start exporting the edited clip to an animated GIF. Answered immediately with
+    /// [`ControlResponse::Job`]; poll with [`ControlRequest::ExportStatus`].
     ExportGif {
         /// Absolute output path.
         path: String,
@@ -141,7 +268,7 @@ pub enum ControlRequest {
         /// Quality 1–100.
         quality: u8,
     },
-    /// Export the edited clip to an H.264 MP4.
+    /// Start exporting the edited clip to an H.264 MP4 (job-based, like `ExportGif`).
     ExportMp4 {
         /// Absolute output path.
         path: String,
@@ -151,6 +278,11 @@ pub enum ControlRequest {
         width: Option<u32>,
         /// Quality 1–100.
         quality: u8,
+    },
+    /// Ask how an export job is doing; answered with [`ControlResponse::Export`].
+    ExportStatus {
+        /// The id returned by `ExportGif`/`ExportMp4`.
+        id: u64,
     },
     /// Estimate the GIF export size (bytes) for the given settings.
     EstimateGif {
@@ -179,7 +311,7 @@ pub struct ScreenGeometry {
 /// Summary of a finished recording.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RecordingSummary {
-    /// Clip length in seconds.
+    /// Clip length in seconds (source timeline).
     pub duration: f64,
     /// Number of captured frames.
     pub frames: usize,
@@ -187,23 +319,83 @@ pub struct RecordingSummary {
     pub zooms: usize,
 }
 
-/// A compact view of the current clip's editable state.
+/// One zoom segment on the source timeline.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ZoomSpan {
+    /// Segment start (source seconds).
+    pub start: f64,
+    /// Segment end (source seconds).
+    pub end: f64,
+    /// Zoom multiplier while active.
+    pub amount: f64,
+    /// Fixed normalized focus when manually set; `None` = the camera follows the cursor.
+    pub focus: Option<(f64, f64)>,
+}
+
+/// One cut (removed span) on the source timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CutSpan {
+    /// Cut start (source seconds).
+    pub start: f64,
+    /// Cut end (source seconds).
+    pub end: f64,
+}
+
+/// One speed region on the source timeline.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SpeedSpan {
+    /// Region start (source seconds).
+    pub start: f64,
+    /// Region end (source seconds).
+    pub end: f64,
+    /// Playback factor (e.g. 4.0 = 4× faster).
+    pub factor: f64,
+}
+
+/// What the engine is currently doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordState {
+    /// No recording running, no clip loaded.
+    Idle,
+    /// Actively capturing.
+    Recording,
+    /// Capturing, but paused (the span will become a cut).
+    Paused,
+    /// A finished clip is loaded and editable/exportable.
+    ClipReady,
+}
+
+/// Reply to [`ControlRequest::Status`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StatusInfo {
+    /// The engine state.
+    pub state: RecordState,
+    /// Seconds since the recording started (present while recording/paused).
+    pub elapsed: Option<f64>,
+}
+
+/// The full editable state of the current clip — everything the agent needs to critique
+/// and repair a take without re-recording.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClipInfo {
-    /// Clip length in seconds.
+    /// Source-timeline length in seconds.
     pub duration: f64,
-    /// Number of zoom segments.
-    pub zooms: usize,
-    /// Number of cuts.
-    pub cuts: usize,
-    /// Number of speed regions.
-    pub speed_regions: usize,
+    /// Output-timeline length (after trim + cuts + speed) — what the export produces and
+    /// the timeline [`ControlRequest::GetFrames`]/[`ControlRequest::Seek`] sample in.
+    pub output_duration: f64,
+    /// The zoom segments, sorted by start (edit ops address them by this index).
+    pub zooms: Vec<ZoomSpan>,
+    /// The cuts, sorted by start.
+    pub cuts: Vec<CutSpan>,
+    /// The speed regions, sorted by start.
+    pub speeds: Vec<SpeedSpan>,
 }
 
 /// A single composited frame, returned for the agent to inspect.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameShot {
-    /// The time (seconds) this frame was sampled at.
+    /// The time (seconds, output timeline) this frame was sampled at; `0.0` for live shots.
     pub t: f64,
     /// Frame width in pixels.
     pub width: u32,
@@ -211,6 +403,21 @@ pub struct FrameShot {
     pub height: u32,
     /// The frame encoded as a base64 PNG (no data-URL prefix).
     pub png_base64: String,
+}
+
+/// Progress of an asynchronous export job.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExportState {
+    /// Frames composited so far.
+    pub done: u64,
+    /// Total frames to composite (0 until known).
+    pub total: u64,
+    /// Whether the job has finished (successfully or not).
+    pub finished: bool,
+    /// The failure reason, if the job failed.
+    pub error: Option<String>,
+    /// The output path the job writes to.
+    pub path: String,
 }
 
 /// The server's reply to a [`ControlRequest`].
@@ -230,11 +437,37 @@ pub enum ControlResponse {
     Recording(RecordingSummary),
     /// Reply to [`ControlRequest::ClipState`].
     Clip(ClipInfo),
+    /// Reply to [`ControlRequest::Status`].
+    Status(StatusInfo),
+    /// Reply to [`ControlRequest::Screenshot`].
+    Shot(FrameShot),
     /// Reply to [`ControlRequest::GetFrames`].
     Frames {
         /// The sampled frames, in request order.
         frames: Vec<FrameShot>,
     },
+    /// Reply to the zoom edit ops — the updated, sorted segment list.
+    Zooms {
+        /// All zoom segments after the edit.
+        zooms: Vec<ZoomSpan>,
+    },
+    /// Reply to the cut edit ops — the updated, sorted cut list.
+    Cuts {
+        /// All cuts after the edit.
+        cuts: Vec<CutSpan>,
+    },
+    /// Reply to [`ControlRequest::AutoSpeed`] — the new speed regions.
+    Speeds {
+        /// All speed regions after the edit.
+        speeds: Vec<SpeedSpan>,
+    },
+    /// Reply to [`ControlRequest::ExportGif`]/[`ControlRequest::ExportMp4`] — the job id.
+    Job {
+        /// Pass to [`ControlRequest::ExportStatus`] to poll progress.
+        id: u64,
+    },
+    /// Reply to [`ControlRequest::ExportStatus`].
+    Export(ExportState),
     /// Reply to [`ControlRequest::EstimateGif`] — estimated size in bytes.
     Size {
         /// Estimated export size in bytes.
@@ -251,53 +484,80 @@ impl ControlResponse {
     }
 }
 
-/// On-disk record of the port the control server bound to, for sidecar discovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// On-disk record of the control server endpoint, for sidecar discovery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct PortFile {
     port: u16,
+    #[serde(default)]
+    token: String,
 }
 
-/// The well-known file the control server writes its chosen port to, so the standalone
+/// The well-known file the control server writes its endpoint to, so the standalone
 /// MCP sidecar (a separate process) can find it: `%TEMP%/vuoom-control.json`.
 #[must_use]
 pub fn port_file_path() -> PathBuf {
     std::env::temp_dir().join("vuoom-control.json")
 }
 
-/// Write `port` to `path` as `{"port": N}`.
+/// Generate a fresh 128-bit hex auth token.
+///
+/// Uses the OS-seeded per-process randomness behind `RandomState` — no extra dependency,
+/// and unguessable by other local processes.
+#[must_use]
+pub fn generate_token() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let a = RandomState::new().build_hasher().finish();
+    let b = RandomState::new().build_hasher().finish();
+    format!("{a:016x}{b:016x}")
+}
+
+/// Write the endpoint to `path` as `{"port": N, "token": "..."}`.
 ///
 /// # Errors
 /// Returns any serialization or I/O error.
-pub fn write_port_file_at(path: &Path, port: u16) -> io::Result<()> {
-    let bytes = serde_json::to_vec(&PortFile { port })?;
+pub fn write_port_file_at(path: &Path, port: u16, token: &str) -> io::Result<()> {
+    let bytes = serde_json::to_vec(&PortFile {
+        port,
+        token: token.to_string(),
+    })?;
     std::fs::write(path, bytes)
 }
 
-/// Write the control port to the well-known [`port_file_path`].
+/// Write the control endpoint to the well-known [`port_file_path`].
 ///
 /// # Errors
 /// Returns any serialization or I/O error.
-pub fn write_port_file(port: u16) -> io::Result<()> {
-    write_port_file_at(&port_file_path(), port)
+pub fn write_port_file(port: u16, token: &str) -> io::Result<()> {
+    write_port_file_at(&port_file_path(), port, token)
 }
 
-/// Read a control port from `path`, returning `None` if it is missing or malformed.
+/// Delete the discovery file (server shutdown) so a stale endpoint never points a future
+/// sidecar at a dead — or someone else's — port. Missing file is fine.
+pub fn remove_port_file() {
+    let _ = std::fs::remove_file(port_file_path());
+}
+
+/// Read an endpoint from `path`, returning `None` if it is missing or malformed.
 #[must_use]
-pub fn read_port_at(path: &Path) -> Option<u16> {
+pub fn read_endpoint_at(path: &Path) -> Option<(u16, String)> {
     let data = std::fs::read(path).ok()?;
     let pf: PortFile = serde_json::from_slice(&data).ok()?;
-    Some(pf.port)
+    Some((pf.port, pf.token))
 }
 
-/// Discover the control port: the `VUOOM_CONTROL_PORT` env var wins, else the port file.
+/// Discover the control endpoint: the `VUOOM_CONTROL_PORT` env var overrides the port
+/// (the token still comes from the discovery file, if present).
 #[must_use]
-pub fn discover_port() -> Option<u16> {
+pub fn discover_endpoint() -> Option<(u16, String)> {
+    let file = read_endpoint_at(&port_file_path());
     if let Ok(p) = std::env::var("VUOOM_CONTROL_PORT") {
         if let Ok(port) = p.trim().parse::<u16>() {
-            return Some(port);
+            let token = file.map(|(_, t)| t).unwrap_or_default();
+            return Some((port, token));
         }
     }
-    read_port_at(&port_file_path())
+    file
 }
 
 /// Write `msg` as a single newline-terminated JSON line and flush.
@@ -318,12 +578,21 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connect to the control server on `127.0.0.1:port`.
+    /// Connect to the control server on `127.0.0.1:port` and authenticate with `token`.
+    ///
+    /// Applies [`CONNECT_TIMEOUT`] and [`READ_TIMEOUT`] so a hung server can never wedge
+    /// the sidecar (and with it, the agent's turn) forever.
     ///
     /// # Errors
     /// Returns an [`io::Error`] if the connection cannot be established.
-    pub fn connect(port: u16) -> io::Result<Self> {
-        let stream = TcpStream::connect(("127.0.0.1", port))?;
+    pub fn connect(port: u16, token: &str) -> io::Result<Self> {
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+        let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)?;
+        stream.set_read_timeout(Some(READ_TIMEOUT))?;
+        let mut stream = stream;
+        stream.write_all(token.as_bytes())?;
+        stream.write_all(b"\n")?;
+        stream.flush()?;
         let reader = BufReader::new(stream.try_clone()?);
         Ok(Self { stream, reader })
     }
@@ -342,7 +611,9 @@ impl Client {
             .read_line(&mut line)
             .map_err(|e| e.to_string())?;
         if n == 0 {
-            return Err("control server closed the connection".into());
+            return Err(
+                "control server closed the connection (bad auth token or server shutdown)".into(),
+            );
         }
         serde_json::from_str(&line).map_err(|e| e.to_string())
     }
@@ -358,6 +629,7 @@ mod tests {
         let cases = vec![
             ControlRequest::Ping,
             ControlRequest::ScreenGeometry,
+            ControlRequest::Screenshot { width: Some(800) },
             ControlRequest::SetRegion {
                 x: Some(10),
                 y: Some(20),
@@ -371,19 +643,42 @@ mod tests {
                 h: None,
             },
             ControlRequest::SetZoomAmount { amount: 2.0 },
-            ControlRequest::SetAutoZoomOnClick { on: true },
-            ControlRequest::StartRecording,
+            ControlRequest::SetZoomStyle {
+                hold: Some(2.5),
+                pre_roll: None,
+                hl_zoom: Some(0.25),
+                hl_pan: None,
+            },
+            ControlRequest::StartRecording {
+                auto_zoom_on_click: Some(true),
+            },
             ControlRequest::StopRecording,
+            ControlRequest::CancelRecording,
             ControlRequest::SetPaused { paused: true },
-            ControlRequest::MoveCursor { x: -5, y: 100 },
+            ControlRequest::Status,
+            ControlRequest::MoveCursor {
+                x: -5,
+                y: 100,
+                duration_ms: Some(300),
+            },
             ControlRequest::Click {
                 x: 1,
                 y: 2,
                 button: Button::Right,
                 double: true,
+                glide_ms: None,
+            },
+            ControlRequest::Drag {
+                x1: 10,
+                y1: 20,
+                x2: 300,
+                y2: 400,
+                button: Button::Left,
+                duration_ms: Some(600),
             },
             ControlRequest::TypeText {
                 text: "hello world".into(),
+                cps: Some(20.0),
             },
             ControlRequest::KeyChord {
                 keys: vec!["ctrl".into(), "c".into()],
@@ -392,12 +687,42 @@ mod tests {
                 x: 3,
                 y: 4,
                 delta: -2,
+                step_ms: None,
             },
             ControlRequest::Seek { t: 1.5 },
             ControlRequest::ClipState,
             ControlRequest::GetFrames {
                 times: vec![0.0, 1.0, 2.5],
                 width: Some(800),
+            },
+            ControlRequest::AddZoom { t: 3.5 },
+            ControlRequest::UpdateZoom {
+                index: 1,
+                start: 2.0,
+                end: 4.5,
+                amount: 2.2,
+            },
+            ControlRequest::SetZoomFocus {
+                index: 0,
+                x: Some(0.25),
+                y: Some(0.75),
+            },
+            ControlRequest::RemoveZoom { index: 2 },
+            ControlRequest::AddCut {
+                start: 1.0,
+                end: 2.0,
+            },
+            ControlRequest::UpdateCut {
+                index: 0,
+                start: 1.5,
+                end: 2.5,
+            },
+            ControlRequest::RemoveCut { index: 0 },
+            ControlRequest::AutoSpeed { factor: 4.0 },
+            ControlRequest::ClearSpeed,
+            ControlRequest::SetTrim {
+                start: 0.5,
+                end: 9.5,
             },
             ControlRequest::ExportGif {
                 path: "C:/tmp/out.gif".into(),
@@ -411,6 +736,7 @@ mod tests {
                 width: None,
                 quality: 75,
             },
+            ControlRequest::ExportStatus { id: 7 },
             ControlRequest::EstimateGif {
                 fps: 20,
                 width: None,
@@ -423,6 +749,40 @@ mod tests {
             let back: ControlRequest = serde_json::from_str(&line).expect("deserialize");
             assert_eq!(req, back);
         }
+    }
+
+    /// New optional pacing fields may be omitted on the wire (older callers still work).
+    #[test]
+    fn optional_fields_default_when_missing() {
+        let click: ControlRequest =
+            serde_json::from_str(r#"{"op":"click","x":1,"y":2}"#).expect("parse");
+        assert_eq!(
+            click,
+            ControlRequest::Click {
+                x: 1,
+                y: 2,
+                button: Button::Left,
+                double: false,
+                glide_ms: None,
+            }
+        );
+        let start: ControlRequest =
+            serde_json::from_str(r#"{"op":"start_recording"}"#).expect("parse");
+        assert_eq!(
+            start,
+            ControlRequest::StartRecording {
+                auto_zoom_on_click: None
+            }
+        );
+        let text: ControlRequest =
+            serde_json::from_str(r#"{"op":"type_text","text":"hi"}"#).expect("parse");
+        assert_eq!(
+            text,
+            ControlRequest::TypeText {
+                text: "hi".into(),
+                cps: None
+            }
+        );
     }
 
     /// Every response variant must survive a JSON round-trip unchanged.
@@ -444,9 +804,32 @@ mod tests {
             }),
             ControlResponse::Clip(ClipInfo {
                 duration: 12.5,
-                zooms: 3,
-                cuts: 1,
-                speed_regions: 2,
+                output_duration: 9.75,
+                zooms: vec![ZoomSpan {
+                    start: 1.0,
+                    end: 3.5,
+                    amount: 1.8,
+                    focus: Some((0.3, 0.6)),
+                }],
+                cuts: vec![CutSpan {
+                    start: 5.0,
+                    end: 6.0,
+                }],
+                speeds: vec![SpeedSpan {
+                    start: 7.0,
+                    end: 9.0,
+                    factor: 4.0,
+                }],
+            }),
+            ControlResponse::Status(StatusInfo {
+                state: RecordState::Recording,
+                elapsed: Some(4.2),
+            }),
+            ControlResponse::Shot(FrameShot {
+                t: 0.0,
+                width: 800,
+                height: 450,
+                png_base64: "AAAA".into(),
             }),
             ControlResponse::Frames {
                 frames: vec![FrameShot {
@@ -456,6 +839,30 @@ mod tests {
                     png_base64: "AAAA".into(),
                 }],
             },
+            ControlResponse::Zooms {
+                zooms: vec![ZoomSpan {
+                    start: 0.5,
+                    end: 2.0,
+                    amount: 2.0,
+                    focus: None,
+                }],
+            },
+            ControlResponse::Cuts { cuts: vec![] },
+            ControlResponse::Speeds {
+                speeds: vec![SpeedSpan {
+                    start: 0.0,
+                    end: 1.0,
+                    factor: 2.0,
+                }],
+            },
+            ControlResponse::Job { id: 42 },
+            ControlResponse::Export(ExportState {
+                done: 120,
+                total: 400,
+                finished: false,
+                error: None,
+                path: "C:/tmp/out.gif".into(),
+            }),
             ControlResponse::Size { bytes: 1_234_567 },
         ];
         for resp in cases {
@@ -465,18 +872,31 @@ mod tests {
         }
     }
 
-    /// The port file round-trips, and a missing/garbage file reads back as `None`.
+    /// The endpoint file round-trips, and a missing/garbage file reads back as `None`.
     #[test]
     fn port_file_round_trips() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!("vuoom-control-test-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        assert_eq!(read_port_at(&path), None);
-        write_port_file_at(&path, 54321).expect("write");
-        assert_eq!(read_port_at(&path), Some(54321));
+        assert_eq!(read_endpoint_at(&path), None);
+        write_port_file_at(&path, 54321, "cafe").expect("write");
+        assert_eq!(read_endpoint_at(&path), Some((54321, "cafe".to_string())));
         std::fs::write(&path, b"not json").expect("write garbage");
-        assert_eq!(read_port_at(&path), None);
+        assert_eq!(read_endpoint_at(&path), None);
+        // A pre-token file (port only) still reads, with an empty token.
+        std::fs::write(&path, br#"{"port": 1234}"#).expect("write old format");
+        assert_eq!(read_endpoint_at(&path), Some((1234, String::new())));
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Tokens are 128-bit hex and unique across calls.
+    #[test]
+    fn tokens_are_hex_and_unique() {
+        let a = generate_token();
+        let b = generate_token();
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b, "two tokens must not collide");
     }
 
     /// `write_message` emits exactly one trailing newline and a parseable body.

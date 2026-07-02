@@ -22,7 +22,7 @@ use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
-use vuoom_control::{ClipInfo, FrameShot};
+use vuoom_control::{ClipInfo, CutSpan, FrameShot, RecordState, SpeedSpan, StatusInfo, ZoomSpan};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -160,7 +160,25 @@ pub struct Session {
     pending_zoom: Mutex<f64>,
     /// Whether clicks auto-seed zooms for the next recording. Off for the interactive default
     /// (manual hotkey); the AI Demo Director turns it on since the agent drives via clicks.
+    /// Reset to the default at stop/cancel so agent recordings never contaminate a later
+    /// interactive one.
     pending_auto_click: Mutex<bool>,
+    /// Zoom-feel overrides for the next recording (AI Demo Director); reset at stop/cancel.
+    pending_style: Mutex<ZoomStyle>,
+}
+
+/// Optional zoom-feel overrides the AI Demo Director can set for its next recording.
+/// `None` fields keep [`ZoomConfig::default`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ZoomStyle {
+    /// Seconds of inactivity before the camera zooms back out.
+    pub hold: Option<f64>,
+    /// Seconds of anticipation before a click that the zoom-in begins.
+    pub pre_roll: Option<f64>,
+    /// Half-life (s) of the zoom spring.
+    pub hl_zoom: Option<f64>,
+    /// Half-life (s) of the pan spring.
+    pub hl_pan: Option<f64>,
 }
 
 impl Session {
@@ -181,6 +199,7 @@ impl Session {
             pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_auto_click: Mutex::new(ZoomConfig::default().auto_zoom_on_click),
+            pending_style: Mutex::new(ZoomStyle::default()),
         })
     }
 
@@ -215,6 +234,30 @@ impl Session {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = on;
         Ok(())
+    }
+
+    /// Set zoom-feel overrides for the next recording (AI Demo Director); clamped to the
+    /// ranges the editor allows. Reset to defaults when the recording stops.
+    pub fn set_zoom_style(&self, style: ZoomStyle) -> Result<(), String> {
+        let clamped = ZoomStyle {
+            hold: style.hold.map(|v| v.clamp(0.2, 10.0)),
+            pre_roll: style.pre_roll.map(|v| v.clamp(0.0, 2.0)),
+            hl_zoom: style.hl_zoom.map(|v| v.clamp(0.05, 1.5)),
+            hl_pan: style.hl_pan.map(|v| v.clamp(0.05, 1.5)),
+        };
+        *self.pending_style.lock().unwrap_or_else(|e| e.into_inner()) = clamped;
+        Ok(())
+    }
+
+    /// Reset the agent-scoped pending flags (click-zoom + zoom style) to their defaults.
+    /// Called at stop/cancel (and on a failed agent start) so an agent take never changes
+    /// how a later interactive recording behaves.
+    pub(crate) fn reset_agent_pending(&self) {
+        *self
+            .pending_auto_click
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = ZoomConfig::default().auto_zoom_on_click;
+        *self.pending_style.lock().unwrap_or_else(|e| e.into_inner()) = ZoomStyle::default();
     }
 
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
@@ -411,10 +454,16 @@ impl Session {
             .pending_auto_click
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let style = *self.pending_style.lock().unwrap_or_else(|e| e.into_inner());
+        let defaults = ZoomConfig::default();
         let cfg = ZoomConfig {
             amount,
             auto_zoom_on_click,
-            ..ZoomConfig::default()
+            hold: style.hold.unwrap_or(defaults.hold),
+            pre_roll: style.pre_roll.unwrap_or(defaults.pre_roll),
+            hl_zoom: style.hl_zoom.unwrap_or(defaults.hl_zoom),
+            hl_pan: style.hl_pan.unwrap_or(defaults.hl_pan),
+            ..defaults
         };
         let zooms = plan_zooms(&events, duration, &cfg);
         let fps = if duration > 0.0 {
@@ -478,11 +527,62 @@ impl Session {
             ..Edited::default()
         };
 
+        // Agent-scoped flags apply to exactly one recording.
+        self.reset_agent_pending();
+
         Ok(RecordingSummary {
             duration,
             frames: frame_count,
             zooms: zoom_count,
         })
+    }
+
+    /// Stop capturing and **discard** the take: no project is built, the previous clip (if
+    /// any) stays loaded. The cheap way for the AI Demo Director to abandon a botched take.
+    pub fn cancel_recording(&self) -> Result<(), String> {
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut session) = active.take() else {
+            return Err("not recording".into());
+        };
+        session._preview.stop();
+        session.capture.stop();
+        session.recorder.stop();
+        session.drain_stop.store(true, Ordering::Relaxed);
+        if let Some(drain) = session.drain.take() {
+            // Join so the store files are closed before a new recording reuses the
+            // recovery directory; the frames themselves are thrown away.
+            let _ = drain.join();
+        }
+        let _ = session.zoom_poll.finish();
+        self.reset_agent_pending();
+        Ok(())
+    }
+
+    /// What the engine is doing right now (for the AI Demo Director's `status` tool).
+    #[must_use]
+    pub fn status(&self) -> StatusInfo {
+        let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = active.as_ref() {
+            let paused = s.pauses.last().is_some_and(|(_, e)| e.is_none());
+            return StatusInfo {
+                state: if paused {
+                    RecordState::Paused
+                } else {
+                    RecordState::Recording
+                },
+                elapsed: Some(self.clock.seconds_between(s.start_qpc, self.clock.now())),
+            };
+        }
+        drop(active);
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        StatusInfo {
+            state: if edited.project.is_some() {
+                RecordState::ClipReady
+            } else {
+                RecordState::Idle
+            },
+            elapsed: None,
+        }
     }
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
@@ -911,22 +1011,56 @@ impl Session {
         })
     }
 
-    /// A compact, serializable view of the clip for the AI Demo Director's control API.
+    /// The full editable state of the clip for the AI Demo Director's control API: both
+    /// durations plus every zoom/cut/speed span, so the agent knows exactly *where* to
+    /// sample frames and which segment index to repair — instead of guessing from counts.
     pub fn clip_info(&self) -> Result<ClipInfo, String> {
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
+        let (_, span, regions, cuts) = out_mapping(project);
         Ok(ClipInfo {
             duration: project.source.duration,
-            zooms: project.zooms.len(),
-            cuts: project.cuts.len(),
-            speed_regions: project.speed_regions.len(),
+            output_duration: output_duration(span, &regions, &cuts),
+            zooms: project
+                .zooms
+                .iter()
+                .map(|k| ZoomSpan {
+                    start: k.start,
+                    end: k.end,
+                    amount: k.amount,
+                    focus: match k.mode {
+                        ZoomMode::Manual { pos } => Some((pos.x, pos.y)),
+                        ZoomMode::Auto => None,
+                    },
+                })
+                .collect(),
+            cuts: project
+                .cuts
+                .iter()
+                .map(|c| CutSpan {
+                    start: c.start,
+                    end: c.end,
+                })
+                .collect(),
+            speeds: project
+                .speed_regions
+                .iter()
+                .map(|r| SpeedSpan {
+                    start: r.start,
+                    end: r.end,
+                    factor: r.factor,
+                })
+                .collect(),
         })
     }
 
-    /// Composite the clip at each of `times` (seconds) and return the frames as base64 PNGs,
-    /// so the AI Demo Director can *see* its output and critique it. Annotations are baked in
-    /// (unlike the live preview), so the agent sees exactly what export will produce. Pass
-    /// `max_width` to downscale each frame and keep the vision payload small.
+    /// Composite the clip at each of `times` (**output-timeline** seconds) and return the
+    /// frames as base64 PNGs, so the AI Demo Director can *see* its output and critique it.
+    ///
+    /// Times map through trim + cuts + speed exactly like export does, so `t` here shows
+    /// what the exported GIF shows at `t` — sampling in source time would let the agent
+    /// critique frames inside cuts that never ship. Annotations are baked in (unlike the
+    /// live preview). Pass `max_width` to downscale and keep the vision payload small.
     pub fn sample_frames(
         &self,
         times: &[f64],
@@ -942,12 +1076,16 @@ impl Session {
         }
         let (out_w, out_h) = project.output_dims();
         let bg = background_color(&project.frame);
+        let (t0, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
         let mut shots = Vec::with_capacity(times.len());
         for &t in times {
-            let idx =
-                nearest_idx(store.recs(), self.clock, edited.start_qpc, t).ok_or("no frames")?;
+            let t_out = t.clamp(0.0, d_out);
+            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+            let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
+                .ok_or("no frames")?;
             let frame = store.frame(idx)?;
-            let scene = build_scene(project, track, out_w, out_h, t);
+            let scene = build_scene(project, track, out_w, out_h, t_src);
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -966,13 +1104,56 @@ impl Session {
             let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
             shots.push(FrameShot {
-                t,
+                t: t_out,
                 width: img.width,
                 height: img.height,
                 png_base64: b64,
             });
         }
         Ok(shots)
+    }
+
+    /// [`Session::seek`], but `t` is on the **output timeline** (the control API's time
+    /// space) — mapped through trim + cuts + speed before compositing.
+    pub fn seek_output(&self, t: f64) -> Result<(), String> {
+        let t_src = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            let project = edited.project.as_ref().ok_or("no recording")?;
+            let (t0, span, regions, cuts) = out_mapping(project);
+            let d_out = output_duration(span, &regions, &cuts);
+            t0 + output_to_source(t.clamp(0.0, d_out), span, &regions, &cuts)
+        };
+        self.seek(t_src)
+    }
+
+    /// Capture the recording monitor **right now** and return it as a downscalable PNG shot
+    /// — the AI Demo Director's eyes while driving (before/without any recording).
+    pub fn screenshot_shot(&self, max_width: Option<u32>) -> Result<FrameShot, String> {
+        let monitor = self
+            .pending_monitor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|m| m.name.clone());
+        let (rx, handle) = spawn_region(None, monitor);
+        let frame = rx.recv_timeout(std::time::Duration::from_secs(3));
+        // Stop the capture thread on every path — including a timeout — so a slow or failed
+        // grab can't leak a live capture session and its GPU/duplication resources.
+        handle.stop();
+        let frame = frame.map_err(|e| format!("screenshot capture failed: {e}"))?;
+        let mut img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
+        if let Some(mw) = max_width {
+            if mw > 0 && mw < img.width {
+                img = downscale_rgba(&img, mw);
+            }
+        }
+        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        Ok(FrameShot {
+            t: 0.0,
+            width: img.width,
+            height: img.height,
+            png_base64: base64::engine::general_purpose::STANDARD.encode(&png),
+        })
     }
 
     /// Toggle click ripples (drawn in both the preview and the exported GIF).

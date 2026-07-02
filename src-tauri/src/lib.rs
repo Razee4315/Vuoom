@@ -150,6 +150,13 @@ pub fn run() {
             commands::check_recovery,
             commands::recover_session,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Drop the control-server discovery file so a stale endpoint never points
+                // a future MCP sidecar at a dead port.
+                control_server::cleanup();
+            }
+        });
 }

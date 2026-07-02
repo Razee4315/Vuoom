@@ -24,6 +24,9 @@ dist-ssr
 /recordings
 /scratch
 
+# Local MCP config (machine-specific absolute paths; see docs/AI_DEMO_DIRECTOR.md)
+/.mcp.json
+
 # Editor / OS
 .DS_Store
 Thumbs.db

@@ -213,7 +213,7 @@ impl Session {
         *self
             .pending_auto_click
             .lock()
-            .map_err(|_| "lock poisoned")? = on;
+            .unwrap_or_else(|e| e.into_inner()) = on;
         Ok(())
     }
 
@@ -913,7 +913,7 @@ impl Session {
 
     /// A compact, serializable view of the clip for the AI Demo Director's control API.
     pub fn clip_info(&self) -> Result<ClipInfo, String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
         Ok(ClipInfo {
             duration: project.source.duration,
@@ -932,7 +932,7 @@ impl Session {
         times: &[f64],
         max_width: Option<u32>,
     ) -> Result<Vec<FrameShot>, String> {
-        let edited = self.edited.lock().map_err(|_| "lock poisoned")?;
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         let track = edited.track.as_ref().ok_or("no recording")?;
@@ -944,7 +944,8 @@ impl Session {
         let bg = background_color(&project.frame);
         let mut shots = Vec::with_capacity(times.len());
         for &t in times {
-            let idx = nearest_idx(store, self.clock, edited.start_qpc, t).ok_or("no frames")?;
+            let idx =
+                nearest_idx(store.recs(), self.clock, edited.start_qpc, t).ok_or("no frames")?;
             let frame = store.frame(idx)?;
             let scene = build_scene(project, track, out_w, out_h, t);
             let rgba = compositor.composite_scene(

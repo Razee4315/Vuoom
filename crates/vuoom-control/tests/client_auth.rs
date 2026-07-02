@@ -61,13 +61,23 @@ fn authenticated_client_round_trips() {
 fn wrong_token_is_rejected() {
     let token = vuoom_control::generate_token();
     let port = spawn_server(token);
-    // Connecting succeeds (TCP accepts), but the first call finds the socket closed.
+    // Connecting succeeds (TCP accepts), but the first call finds the socket gone: the
+    // server dropped it after the bad token. HOW that surfaces is platform-dependent —
+    // a clean EOF (n == 0 → our "closed the connection" message) on some stacks, or a
+    // raw connection reset/abort (WSAECONNABORTED / ECONNRESET) on Windows. The property
+    // under test is simply that a wrong token can never yield a successful call.
     let mut client = Client::connect(port, "wrong-token").expect("tcp connect");
     let err = client
         .call(&ControlRequest::Ping)
-        .expect_err("must be rejected");
+        .expect_err("wrong token must be rejected, never Ok");
+    let lower = err.to_lowercase();
     assert!(
-        err.contains("closed the connection"),
-        "unexpected error: {err}"
+        lower.contains("closed the connection")
+            || lower.contains("reset")
+            || lower.contains("aborted")
+            || lower.contains("broken pipe")
+            || lower.contains("10053")
+            || lower.contains("10054"),
+        "expected a connection-closed/reset error, got: {err}"
     );
 }

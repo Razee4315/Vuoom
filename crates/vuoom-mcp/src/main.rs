@@ -934,3 +934,65 @@ async fn main() -> anyhow::Result<()> {
     service.waiting().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every tool the director workflow relies on must be registered in the router — the
+    /// `#[tool_handler]` macro wiring is otherwise invisible until an agent connects.
+    #[test]
+    fn router_lists_every_director_tool() {
+        let router = VuoomMcp::tool_router();
+        let names: Vec<String> = router
+            .list_all()
+            .into_iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        let expected = [
+            "ping",
+            "screen_geometry",
+            "screenshot",
+            "status",
+            "set_region",
+            "set_zoom_amount",
+            "set_zoom_style",
+            "start_recording",
+            "stop_recording",
+            "cancel_recording",
+            "set_paused",
+            "move_cursor",
+            "click",
+            "drag",
+            "type_text",
+            "key_chord",
+            "scroll",
+            "wait",
+            "seek",
+            "clip_state",
+            "get_frames",
+            "add_zoom",
+            "update_zoom",
+            "set_zoom_focus",
+            "remove_zoom",
+            "add_cut",
+            "update_cut",
+            "remove_cut",
+            "auto_speed",
+            "clear_speed",
+            "set_trim",
+            "estimate_gif",
+            "export_gif",
+            "export_mp4",
+            "export_status",
+        ];
+        for tool in expected {
+            assert!(names.iter().any(|n| n == tool), "missing tool: {tool}");
+        }
+        assert_eq!(
+            names.len(),
+            expected.len(),
+            "unexpected extra tools: {names:?}"
+        );
+    }
+}

@@ -1,5 +1,13 @@
 # MCP / AI Demo Director — Code Review & Improvement Plan
 
+> **Implementation status (2026-07-02):** everything below through P2 is now implemented on
+> this branch — the humanizer (§1.1–1.4), perception + repair loop (§2.1–2.6), injection
+> correctness (§3.1–3.4), server hardening (§4.1–4.5), and the MCP-layer polish + tests
+> (Parts 5–6). Still open: the §1.5 server-side `min_action_gap_ms` (the rhythm recipe went
+> into the MCP instructions instead), §4.6 single-connection enforcement (documented,
+> accepted), and the **v2 synthetic cursor rendering** (§1.1 endgame + roadmap item 19).
+> All of it needs the runtime pass described in `docs/IMPLEMENTATION-STATUS.md`.
+
 **Branch reviewed:** `feat/ai-demo-director-mcp` (13 commits over `main`)
 **Files reviewed:** `crates/vuoom-mcp`, `crates/vuoom-control`, `crates/vuoom-input/src/inject.rs`,
 `src-tauri/src/control_server.rs`, the `session.rs` additions, and the zoom pipeline

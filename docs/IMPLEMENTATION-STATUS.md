@@ -98,6 +98,20 @@ live app end to end — `start_recording` → injected clicks/typing into a targ
 `get_frames` (real composited PNGs) → `export_gif` (real GIF written). The one runtime bug found
 and fixed: click-to-zoom defaults off for the interactive UI, so the agent path now opts it on.
 
+**v2 (2026-07-02, from the `mcp_improve.md` review — 🟡 needs a fresh runtime pass):**
+
+| Area | Crate | Status |
+|---|---|---|
+| Humanized injection: min-jerk cursor glide, settle-then-click, paced typing, stepped scroll, drag | `vuoom-input` | 🟡 compile+unit-tested |
+| Injection failure detection (UIPI short-count → error), extended keys, OEM punctuation | `vuoom-input` | 🟡 |
+| Live `screenshot` op + `status` / `cancel_recording` | all | 🟡 |
+| `clip_state` returns zoom/cut/speed **spans** + `output_duration` | all | 🟡 |
+| Output-timeline `get_frames`/`seek` (matches export through trim/cuts/speed) | `src-tauri` | 🟡 |
+| Edit ops over the protocol (zoom/cut/speed/trim repair without re-recording) | all | 🟡 |
+| Job-based exports with `export_status` polling | all | 🟡 |
+| Auth token + connect/read timeouts + discovery-file cleanup + `VUOOM_ENABLE_CONTROL=0` off | all | ✅ CI (auth integration test) |
+| Per-recording `set_zoom_style` + agent flags reset at stop/cancel | `src-tauri` | 🟡 |
+
 ## Why the 🟡 / ⬜ boundary
 
 The capture, GPU compositor, and live preview need a **real GPU + display** to verify (does it

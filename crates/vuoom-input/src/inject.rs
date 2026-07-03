@@ -155,9 +155,23 @@ pub fn key_to_vk(name: &str) -> Option<u16> {
         "/" | "slash" => 0xBF,
         "\\" | "backslash" => 0xDC,
         "`" | "grave" | "backtick" => 0xC0,
-        _ => return single_key_vk(&n),
+        // Numpad cluster — VK_ADD emits a literal `+` unshifted (unlike VK_OEM_PLUS above, which
+        // types `=`), so a chord like `["+"]` produces `+`. `multiply`/`subtract`/`divide`/`decimal`
+        // and `numpad0`..`numpad9` (0x60..0x69) round out the pad.
+        "+" | "add" => 0x6B,
+        "*" | "multiply" | "asterisk" | "star" => 0x6A,
+        "subtract" => 0x6D,
+        "divide" => 0x6F,
+        "decimal" => 0x6E,
+        _ => return numpad_vk(&n).or_else(|| single_key_vk(&n)),
     };
     Some(vk)
+}
+
+/// `numpad0`..`numpad9` → VK_NUMPAD0..VK_NUMPAD9 (0x60..0x69).
+fn numpad_vk(n: &str) -> Option<u16> {
+    let digit: u16 = n.strip_prefix("numpad")?.parse().ok()?;
+    (digit <= 9).then_some(0x60 + digit)
 }
 
 /// Letters, digits, and `f1`..`f12` — the single-token keys not in the named-key table.
@@ -663,6 +677,28 @@ mod tests {
         assert_eq!(key_to_vk("]"), Some(0xDD));
         assert_eq!(key_to_vk("\\"), Some(0xDC));
         assert_eq!(key_to_vk("`"), Some(0xC0));
+    }
+
+    #[test]
+    fn numpad_and_symbol_keys_map() {
+        // VK_ADD emits a literal `+` (VK_OEM_PLUS / "plus" stays 0xBB for ctrl+= chords).
+        assert_eq!(key_to_vk("+"), Some(0x6B));
+        assert_eq!(key_to_vk("add"), Some(0x6B));
+        assert_eq!(key_to_vk("plus"), Some(0xBB));
+        assert_eq!(key_to_vk("*"), Some(0x6A));
+        assert_eq!(key_to_vk("multiply"), Some(0x6A));
+        assert_eq!(key_to_vk("star"), Some(0x6A));
+        assert_eq!(key_to_vk("subtract"), Some(0x6D));
+        assert_eq!(key_to_vk("divide"), Some(0x6F));
+        assert_eq!(key_to_vk("decimal"), Some(0x6E));
+        // Numpad digit cluster (0x60..0x69).
+        assert_eq!(key_to_vk("numpad0"), Some(0x60));
+        assert_eq!(key_to_vk("numpad5"), Some(0x65));
+        assert_eq!(key_to_vk("numpad9"), Some(0x69));
+        assert_eq!(key_to_vk("NUMPAD9"), Some(0x69));
+        // Out-of-range / malformed numpad names fall through to None.
+        assert_eq!(key_to_vk("numpad10"), None);
+        assert_eq!(key_to_vk("numpad"), None);
     }
 
     #[test]

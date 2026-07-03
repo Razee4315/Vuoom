@@ -56,7 +56,7 @@ pub fn key_name(vk: u16) -> Option<&'static str> {
         0x30..=0x39 => DIGITS[(vk - 0x30) as usize],
         0x41..=0x5A => LETTERS[(vk - 0x41) as usize],
         0x70..=0x7B => FKEYS[(vk - 0x70) as usize],
-        0xBB => "+",
+        0xBB => "=",
         0xBC => ",",
         0xBD => "-",
         0xBE => ".",

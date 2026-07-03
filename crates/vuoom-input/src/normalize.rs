@@ -56,7 +56,9 @@ pub fn normalize(
             pos,
             delta: f64::from(d),
         }),
-        RawEventKind::KeyDown(_) => Some(InputEvent::KeyType { t }),
+        // No caret pos from the raw hook: `pos` here is the mouse, which may sit far from the
+        // caret while typing — steering the camera toward it would be worse than staying put.
+        RawEventKind::KeyDown(_) => Some(InputEvent::KeyType { t, pos: None }),
         RawEventKind::ButtonUp(_) | RawEventKind::KeyUp(_) => None,
     }
 }

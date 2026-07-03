@@ -1,0 +1,16 @@
+# Control protocol for the AI Demo Director (MCP). See docs/13-AI-Demo-Director-Research.md.
+# Pure serde types + a tiny blocking TCP client — the contract shared by Vuoom's in-app
+# control server (src-tauri) and the standalone `vuoom-mcp` sidecar. No GPU/OS deps, so it
+# compiles fast and is fully unit-testable off-CI.
+[package]
+name = "vuoom-control"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

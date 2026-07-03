@@ -17,7 +17,7 @@ pub use camera::{clamp_camera, simulate, spring_update, CameraState, CameraTrack
 pub use config::ZoomConfig;
 pub use edit::{insert_sorted, move_to, remove, resize, sort_by_start, MIN_LEN};
 pub use event::{InputEvent, MouseButton};
-pub use keyframe::{ZoomKeyframe, ZoomMode};
+pub use keyframe::{NormRect, ZoomKeyframe, ZoomMode, RECT_FIT_PADDING};
 pub use planner::plan_zooms;
 
 /// Convenience: plan zoom segments and simulate the camera in one call.

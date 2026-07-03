@@ -15,8 +15,9 @@ use windows_capture::graphics_capture_api::{GraphicsCaptureApi, InternalCaptureC
 use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+    GraphicsCaptureItemType, MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
+use windows_capture::window::Window;
 
 /// One captured frame: tightly-packed BGRA8 pixels + dimensions + QPC timestamp.
 pub struct CapturedFrame {
@@ -33,6 +34,15 @@ pub struct CropRegion {
     pub y: u32,
     pub w: u32,
     pub h: u32,
+}
+
+/// What to capture: a display monitor or a specific application window.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptureTarget {
+    /// A display monitor by Win32 device name (e.g. `\\.\DISPLAY2`); `None` = primary.
+    Monitor { device_name: Option<String> },
+    /// A top-level window whose title *contains* `title` (case-insensitive, best/topmost match).
+    Window { title: String },
 }
 
 /// Clamp a requested crop inside the frame, guaranteeing a non-empty rect.
@@ -106,6 +116,11 @@ impl GraphicsCaptureApiHandler for Handler {
             control.stop();
             return Ok(());
         }
+        // Dimensions are read fresh every frame, so a window that RESIZES mid-capture is
+        // handled without crashing: WGC hands us a new frame size and `clamp_region`
+        // re-clamps the crop to whatever the current frame is (the crop is clamped/"letterboxed"
+        // into the live frame rather than being a fixed absolute rect). Frames therefore keep
+        // flowing at the new size; downstream consumers see a dimension change.
         let width = frame.width();
         let height = frame.height();
         let buffer = frame.buffer()?;
@@ -143,18 +158,29 @@ fn pick_monitor(name: Option<&str>) -> Result<Monitor, CaptureError> {
     Monitor::primary().map_err(|e| CaptureError::Start(e.to_string()))
 }
 
-/// Capture one display (by device name; primary if `None`), **blocking** until stopped;
-/// BGRA frames go to `tx`.
+/// Resolve a window by case-insensitive title substring, picking the best/topmost match.
+fn pick_window(title: &str) -> Result<Window, CaptureError> {
+    let windows =
+        Window::enumerate().map_err(|e| CaptureError::Start(format!("enumerate windows: {e}")))?;
+    let titles: Vec<String> = windows
+        .iter()
+        .map(|w| w.title().unwrap_or_default())
+        .collect();
+    let idx = crate::windows::best_match_index(&titles, title)
+        .ok_or_else(|| CaptureError::Start(format!("no window matching '{title}'")))?;
+    Ok(windows[idx])
+}
+
+/// Build capture settings for `item` and run the session, **blocking** until stopped.
 ///
-/// # Errors
-/// Returns [`CaptureError`] if the monitor or capture session cannot be started.
-pub fn run_display(
+/// Generic over the capture item so the monitor and window paths share one code path (both
+/// `Monitor` and `Window` implement `TryInto<GraphicsCaptureItemType>`).
+fn run_capture<T: TryInto<GraphicsCaptureItemType>>(
+    item: T,
     tx: Sender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    monitor: Option<&str>,
 ) -> Result<(), CaptureError> {
-    let monitor = pick_monitor(monitor)?;
     // Capture without the OS "being captured" highlight where the platform allows it
     // (Windows 11+, via the `IsBorderRequired` API). On Windows 10 that API is absent and the
     // border can't be removed, so we fall back to Default — requesting a specific value there
@@ -165,7 +191,7 @@ pub fn run_display(
         DrawBorderSettings::Default
     };
     let settings = Settings::new(
-        monitor,
+        item,
         CursorCaptureSettings::Default,
         border,
         SecondaryWindowSettings::Default,
@@ -176,6 +202,52 @@ pub fn run_display(
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
+}
+
+/// Capture a [`CaptureTarget`] (monitor or window), **blocking** until stopped; BGRA frames
+/// go to `tx`. `crop`, when set, is applied relative to the captured frame (monitor- or
+/// window-relative physical px) and re-clamped every frame, so a window that resizes
+/// mid-capture is handled safely (see `Handler::on_frame_arrived`).
+///
+/// # Errors
+/// Returns [`CaptureError`] if the target cannot be resolved or the session cannot start.
+pub fn run_target(
+    tx: Sender<CapturedFrame>,
+    stop: Arc<AtomicBool>,
+    crop: Option<CropRegion>,
+    target: &CaptureTarget,
+) -> Result<(), CaptureError> {
+    match target {
+        CaptureTarget::Monitor { device_name } => {
+            let monitor = pick_monitor(device_name.as_deref())?;
+            run_capture(monitor, tx, stop, crop)
+        }
+        CaptureTarget::Window { title } => {
+            let window = pick_window(title)?;
+            run_capture(window, tx, stop, crop)
+        }
+    }
+}
+
+/// Capture one display (by device name; primary if `None`), **blocking** until stopped;
+/// BGRA frames go to `tx`. Thin wrapper over [`run_target`] for the monitor case.
+///
+/// # Errors
+/// Returns [`CaptureError`] if the monitor or capture session cannot be started.
+pub fn run_display(
+    tx: Sender<CapturedFrame>,
+    stop: Arc<AtomicBool>,
+    crop: Option<CropRegion>,
+    monitor: Option<&str>,
+) -> Result<(), CaptureError> {
+    run_target(
+        tx,
+        stop,
+        crop,
+        &CaptureTarget::Monitor {
+            device_name: monitor.map(str::to_string),
+        },
+    )
 }
 
 /// Spawn display capture on a background thread; returns the frame receiver and a
@@ -194,6 +266,27 @@ pub fn spawn_region(
     };
     std::thread::spawn(move || {
         if let Err(e) = run_display(tx, stop, crop, monitor.as_deref()) {
+            tracing::error!("screen capture stopped: {e}");
+        }
+    });
+    (rx, handle)
+}
+
+/// Spawn capture of an arbitrary [`CaptureTarget`] (monitor or window) on a background thread;
+/// returns the frame receiver and a [`CaptureHandle`] to stop it. When `crop` is set, frames
+/// are cropped to that sub-rectangle (target-relative physical px) before being sent.
+#[must_use]
+pub fn spawn_target(
+    target: CaptureTarget,
+    crop: Option<CropRegion>,
+) -> (Receiver<CapturedFrame>, CaptureHandle) {
+    let (tx, rx) = channel();
+    let stop = Arc::new(AtomicBool::new(false));
+    let handle = CaptureHandle {
+        stop: Arc::clone(&stop),
+    };
+    std::thread::spawn(move || {
+        if let Err(e) = run_target(tx, stop, crop, &target) {
             tracing::error!("screen capture stopped: {e}");
         }
     });

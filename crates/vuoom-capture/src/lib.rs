@@ -8,8 +8,13 @@
 #[cfg(windows)]
 mod capture;
 
+/// Top-level window enumeration + bounds (window-targeted capture support).
+pub mod windows;
+
 #[cfg(windows)]
 pub use capture::{
-    run_display, spawn_primary_display, spawn_region, CaptureError, CaptureHandle, CapturedFrame,
-    CropRegion,
+    run_display, run_target, spawn_primary_display, spawn_region, spawn_target, CaptureError,
+    CaptureHandle, CaptureTarget, CapturedFrame, CropRegion,
 };
+
+pub use windows::{find_window_bounds, list_windows, WindowInfo};

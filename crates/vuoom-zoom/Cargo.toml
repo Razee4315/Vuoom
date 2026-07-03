@@ -12,3 +12,5 @@ serde.workspace = true
 
 [dev-dependencies]
 # property tests for the planner go here (no off-screen reveal, debounce, frequency limit)
+# serde_json backs the backward-compat (de)serialization tests for ZoomKeyframe / ZoomMode.
+serde_json.workspace = true

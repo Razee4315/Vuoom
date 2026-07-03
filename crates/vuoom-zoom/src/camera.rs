@@ -63,6 +63,12 @@ fn snap_to_edges(p: DVec2, ratio: f64) -> DVec2 {
     DVec2::new(snap_axis(p.x, ratio), snap_axis(p.y, ratio))
 }
 
+/// Clamp a per-span spring half-life override into the sane range the inspector uses for
+/// style half-lives (0.05–1.5 s), leaving `None` untouched so the caller can fall back.
+fn clamp_hl(hl: Option<f64>) -> Option<f64> {
+    hl.map(|h| h.clamp(0.05, 1.5))
+}
+
 fn snap_axis(v: f64, ratio: f64) -> f64 {
     if ratio <= 0.0 {
         v
@@ -151,6 +157,9 @@ pub fn simulate(
     let mut pan_target = DVec2::splat(0.5);
     let mut zoom = 1.0_f64;
     let mut zoom_v = 0.0_f64;
+    // Zoom-out half-life carried over from the most-recently-active span, so a release that
+    // happens *after* a span ends still honours that span's `hl_zoom_out` override.
+    let mut release_hl = cfg.hl_zoom * 0.85;
 
     let mut si = 0;
     let mut frames = Vec::with_capacity(frame_count);
@@ -173,13 +182,14 @@ pub fn simulate(
 
         let active = keyframes.iter().find(|k| k.contains(t));
         let (target_zoom, focus) = match active {
-            Some(k) => {
-                let f = match k.mode {
-                    ZoomMode::Auto => snap_to_edges(smoothed, k.edge_snap_ratio),
-                    ZoomMode::Manual { pos } => pos,
-                };
-                (k.amount, f)
-            }
+            Some(k) => match k.mode {
+                ZoomMode::Auto => (k.amount, snap_to_edges(smoothed, k.edge_snap_ratio)),
+                ZoomMode::Manual { pos } => (k.amount, pos),
+                // Fit-and-center on the rect: focus at its center; the zoom may only be
+                // *reduced* (never raised) so the whole subject fits. The off-screen
+                // clamp keeps the center on-frame, so no extra edge-snap is applied here.
+                ZoomMode::Rect { rect } => (rect.fit_zoom(k.amount), rect.center()),
+            },
             None => (1.0, DVec2::splat(0.5)),
         };
 
@@ -189,11 +199,16 @@ pub fn simulate(
             pan_target = focus;
         }
 
-        // Zoom-out a touch faster than zoom-in (matches the documented feel).
-        let zoom_hl = if target_zoom < zoom {
-            cfg.hl_zoom * 0.85
-        } else {
-            cfg.hl_zoom
+        // Zoom spring half-life. While a span is active, use its zoom-in override (or the
+        // config default); while releasing between/after spans, use the most-recently-active
+        // span's zoom-out override (or the documented `hl_zoom * 0.85` faster release).
+        let default_release_hl = cfg.hl_zoom * 0.85;
+        let zoom_hl = match active {
+            Some(k) => {
+                release_hl = clamp_hl(k.hl_zoom_out).unwrap_or(default_release_hl);
+                clamp_hl(k.hl_zoom_in).unwrap_or(cfg.hl_zoom)
+            }
+            None => release_hl,
         };
         spring_update(&mut zoom, &mut zoom_v, target_zoom, zoom_hl, dt);
         spring_vec(&mut center, &mut center_v, pan_target, cfg.hl_pan, dt);
@@ -246,6 +261,230 @@ mod tests {
         let (mut x, mut v) = (0.0, 0.0);
         spring_update(&mut x, &mut v, 1.0, 0.0, 1.0 / 60.0);
         assert!(x.is_finite() && v.is_finite(), "x={x} v={v}");
+    }
+
+    use crate::event::InputEvent;
+    use crate::keyframe::NormRect;
+
+    fn auto_kf(
+        start: f64,
+        end: f64,
+        amount: f64,
+        hl_in: Option<f64>,
+        hl_out: Option<f64>,
+    ) -> ZoomKeyframe {
+        ZoomKeyframe {
+            start,
+            end,
+            amount,
+            mode: ZoomMode::Auto,
+            edge_snap_ratio: 0.0,
+            hl_zoom_in: hl_in,
+            hl_zoom_out: hl_out,
+        }
+    }
+
+    fn rect_kf(start: f64, end: f64, amount: f64, rect: NormRect) -> ZoomKeyframe {
+        ZoomKeyframe {
+            start,
+            end,
+            amount,
+            mode: ZoomMode::Rect { rect },
+            edge_snap_ratio: 0.0,
+            hl_zoom_in: None,
+            hl_zoom_out: None,
+        }
+    }
+
+    // ---- Feature 1: rect focus ----
+
+    #[test]
+    fn rect_span_fits_and_centers() {
+        let cfg = ZoomConfig::default();
+        let r = NormRect {
+            x: 0.5,
+            y: 0.5,
+            w: 0.3,
+            h: 0.2,
+        };
+        let track = simulate(&[], &[rect_kf(0.0, 5.0, 3.0, r)], 5.0, 60.0, &cfg);
+        let s = track.at(4.5);
+        let expected_zoom = r.fit_zoom(3.0);
+        // The rect reduces the span amount (3.0) down to the fit zoom so it stays visible.
+        assert!(expected_zoom < 3.0, "rect should have reduced the zoom");
+        assert!(
+            (s.zoom - expected_zoom).abs() < 0.05,
+            "zoom {} != fit {expected_zoom}",
+            s.zoom
+        );
+        let expected_center = clamp_camera(r.center(), expected_zoom);
+        assert!(
+            (s.center - expected_center).abs().max_element() < 0.02,
+            "center {:?} not at rect center {:?}",
+            s.center,
+            expected_center
+        );
+    }
+
+    #[test]
+    fn rect_span_never_exceeds_amount() {
+        let cfg = ZoomConfig::default();
+        // A small rect could fit at a high zoom, but must not exceed the span amount.
+        let r = NormRect {
+            x: 0.45,
+            y: 0.45,
+            w: 0.03,
+            h: 0.03,
+        };
+        let track = simulate(&[], &[rect_kf(0.0, 5.0, 1.8, r)], 5.0, 60.0, &cfg);
+        for f in track.frames() {
+            assert!(
+                f.zoom <= 1.8 + 1e-6,
+                "rect zoom exceeded amount: {}",
+                f.zoom
+            );
+        }
+        assert!((track.at(4.5).zoom - 1.8).abs() < 0.05);
+    }
+
+    #[test]
+    fn degenerate_rect_behaves_like_manual() {
+        let cfg = ZoomConfig::default();
+        let r = NormRect {
+            x: 0.3,
+            y: 0.3,
+            w: 0.0,
+            h: 0.2,
+        };
+        let track = simulate(&[], &[rect_kf(0.0, 5.0, 2.0, r)], 5.0, 60.0, &cfg);
+        let s = track.at(4.5);
+        // No area to fit -> holds the full span amount, centered on the (degenerate) center.
+        assert!(
+            (s.zoom - 2.0).abs() < 0.05,
+            "degenerate rect changed zoom: {}",
+            s.zoom
+        );
+        let expected_center = clamp_camera(r.center(), 2.0);
+        assert!((s.center - expected_center).abs().max_element() < 0.02);
+    }
+
+    // ---- Feature 2: per-span envelope overrides ----
+
+    #[test]
+    fn envelope_in_override_speeds_zoom_in() {
+        let cfg = ZoomConfig::default();
+        let fast = simulate(
+            &[],
+            &[auto_kf(0.0, 3.0, 2.0, Some(0.05), None)],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        let slow = simulate(
+            &[],
+            &[auto_kf(0.0, 3.0, 2.0, Some(1.5), None)],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        assert!(
+            fast.at(0.3).zoom > slow.at(0.3).zoom + 0.2,
+            "fast in-override not faster: {} vs {}",
+            fast.at(0.3).zoom,
+            slow.at(0.3).zoom
+        );
+    }
+
+    #[test]
+    fn envelope_in_none_falls_back_to_config() {
+        let cfg = ZoomConfig::default();
+        let default_kf = simulate(&[], &[auto_kf(0.0, 3.0, 2.0, None, None)], 3.0, 60.0, &cfg);
+        let explicit = simulate(
+            &[],
+            &[auto_kf(0.0, 3.0, 2.0, Some(cfg.hl_zoom), None)],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        assert_eq!(default_kf.frames(), explicit.frames());
+    }
+
+    #[test]
+    fn envelope_out_override_used_on_release() {
+        let cfg = ZoomConfig::default();
+        // Span ends at t=1; the release afterwards must honour the span's out override.
+        let fast_out = simulate(
+            &[],
+            &[auto_kf(0.0, 1.0, 2.0, None, Some(0.05))],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        let slow_out = simulate(
+            &[],
+            &[auto_kf(0.0, 1.0, 2.0, None, Some(1.5))],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        assert!(
+            fast_out.at(1.3).zoom < slow_out.at(1.3).zoom - 0.1,
+            "fast out-override did not release faster: {} vs {}",
+            fast_out.at(1.3).zoom,
+            slow_out.at(1.3).zoom
+        );
+    }
+
+    #[test]
+    fn envelope_out_none_falls_back_to_faster_release() {
+        let cfg = ZoomConfig::default();
+        // None out-override reproduces the documented `hl_zoom * 0.85` faster release.
+        let default_kf = simulate(&[], &[auto_kf(0.0, 1.0, 2.0, None, None)], 3.0, 60.0, &cfg);
+        let explicit = simulate(
+            &[],
+            &[auto_kf(0.0, 1.0, 2.0, None, Some(cfg.hl_zoom * 0.85))],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        assert_eq!(default_kf.frames(), explicit.frames());
+    }
+
+    // ---- Feature 3: caret-follow ----
+
+    #[test]
+    fn keytype_with_pos_steers_auto_focus() {
+        let cfg = ZoomConfig::default();
+        let kf = auto_kf(0.0, 5.0, 2.0, None, None);
+        let with_pos = [
+            InputEvent::Move {
+                t: 0.0,
+                pos: DVec2::new(0.5, 0.5),
+            },
+            InputEvent::KeyType {
+                t: 0.5,
+                pos: Some(DVec2::new(0.9, 0.5)),
+            },
+        ];
+        let without = [
+            InputEvent::Move {
+                t: 0.0,
+                pos: DVec2::new(0.5, 0.5),
+            },
+            InputEvent::KeyType { t: 0.5, pos: None },
+        ];
+        let a = simulate(&with_pos, &[kf], 5.0, 60.0, &cfg).at(4.5);
+        let b = simulate(&without, &[kf], 5.0, 60.0, &cfg).at(4.5);
+        assert!(
+            a.center.x > 0.55,
+            "caret-pos did not steer focus right: {}",
+            a.center.x
+        );
+        assert!(
+            (b.center.x - 0.5).abs() < 1e-6,
+            "no-pos KeyType moved focus: {}",
+            b.center.x
+        );
     }
 
     #[test]

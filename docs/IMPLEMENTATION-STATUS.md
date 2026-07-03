@@ -77,6 +77,41 @@ a GPU-less CI runner, so they're compile-verified here and confirmed by running 
 
 ---
 
+## AI Demo Director (MCP) — agent-driven demo generation
+
+An AI agent (Claude) can drive Vuoom to generate a demo: drive a target app, record with
+auto-zoom, *see* the output via sampled frames, and re-record to improve it. Setup in
+`docs/AI_DEMO_DIRECTOR.md`; research in `docs/13-AI-Demo-Director-Research.md`.
+
+| Area | Crate | Status |
+|---|---|---|
+| Control protocol (newline-JSON req/resp, client, port discovery) | `vuoom-control` | ✅ |
+| Input injection (SendInput move/click/type/key/scroll) + coord/key math | `vuoom-input` | ✅ runtime-verified |
+| In-app control server (opt-in `VUOOM_ENABLE_CONTROL`, loopback) | `src-tauri` | ✅ runtime-verified |
+| `Session::sample_frames` (composite → base64 PNG) + `clip_info` | `src-tauri` | ✅ runtime-verified |
+| MCP sidecar — 20 tools over stdio (rmcp) | `vuoom-mcp` | ✅ runtime-verified |
+| Click-to-zoom for agent recordings (`SetAutoZoomOnClick`, default on) | all | ✅ runtime-verified |
+
+**Runtime-verified on a real Windows machine (2026-06-14):** a sequential MCP agent drove the
+live app end to end — `start_recording` → injected clicks/typing into a target app (Notepad) →
+`stop_recording` (158 frames, **1 cinematic zoom planned from the injected clicks**) →
+`get_frames` (real composited PNGs) → `export_gif` (real GIF written). The one runtime bug found
+and fixed: click-to-zoom defaults off for the interactive UI, so the agent path now opts it on.
+
+**v2 (2026-07-02, from the `mcp_improve.md` review — 🟡 needs a fresh runtime pass):**
+
+| Area | Crate | Status |
+|---|---|---|
+| Humanized injection: min-jerk cursor glide, settle-then-click, paced typing, stepped scroll, drag | `vuoom-input` | 🟡 compile+unit-tested |
+| Injection failure detection (UIPI short-count → error), extended keys, OEM punctuation | `vuoom-input` | 🟡 |
+| Live `screenshot` op + `status` / `cancel_recording` | all | 🟡 |
+| `clip_state` returns zoom/cut/speed **spans** + `output_duration` | all | 🟡 |
+| Output-timeline `get_frames`/`seek` (matches export through trim/cuts/speed) | `src-tauri` | 🟡 |
+| Edit ops over the protocol (zoom/cut/speed/trim repair without re-recording) | all | 🟡 |
+| Job-based exports with `export_status` polling | all | 🟡 |
+| Auth token + connect/read timeouts + discovery-file cleanup + `VUOOM_ENABLE_CONTROL=0` off | all | ✅ CI (auth integration test) |
+| Per-recording `set_zoom_style` + agent flags reset at stop/cancel | `src-tauri` | 🟡 |
+
 ## Why the 🟡 / ⬜ boundary
 
 The capture, GPU compositor, and live preview need a **real GPU + display** to verify (does it

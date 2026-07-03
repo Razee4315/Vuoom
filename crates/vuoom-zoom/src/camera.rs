@@ -301,13 +301,22 @@ mod tests {
     #[test]
     fn rect_span_fits_and_centers() {
         let cfg = ZoomConfig::default();
-        let r = NormRect { x: 0.5, y: 0.5, w: 0.3, h: 0.2 };
+        let r = NormRect {
+            x: 0.5,
+            y: 0.5,
+            w: 0.3,
+            h: 0.2,
+        };
         let track = simulate(&[], &[rect_kf(0.0, 5.0, 3.0, r)], 5.0, 60.0, &cfg);
         let s = track.at(4.5);
         let expected_zoom = r.fit_zoom(3.0);
         // The rect reduces the span amount (3.0) down to the fit zoom so it stays visible.
         assert!(expected_zoom < 3.0, "rect should have reduced the zoom");
-        assert!((s.zoom - expected_zoom).abs() < 0.05, "zoom {} != fit {expected_zoom}", s.zoom);
+        assert!(
+            (s.zoom - expected_zoom).abs() < 0.05,
+            "zoom {} != fit {expected_zoom}",
+            s.zoom
+        );
         let expected_center = clamp_camera(r.center(), expected_zoom);
         assert!(
             (s.center - expected_center).abs().max_element() < 0.02,
@@ -321,10 +330,19 @@ mod tests {
     fn rect_span_never_exceeds_amount() {
         let cfg = ZoomConfig::default();
         // A small rect could fit at a high zoom, but must not exceed the span amount.
-        let r = NormRect { x: 0.45, y: 0.45, w: 0.03, h: 0.03 };
+        let r = NormRect {
+            x: 0.45,
+            y: 0.45,
+            w: 0.03,
+            h: 0.03,
+        };
         let track = simulate(&[], &[rect_kf(0.0, 5.0, 1.8, r)], 5.0, 60.0, &cfg);
         for f in track.frames() {
-            assert!(f.zoom <= 1.8 + 1e-6, "rect zoom exceeded amount: {}", f.zoom);
+            assert!(
+                f.zoom <= 1.8 + 1e-6,
+                "rect zoom exceeded amount: {}",
+                f.zoom
+            );
         }
         assert!((track.at(4.5).zoom - 1.8).abs() < 0.05);
     }
@@ -332,11 +350,20 @@ mod tests {
     #[test]
     fn degenerate_rect_behaves_like_manual() {
         let cfg = ZoomConfig::default();
-        let r = NormRect { x: 0.3, y: 0.3, w: 0.0, h: 0.2 };
+        let r = NormRect {
+            x: 0.3,
+            y: 0.3,
+            w: 0.0,
+            h: 0.2,
+        };
         let track = simulate(&[], &[rect_kf(0.0, 5.0, 2.0, r)], 5.0, 60.0, &cfg);
         let s = track.at(4.5);
         // No area to fit -> holds the full span amount, centered on the (degenerate) center.
-        assert!((s.zoom - 2.0).abs() < 0.05, "degenerate rect changed zoom: {}", s.zoom);
+        assert!(
+            (s.zoom - 2.0).abs() < 0.05,
+            "degenerate rect changed zoom: {}",
+            s.zoom
+        );
         let expected_center = clamp_camera(r.center(), 2.0);
         assert!((s.center - expected_center).abs().max_element() < 0.02);
     }
@@ -346,8 +373,20 @@ mod tests {
     #[test]
     fn envelope_in_override_speeds_zoom_in() {
         let cfg = ZoomConfig::default();
-        let fast = simulate(&[], &[auto_kf(0.0, 3.0, 2.0, Some(0.05), None)], 3.0, 60.0, &cfg);
-        let slow = simulate(&[], &[auto_kf(0.0, 3.0, 2.0, Some(1.5), None)], 3.0, 60.0, &cfg);
+        let fast = simulate(
+            &[],
+            &[auto_kf(0.0, 3.0, 2.0, Some(0.05), None)],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        let slow = simulate(
+            &[],
+            &[auto_kf(0.0, 3.0, 2.0, Some(1.5), None)],
+            3.0,
+            60.0,
+            &cfg,
+        );
         assert!(
             fast.at(0.3).zoom > slow.at(0.3).zoom + 0.2,
             "fast in-override not faster: {} vs {}",
@@ -374,8 +413,20 @@ mod tests {
     fn envelope_out_override_used_on_release() {
         let cfg = ZoomConfig::default();
         // Span ends at t=1; the release afterwards must honour the span's out override.
-        let fast_out = simulate(&[], &[auto_kf(0.0, 1.0, 2.0, None, Some(0.05))], 3.0, 60.0, &cfg);
-        let slow_out = simulate(&[], &[auto_kf(0.0, 1.0, 2.0, None, Some(1.5))], 3.0, 60.0, &cfg);
+        let fast_out = simulate(
+            &[],
+            &[auto_kf(0.0, 1.0, 2.0, None, Some(0.05))],
+            3.0,
+            60.0,
+            &cfg,
+        );
+        let slow_out = simulate(
+            &[],
+            &[auto_kf(0.0, 1.0, 2.0, None, Some(1.5))],
+            3.0,
+            60.0,
+            &cfg,
+        );
         assert!(
             fast_out.at(1.3).zoom < slow_out.at(1.3).zoom - 0.1,
             "fast out-override did not release faster: {} vs {}",
@@ -406,17 +457,34 @@ mod tests {
         let cfg = ZoomConfig::default();
         let kf = auto_kf(0.0, 5.0, 2.0, None, None);
         let with_pos = [
-            InputEvent::Move { t: 0.0, pos: DVec2::new(0.5, 0.5) },
-            InputEvent::KeyType { t: 0.5, pos: Some(DVec2::new(0.9, 0.5)) },
+            InputEvent::Move {
+                t: 0.0,
+                pos: DVec2::new(0.5, 0.5),
+            },
+            InputEvent::KeyType {
+                t: 0.5,
+                pos: Some(DVec2::new(0.9, 0.5)),
+            },
         ];
         let without = [
-            InputEvent::Move { t: 0.0, pos: DVec2::new(0.5, 0.5) },
+            InputEvent::Move {
+                t: 0.0,
+                pos: DVec2::new(0.5, 0.5),
+            },
             InputEvent::KeyType { t: 0.5, pos: None },
         ];
         let a = simulate(&with_pos, &[kf], 5.0, 60.0, &cfg).at(4.5);
         let b = simulate(&without, &[kf], 5.0, 60.0, &cfg).at(4.5);
-        assert!(a.center.x > 0.55, "caret-pos did not steer focus right: {}", a.center.x);
-        assert!((b.center.x - 0.5).abs() < 1e-6, "no-pos KeyType moved focus: {}", b.center.x);
+        assert!(
+            a.center.x > 0.55,
+            "caret-pos did not steer focus right: {}",
+            a.center.x
+        );
+        assert!(
+            (b.center.x - 0.5).abs() < 1e-6,
+            "no-pos KeyType moved focus: {}",
+            b.center.x
+        );
     }
 
     #[test]

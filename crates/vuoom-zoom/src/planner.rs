@@ -276,8 +276,14 @@ mod tests {
         // even with click-to-zoom enabled (only clicks/drags/zoom-marks spawn).
         let cfg = click_cfg();
         let events = [
-            InputEvent::KeyType { t: 1.0, pos: Some(DVec2::new(0.4, 0.4)) },
-            InputEvent::KeyType { t: 1.5, pos: Some(DVec2::new(0.42, 0.41)) },
+            InputEvent::KeyType {
+                t: 1.0,
+                pos: Some(DVec2::new(0.4, 0.4)),
+            },
+            InputEvent::KeyType {
+                t: 1.5,
+                pos: Some(DVec2::new(0.42, 0.41)),
+            },
         ];
         assert!(plan_zooms(&events, 8.0, &cfg).is_empty());
     }

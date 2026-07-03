@@ -180,15 +180,24 @@ mod tests {
         // Externally-tagged Manual variant from an old project file.
         let old = r#"{"Manual":{"pos":[0.4,0.6]}}"#;
         let mode: ZoomMode = serde_json::from_str(old).unwrap();
-        assert_eq!(mode, ZoomMode::Manual { pos: DVec2::new(0.4, 0.6) });
+        assert_eq!(
+            mode,
+            ZoomMode::Manual {
+                pos: DVec2::new(0.4, 0.6)
+            }
+        );
     }
 
     #[test]
     fn zoom_mode_round_trips_including_rect() {
         for mode in [
             ZoomMode::Auto,
-            ZoomMode::Manual { pos: DVec2::new(0.1, 0.9) },
-            ZoomMode::Rect { rect: rect(0.1, 0.2, 0.3, 0.4) },
+            ZoomMode::Manual {
+                pos: DVec2::new(0.1, 0.9),
+            },
+            ZoomMode::Rect {
+                rect: rect(0.1, 0.2, 0.3, 0.4),
+            },
         ] {
             let json = serde_json::to_string(&mode).unwrap();
             let back: ZoomMode = serde_json::from_str(&json).unwrap();
@@ -202,7 +211,9 @@ mod tests {
             start: 0.5,
             end: 2.5,
             amount: 2.0,
-            mode: ZoomMode::Rect { rect: rect(0.2, 0.2, 0.5, 0.4) },
+            mode: ZoomMode::Rect {
+                rect: rect(0.2, 0.2, 0.5, 0.4),
+            },
             edge_snap_ratio: 0.25,
             hl_zoom_in: Some(0.4),
             hl_zoom_out: Some(0.2),

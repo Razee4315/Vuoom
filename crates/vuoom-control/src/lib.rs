@@ -282,10 +282,17 @@ pub enum ControlRequest {
         index: usize,
     },
     /// Detect idle stretches and mark them to play at `factor`× (replaces existing speed
-    /// regions); answered with the new list.
+    /// regions); answered with the new list. Idle gaps shorter than `min_gap` produce no
+    /// speed region; `lead`/`tail` seconds around actions stay at normal (1×) speed.
     AutoSpeed {
         /// Speed-up factor (clamped to `[1.5, 16.0]`).
         factor: f64,
+        /// Minimum idle gap to skim, seconds (clamped `0.5..=30.0`, default 2.5).
+        min_gap: Option<f64>,
+        /// Normal-speed lead-in after the last action, seconds (clamped `0.0..=5.0`, default 0.6).
+        lead: Option<f64>,
+        /// Normal-speed tail before the next action, seconds (clamped `0.0..=5.0`, default 0.4).
+        tail: Option<f64>,
     },
     /// Remove all speed regions (play everything at 1×).
     ClearSpeed,
@@ -332,6 +339,33 @@ pub enum ControlRequest {
         width: Option<u32>,
         /// Quality 1–100.
         quality: u8,
+    },
+    /// Composite a cheap low-res animated GIF over `[start, end]` (**output-timeline**
+    /// seconds) so the agent can critique motion/pacing/easing *before* a full export.
+    /// Answered synchronously with [`ControlResponse::Preview`] — it is bounded (≤120
+    /// low-res frames), so it never needs the async export-job machinery.
+    PreviewClip {
+        /// Output-timeline start (seconds); `None` = clip start (0).
+        start: Option<f64>,
+        /// Output-timeline end (seconds); `None` = end of the output clip.
+        end: Option<f64>,
+        /// Preview frame rate (clamped `1.0..=10.0`, default 5).
+        fps: Option<f64>,
+        /// Downscale width in px (clamped `160..=640`, default 480).
+        width: Option<u32>,
+    },
+    /// Enumerate visible top-level windows (topmost first) with their physical-pixel
+    /// bounds; answered with [`ControlResponse::Windows`].
+    ListWindows,
+    /// Snap the capture region to a window's *current* bounds (best case-insensitive title
+    /// match), optionally expanded by `padding` px, clamped to the virtual screen, applied
+    /// through the normal `set_region` path. Answered with the resolved
+    /// [`ControlResponse::Region`]. Does **not** hide windows drawn above the target.
+    SetRegionToWindow {
+        /// Case-insensitive substring of the target window title (best/topmost match wins).
+        title: String,
+        /// Extra padding in px around the window (clamped `0..=200`, default 0).
+        padding: Option<i32>,
     },
 }
 
@@ -470,6 +504,49 @@ pub struct ExportState {
     pub path: String,
 }
 
+/// A low-res animated-GIF preview of the output clip, for critiquing motion before export.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PreviewInfo {
+    /// The animated GIF encoded as base64 (no data-URL prefix).
+    pub gif_base64: String,
+    /// Number of frames in the preview.
+    pub frame_count: usize,
+    /// Preview width in pixels.
+    pub width: u32,
+    /// Preview height in pixels.
+    pub height: u32,
+    /// Output-timeline duration (seconds) the preview spans.
+    pub duration: f64,
+}
+
+/// A top-level window and its physical-pixel screen rectangle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowRect {
+    /// The window title.
+    pub title: String,
+    /// Left edge (physical px; may be negative on a multi-monitor desktop).
+    pub x: i32,
+    /// Top edge (physical px).
+    pub y: i32,
+    /// Width (physical px).
+    pub w: u32,
+    /// Height (physical px).
+    pub h: u32,
+}
+
+/// A resolved capture region (physical px) — the reply to [`ControlRequest::SetRegionToWindow`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegionRect {
+    /// Left edge (physical px).
+    pub x: u32,
+    /// Top edge (physical px).
+    pub y: u32,
+    /// Width (physical px).
+    pub w: u32,
+    /// Height (physical px).
+    pub h: u32,
+}
+
 /// The server's reply to a [`ControlRequest`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -523,6 +600,15 @@ pub enum ControlResponse {
         /// Estimated export size in bytes.
         bytes: u64,
     },
+    /// Reply to [`ControlRequest::PreviewClip`] — the low-res animated GIF + metadata.
+    Preview(PreviewInfo),
+    /// Reply to [`ControlRequest::ListWindows`] — the visible top-level windows.
+    Windows {
+        /// The enumerated windows (topmost first).
+        windows: Vec<WindowRect>,
+    },
+    /// Reply to [`ControlRequest::SetRegionToWindow`] — the resolved capture region.
+    Region(RegionRect),
 }
 
 impl ControlResponse {
@@ -786,7 +872,12 @@ mod tests {
                 end: 2.5,
             },
             ControlRequest::RemoveCut { index: 0 },
-            ControlRequest::AutoSpeed { factor: 4.0 },
+            ControlRequest::AutoSpeed {
+                factor: 4.0,
+                min_gap: Some(3.0),
+                lead: None,
+                tail: Some(0.5),
+            },
             ControlRequest::ClearSpeed,
             ControlRequest::SetTrim {
                 start: 0.5,
@@ -809,6 +900,17 @@ mod tests {
                 fps: 20,
                 width: None,
                 quality: 80,
+            },
+            ControlRequest::PreviewClip {
+                start: Some(0.5),
+                end: Some(3.0),
+                fps: Some(5.0),
+                width: Some(480),
+            },
+            ControlRequest::ListWindows,
+            ControlRequest::SetRegionToWindow {
+                title: "Notepad".into(),
+                padding: Some(12),
             },
         ];
         for req in cases {
@@ -918,6 +1020,46 @@ mod tests {
         );
     }
 
+    /// The new window/preview requests parse with their optional fields omitted.
+    #[test]
+    fn window_and_preview_defaults_when_missing() {
+        let preview: ControlRequest =
+            serde_json::from_str(r#"{"op":"preview_clip"}"#).expect("parse");
+        assert_eq!(
+            preview,
+            ControlRequest::PreviewClip {
+                start: None,
+                end: None,
+                fps: None,
+                width: None,
+            }
+        );
+        let region: ControlRequest =
+            serde_json::from_str(r#"{"op":"set_region_to_window","title":"Firefox"}"#)
+                .expect("parse");
+        assert_eq!(
+            region,
+            ControlRequest::SetRegionToWindow {
+                title: "Firefox".into(),
+                padding: None,
+            }
+        );
+        let list: ControlRequest = serde_json::from_str(r#"{"op":"list_windows"}"#).expect("parse");
+        assert_eq!(list, ControlRequest::ListWindows);
+        // Pre-existing callers pass only `factor`; the new pacing knobs default to None.
+        let speed: ControlRequest =
+            serde_json::from_str(r#"{"op":"auto_speed","factor":4.0}"#).expect("parse");
+        assert_eq!(
+            speed,
+            ControlRequest::AutoSpeed {
+                factor: 4.0,
+                min_gap: None,
+                lead: None,
+                tail: None,
+            }
+        );
+    }
+
     /// Every response variant must survive a JSON round-trip unchanged.
     #[test]
     fn responses_round_trip() {
@@ -1002,6 +1144,28 @@ mod tests {
                 path: "C:/tmp/out.gif".into(),
             }),
             ControlResponse::Size { bytes: 1_234_567 },
+            ControlResponse::Preview(PreviewInfo {
+                gif_base64: "AAAA".into(),
+                frame_count: 30,
+                width: 480,
+                height: 270,
+                duration: 6.0,
+            }),
+            ControlResponse::Windows {
+                windows: vec![WindowRect {
+                    title: "Notepad".into(),
+                    x: 10,
+                    y: 20,
+                    w: 800,
+                    h: 600,
+                }],
+            },
+            ControlResponse::Region(RegionRect {
+                x: 0,
+                y: 0,
+                w: 640,
+                h: 480,
+            }),
         ];
         for resp in cases {
             let line = serde_json::to_string(&resp).expect("serialize");

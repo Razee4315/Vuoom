@@ -11,7 +11,8 @@ use std::net::{TcpListener, TcpStream};
 
 use vuoom_control::{
     write_message, ClipInfo, ControlRequest, ControlResponse, CutSpan, ExportState, FrameShot,
-    RecordState, RecordingSummary, ScreenGeometry, SpeedSpan, StatusInfo, ZoomSpan,
+    PreviewInfo, RecordState, RecordingSummary, RegionRect, ScreenGeometry, SpeedSpan, StatusInfo,
+    WindowRect, ZoomSpan,
 };
 
 /// A 1×1 transparent PNG (base64) — stands in for a sampled frame.
@@ -159,13 +160,35 @@ fn respond(req: ControlRequest) -> ControlResponse {
                 end: 7.5,
             }],
         },
-        ControlRequest::AutoSpeed { factor } => ControlResponse::Speeds {
+        ControlRequest::AutoSpeed { factor, .. } => ControlResponse::Speeds {
             speeds: vec![SpeedSpan {
                 start: 2.0,
                 end: 3.5,
                 factor,
             }],
         },
+        ControlRequest::PreviewClip { .. } => ControlResponse::Preview(PreviewInfo {
+            gif_base64: TINY_PNG.into(),
+            frame_count: 10,
+            width: 480,
+            height: 270,
+            duration: 2.0,
+        }),
+        ControlRequest::ListWindows => ControlResponse::Windows {
+            windows: vec![WindowRect {
+                title: "Mock Window".into(),
+                x: 100,
+                y: 80,
+                w: 1280,
+                h: 720,
+            }],
+        },
+        ControlRequest::SetRegionToWindow { .. } => ControlResponse::Region(RegionRect {
+            x: 100,
+            y: 80,
+            w: 1280,
+            h: 720,
+        }),
         ControlRequest::ExportGif { .. } | ControlRequest::ExportMp4 { .. } => {
             ControlResponse::Job { id: 1 }
         }

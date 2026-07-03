@@ -42,6 +42,13 @@ Key design points:
    ```
    Binary: `target/release/vuoom-mcp.exe`.
 
+   > **After changing the control protocol or adding tools** (e.g. the `preview_clip`,
+   > `list_windows`, `set_region_to_window` tools, or the new `auto_speed` params), you must
+   > **rebuild `vuoom-mcp` and reconnect the MCP server** (in Claude Code, `/mcp`) with Vuoom
+   > running under `VUOOM_ENABLE_CONTROL=1` — the agent otherwise keeps talking to a stale
+   > sidecar that lacks the new tools. There is no separate `target-mcp/` build; the canonical
+   > binary is `target/release/vuoom-mcp.exe`.
+
 2. **Run Vuoom with the control server enabled** (it is off by default for safety):
    ```powershell
    $env:VUOOM_ENABLE_CONTROL = "1"; .\Vuoom.exe
@@ -71,6 +78,8 @@ Key design points:
 | `screen_geometry` | Virtual-desktop bounds (physical px) — call first. |
 | `screenshot` | PNG of the recording monitor **right now** — locate targets, verify UI state. |
 | `set_region` / `set_zoom_amount` | Configure the next recording (region; zoom 1.0–4.0). |
+| `list_windows` | Enumerate visible top-level windows (topmost first) with physical-px bounds `[{title,x,y,w,h}]`. |
+| `set_region_to_window` | Snap the capture region to a window's current bounds (best title match, optional `padding`) — no pixel-math. Returns the resolved region. Does **not** hide windows drawn above the target. |
 | `set_zoom_style` | Tune hold / pre-roll / spring half-lives for the next recording. |
 
 **Record & drive**
@@ -90,10 +99,11 @@ Key design points:
 |---|---|
 | `clip_state` | `{duration, output_duration, zooms:[{start,end,amount,focus}], cuts, speeds}`. |
 | `get_frames` | Sample output-timeline times (≤16) → **PNG images** to see what exports. |
+| `preview_clip` | Cheap low-res **animated GIF** over `[start,end]` (output secs, ≤~120 frames) to critique motion/pacing/easing before a full export — not a deliverable. |
 | `seek` | Publish a preview frame at an output-timeline time. |
 | `add_zoom` / `update_zoom` / `set_zoom_focus` / `remove_zoom` | Fix zoom timing, strength, centring — no re-record. |
 | `add_cut` / `update_cut` / `remove_cut` | Remove dead air / mistakes. |
-| `auto_speed` / `clear_speed` / `set_trim` | Skim idle stretches; trim the ends. |
+| `auto_speed` / `clear_speed` / `set_trim` | Skim idle stretches (`auto_speed` takes optional `min_gap`/`lead`/`tail`); trim the ends. |
 
 **Export**
 

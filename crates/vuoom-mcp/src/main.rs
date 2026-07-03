@@ -367,6 +367,33 @@ struct UpdateCutParams {
 struct AutoSpeedParams {
     /// Speed-up factor for idle stretches (1.5–16.0; 4.0 is a good default).
     factor: f64,
+    /// Minimum idle gap to skim, seconds (0.5–30.0; default 2.5). Idle gaps SHORTER than
+    /// this produce no speed region. Raise it to skim only the long dead stretches.
+    min_gap: Option<f64>,
+    /// Normal-speed lead-in kept after the last action, seconds (0.0–5.0; default 0.6).
+    lead: Option<f64>,
+    /// Normal-speed tail kept before the next action, seconds (0.0–5.0; default 0.4).
+    tail: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PreviewParams {
+    /// Output-timeline start second to preview from (default 0 = clip start).
+    start: Option<f64>,
+    /// Output-timeline end second (default = end of the clip).
+    end: Option<f64>,
+    /// Preview frame rate, 1–10 (default 5). Lower it if the frame cap complains.
+    fps: Option<f64>,
+    /// Downscale width in px, 160–640 (default 480).
+    width: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RegionToWindowParams {
+    /// Case-insensitive substring of the target window title (best/topmost match wins).
+    title: String,
+    /// Extra padding in px around the window, 0–200 (default 0).
+    padding: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -850,17 +877,83 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "Auto-detect idle stretches and speed them up by `factor` (replaces existing speed regions) — the one-call fix for 'the demo drags'. Returns the new speed regions."
+        description = "Auto-detect idle stretches and speed them up by `factor` (replaces existing speed regions) — the one-call fix for 'the demo drags'. Semantics: idle gaps SHORTER than min_gap (default 2.5s) produce no speed region; lead/tail seconds around actions (defaults 0.6/0.4s) stay at normal 1x speed. Tune min_gap/lead/tail instead of trial-and-erroring `factor`. Returns the new speed regions."
     )]
     async fn auto_speed(
         &self,
         Parameters(p): Parameters<AutoSpeedParams>,
     ) -> Result<CallToolResult, McpError> {
         match self
-            .call(ControlRequest::AutoSpeed { factor: p.factor })
+            .call(ControlRequest::AutoSpeed {
+                factor: p.factor,
+                min_gap: p.min_gap,
+                lead: p.lead,
+                tail: p.tail,
+            })
             .await?
         {
             ControlResponse::Speeds { speeds } => Ok(json(&speeds)),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    #[tool(
+        description = "Cheap low-res animated preview to critique motion/pacing/easing BEFORE a full export — not a deliverable. Composites [start,end] (output-timeline seconds; default whole clip) at a low fps (default 5) into a small animated GIF you can watch. Capped at ~120 frames — if it complains, raise start / lower end / lower fps. Returns the GIF plus {frame_count,width,height,duration}."
+    )]
+    async fn preview_clip(
+        &self,
+        Parameters(p): Parameters<PreviewParams>,
+    ) -> Result<CallToolResult, McpError> {
+        match self
+            .call(ControlRequest::PreviewClip {
+                start: p.start,
+                end: p.end,
+                fps: p.fps,
+                width: p.width,
+            })
+            .await?
+        {
+            ControlResponse::Preview(info) => {
+                let meta = serde_json::json!({
+                    "frame_count": info.frame_count,
+                    "width": info.width,
+                    "height": info.height,
+                    "duration": info.duration,
+                });
+                Ok(CallToolResult::success(vec![
+                    Content::text(serde_json::to_string(&meta).unwrap_or_default()),
+                    Content::image(info.gif_base64, "image/gif".to_string()),
+                ]))
+            }
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    #[tool(
+        description = "List visible top-level windows with their physical-pixel bounds: [{title,x,y,w,h}], topmost first. Use it to find a window before set_region_to_window."
+    )]
+    async fn list_windows(&self) -> Result<CallToolResult, McpError> {
+        match self.call(ControlRequest::ListWindows).await? {
+            ControlResponse::Windows { windows } => Ok(json(&windows)),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    #[tool(
+        description = "Snap the capture region to a window's CURRENT bounds (best case-insensitive title match) before start_recording — kills manual pixel-math. Optional padding px (0–200) around it. Returns the resolved region {x,y,w,h}. NOTE: this does NOT prevent other windows drawn ABOVE the target from appearing in the capture (true window-target capture is a future step) — move or minimize overlapping windows first."
+    )]
+    async fn set_region_to_window(
+        &self,
+        Parameters(p): Parameters<RegionToWindowParams>,
+    ) -> Result<CallToolResult, McpError> {
+        match self
+            .call(ControlRequest::SetRegionToWindow {
+                title: p.title,
+                padding: p.padding,
+            })
+            .await?
+        {
+            ControlResponse::Region(r) => Ok(json(&r)),
             other => Err(unexpected(&other)),
         }
     }
@@ -1048,6 +1141,9 @@ mod tests {
             "export_gif",
             "export_mp4",
             "export_status",
+            "preview_clip",
+            "list_windows",
+            "set_region_to_window",
         ];
         for tool in expected {
             assert!(names.iter().any(|n| n == tool), "missing tool: {tool}");

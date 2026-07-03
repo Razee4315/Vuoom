@@ -23,7 +23,7 @@ use tauri::{AppHandle, Manager};
 use vuoom_capture::CropRegion;
 use vuoom_control::{
     write_message, Button, ControlRequest, ControlResponse, ExportState, RecordingSummary,
-    ScreenGeometry,
+    RegionRect, ScreenGeometry, WindowRect,
 };
 use vuoom_input::InjectButton;
 
@@ -317,6 +317,19 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             return unit(vuoom_input::key_chord(&vks));
         }
         ControlRequest::ExportStatus { id } => return export_status(*id),
+        ControlRequest::ListWindows => {
+            let windows = vuoom_capture::list_windows()
+                .into_iter()
+                .map(|w| WindowRect {
+                    title: w.title,
+                    x: w.x,
+                    y: w.y,
+                    w: w.w,
+                    h: w.h,
+                })
+                .collect();
+            return ControlResponse::Windows { windows };
+        }
         _ => {}
     }
 
@@ -458,7 +471,12 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
         ControlRequest::RemoveCut { index } => {
             cuts_after(session, session.delete_cut(index).map(|_| ()))
         }
-        ControlRequest::AutoSpeed { factor } => match session.auto_speed(factor) {
+        ControlRequest::AutoSpeed {
+            factor,
+            min_gap,
+            lead,
+            tail,
+        } => match session.auto_speed(factor, min_gap, lead, tail) {
             Ok(_) => match session.clip_info() {
                 Ok(c) => ControlResponse::Speeds { speeds: c.speeds },
                 Err(e) => ControlResponse::error(e),
@@ -487,9 +505,62 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             Ok(bytes) => ControlResponse::Size { bytes },
             Err(e) => ControlResponse::error(e),
         },
-        // Ping + injection + geometry + export status already handled above.
+        ControlRequest::PreviewClip {
+            start,
+            end,
+            fps,
+            width,
+        } => match session.preview_clip(start, end, fps, width) {
+            Ok(info) => ControlResponse::Preview(info),
+            Err(e) => ControlResponse::error(e),
+        },
+        ControlRequest::SetRegionToWindow { title, padding } => {
+            match resolve_window_region(&title, padding) {
+                Ok((x, y, w, h)) => match session.set_region(Some(CropRegion { x, y, w, h })) {
+                    Ok(()) => ControlResponse::Region(RegionRect { x, y, w, h }),
+                    Err(e) => ControlResponse::error(e),
+                },
+                Err(e) => ControlResponse::error(e),
+            }
+        }
+        // Ping + injection + geometry + export status + list_windows already handled above.
         _ => ControlResponse::error("unhandled request"),
     }
+}
+
+/// Resolve a window title to a clamped capture rect (physical px): find the best window
+/// match, expand by `padding` (clamped 0–200), and clamp to the virtual screen. `CropRegion`
+/// is unsigned, so the origin floors at 0 (a window on a monitor left of the primary can't
+/// be region-snapped — a limitation shared with the plain `set_region` path).
+fn resolve_window_region(
+    title: &str,
+    padding: Option<i32>,
+) -> Result<(u32, u32, u32, u32), String> {
+    let win = vuoom_capture::find_window_bounds(title).ok_or_else(|| {
+        format!(
+            "no visible window matches \"{title}\" — pass a case-insensitive substring of the \
+             exact title and make sure the window isn't minimized"
+        )
+    })?;
+    let pad = i64::from(padding.unwrap_or(0).clamp(0, 200));
+    let left = i64::from(win.x) - pad;
+    let top = i64::from(win.y) - pad;
+    let right = i64::from(win.x) + i64::from(win.w) + pad;
+    let bottom = i64::from(win.y) + i64::from(win.h) + pad;
+
+    let (vx, vy, vw, vh) = vuoom_input::virtual_screen();
+    let vs_left = i64::from(vx).max(0);
+    let vs_top = i64::from(vy).max(0);
+    let vs_right = i64::from(vx) + i64::from(vw);
+    let vs_bottom = i64::from(vy) + i64::from(vh);
+
+    let left = left.clamp(vs_left, vs_right);
+    let top = top.clamp(vs_top, vs_bottom);
+    let right = right.clamp(left, vs_right);
+    let bottom = bottom.clamp(top, vs_bottom);
+    let w = (right - left).max(1) as u32;
+    let h = (bottom - top).max(1) as u32;
+    Ok((left as u32, top as u32, w, h))
 }
 
 /// After a zoom edit, answer with the updated zoom spans (or the edit's error).

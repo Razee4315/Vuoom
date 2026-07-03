@@ -22,7 +22,9 @@ use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
-use vuoom_control::{ClipInfo, CutSpan, FrameShot, RecordState, SpeedSpan, StatusInfo, ZoomSpan};
+use vuoom_control::{
+    ClipInfo, CutSpan, FrameShot, PreviewInfo, RecordState, SpeedSpan, StatusInfo, ZoomSpan,
+};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -1218,6 +1220,99 @@ impl Session {
         Ok(shots)
     }
 
+    /// Composite a cheap low-res animated GIF over `[start, end]` (output-timeline seconds)
+    /// so the agent can critique motion/pacing/easing *before* a full export. Reuses the
+    /// same compositing path as [`Session::sample_frames`], downscales to `width`, and
+    /// encodes in-process with the pure-Rust GIF encoder at a modest single-pass quality
+    /// (no lossy second pass — this is a throwaway proxy, not a deliverable).
+    ///
+    /// Bounded to `MAX_PREVIEW_FRAMES` low-res frames so it stays well inside the client's
+    /// read timeout — hence a plain synchronous request, not an async export job.
+    pub fn preview_clip(
+        &self,
+        start: Option<f64>,
+        end: Option<f64>,
+        fps: Option<f64>,
+        width: Option<u32>,
+    ) -> Result<PreviewInfo, String> {
+        /// Hard cap: an over-long preview would blow the sync request budget.
+        const MAX_PREVIEW_FRAMES: usize = 120;
+
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        let track = edited.track.as_ref().ok_or("no recording")?;
+        let store = edited.frames.as_ref().ok_or("no frames")?;
+        if store.is_empty() {
+            return Err("no frames".into());
+        }
+        let (out_w, out_h) = project.output_dims();
+        let bg = background_color(&project.frame);
+        let (t0, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
+
+        // Fractional fps is rounded to a whole number so the GIF frame delay stays honest.
+        let fps = (fps.unwrap_or(5.0).round() as u32).clamp(1, 10);
+        let width = width.unwrap_or(480).clamp(160, 640);
+        let start = start.unwrap_or(0.0).clamp(0.0, d_out);
+        let end = end.unwrap_or(d_out).clamp(0.0, d_out);
+        if end - start < 1e-3 {
+            return Err("preview range is empty — end must be greater than start".into());
+        }
+        let duration = end - start;
+        let count = ((duration * f64::from(fps)).ceil() as usize).max(1);
+        if count > MAX_PREVIEW_FRAMES {
+            return Err(format!(
+                "preview would need {count} frames (max {MAX_PREVIEW_FRAMES}) — raise start, lower end, or lower fps"
+            ));
+        }
+
+        let mut frames = Vec::with_capacity(count);
+        for i in 0..count {
+            let t_out = (start + i as f64 / f64::from(fps)).min(end);
+            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+            let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
+                .ok_or("no frames")?;
+            let frame = store.frame(idx)?;
+            let scene = build_scene(project, track, out_w, out_h, t_src);
+            let rgba = compositor.composite_scene(
+                &frame.bgra,
+                frame.width,
+                frame.height,
+                out_w,
+                out_h,
+                &scene,
+                bg,
+            );
+            let mut img = RgbaImage::new(out_w, out_h, rgba);
+            if width < out_w {
+                img = downscale_rgba(&img, width);
+            }
+            frames.push(img);
+        }
+        let (w, h) = (frames[0].width, frames[0].height);
+        // Cheapest GIF path: single global-palette pass at modest quality, frames already
+        // downscaled (so `width: None`), and no lossy gifsicle second pass.
+        let settings = GifSettings {
+            fps,
+            width: None,
+            quality: 60,
+            lossy: None,
+        };
+        let tmp = std::env::temp_dir().join(format!("vuoom-preview-{}.gif", std::process::id()));
+        export_gif_native(&frames, &settings, &tmp).map_err(|e| e.to_string())?;
+        let bytes = std::fs::read(&tmp).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&tmp);
+        let gif_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        Ok(PreviewInfo {
+            gif_base64,
+            frame_count: count,
+            width: w,
+            height: h,
+            duration,
+        })
+    }
+
     /// [`Session::seek`], but `t` is on the **output timeline** (the control API's time
     /// space) — mapped through trim + cuts + speed before compositing.
     pub fn seek_output(&self, t: f64) -> Result<(), String> {
@@ -1325,14 +1420,23 @@ impl Session {
         })
     }
 
-    /// Detect idle stretches (no clicks/keys/scrolls for `MIN_GAP` seconds) and mark them
+    /// Detect idle stretches (no clicks/keys/scrolls for `min_gap` seconds) and mark them
     /// to play at `factor`×. Replaces any existing speed regions; returns the new list.
-    pub fn auto_speed(&self, factor: f64) -> Result<Vec<SpeedRegion>, String> {
-        /// An idle gap must be at least this long (s) to be worth skimming.
-        const MIN_GAP: f64 = 2.5;
-        /// Keep normal speed for a beat after the last action / before the next one.
-        const LEAD: f64 = 0.6;
-        const TAIL: f64 = 0.4;
+    ///
+    /// `min_gap` (default 2.5, clamp 0.5–30.0): idle gaps shorter than this stay at 1×.
+    /// `lead`/`tail` (defaults 0.6 / 0.4, clamp 0.0–5.0): seconds kept at normal speed
+    /// after the last action and before the next one. Omitting all three reproduces the
+    /// original hardcoded behaviour exactly.
+    pub fn auto_speed(
+        &self,
+        factor: f64,
+        min_gap: Option<f64>,
+        lead: Option<f64>,
+        tail: Option<f64>,
+    ) -> Result<Vec<SpeedRegion>, String> {
+        let min_gap = min_gap.unwrap_or(2.5).clamp(0.5, 30.0);
+        let lead = lead.unwrap_or(0.6).clamp(0.0, 5.0);
+        let tail = tail.unwrap_or(0.4).clamp(0.0, 5.0);
 
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
@@ -1351,9 +1455,9 @@ impl Session {
         let mut regions = Vec::new();
         let mut prev = 0.0_f64;
         for m in marks.into_iter().chain(std::iter::once(d)) {
-            if m - prev >= MIN_GAP {
-                let start = (prev + LEAD).max(0.0);
-                let end = (m - TAIL).min(d);
+            if m - prev >= min_gap {
+                let start = (prev + lead).max(0.0);
+                let end = (m - tail).min(d);
                 if end - start > 0.5 {
                     regions.push(SpeedRegion { start, end, factor });
                 }

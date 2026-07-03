@@ -359,7 +359,8 @@ pub fn auto_speed(
     engine: tauri::State<'_, Engine>,
     factor: f64,
 ) -> Result<Vec<SpeedRegion>, String> {
-    engine.session()?.auto_speed(factor)
+    // The interactive editor uses the default idle-gap/lead/tail thresholds.
+    engine.session()?.auto_speed(factor, None, None, None)
 }
 
 /// Remove all speed regions.

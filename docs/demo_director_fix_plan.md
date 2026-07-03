@@ -27,24 +27,26 @@ except where a missing feature blocks them.
 
 ## 2. Fix plan (prioritized)
 
+**Status (2026-07-03):** Tier 1 (1–3) ✅ done · Tier 2 (5–8) ✅ done · Tier 3 (9) ✅ done · Tier 3 (10) ◑ partial (region-snap shipped; true window-target capture deferred). Item 4 is a housekeeping note (see the MCP docs' sidecar section).
+
 ### Tier 1 — small verified bug fixes (hours)
 
-1. **`key_chord` symbol keys** — in `key_to_vk` (`inject.rs`), map `"+"|"add"`→`VK_ADD` (0x6B — emits a literal `+` unshifted, unlike OEM_PLUS), `"*"|"multiply"|"asterisk"`→`VK_MULTIPLY` (0x6A), plus `subtract/divide/decimal/numpad0-9`. Unit test alongside `oem_punctuation_maps` (`inject.rs:651`). No control-server/MCP changes needed.
-2. **`auto_speed` ergonomics** — surface `min_gap`/`lead`/`tail` as optional params on the MCP tool (defaults unchanged) AND state the 2.5 s threshold in the tool description so the agent doesn't trial-and-error it.
-3. **Expose camera path in `clip_state`** — add sampled `(t, cx, cy, zoom)` from the already-computed `CameraTrack` to `ClipInfo`, and report the effective focus for Auto spans instead of `None`. This un-blinds the repair loop for wander/framing critique.
-4. **Sidecar hygiene** — delete the divergent `target-mcp/` dir; document "rebuild → `/mcp` reconnect" in the MCP docs.
+1. ✅ **DONE — `key_chord` symbol keys** — in `key_to_vk` (`inject.rs`), map `"+"|"add"`→`VK_ADD` (0x6B — emits a literal `+` unshifted, unlike OEM_PLUS), `"*"|"multiply"|"asterisk"`→`VK_MULTIPLY` (0x6A), plus `subtract/divide/decimal/numpad0-9`. Unit test alongside `oem_punctuation_maps` (`inject.rs:651`). No control-server/MCP changes needed.
+2. ✅ **DONE — `auto_speed` ergonomics** — `min_gap`/`lead`/`tail` are now optional params on `AutoSpeed`/`auto_speed` (defaults 2.5/0.6/0.4 preserve prior behaviour exactly, clamps 0.5–30 / 0–5 / 0–5), and the tool description states the semantics so the agent doesn't trial-and-error `factor`. (`session.rs::auto_speed`, `control_server.rs`, `vuoom-mcp/src/main.rs`.)
+3. ✅ **DONE — Expose camera path in `clip_state`** — sampled `(t, cx, cy, zoom)` from the already-computed `CameraTrack` is in `ClipInfo.camera`, and Auto spans report an effective focus. This un-blinds the repair loop for wander/framing critique.
+4. **Sidecar hygiene** — delete the divergent `target-mcp/` dir; document "rebuild → `/mcp` reconnect" in the MCP docs (see the new tools section in `AI_DEMO_DIRECTOR.md`).
 
 ### Tier 2 — camera/direction features (the perceived-quality wins)
 
-5. **Rect focus** — new `ZoomMode::Rect { rect }`; camera derives zoom = fit-rect-with-padding and focus = rect center. Extend `set_zoom_focus`/`add_zoom` to accept an optional rect. This is the "zoom to the result, not the cursor" enabler — the agent screenshots, finds the result region, and frames *that*.
-6. **Expose merge/behavior knobs** — add `merge_gap`, `merge_radius`, `min_rezoom_interval`, `dead_zone` to `set_zoom_style` so "don't merge my 4 clicks" / "one deliberate zoom" is an API call, not a recompile.
-7. **Per-span envelope** — optional `hl_zoom_in`/`hl_zoom_out` (and/or explicit hold) on `ZoomKeyframe`, settable via `update_zoom`, so a reveal span can ease slower and hold longer than setup spans.
-8. **Caret-follow** — emit a position on `KeyType` events (caret/last-injection point) so `Auto` spans pan with typing; fixes "text runs off the right edge" without new camera machinery.
+5. ✅ **DONE — Rect focus** — `ZoomMode::Rect { rect }`; camera derives zoom = fit-rect-with-padding and focus = rect center. `set_zoom_focus`/`add_zoom` accept an optional rect.
+6. ✅ **DONE — Expose merge/behavior knobs** — `merge_gap`, `merge_radius`, `min_rezoom_interval`, `dead_zone` are on `set_zoom_style`.
+7. ✅ **DONE — Per-span envelope** — optional `hl_zoom_in`/`hl_zoom_out` on `ZoomKeyframe`, settable via `update_zoom`/`add_zoom`.
+8. ✅ **DONE — Caret-follow** — `KeyType` events carry an injected-pointer/caret position so `Auto` spans pan with typing.
 
 ### Tier 3 — bigger product gaps
 
-9. **Motion preview over the control protocol** — `PreviewClip { start, end, fps, width }`: reuse the `sample_frames` compositing loop over a range, encode a small low-res GIF with the existing encoder, return base64. Closes the "critique loop can't see motion" gap without full exports.
-10. **Window-targeted capture** — two steps: (a) cheap: window-bounds helper (`DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)`) + `set_region_to_window(title)` that snaps the existing `CropRegion` — kills the pixel-math, not the occlusion; (b) real: `windows_capture::window::Window` capture target parallel to `pick_monitor` — kills occlusion/overlay bleed entirely. This is the single biggest robustness win for AI-driven demos.
+9. ✅ **DONE — Motion preview over the control protocol** — `PreviewClip { start, end, fps, width }` reuses the `sample_frames` compositing loop over a range, encodes a small low-res GIF in-process with the existing `export_gif_native` (single global-palette pass, no lossy second pass), and returns it as base64. Implemented as a **synchronous** request (bounded ≤120 low-res frames, well inside the client read timeout) rather than an async export job. MCP tool `preview_clip` returns the GIF as `image/gif` content plus a metadata JSON block. Closes the "critique loop can't see motion" gap without full exports.
+10. ◑ **PARTIAL — Window-targeted capture** — (a) ✅ **shipped**: window-bounds helpers (`vuoom_capture::{list_windows, find_window_bounds}` via `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)`) + `ListWindows` and `SetRegionToWindow { title, padding }` requests (MCP tools `list_windows`, `set_region_to_window`) that snap the existing `CropRegion` through the normal `set_region` path — kills the pixel-math, not the occlusion. (b) ⏸ **deferred**: `CaptureTarget::Window` capture core has landed in `vuoom-capture`, but wiring it into the recording session is deliberately held back — `vuoom-input`'s `normalize.rs` maps raw screen coords relative to the region assuming region == screen-rect, so a window-target capture would break click/zoom mapping. Region-snap is the correct v1; true window-target capture is a future step once normalization is made window-aware.
 
 ### Not code (director playbook — already in issues.md §3–4)
 

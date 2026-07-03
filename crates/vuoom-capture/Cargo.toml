@@ -13,3 +13,10 @@ tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2"
+# Window enumeration + DWM extended-frame bounds for window-targeted capture. Pinned to 0.60
+# to match the rest of the workspace (vuoom-input, src-tauri) and windows-capture's own tree.
+windows = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_WindowsAndMessaging",
+] }

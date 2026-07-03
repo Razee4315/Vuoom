@@ -33,8 +33,15 @@ pub enum InputEvent {
     DragStart { t: f64, pos: DVec2 },
     /// A drag ended at `pos`.
     DragEnd { t: f64, pos: DVec2 },
-    /// A key was typed (no position; used to sustain a zoom while typing).
-    KeyType { t: f64 },
+    /// A key was typed. Sustains a zoom while typing. An optional `pos` (the caret /
+    /// last-injection point, normalized) lets typing *steer* an `Auto` span toward the
+    /// caret so text does not run off the edge; `None` behaves exactly as before (sustain
+    /// only, no focus change). Absent in older saved projects (`serde` default).
+    KeyType {
+        t: f64,
+        #[serde(default)]
+        pos: Option<DVec2>,
+    },
     /// The user deliberately requested a zoom at `pos` (e.g. the manual zoom hotkey).
     /// Always a zoom trigger, regardless of the click-to-zoom setting.
     ZoomMark { t: f64, pos: DVec2 },
@@ -51,11 +58,14 @@ impl InputEvent {
             | InputEvent::DragStart { t, .. }
             | InputEvent::DragEnd { t, .. }
             | InputEvent::ZoomMark { t, .. }
-            | InputEvent::KeyType { t } => t,
+            | InputEvent::KeyType { t, .. } => t,
         }
     }
 
-    /// The event's normalized position, if it has one (`KeyType` does not).
+    /// The event's normalized position, if it has one.
+    ///
+    /// `KeyType` carries a position only when a caret point was captured; a plain typed
+    /// key (`pos: None`) still returns `None`, so it sustains a hold without moving focus.
     #[must_use]
     pub fn pos(&self) -> Option<DVec2> {
         match *self {
@@ -65,7 +75,7 @@ impl InputEvent {
             | InputEvent::DragStart { pos, .. }
             | InputEvent::ZoomMark { pos, .. }
             | InputEvent::DragEnd { pos, .. } => Some(pos),
-            InputEvent::KeyType { .. } => None,
+            InputEvent::KeyType { pos, .. } => pos,
         }
     }
 

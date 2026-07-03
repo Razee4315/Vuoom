@@ -1392,6 +1392,8 @@ impl Session {
             amount,
             mode: ZoomMode::Auto,
             edge_snap_ratio: project.zoom_config.edge_snap_ratio,
+            hl_zoom_in: None,
+            hl_zoom_out: None,
         };
         vuoom_zoom::insert_sorted(&mut project.zooms, kf);
         let zooms = project.zooms.clone();

@@ -78,6 +78,8 @@ mod tests {
             amount: 1.8,
             mode: ZoomMode::Auto,
             edge_snap_ratio: 0.25,
+            hl_zoom_in: None,
+            hl_zoom_out: None,
         }
     }
 

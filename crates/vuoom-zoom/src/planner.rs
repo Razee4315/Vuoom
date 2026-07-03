@@ -71,6 +71,8 @@ fn manual_toggle_segments(
                 amount: cfg.amount,
                 mode: ZoomMode::Auto,
                 edge_snap_ratio: cfg.edge_snap_ratio,
+                hl_zoom_in: None,
+                hl_zoom_out: None,
             });
         }
         i += 2; // skip the matching zoom-out press
@@ -145,6 +147,8 @@ fn click_segments(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec
                 amount: cfg.amount,
                 mode: ZoomMode::Auto,
                 edge_snap_ratio: cfg.edge_snap_ratio,
+                hl_zoom_in: None,
+                hl_zoom_out: None,
             });
         }
     }
@@ -263,6 +267,18 @@ mod tests {
         let cfg = ZoomConfig::default();
         assert!(!cfg.auto_zoom_on_click);
         let events = [click(1.0, 0.3, 0.3), click(5.0, 0.7, 0.7)];
+        assert!(plan_zooms(&events, 8.0, &cfg).is_empty());
+    }
+
+    #[test]
+    fn positioned_keytype_does_not_spawn_a_zoom() {
+        // A caret-positioned KeyType is steer/extend only — it must never seed a cluster,
+        // even with click-to-zoom enabled (only clicks/drags/zoom-marks spawn).
+        let cfg = click_cfg();
+        let events = [
+            InputEvent::KeyType { t: 1.0, pos: Some(DVec2::new(0.4, 0.4)) },
+            InputEvent::KeyType { t: 1.5, pos: Some(DVec2::new(0.42, 0.41)) },
+        ];
         assert!(plan_zooms(&events, 8.0, &cfg).is_empty());
     }
 

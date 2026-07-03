@@ -134,6 +134,29 @@ fn unit(r: Result<(), String>) -> ControlResponse {
     }
 }
 
+/// Collapse the four optional `rect_*` components into a single rect, present only when all
+/// four are given (the protocol treats a partial rect as "no rect").
+fn rect_from(
+    x: Option<f64>,
+    y: Option<f64>,
+    w: Option<f64>,
+    h: Option<f64>,
+) -> Option<(f64, f64, f64, f64)> {
+    match (x, y, w, h) {
+        (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
+        _ => None,
+    }
+}
+
+/// Record where the agent just pointed (physical px) into the running session, so injected
+/// typing can be given a caret focus at stop time. Silent no-op if the engine isn't booted
+/// or nothing is recording — this must never fail an injection.
+fn note_pointer(app: &AppHandle, x: i32, y: i32) {
+    if let Ok(session) = app.state::<Engine>().session() {
+        session.note_injected_pointer(x, y);
+    }
+}
+
 // ── Export jobs ─────────────────────────────────────────────────────────────────────
 //
 // Exports take minutes; running them inline would block the connection (and the agent's
@@ -238,7 +261,11 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             });
         }
         ControlRequest::MoveCursor { x, y, duration_ms } => {
-            return unit(vuoom_input::move_cursor_smooth(*x, *y, *duration_ms));
+            let r = vuoom_input::move_cursor_smooth(*x, *y, *duration_ms);
+            if r.is_ok() {
+                note_pointer(app, *x, *y);
+            }
+            return unit(r);
         }
         ControlRequest::Click {
             x,
@@ -247,13 +274,11 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             double,
             glide_ms,
         } => {
-            return unit(vuoom_input::click(
-                *x,
-                *y,
-                map_button(*button),
-                *double,
-                *glide_ms,
-            ));
+            let r = vuoom_input::click(*x, *y, map_button(*button), *double, *glide_ms);
+            if r.is_ok() {
+                note_pointer(app, *x, *y);
+            }
+            return unit(r);
         }
         ControlRequest::Drag {
             x1,
@@ -263,14 +288,12 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             button,
             duration_ms,
         } => {
-            return unit(vuoom_input::drag(
-                *x1,
-                *y1,
-                *x2,
-                *y2,
-                map_button(*button),
-                *duration_ms,
-            ));
+            let r = vuoom_input::drag(*x1, *y1, *x2, *y2, map_button(*button), *duration_ms);
+            // The caret ends at the drag's release point.
+            if r.is_ok() {
+                note_pointer(app, *x2, *y2);
+            }
+            return unit(r);
         }
         ControlRequest::TypeText { text, cps } => {
             return unit(vuoom_input::type_text(text, *cps));
@@ -323,11 +346,19 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
             pre_roll,
             hl_zoom,
             hl_pan,
+            merge_gap,
+            merge_radius,
+            min_rezoom_interval,
+            dead_zone,
         } => unit(session.set_zoom_style(ZoomStyle {
             hold,
             pre_roll,
             hl_zoom,
             hl_pan,
+            merge_gap,
+            merge_radius,
+            min_rezoom_interval,
+            dead_zone,
         })),
         ControlRequest::StartRecording { auto_zoom_on_click } => {
             // The agent drives via clicks, so click-zoom defaults ON for agent recordings.
@@ -366,22 +397,54 @@ fn dispatch(app: &AppHandle, req: ControlRequest) -> ControlResponse {
         },
         // Edit ops answer with the updated span lists (via clip_info, the single source of
         // truth for the index ↔ span mapping the agent edits by).
-        ControlRequest::AddZoom { t } => zooms_after(session, session.add_zoom(t).map(|_| ())),
+        ControlRequest::AddZoom {
+            t,
+            rect_x,
+            rect_y,
+            rect_w,
+            rect_h,
+            hl_zoom_in,
+            hl_zoom_out,
+        } => {
+            let rect = rect_from(rect_x, rect_y, rect_w, rect_h);
+            zooms_after(
+                session,
+                session
+                    .add_zoom(t, rect, hl_zoom_in, hl_zoom_out)
+                    .map(|_| ()),
+            )
+        }
         ControlRequest::UpdateZoom {
             index,
             start,
             end,
             amount,
+            hl_zoom_in,
+            hl_zoom_out,
         } => zooms_after(
             session,
-            session.update_zoom(index, start, end, amount).map(|_| ()),
+            session
+                .update_zoom(index, start, end, amount, hl_zoom_in, hl_zoom_out)
+                .map(|_| ()),
         ),
-        ControlRequest::SetZoomFocus { index, x, y } => {
+        ControlRequest::SetZoomFocus {
+            index,
+            x,
+            y,
+            rect_x,
+            rect_y,
+            rect_w,
+            rect_h,
+        } => {
             let focus = match (x, y) {
                 (Some(x), Some(y)) => Some((x, y)),
                 _ => None,
             };
-            zooms_after(session, session.set_zoom_focus(index, focus).map(|_| ()))
+            let rect = rect_from(rect_x, rect_y, rect_w, rect_h);
+            zooms_after(
+                session,
+                session.set_zoom_focus(index, focus, rect).map(|_| ()),
+            )
         }
         ControlRequest::RemoveZoom { index } => {
             zooms_after(session, session.delete_zoom(index).map(|_| ()))

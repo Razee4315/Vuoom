@@ -435,7 +435,9 @@ pub async fn add_zoom(
     engine: tauri::State<'_, Engine>,
     t: f64,
 ) -> Result<Vec<ZoomKeyframe>, String> {
-    engine.session()?.add_zoom(t)
+    // The editor UI adds cursor-following segments with default spring feel; the AI Demo
+    // Director's rect/half-life overrides come in through the control server, not here.
+    engine.session()?.add_zoom(t, None, None, None)
 }
 
 /// Retime / re-level the zoom segment at `index`; returns the updated segment list.
@@ -447,7 +449,9 @@ pub async fn update_zoom(
     end: f64,
     amount: f64,
 ) -> Result<Vec<ZoomKeyframe>, String> {
-    engine.session()?.update_zoom(index, start, end, amount)
+    engine
+        .session()?
+        .update_zoom(index, start, end, amount, None, None)
 }
 
 /// Set a zoom segment's focus: pass `x` + `y` (normalized) to hold a fixed point, or
@@ -463,7 +467,7 @@ pub async fn set_zoom_focus(
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
-    engine.session()?.set_zoom_focus(index, focus)
+    engine.session()?.set_zoom_focus(index, focus, None)
 }
 
 /// Delete the zoom segment at `index`; returns the updated segment list.

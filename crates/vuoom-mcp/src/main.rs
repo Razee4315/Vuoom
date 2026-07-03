@@ -160,6 +160,18 @@ struct ZoomStyleParams {
     hl_zoom: Option<f64>,
     /// Half-life (s) of the pan spring — smaller = snappier follow (default 0.22).
     hl_pan: Option<f64>,
+    /// Clicks within this gap (s) may merge into one zoom (0.1–5.0; default 0.8). Raise it
+    /// to fuse a burst of nearby clicks into a single steady zoom.
+    merge_gap: Option<f64>,
+    /// Clicks within this normalized distance merge into one cluster (0.02–1.0; default
+    /// 0.15). Larger = fewer, broader zooms.
+    merge_radius: Option<f64>,
+    /// Minimum seconds between one zoom ending and the next starting (0.0–10.0; default
+    /// 1.0). Raise it to stop rapid zoom in/out flicker.
+    min_rezoom_interval: Option<f64>,
+    /// How far (normalized) the focus must drift before the camera re-pans (0.0–0.5;
+    /// default 0.10). Larger = calmer, less twitchy following.
+    dead_zone: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -273,6 +285,21 @@ struct GetFramesParams {
 struct AddZoomParams {
     /// Source-timeline start (seconds); the segment gets a ~2 s default length.
     t: f64,
+    /// Frame a normalized region: provide ALL of rect_x/rect_y/rect_w/rect_h in [0,1] and
+    /// the camera fits-and-centres on it (the zoom only reduces to fit — never overshoots).
+    /// Frame the RESULT region — the display/value/fresh text — not the cursor. Omit for a
+    /// cursor-following zoom. rect_x = left.
+    rect_x: Option<f64>,
+    /// Rect top in [0,1].
+    rect_y: Option<f64>,
+    /// Rect width in [0,1].
+    rect_w: Option<f64>,
+    /// Rect height in [0,1].
+    rect_h: Option<f64>,
+    /// Zoom-in spring half-life (s), smaller = snappier; omit for the default.
+    hl_zoom_in: Option<f64>,
+    /// Zoom-out (release) spring half-life (s); omit for the default.
+    hl_zoom_out: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -285,16 +312,31 @@ struct UpdateZoomParams {
     end: f64,
     /// New zoom multiplier (1.1–4.0).
     amount: f64,
+    /// Zoom-in spring half-life (s): omit to leave unchanged, a value > 0 sets it (smaller =
+    /// snappier), a value <= 0 clears it back to the default.
+    hl_zoom_in: Option<f64>,
+    /// Zoom-out (release) spring half-life (s): same convention as hl_zoom_in.
+    hl_zoom_out: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ZoomFocusParams {
     /// Index into clip_state's sorted zoom list.
     index: usize,
-    /// Normalized focus x in [0,1]; omit BOTH x and y to follow the cursor again.
+    /// Normalized focus x in [0,1]; omit x, y AND the rect to follow the cursor again.
     x: Option<f64>,
     /// Normalized focus y in [0,1].
     y: Option<f64>,
+    /// Frame a normalized region instead of a point: provide ALL of
+    /// rect_x/rect_y/rect_w/rect_h in [0,1] and the camera fits-and-centres on it. Frame the
+    /// RESULT region — the display/value/fresh text — not the cursor. rect_x = left.
+    rect_x: Option<f64>,
+    /// Rect top in [0,1].
+    rect_y: Option<f64>,
+    /// Rect width in [0,1].
+    rect_w: Option<f64>,
+    /// Rect height in [0,1].
+    rect_h: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -436,7 +478,7 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "Tune the auto-zoom FEEL for the NEXT recording (hold, pre_roll, spring half-lives). Omitted fields keep defaults; resets after each recording."
+        description = "Tune the auto-zoom FEEL for the NEXT recording: hold, pre_roll, spring half-lives (hl_zoom/hl_pan), and the merge/behaviour knobs merge_gap, merge_radius, min_rezoom_interval, dead_zone. Omitted fields keep defaults; resets after each recording. Use merge_gap/merge_radius to fuse click bursts into one steady zoom and min_rezoom_interval to stop zoom flicker."
     )]
     async fn set_zoom_style(
         &self,
@@ -447,6 +489,10 @@ impl VuoomMcp {
             pre_roll: p.pre_roll,
             hl_zoom: p.hl_zoom,
             hl_pan: p.hl_pan,
+            merge_gap: p.merge_gap,
+            merge_radius: p.merge_radius,
+            min_rezoom_interval: p.min_rezoom_interval,
+            dead_zone: p.dead_zone,
         })
         .await?;
         Ok(text("zoom style set"))
@@ -614,7 +660,7 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "The clip's full editable state: {duration, output_duration, zooms: [{start,end,amount,focus}], cuts, speeds}. Zoom/cut indices here are what the edit tools address. Call after stop_recording to know WHERE to sample frames."
+        description = "The clip's full editable state: {duration, output_duration, zooms: [{start,end,amount,focus,mode,rect}], cuts, speeds, camera: [[t,cx,cy,zoom],...]}. mode is auto|manual|rect; rect is the framed region when mode==rect. camera is the sampled path (~4 Hz, output-timeline t) — scan it for wander (cx/cy drifting) or bad framing before pulling frames. Zoom/cut indices here are what the edit tools address. Call after stop_recording to know WHERE to sample frames."
     )]
     async fn clip_state(&self) -> Result<CallToolResult, McpError> {
         match self.call(ControlRequest::ClipState).await? {
@@ -662,20 +708,31 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "Insert a zoom segment at source time t (~2 s default length, follows the cursor). Returns the updated zoom list."
+        description = "Insert a zoom segment at source time t (~2 s default length). By default it follows the cursor; pass all four rect_* (normalized [0,1]) to frame a fixed region instead — frame the RESULT (the display/value/fresh text), not the cursor. Optional hl_zoom_in/hl_zoom_out set this span's spring feel. Returns the updated zoom list."
     )]
     async fn add_zoom(
         &self,
         Parameters(p): Parameters<AddZoomParams>,
     ) -> Result<CallToolResult, McpError> {
-        match self.call(ControlRequest::AddZoom { t: p.t }).await? {
+        match self
+            .call(ControlRequest::AddZoom {
+                t: p.t,
+                rect_x: p.rect_x,
+                rect_y: p.rect_y,
+                rect_w: p.rect_w,
+                rect_h: p.rect_h,
+                hl_zoom_in: p.hl_zoom_in,
+                hl_zoom_out: p.hl_zoom_out,
+            })
+            .await?
+        {
             ControlResponse::Zooms { zooms } => Ok(json(&zooms)),
             other => Err(unexpected(&other)),
         }
     }
 
     #[tool(
-        description = "Retime / re-level the zoom at `index` (from clip_state). Fixes 'zoom leaves too early' or 'too strong'. Returns the updated zoom list."
+        description = "Retime / re-level the zoom at `index` (from clip_state). Fixes 'zoom leaves too early' or 'too strong'. Optional hl_zoom_in/hl_zoom_out tune this span's spring feel (omit = unchanged, >0 = set, <=0 = clear to default). Returns the updated zoom list."
     )]
     async fn update_zoom(
         &self,
@@ -687,6 +744,8 @@ impl VuoomMcp {
                 start: p.start,
                 end: p.end,
                 amount: p.amount,
+                hl_zoom_in: p.hl_zoom_in,
+                hl_zoom_out: p.hl_zoom_out,
             })
             .await?
         {
@@ -696,7 +755,7 @@ impl VuoomMcp {
     }
 
     #[tool(
-        description = "Re-centre the zoom at `index`: pass normalized x,y in [0,1] to hold a fixed focus (fixes off-centre zooms), or omit both to follow the cursor again. Returns the updated zoom list."
+        description = "Re-frame the zoom at `index`. Precedence: pass all four rect_* (normalized [0,1]) to FRAME a region (fits-and-centres — best for showing a result: the display/value/fresh text, not the cursor); else pass x,y to hold a fixed point (fixes off-centre zooms); else omit everything to follow the cursor again. Returns the updated zoom list."
     )]
     async fn set_zoom_focus(
         &self,
@@ -707,6 +766,10 @@ impl VuoomMcp {
                 index: p.index,
                 x: p.x,
                 y: p.y,
+                rect_x: p.rect_x,
+                rect_y: p.rect_y,
+                rect_w: p.rect_w,
+                rect_h: p.rect_h,
             })
             .await?
         {

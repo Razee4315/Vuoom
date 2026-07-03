@@ -35,7 +35,7 @@ use vuoom_project::{
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
-use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
+use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, NormRect, ZoomMode};
 
 /// Summary returned to the UI when recording stops.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -95,6 +95,12 @@ struct Active {
     /// Pause spans `(start_qpc, end_qpc)` — an open span means "currently paused".
     /// Converted to cuts at stop time, so pauses stay editable in the timeline.
     pauses: Vec<(i64, Option<i64>)>,
+    /// Pointer positions `(qpc, x, y)` in physical virtual-desktop px that the AI Demo
+    /// Director injected (click / move / drag). At stop time these give injected typing a
+    /// caret focus (the agent types where it last clicked) so the planner can steer an
+    /// `Auto` span toward the text. Empty for interactive recordings, so human typing keeps
+    /// no caret (the raw hook can't tell the caret from the mouse — see `normalize()`).
+    caret_trail: Vec<(i64, i32, i32)>,
     /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
     _preview: LivePreview,
 }
@@ -179,6 +185,14 @@ pub struct ZoomStyle {
     pub hl_zoom: Option<f64>,
     /// Half-life (s) of the pan spring.
     pub hl_pan: Option<f64>,
+    /// Clicks within this gap (s) may merge into one zoom.
+    pub merge_gap: Option<f64>,
+    /// Clicks within this normalized distance of a cluster merge into it.
+    pub merge_radius: Option<f64>,
+    /// Minimum seconds between the end of one zoom and the start of the next.
+    pub min_rezoom_interval: Option<f64>,
+    /// Normalized half-extent the focus must leave before the pan retargets.
+    pub dead_zone: Option<f64>,
 }
 
 impl Session {
@@ -244,6 +258,10 @@ impl Session {
             pre_roll: style.pre_roll.map(|v| v.clamp(0.0, 2.0)),
             hl_zoom: style.hl_zoom.map(|v| v.clamp(0.05, 1.5)),
             hl_pan: style.hl_pan.map(|v| v.clamp(0.05, 1.5)),
+            merge_gap: style.merge_gap.map(|v| v.clamp(0.1, 5.0)),
+            merge_radius: style.merge_radius.map(|v| v.clamp(0.02, 1.0)),
+            min_rezoom_interval: style.min_rezoom_interval.map(|v| v.clamp(0.0, 10.0)),
+            dead_zone: style.dead_zone.map(|v| v.clamp(0.0, 0.5)),
         };
         *self.pending_style.lock().unwrap_or_else(|e| e.into_inner()) = clamped;
         Ok(())
@@ -346,9 +364,19 @@ impl Session {
             start_qpc: self.clock.now(),
             zoom_poll: ZoomChordPoller::start(),
             pauses: Vec::new(),
+            caret_trail: Vec::new(),
             _preview: preview,
         });
         Ok(())
+    }
+
+    /// Record a pointer position the AI Demo Director just injected (physical px), so
+    /// injected typing can be given a caret focus at stop time. No-op when not recording.
+    pub fn note_injected_pointer(&self, x: i32, y: i32) {
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = active.as_mut() {
+            s.caret_trail.push((self.clock.now(), x, y));
+        }
     }
 
     /// Pause / resume the running recording. Capture keeps running; the paused span is
@@ -449,6 +477,39 @@ impl Session {
         }
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
+        // Give injected typing a caret focus. The AI Demo Director types where it last
+        // clicked, so back-fill each caret-less `KeyType` with the injected pointer position
+        // active at that instant. The planner uses this to steer an `Auto` span toward the
+        // text (never to seed a new zoom). The trail is empty for interactive recordings, so
+        // human typing is untouched (the raw hook deliberately leaves those `pos: None`).
+        if !session.caret_trail.is_empty() {
+            let mut trail: Vec<(f64, DVec2)> = session
+                .caret_trail
+                .iter()
+                .map(|&(qpc, x, y)| {
+                    let t = self.clock.seconds_between(session.start_qpc, qpc);
+                    let pos = DVec2::new(
+                        (f64::from(x - region.x) / f64::from(region.w.max(1))).clamp(0.0, 1.0),
+                        (f64::from(y - region.y) / f64::from(region.h.max(1))).clamp(0.0, 1.0),
+                    );
+                    (t, pos)
+                })
+                .collect();
+            trail.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for e in &mut events {
+                if let InputEvent::KeyType { t, pos } = e {
+                    if pos.is_none() {
+                        // The latest injected pointer at or before this keystroke.
+                        if let Some(&(_, p)) =
+                            trail.iter().take_while(|(tt, _)| *tt <= *t + 1e-6).last()
+                        {
+                            *pos = Some(p);
+                        }
+                    }
+                }
+            }
+        }
+
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
         let auto_zoom_on_click = *self
             .pending_auto_click
@@ -463,6 +524,12 @@ impl Session {
             pre_roll: style.pre_roll.unwrap_or(defaults.pre_roll),
             hl_zoom: style.hl_zoom.unwrap_or(defaults.hl_zoom),
             hl_pan: style.hl_pan.unwrap_or(defaults.hl_pan),
+            merge_gap: style.merge_gap.unwrap_or(defaults.merge_gap),
+            merge_radius: style.merge_radius.unwrap_or(defaults.merge_radius),
+            min_rezoom_interval: style
+                .min_rezoom_interval
+                .unwrap_or(defaults.min_rezoom_interval),
+            dead_zone: style.dead_zone.unwrap_or(defaults.dead_zone),
             ..defaults
         };
         let zooms = plan_zooms(&events, duration, &cfg);
@@ -1015,23 +1082,60 @@ impl Session {
     /// durations plus every zoom/cut/speed span, so the agent knows exactly *where* to
     /// sample frames and which segment index to repair — instead of guessing from counts.
     pub fn clip_info(&self) -> Result<ClipInfo, String> {
+        /// Camera-path sample rate on the output timeline.
+        const CAMERA_HZ: f64 = 4.0;
+        /// Hard cap on camera samples, so a long clip stays cheap (rate drops instead).
+        const CAMERA_CAP: usize = 200;
+
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
-        let (_, span, regions, cuts) = out_mapping(project);
+        let (t0, span, regions, cuts) = out_mapping(project);
+        let d_out = output_duration(span, &regions, &cuts);
+
+        // Sample the stored camera track at a coarse fixed rate. The track lives on the
+        // SOURCE timeline, so map each output time through trim + cuts + speed exactly like
+        // `sample_frames`/`get_frames` do — the agent then reads camera and frames in the
+        // same time space.
+        let camera = edited.track.as_ref().map_or_else(Vec::new, |track| {
+            let n = (((d_out * CAMERA_HZ).ceil() as usize) + 1).clamp(1, CAMERA_CAP);
+            let step = if n > 1 { d_out / (n - 1) as f64 } else { 0.0 };
+            (0..n)
+                .map(|i| {
+                    let t_out = (i as f64 * step).min(d_out);
+                    let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+                    let cs = track.at(t_src);
+                    (t_out, cs.center.x, cs.center.y, cs.zoom)
+                })
+                .collect()
+        });
+
         Ok(ClipInfo {
             duration: project.source.duration,
-            output_duration: output_duration(span, &regions, &cuts),
+            output_duration: d_out,
             zooms: project
                 .zooms
                 .iter()
-                .map(|k| ZoomSpan {
-                    start: k.start,
-                    end: k.end,
-                    amount: k.amount,
-                    focus: match k.mode {
-                        ZoomMode::Manual { pos } => Some((pos.x, pos.y)),
-                        ZoomMode::Auto => None,
-                    },
+                .map(|k| {
+                    let (focus, mode, rect) = match k.mode {
+                        ZoomMode::Auto => (None, "auto", None),
+                        ZoomMode::Manual { pos } => (Some((pos.x, pos.y)), "manual", None),
+                        ZoomMode::Rect { rect } => {
+                            let c = rect.center();
+                            (
+                                Some((c.x, c.y)),
+                                "rect",
+                                Some((rect.x, rect.y, rect.w, rect.h)),
+                            )
+                        }
+                    };
+                    ZoomSpan {
+                        start: k.start,
+                        end: k.end,
+                        amount: k.amount,
+                        focus,
+                        mode: mode.to_string(),
+                        rect,
+                    }
                 })
                 .collect(),
             cuts: project
@@ -1051,6 +1155,7 @@ impl Session {
                     factor: r.factor,
                 })
                 .collect(),
+            camera,
         })
     }
 
@@ -1367,10 +1472,22 @@ impl Session {
         Ok(project.cuts.clone())
     }
 
-    /// Insert a manual zoom segment at time `t` and re-simulate the camera.
-    /// Returns the updated segment list.
-    pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
+    /// Insert a manual zoom segment at time `t` and re-simulate the camera. Provide `rect`
+    /// (all four normalized components) to frame a region (fit-and-centre); otherwise the
+    /// segment follows the cursor. `hl_in`/`hl_out` optionally override the per-span zoom
+    /// spring half-lives. Returns the updated segment list.
+    pub fn add_zoom(
+        &self,
+        t: f64,
+        rect: Option<(f64, f64, f64, f64)>,
+        hl_in: Option<f64>,
+        hl_out: Option<f64>,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
         const DEFAULT_LEN: f64 = 2.0;
+        let mode = match rect {
+            Some(r) => rect_to_mode(r)?,
+            None => ZoomMode::Auto,
+        };
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
@@ -1390,10 +1507,11 @@ impl Session {
             start,
             end,
             amount,
-            mode: ZoomMode::Auto,
+            mode,
             edge_snap_ratio: project.zoom_config.edge_snap_ratio,
-            hl_zoom_in: None,
-            hl_zoom_out: None,
+            // A value <= 0 means "no override"; the camera would clamp it anyway.
+            hl_zoom_in: hl_in.filter(|v| *v > 0.0),
+            hl_zoom_out: hl_out.filter(|v| *v > 0.0),
         };
         vuoom_zoom::insert_sorted(&mut project.zooms, kf);
         let zooms = project.zooms.clone();
@@ -1401,14 +1519,18 @@ impl Session {
         Ok(zooms)
     }
 
-    /// Retime / re-level the zoom segment at `index` and re-simulate the camera.
-    /// Returns the updated segment list.
+    /// Retime / re-level the zoom segment at `index` and re-simulate the camera. For the
+    /// per-span spring half-lives, `None` leaves the current value unchanged, a value `> 0`
+    /// sets it, and a value `<= 0` clears it back to the config default. Returns the updated
+    /// segment list.
     pub fn update_zoom(
         &self,
         index: usize,
         start: f64,
         end: f64,
         amount: f64,
+        hl_in: Option<f64>,
+        hl_out: Option<f64>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
@@ -1419,6 +1541,12 @@ impl Session {
         }
         if let Some(kf) = project.zooms.get_mut(index) {
             kf.amount = amount.clamp(1.1, 4.0);
+            if let Some(v) = hl_in {
+                kf.hl_zoom_in = (v > 0.0).then_some(v);
+            }
+            if let Some(v) = hl_out {
+                kf.hl_zoom_out = (v > 0.0).then_some(v);
+            }
         }
         vuoom_zoom::sort_by_start(&mut project.zooms);
         let zooms = project.zooms.clone();
@@ -1426,23 +1554,27 @@ impl Session {
         Ok(zooms)
     }
 
-    /// Set how the zoom segment at `index` picks its focus: `Some((x, y))` holds a fixed
-    /// normalized point, `None` follows the cursor. Returns the updated segment list.
+    /// Set how the zoom segment at `index` picks its focus. Precedence: `rect` (all four
+    /// normalized components) frames a region (fit-and-centre); else `focus` holds a fixed
+    /// point; else the camera follows the cursor. Returns the updated segment list.
     pub fn set_zoom_focus(
         &self,
         index: usize,
         focus: Option<(f64, f64)>,
+        rect: Option<(f64, f64, f64, f64)>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
+        let mode = match (rect, focus) {
+            (Some(r), _) => rect_to_mode(r)?,
+            (None, Some((x, y))) => ZoomMode::Manual {
+                pos: DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)),
+            },
+            (None, None) => ZoomMode::Auto,
+        };
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
-        kf.mode = match focus {
-            Some((x, y)) => ZoomMode::Manual {
-                pos: DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)),
-            },
-            None => ZoomMode::Auto,
-        };
+        kf.mode = mode;
         let zooms = project.zooms.clone();
         resimulate(&mut edited);
         Ok(zooms)
@@ -2026,6 +2158,25 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
     taps
 }
 
+/// Validate a normalized `(x, y, w, h)` rect into a [`ZoomMode::Rect`]: clamp the corner
+/// into `[0, 1]`, shrink the size so it stays inside the frame, and reject a degenerate
+/// (zero/negative area) rect with a clear error.
+fn rect_to_mode(rect: (f64, f64, f64, f64)) -> Result<ZoomMode, String> {
+    let (rx, ry, rw, rh) = rect;
+    if rw <= 0.0 || rh <= 0.0 {
+        return Err("zoom rect must have positive width and height".into());
+    }
+    let x = rx.clamp(0.0, 1.0);
+    let y = ry.clamp(0.0, 1.0);
+    let w = rw.min(1.0 - x).max(0.0);
+    let h = rh.min(1.0 - y).max(0.0);
+    let nrect = NormRect { x, y, w, h };
+    if nrect.is_degenerate() {
+        return Err("zoom rect is outside the frame (nothing left to frame)".into());
+    }
+    Ok(ZoomMode::Rect { rect: nrect })
+}
+
 /// Keep speed regions in timeline order (the editor identifies them by sorted index).
 fn sort_speed(regions: &mut [SpeedRegion]) {
     regions.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -2143,5 +2294,44 @@ mod tests {
         // Rounds to the nearer neighbour.
         assert_eq!(nearest_idx(&recs, clock, start, 1.4), Some(1));
         assert_eq!(nearest_idx(&recs, clock, start, 1.6), Some(2));
+    }
+
+    #[test]
+    fn rect_to_mode_accepts_a_valid_rect() {
+        let mode = rect_to_mode((0.2, 0.3, 0.4, 0.25)).expect("valid rect");
+        match mode {
+            ZoomMode::Rect { rect } => {
+                assert!((rect.x - 0.2).abs() < 1e-9);
+                assert!((rect.w - 0.4).abs() < 1e-9);
+            }
+            other => panic!("expected Rect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rect_to_mode_clamps_the_corner_and_shrinks_to_fit() {
+        // A corner past 1.0 clamps in, and an oversized width shrinks to stay inside [0,1].
+        let mode = rect_to_mode((0.8, 0.9, 0.5, 0.2)).expect("clamped rect");
+        match mode {
+            ZoomMode::Rect { rect } => {
+                assert!(
+                    rect.x + rect.w <= 1.0 + 1e-9,
+                    "rect escaped the frame: {rect:?}"
+                );
+                assert!(
+                    rect.y + rect.h <= 1.0 + 1e-9,
+                    "rect escaped the frame: {rect:?}"
+                );
+            }
+            other => panic!("expected Rect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rect_to_mode_rejects_degenerate_rects() {
+        assert!(rect_to_mode((0.2, 0.2, 0.0, 0.3)).is_err());
+        assert!(rect_to_mode((0.2, 0.2, 0.3, -0.1)).is_err());
+        // A corner clamped to the far edge leaves no room, so the rect is rejected.
+        assert!(rect_to_mode((1.0, 0.5, 0.3, 0.3)).is_err());
     }
 }

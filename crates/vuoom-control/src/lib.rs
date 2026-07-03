@@ -89,6 +89,17 @@ pub enum ControlRequest {
         hl_zoom: Option<f64>,
         /// Half-life (s) of the pan spring — smaller = snappier follow.
         hl_pan: Option<f64>,
+        /// Clicks within this gap (s) may merge into one zoom (clamped `0.1..=5.0`).
+        merge_gap: Option<f64>,
+        /// Clicks within this normalized distance of a cluster merge into it
+        /// (clamped `0.02..=1.0`).
+        merge_radius: Option<f64>,
+        /// Minimum seconds between the end of one zoom and the start of the next
+        /// (clamped `0.0..=10.0`).
+        min_rezoom_interval: Option<f64>,
+        /// Normalized half-extent the focus must leave before the pan retargets — jitter
+        /// rejection (clamped `0.0..=0.5`).
+        dead_zone: Option<f64>,
     },
     /// Begin capturing the screen + global input. `auto_zoom_on_click` defaults to `true`
     /// for agent recordings (the agent drives via clicks); the flag applies to **this**
@@ -191,9 +202,23 @@ pub enum ControlRequest {
         width: Option<u32>,
     },
     /// Insert a zoom segment starting at source time `t`; answered with the updated list.
+    /// Provide all four `rect_*` fields to frame a normalized region (fit-and-centre);
+    /// omit them for a plain cursor-following segment.
     AddZoom {
         /// Source-timeline start (seconds); the segment gets a default length.
         t: f64,
+        /// Rect left in `[0, 1]` (all four `rect_*` required together → Rect mode).
+        rect_x: Option<f64>,
+        /// Rect top in `[0, 1]`.
+        rect_y: Option<f64>,
+        /// Rect width in `[0, 1]`.
+        rect_w: Option<f64>,
+        /// Rect height in `[0, 1]`.
+        rect_h: Option<f64>,
+        /// Per-span zoom-*in* spring half-life (s); `None` = config default.
+        hl_zoom_in: Option<f64>,
+        /// Per-span zoom-*out* (release) spring half-life (s); `None` = default release.
+        hl_zoom_out: Option<f64>,
     },
     /// Retime / re-level the zoom at `index`; answered with the updated list.
     UpdateZoom {
@@ -205,15 +230,30 @@ pub enum ControlRequest {
         end: f64,
         /// New zoom multiplier (clamped to `[1.1, 4.0]`).
         amount: f64,
+        /// Per-span zoom-*in* half-life (s): `None` leaves it unchanged, a value `> 0`
+        /// sets it, and a value `<= 0` clears it back to the config default.
+        hl_zoom_in: Option<f64>,
+        /// Per-span zoom-*out* (release) half-life (s): same convention as `hl_zoom_in`.
+        hl_zoom_out: Option<f64>,
     },
-    /// Re-centre the zoom at `index`: fixed normalized focus, or follow the cursor again.
+    /// Re-centre the zoom at `index`: frame a normalized rect, hold a fixed focus, or follow
+    /// the cursor again. Precedence: all four `rect_*` → Rect mode; else `x`+`y` → Manual;
+    /// else Auto (follow the cursor).
     SetZoomFocus {
         /// Index into the sorted zoom list.
         index: usize,
-        /// Normalized focus x in `[0, 1]`; omit both to follow the cursor.
+        /// Normalized focus x in `[0, 1]`; omit both `x`/`y` (and the rect) to follow the cursor.
         x: Option<f64>,
         /// Normalized focus y in `[0, 1]`.
         y: Option<f64>,
+        /// Rect left in `[0, 1]` (all four `rect_*` required together → Rect mode).
+        rect_x: Option<f64>,
+        /// Rect top in `[0, 1]`.
+        rect_y: Option<f64>,
+        /// Rect width in `[0, 1]`.
+        rect_w: Option<f64>,
+        /// Rect height in `[0, 1]`.
+        rect_h: Option<f64>,
     },
     /// Delete the zoom at `index`; answered with the updated list.
     RemoveZoom {
@@ -320,7 +360,7 @@ pub struct RecordingSummary {
 }
 
 /// One zoom segment on the source timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ZoomSpan {
     /// Segment start (source seconds).
     pub start: f64,
@@ -328,8 +368,13 @@ pub struct ZoomSpan {
     pub end: f64,
     /// Zoom multiplier while active.
     pub amount: f64,
-    /// Fixed normalized focus when manually set; `None` = the camera follows the cursor.
+    /// Focus point: the fixed point for `"manual"`, the rect centre for `"rect"`, and
+    /// `None` for `"auto"` (the camera follows the cursor).
     pub focus: Option<(f64, f64)>,
+    /// How this segment picks its focus: `"auto"`, `"manual"`, or `"rect"`.
+    pub mode: String,
+    /// The framed region `(x, y, w, h)` in normalized space when `mode == "rect"`, else `None`.
+    pub rect: Option<(f64, f64, f64, f64)>,
 }
 
 /// One cut (removed span) on the source timeline.
@@ -390,6 +435,11 @@ pub struct ClipInfo {
     pub cuts: Vec<CutSpan>,
     /// The speed regions, sorted by start.
     pub speeds: Vec<SpeedSpan>,
+    /// Coarsely-sampled camera path `(t, cx, cy, zoom)` on the **output timeline** (~4 Hz,
+    /// capped ~200 samples) so the agent can detect wander or poor framing without pulling
+    /// full frames. `t` is output-timeline seconds (consistent with `get_frames`/`seek`);
+    /// `cx`/`cy` are the normalized camera centre and `zoom` the multiplier.
+    pub camera: Vec<(f64, f64, f64, f64)>,
 }
 
 /// A single composited frame, returned for the agent to inspect.
@@ -648,6 +698,10 @@ mod tests {
                 pre_roll: None,
                 hl_zoom: Some(0.25),
                 hl_pan: None,
+                merge_gap: Some(1.2),
+                merge_radius: None,
+                min_rezoom_interval: Some(0.5),
+                dead_zone: Some(0.2),
             },
             ControlRequest::StartRecording {
                 auto_zoom_on_click: Some(true),
@@ -695,17 +749,31 @@ mod tests {
                 times: vec![0.0, 1.0, 2.5],
                 width: Some(800),
             },
-            ControlRequest::AddZoom { t: 3.5 },
+            ControlRequest::AddZoom {
+                t: 3.5,
+                rect_x: Some(0.1),
+                rect_y: Some(0.2),
+                rect_w: Some(0.3),
+                rect_h: Some(0.25),
+                hl_zoom_in: Some(0.4),
+                hl_zoom_out: None,
+            },
             ControlRequest::UpdateZoom {
                 index: 1,
                 start: 2.0,
                 end: 4.5,
                 amount: 2.2,
+                hl_zoom_in: Some(0.35),
+                hl_zoom_out: Some(0.0),
             },
             ControlRequest::SetZoomFocus {
                 index: 0,
                 x: Some(0.25),
                 y: Some(0.75),
+                rect_x: None,
+                rect_y: None,
+                rect_w: None,
+                rect_h: None,
             },
             ControlRequest::RemoveZoom { index: 2 },
             ControlRequest::AddCut {
@@ -785,6 +853,71 @@ mod tests {
         );
     }
 
+    /// Pre-existing callers omit the new zoom fields entirely — they must still parse, with
+    /// every new optional field defaulting to `None`.
+    #[test]
+    fn new_zoom_fields_default_when_missing() {
+        let add: ControlRequest =
+            serde_json::from_str(r#"{"op":"add_zoom","t":3.5}"#).expect("parse");
+        assert_eq!(
+            add,
+            ControlRequest::AddZoom {
+                t: 3.5,
+                rect_x: None,
+                rect_y: None,
+                rect_w: None,
+                rect_h: None,
+                hl_zoom_in: None,
+                hl_zoom_out: None,
+            }
+        );
+        let upd: ControlRequest = serde_json::from_str(
+            r#"{"op":"update_zoom","index":1,"start":2.0,"end":4.5,"amount":2.2}"#,
+        )
+        .expect("parse");
+        assert_eq!(
+            upd,
+            ControlRequest::UpdateZoom {
+                index: 1,
+                start: 2.0,
+                end: 4.5,
+                amount: 2.2,
+                hl_zoom_in: None,
+                hl_zoom_out: None,
+            }
+        );
+        let focus: ControlRequest =
+            serde_json::from_str(r#"{"op":"set_zoom_focus","index":0,"x":0.25,"y":0.75}"#)
+                .expect("parse");
+        assert_eq!(
+            focus,
+            ControlRequest::SetZoomFocus {
+                index: 0,
+                x: Some(0.25),
+                y: Some(0.75),
+                rect_x: None,
+                rect_y: None,
+                rect_w: None,
+                rect_h: None,
+            }
+        );
+        let style: ControlRequest =
+            serde_json::from_str(r#"{"op":"set_zoom_style","hold":2.0}"#).expect("parse");
+        assert_eq!(
+            style,
+            ControlRequest::SetZoomStyle {
+                hold: Some(2.0),
+                pre_roll: None,
+                hl_zoom: None,
+                hl_pan: None,
+                merge_gap: None,
+                merge_radius: None,
+                min_rezoom_interval: None,
+                dead_zone: None,
+            }
+        );
+    }
+
     /// Every response variant must survive a JSON round-trip unchanged.
     #[test]
     fn responses_round_trip() {
@@ -810,6 +943,8 @@ mod tests {
                     end: 3.5,
                     amount: 1.8,
                     focus: Some((0.3, 0.6)),
+                    mode: "rect".into(),
+                    rect: Some((0.2, 0.5, 0.2, 0.2)),
                 }],
                 cuts: vec![CutSpan {
                     start: 5.0,
@@ -820,6 +955,7 @@ mod tests {
                     end: 9.0,
                     factor: 4.0,
                 }],
+                camera: vec![(0.0, 0.5, 0.5, 1.0), (0.25, 0.4, 0.55, 1.8)],
             }),
             ControlResponse::Status(StatusInfo {
                 state: RecordState::Recording,
@@ -845,6 +981,8 @@ mod tests {
                     end: 2.0,
                     amount: 2.0,
                     focus: None,
+                    mode: "auto".into(),
+                    rect: None,
                 }],
             },
             ControlResponse::Cuts { cuts: vec![] },

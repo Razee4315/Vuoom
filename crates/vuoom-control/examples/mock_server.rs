@@ -65,12 +65,16 @@ fn mock_zooms() -> Vec<ZoomSpan> {
             end: 2.0,
             amount: 1.8,
             focus: None,
+            mode: "auto".into(),
+            rect: None,
         },
         ZoomSpan {
             start: 4.0,
             end: 6.0,
             amount: 1.8,
             focus: Some((0.3, 0.6)),
+            mode: "manual".into(),
+            rect: None,
         },
     ]
 }
@@ -128,6 +132,7 @@ fn respond(req: ControlRequest) -> ControlResponse {
                 end: 3.5,
                 factor: 4.0,
             }],
+            camera: vec![(0.0, 0.5, 0.5, 1.0), (0.25, 0.42, 0.55, 1.8)],
         }),
         ControlRequest::GetFrames { times, .. } => ControlResponse::Frames {
             frames: times

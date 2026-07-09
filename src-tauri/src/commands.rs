@@ -12,7 +12,7 @@ use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
 use crate::Engine;
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe};
 
@@ -101,6 +101,17 @@ pub fn enter_overlay(
     // Best-effort from here on: the window is currently hidden, so `show()` MUST run on
     // every path — bailing early with `?` would strand an invisible window.
     let _ = exclude_from_capture(&main);
+    // The editor sits maximized, and an undecorated maximized window only covers the WORK
+    // area (screen minus taskbar). Entering fullscreen straight from that state can leave
+    // the window work-area sized: the backdrop screenshot (full monitor) gets squashed
+    // upward, the taskbar stays uncovered, and every drawn selection lands offset from
+    // where it looked. Unmaximize and pin the window to the monitor's true physical bounds
+    // before going fullscreen.
+    let _ = main.unmaximize();
+    if let Some(m) = monitor.as_ref() {
+        let _ = main.set_position(PhysicalPosition::new(m.position().x, m.position().y));
+        let _ = main.set_size(PhysicalSize::new(m.size().width, m.size().height));
+    }
     let _ = main.set_always_on_top(true);
     let _ = main.set_fullscreen(true);
     let _ = main.show();
@@ -112,11 +123,69 @@ pub fn enter_overlay(
 const PANEL_W: f64 = 384.0;
 const PANEL_H: f64 = 300.0;
 
+/// Breathing room (physical px) kept between the panel and the recorded region, so the
+/// panel also clears the 3px border strips drawn just outside the region.
+const REGION_PAD: i32 = 16;
+
+/// An axis-aligned rect in virtual-desktop physical px: `(x, y, w, h)`.
+type Rect = (i32, i32, i32, i32);
+
+fn inflate((x, y, w, h): Rect, pad: i32) -> Rect {
+    (x - pad, y - pad, w + 2 * pad, h + 2 * pad)
+}
+
+fn rects_overlap(a: Rect, b: Rect) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// The pending capture region in virtual-desktop physical px (`None` = full screen).
+fn region_virtual(border: &BorderState) -> Option<Rect> {
+    let r = border.region.lock().ok().and_then(|r| *r)?;
+    let (ox, oy) = border.origin.lock().map_or((0, 0), |o| *o);
+    Some((ox + r.x as i32, oy + r.y as i32, r.w as i32, r.h as i32))
+}
+
+/// The window's current on-screen rect, if it can be read.
+fn window_rect(win: &tauri::WebviewWindow) -> Option<Rect> {
+    let pos = win.outer_position().ok()?;
+    let size = win.outer_size().ok()?;
+    Some((pos.x, pos.y, size.width as i32, size.height as i32))
+}
+
+/// First monitor corner where a `panel`-sized window stays clear of `region`
+/// (bottom-right → bottom-left → top-right → top-left). `None` when every corner
+/// overlaps; full-screen recordings get bottom-right (the panel only needs to sit
+/// somewhere for the countdown — `start_recording` minimizes it before capture matters).
+fn pick_panel_spot(
+    mon: Rect,
+    panel: (i32, i32),
+    margin: i32,
+    region: Option<Rect>,
+) -> Option<(i32, i32)> {
+    let (mx, my, mw, mh) = mon;
+    let (pw, ph) = panel;
+    let corners = [
+        (mx + mw - pw - margin, my + mh - ph - margin), // bottom-right
+        (mx + margin, my + mh - ph - margin),           // bottom-left
+        (mx + mw - pw - margin, my + margin),           // top-right
+        (mx + margin, my + margin),                     // top-left
+    ];
+    let Some(r) = region else {
+        return Some(corners[0]);
+    };
+    let r = inflate(r, REGION_PAD);
+    corners
+        .into_iter()
+        .find(|&(px, py)| !rects_overlap((px, py, pw, ph), r))
+}
+
 /// Step 2 — a region (or full screen) was confirmed: drop out of fullscreen and shrink the
-/// window to the always-on-top recording panel (live preview + Stop), parked bottom-right
-/// so it stays out of the way of what is being recorded.
+/// window to the always-on-top recording panel (live preview + Stop). The panel is parked
+/// on a monitor corner OUTSIDE the recorded region — capture exclusion alone isn't enough
+/// (on Windows 10 an excluded window can still land in the recording as a black box), so
+/// the panel must physically stay out of the captured area.
 #[tauri::command]
-pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
+pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
     main.set_fullscreen(false).map_err(|e| e.to_string())?;
     main.set_size(LogicalSize::new(PANEL_W, PANEL_H))
@@ -126,11 +195,13 @@ pub fn enter_stopbar(app: AppHandle) -> Result<(), String> {
         let scale = mon.scale_factor();
         let mp = mon.position();
         let ms = mon.size();
-        let panel_w = (PANEL_W * scale) as i32;
-        let panel_h = (PANEL_H * scale) as i32;
+        let panel = ((PANEL_W * scale) as i32, (PANEL_H * scale) as i32);
         let margin = (24.0 * scale) as i32;
-        let x = mp.x + ms.width as i32 - panel_w - margin;
-        let y = mp.y + ms.height as i32 - panel_h - margin;
+        let mon_rect = (mp.x, mp.y, ms.width as i32, ms.height as i32);
+        let (x, y) = pick_panel_spot(mon_rect, panel, margin, region_virtual(&border)).unwrap_or((
+            mp.x + mon_rect.2 - panel.0 - margin,
+            mp.y + mon_rect.3 - panel.1 - margin,
+        ));
         let _ = main.set_position(PhysicalPosition::new(x, y));
     }
     Ok(())
@@ -266,6 +337,28 @@ pub async fn start_recording(
     let (mx, my) = border.origin.lock().map_or((0, 0), |o| *o);
     if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
         *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
+    }
+    // Capture exclusion isn't airtight: on Windows 10 an excluded window can still show up
+    // in the recording as a black rectangle. If the panel would sit inside the captured
+    // area (always true for full-screen recordings), minimize it for the duration —
+    // Ctrl+Shift+X still stops the recording and restores the window.
+    if let Some(main) = app.get_webview_window("main") {
+        let covered = match region {
+            None => true,
+            Some(r) => {
+                let rect = inflate(
+                    (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32),
+                    REGION_PAD,
+                );
+                match window_rect(&main) {
+                    Some(p) => rects_overlap(p, rect),
+                    None => true,
+                }
+            }
+        };
+        if covered {
+            let _ = main.minimize();
+        }
     }
     if let Ok(mut slot) = hotkey.0.lock() {
         *slot = Some(StopHotkey::watch(app));

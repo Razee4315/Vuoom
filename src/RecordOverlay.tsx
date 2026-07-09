@@ -70,6 +70,19 @@ export default function RecordOverlay(props: {
   // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
   const preview = new PreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
+  let shotEl: HTMLImageElement | undefined;
+
+  // Physical px per CSS px. The backdrop screenshot is an exact pixel map of the recorded
+  // monitor stretched across the viewport, so its natural size over the viewport is the
+  // true scale even when the window doesn't line up with the display exactly (e.g. a
+  // work-area-sized "fullscreen"). Without a backdrop, fall back to devicePixelRatio.
+  const toPhysical = () => {
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      sx: shotEl?.naturalWidth ? shotEl.naturalWidth / window.innerWidth : dpr,
+      sy: shotEl?.naturalHeight ? shotEl.naturalHeight / window.innerHeight : dpr,
+    };
+  };
 
   const stopTimer = () => {
     if (elapsedTimer) clearInterval(elapsedTimer);
@@ -88,12 +101,12 @@ export default function RecordOverlay(props: {
     if (p.ratio === "full" || !r || r.w < 8 || r.h < 8) {
       await invoke("set_region", {}); // no fields → full screen
     } else {
-      const dpr = window.devicePixelRatio || 1;
+      const { sx, sy } = toPhysical();
       await invoke("set_region", {
-        x: Math.round(r.x * dpr),
-        y: Math.round(r.y * dpr),
-        w: Math.round(r.w * dpr),
-        h: Math.round(r.h * dpr),
+        x: Math.round(r.x * sx),
+        y: Math.round(r.y * sy),
+        w: Math.round(r.w * sx),
+        h: Math.round(r.h * sy),
       });
     }
     await invoke("enter_stopbar"); // shrink the host window to the bar
@@ -222,8 +235,8 @@ export default function RecordOverlay(props: {
   const dims = () => {
     const r = sel();
     if (preset().ratio === "full" || !r) return "Full screen";
-    const dpr = window.devicePixelRatio || 1;
-    return `${Math.round(r.w * dpr)} × ${Math.round(r.h * dpr)} px`;
+    const { sx, sy } = toPhysical();
+    return `${Math.round(r.w * sx)} × ${Math.round(r.h * sy)} px`;
   };
 
   return (
@@ -247,7 +260,11 @@ export default function RecordOverlay(props: {
                       <span class="rec-num">{count()}</span>
                     </Show>
                   </div>
-                  <span class="rec-sub">Recording starts…</span>
+                  <span class="rec-sub">
+                    {preset().ratio === "full"
+                      ? "Vuoom minimizes while recording · Ctrl+Shift+X stops"
+                      : "Recording starts…"}
+                  </span>
                 </div>
               </Show>
               <Show when={phase() === "recording"}>
@@ -301,7 +318,13 @@ export default function RecordOverlay(props: {
         onPointerUp={onUp}
       >
         <Show when={props.backdrop}>
-          <img class="sel-shot" src={props.backdrop!} alt="" draggable={false} />
+          <img
+            class="sel-shot"
+            ref={(el) => (shotEl = el)}
+            src={props.backdrop!}
+            alt=""
+            draggable={false}
+          />
         </Show>
 
         {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow. */}

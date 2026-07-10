@@ -1,7 +1,7 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { save, open } from "@tauri-apps/plugin-dialog";
+import { save, open, ask } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -227,6 +227,10 @@ function App() {
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
   const [hasClip, setHasClip] = createSignal(false);
+  // True once the loaded clip has unsaved edits (annotations, zooms, trim, cuts, speed,
+  // frame, click/key overlays). Drives the "discard edits?" guard before a new recording
+  // replaces the clip. Set wherever an edit lands; cleared on load / save / export.
+  const [dirty, setDirty] = createSignal(false);
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
@@ -503,6 +507,9 @@ function App() {
   const refresh = async () => {
     try {
       setAnns(await invoke<AnnotationSet>("list_annotations"));
+      // Every annotation edit re-syncs through here; refresh() is never called on a
+      // pristine load without loadFinishedClip() clearing the flag straight after.
+      setDirty(true);
     } catch {
       /* no recording */
     }
@@ -518,6 +525,8 @@ function App() {
       setShowClicks(cs.show_clicks);
       setShowKeys(cs.show_keys);
       setFramePreset(cs.frame_preset);
+      // Covers trim edits and undo/redo, which re-sync clip state through here.
+      setDirty(true);
     } catch {
       /* no recording */
     }
@@ -681,6 +690,7 @@ function App() {
     editBusy = true;
     try {
       await op();
+      setDirty(true); // live property / geometry / text edits flow through here
       await invoke("seek", { t: playhead() });
     } catch {
       /* ignore */
@@ -1249,6 +1259,15 @@ function App() {
   // this window — the window is excluded from the capture and grown/shrunk by the backend,
   // so the overlay never lands in the recording and we avoid fragile extra webviews.
   const startRecord = async () => {
+    // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
+    // Soft copy: the previous session's recovery dir survives one more recording.
+    if (hasClip() && dirty()) {
+      const ok = await ask(
+        "Start new recording? Unsaved edits to the current clip will be discarded.",
+        { title: "Discard edits?", kind: "warning", okLabel: "Discard & record", cancelLabel: "Cancel" },
+      );
+      if (!ok) return;
+    }
     setCoachRecord(false);
     try {
       setStatus("Choose the area to record…");
@@ -1290,6 +1309,9 @@ function App() {
     await refresh();
     await refreshClip();
     scrub(trim()?.start ?? 0);
+    // A freshly loaded clip (new recording / recover / open project) starts clean —
+    // reset after the syncs above, which optimistically flag dirty.
+    setDirty(false);
   };
 
   // ── zoom segment editing ───────────────────────────────────────────────────────
@@ -1302,6 +1324,7 @@ function App() {
     try {
       const list = await invoke<ZoomSeg[]>("add_zoom", { t: playhead() });
       setZooms(list);
+      setDirty(true);
       const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
       setSelected(null);
       setSelSpeed(null);
@@ -1317,6 +1340,7 @@ function App() {
     try {
       const list = await invoke<ZoomSeg[]>("update_zoom", { index, start, end, amount });
       setZooms(list);
+      setDirty(true);
       // Re-find the edited segment (the list re-sorts by start).
       const idx = list.findIndex((z) => Math.abs(z.start - Math.min(start, end)) < 0.25);
       if (idx >= 0) setSelZoom(idx);
@@ -1330,6 +1354,7 @@ function App() {
     if (i === null) return;
     try {
       setZooms(await invoke<ZoomSeg[]>("delete_zoom", { index: i }));
+      setDirty(true);
       setSelZoom(null);
       await pushSeek(playhead());
     } catch (e) {
@@ -1349,6 +1374,7 @@ function App() {
     try {
       const args = focus ? { index: i, x: focus.x, y: focus.y } : { index: i };
       setZooms(await invoke<ZoomSeg[]>("set_zoom_focus", args));
+      setDirty(true);
       await pushSeek(playhead());
       setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the cursor");
     } catch (e) {
@@ -1379,12 +1405,14 @@ function App() {
       if (speed().length > 0) {
         await invoke("clear_speed");
         setSpeed([]);
+        setDirty(true);
         setSelSpeed(null);
         setStatus("Idle stretches back to normal speed");
       } else {
         const f = skimFactor();
         const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: f });
         setSpeed(regions);
+        setDirty(true);
         setStatus(
           regions.length > 0
             ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at ${f}×`
@@ -1412,6 +1440,7 @@ function App() {
         factor: skimFactor(),
       });
       setSpeed(list);
+      setDirty(true);
       const idx = list.findIndex((r) => Math.abs(r.start - start) < 0.01);
       setSelected(null);
       setSelZoom(null);
@@ -1426,6 +1455,7 @@ function App() {
     try {
       const list = await invoke<SpeedRegion[]>("update_speed", { index, start, end, factor });
       setSpeed(list);
+      setDirty(true);
       // Re-find the edited region (the list re-sorts by start).
       const idx = list.findIndex((r) => Math.abs(r.start - Math.min(start, end)) < 0.25);
       if (idx >= 0) setSelSpeed(idx);
@@ -1438,6 +1468,7 @@ function App() {
     if (i === null) return;
     try {
       setSpeed(await invoke<SpeedRegion[]>("delete_speed", { index: i }));
+      setDirty(true);
       setSelSpeed(null);
     } catch (e) {
       setStatus(`Speed delete failed: ${String(e)}`);
@@ -1456,6 +1487,7 @@ function App() {
       const end = Math.min(start + 1, duration());
       const list = await invoke<Trim[]>("add_cut", { start, end });
       setCuts(list);
+      setDirty(true);
       const idx = list.findIndex((c) => Math.abs(c.start - start) < 0.01);
       setSelected(null);
       setSelZoom(null);
@@ -1470,6 +1502,7 @@ function App() {
     try {
       const list = await invoke<Trim[]>("update_cut", { index, start, end });
       setCuts(list);
+      setDirty(true);
       // Re-find the edited cut (the list re-sorts by start).
       const idx = list.findIndex((c) => Math.abs(c.start - Math.min(start, end)) < 0.25);
       if (idx >= 0) setSelCut(idx);
@@ -1482,6 +1515,7 @@ function App() {
     if (i === null) return;
     try {
       setCuts(await invoke<Trim[]>("delete_cut", { index: i }));
+      setDirty(true);
       setSelCut(null);
       setStatus("Section restored");
     } catch (e) {
@@ -1495,6 +1529,7 @@ function App() {
     try {
       await invoke("set_frame_preset", { preset });
       setFramePreset(preset);
+      setDirty(true);
       await pushSeek(playhead());
       setStatus(
         preset === "none" ? "Frame removed — edge-to-edge export" : `Frame: ${preset}`,
@@ -1511,6 +1546,7 @@ function App() {
       const on = !showClicks();
       await invoke("set_show_clicks", { on });
       setShowClicks(on);
+      setDirty(true);
       await pushSeek(playhead());
       setStatus(on ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
     } catch (e) {
@@ -1525,6 +1561,7 @@ function App() {
       const on = !showKeys();
       await invoke("set_show_keys", { on });
       setShowKeys(on);
+      setDirty(true);
       await pushSeek(playhead());
       setStatus(
         on
@@ -1923,6 +1960,7 @@ function App() {
     setStatus("Saving project…");
     try {
       await invoke("save_project_bundle", { dir });
+      setDirty(false);
       setStatus(`Saved ${dir}`);
     } catch (e) {
       setStatus(`Save failed: ${String(e)}`);
@@ -3137,6 +3175,7 @@ function App() {
           cuts={cuts()}
           onClose={() => setShowExport(false)}
           onStatus={setStatus}
+          onExported={() => setDirty(false)}
         />
       </Show>
 
@@ -3351,6 +3390,7 @@ function ExportDialog(props: {
   cuts: Trim[];
   onClose: () => void;
   onStatus: (s: string) => void;
+  onExported: () => void;
 }): JSX.Element {
   const [format, setFormat] = createSignal<"gif" | "mp4">("gif");
   const [preset, setPreset] = createSignal<"readme" | "hq" | "custom">("readme");
@@ -3438,6 +3478,7 @@ function ExportDialog(props: {
       });
       setOutPath(path);
       setPhase("done");
+      props.onExported();
       props.onStatus(`Exported ${path}`);
     } catch (e) {
       setPhase("configure");

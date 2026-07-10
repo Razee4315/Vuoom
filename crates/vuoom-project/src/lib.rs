@@ -204,14 +204,11 @@ impl Project {
 ///   `#[serde(default)]`, so a v1 document deserializes unchanged — this step is an
 ///   intentional no-op, kept to document the transition and anchor the loop above.
 fn migrate(from: u32, value: &mut serde_json::Value) {
-    let _ = value;
-    match from {
-        // 1 -> 2: purely additive, all new fields covered by serde defaults.
-        1 => {}
-        // No transform registered for this step; the typed deserialization in
-        // `from_json` remains the final gate on validity.
-        _ => {}
-    }
+    // 1 -> 2: purely additive, all new fields covered by serde defaults — no
+    // transform needed. When a step does need one, match on `from` here and
+    // rewrite `value`; the typed deserialization in `from_json` remains the
+    // final gate on validity.
+    let _ = (from, value);
 }
 
 #[cfg(test)]

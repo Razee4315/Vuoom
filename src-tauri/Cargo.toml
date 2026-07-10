@@ -50,20 +50,19 @@ vuoom-render.workspace = true
 vuoom-preview.workspace = true
 
 # Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
-# CF_HDROP clipboard file copy, hotkey polling. Match the version vuoom-input /
-# vuoom-capture resolve to avoid a second `windows` tree.
+# hotkey polling. Match the version vuoom-input / vuoom-capture resolve to avoid a
+# second `windows` tree.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.60", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_Shell",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
-    "Win32_System_DataExchange",
     "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_Ole",
     "Win32_System_Threading",
 ] }
+# CF_HDROP clipboard file copy (paste the exported GIF into Slack/Discord/etc.).
+# Safe wrapper over the DROPFILES + clipboard dance; replaces hand-rolled unsafe.
+clipboard-win = "5"

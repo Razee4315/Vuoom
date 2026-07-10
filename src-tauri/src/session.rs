@@ -310,6 +310,15 @@ impl Session {
         self.preview.port()
     }
 
+    /// Whether the GPU compositor initialized. When `false`, seek/preview/export cannot
+    /// work — but recording still does: capture, the live monitor, input hooks and the
+    /// disk-backed frame store never touch the compositor. The frontend queries this once
+    /// at boot to warn up front instead of failing every operation with a cryptic string.
+    #[must_use]
+    pub fn has_gpu(&self) -> bool {
+        self.compositor.is_some()
+    }
+
     /// Begin capturing the primary display + global input.
     pub fn start_recording(&self) -> Result<(), String> {
         let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());

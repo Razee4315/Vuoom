@@ -200,6 +200,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::preview_port,
+            commands::engine_health,
             commands::start_recording,
             commands::set_record_paused,
             commands::seek,

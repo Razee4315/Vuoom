@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { dialogA11y } from "./dialog";
-import { fmtBytes } from "./format";
+import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
 import type { SpeedRegion, Trim } from "./types";
 
@@ -111,7 +111,9 @@ export function ExportDialog(props: {
       // The backend uses the bare "export cancelled" sentinel for a user-initiated abort
       // (Cancel button / window-close) so we can show calm copy rather than a scary failure.
       const msg = String(e);
-      props.onStatus(msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${msg}`);
+      props.onStatus(
+        msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${friendlyError(e)}`,
+      );
     } finally {
       unlisten();
     }

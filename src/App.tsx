@@ -22,7 +22,7 @@ import {
 } from "./EditorPrimitives";
 import { dialogA11y } from "./dialog";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
-import { cssColor, fmt, fmtBytes, fmtT, hexRgb, rgbHex } from "./format";
+import { cssColor, fmt, fmtBytes, fmtT, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
 import type {
   AnnotationSet,
@@ -117,6 +117,9 @@ function App() {
   // Auto-update: a pending update (if any) and whether we're mid-download.
   const [update, setUpdate] = createSignal<Update | null>(null);
   const [updating, setUpdating] = createSignal(false);
+  // The GPU compositor failed at boot: preview and export are dead (recording to disk
+  // still works). Drives a persistent, dismissible warning strip under the top bar.
+  const [gpuLost, setGpuLost] = createSignal(false);
   // First-run onboarding: a one-time welcome card, then a coachmark pointing at Record.
   const [showWelcome, setShowWelcome] = createSignal(false);
   // Keyboard cheat-sheet modal (opened with "?").
@@ -243,6 +246,11 @@ function App() {
         setStatus("Ready — press Record to capture your screen");
         hideSplash();
         maybeShowWelcome();
+        // One-shot health probe: a failed GPU compositor still "boots", but preview and
+        // export are dead — warn up front instead of every operation failing cryptically.
+        invoke<{ gpu: boolean }>("engine_health")
+          .then((h) => setGpuLost(!h.gpu))
+          .catch(() => setGpuLost(false));
         // A previous session's frames are still on disk (crash or accidental close)?
         invoke<number | null>("check_recovery")
           .then((d) => setRecoverable(d ?? null))
@@ -2009,6 +2017,25 @@ function App() {
         <ThemeMenu current={theme()} onSelect={setTheme} />
         <WindowControls />
       </header>
+
+      <Show when={gpuLost()}>
+        <div class="gpu-banner" role="alert">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3L2.5 20h19L12 3zm0 7v4m0 3.5h.01" />
+          </svg>
+          <span>{GPU_FAILED_MSG}</span>
+          <button
+            class="gpu-banner-close"
+            title="Dismiss"
+            aria-label="Dismiss graphics warning"
+            onClick={() => setGpuLost(false)}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      </Show>
 
       <div
         class="workspace"

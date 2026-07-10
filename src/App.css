@@ -187,6 +187,8 @@ kbd {
   color: var(--text);
   user-select: none;
   overflow: hidden;
+  /* Positioning context for the .gpu-banner strip (floats below the fixed 52px topbar). */
+  position: relative;
 }
 
 /* ---- Single frameless top bar: brand · record · name · actions · window controls ---- */
@@ -454,6 +456,48 @@ kbd {
   50% {
     border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
   }
+}
+
+/* GPU-init failure warning — a persistent (dismissible) strip floated just below the
+   topbar. Absolutely positioned so it never disturbs the editor's fixed grid rows. */
+.gpu-banner {
+  position: absolute;
+  top: 52px;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-6) var(--sp-16);
+  background: color-mix(in srgb, var(--record) 12%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--record) 35%, var(--line));
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.gpu-banner > svg {
+  flex: none;
+  color: var(--record);
+}
+.gpu-banner-close {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease);
+}
+.gpu-banner-close:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 
 /* ---- Workspace ---- */

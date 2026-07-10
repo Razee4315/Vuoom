@@ -352,6 +352,23 @@ pub fn preview_port(engine: tauri::State<'_, Engine>) -> Result<u16, String> {
     Ok(engine.session()?.preview_port())
 }
 
+/// One-shot engine health snapshot, queried by the frontend right after boot.
+///
+/// `gpu: false` means the compositor failed to initialize (no adapter, driver failure):
+/// preview and export won't work, though recording to disk still does. Surfacing this up
+/// front lets the UI warn once instead of every seek/export failing with a cryptic string.
+#[derive(Clone, Copy, Serialize)]
+pub struct EngineHealth {
+    pub gpu: bool,
+}
+
+#[tauri::command]
+pub fn engine_health(engine: tauri::State<'_, Engine>) -> Result<EngineHealth, String> {
+    Ok(EngineHealth {
+        gpu: engine.session()?.has_gpu(),
+    })
+}
+
 /// Begin capturing the primary display + global input, and arm the global
 /// Ctrl+Shift+X stop hotkey for the duration of the recording.
 #[tauri::command]

@@ -143,8 +143,8 @@ export default function RecordOverlay(props: {
       // Hook the live preview stream to the panel canvas.
       if (canvasEl) preview.attach(canvasEl);
       try {
-        const port = await invoke<number>("preview_port");
-        preview.connect(port);
+        const conn = await invoke<{ port: number; token: string }>("preview_port");
+        preview.connect(conn.port, conn.token);
       } catch {
         /* preview is best-effort; recording proceeds regardless */
       }

@@ -346,10 +346,23 @@ pub fn clear_recovery_storage(engine: tauri::State<'_, Engine>) -> Result<u64, S
 
 // ── Recording / preview / export ──────────────────────────────────────────────
 
-/// The localhost port the webview connects to for the live preview stream.
+/// How the webview reaches the live preview stream: the localhost port plus the per-session
+/// auth token it must include in the WS URL path (`ws://127.0.0.1:{port}/ws/{token}`). The
+/// token gates the socket so no other local process can read the user's screen preview.
+#[derive(Clone, Serialize)]
+pub struct PreviewConn {
+    pub port: u16,
+    pub token: String,
+}
+
+/// The localhost port + auth token the webview connects with for the live preview stream.
 #[tauri::command]
-pub fn preview_port(engine: tauri::State<'_, Engine>) -> Result<u16, String> {
-    Ok(engine.session()?.preview_port())
+pub fn preview_port(engine: tauri::State<'_, Engine>) -> Result<PreviewConn, String> {
+    let session = engine.session()?;
+    Ok(PreviewConn {
+        port: session.preview_port(),
+        token: session.preview_token(),
+    })
 }
 
 /// One-shot engine health snapshot, queried by the frontend right after boot.

@@ -241,8 +241,8 @@ function App() {
   const connectEngine = async () => {
     for (let tries = 0; tries < 200; tries++) {
       try {
-        const port = await invoke<number>("preview_port");
-        preview.connect(port);
+        const conn = await invoke<{ port: number; token: string }>("preview_port");
+        preview.connect(conn.port, conn.token);
         setStatus("Ready — press Record to capture your screen");
         hideSplash();
         maybeShowWelcome();

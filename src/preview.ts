@@ -32,6 +32,7 @@ export class PreviewClient {
   private aspect = 0;
   private onAspect: ((aspect: number) => void) | null = null;
   private port = 0;
+  private token = "";
   private reconnectTimer: number | undefined;
   private closed = true; // true once disconnect() is called — suppresses reconnects
 
@@ -47,18 +48,21 @@ export class PreviewClient {
     this.onAspect = cb;
   }
 
-  /** Connect to the engine's preview server on `port` (from the Rust side). The socket
-   *  auto-reconnects with a short backoff if the engine drops it, until `disconnect()`. */
-  connect(port: number): void {
+  /** Connect to the engine's preview server on `port` with its per-session auth `token`
+   *  (both from the Rust side). The token is required in the URL path or the engine refuses
+   *  the connection. The socket auto-reconnects with a short backoff if the engine drops it,
+   *  until `disconnect()`. */
+  connect(port: number, token: string): void {
     this.disconnect();
     this.port = port;
+    this.token = token;
     this.closed = false;
     this.open();
   }
 
   private open(): void {
     this.closeSocket();
-    const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${this.port}/ws/${this.token}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) this.draw(ev.data);

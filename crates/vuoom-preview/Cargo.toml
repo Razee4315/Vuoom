@@ -12,3 +12,5 @@ tracing.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
+# Per-session preview auth token — 0.2 is already in the tree (via tokio-tungstenite → rand).
+getrandom = "0.2"

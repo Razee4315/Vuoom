@@ -310,6 +310,13 @@ impl Session {
         self.preview.port()
     }
 
+    /// The per-session auth token the webview must present in the preview WS URL. Without it
+    /// the server refuses the upgrade, so another local process cannot read the preview.
+    #[must_use]
+    pub fn preview_token(&self) -> String {
+        self.preview.token().to_string()
+    }
+
     /// Whether the GPU compositor initialized. When `false`, seek/preview/export cannot
     /// work — but recording still does: capture, the live monitor, input hooks and the
     /// disk-backed frame store never touch the compositor. The frontend queries this once

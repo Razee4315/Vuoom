@@ -12,7 +12,10 @@ Clicking it downloads the signed installer, applies it, and relaunches.
 - `bundle.createUpdaterArtifacts: true` makes the build emit signed updater artifacts
   (`*.sig`) alongside the installers.
 - The `Release` workflow (`.github/workflows/release.yml`) builds on every push to `main`,
-  signs the bundles, and uploads `latest.json` (the update manifest) to the release.
+  signs the bundles, and uploads `latest.json` (the update manifest) to the release — but the
+  release is created as a **draft**. Drafts are excluded from `releases/latest`, so the
+  updater does **not** see it. A maintainer must open the draft in **GitHub → Releases** and
+  click **Publish release** to make it the latest release and ship the update to all users.
 - The desktop app registers `tauri-plugin-updater` + `tauri-plugin-process`; the frontend
   (`src/App.tsx`) calls `check()` on startup and `downloadAndInstall()` + `relaunch()` when
   the user clicks Update.
@@ -52,8 +55,9 @@ Get-Content "$HOME\.vuoom-keys\vuoom-updater.key" -Raw | Set-Clipboard
 ## Testing the flow
 
 1. Add the secrets above.
-2. Let the `Release` workflow publish a version (say `v0.1.25`) and install that build.
-3. Push another change so the workflow publishes `v0.1.26`.
+2. Let the `Release` workflow build a version (say `v0.1.25`), **publish its draft** in
+   GitHub → Releases, and install that build.
+3. Push another change so the workflow drafts `v0.1.26`; **publish that draft** too.
 4. Reopen the installed `v0.1.25` — the **Update** pill should appear; clicking it installs
    `v0.1.26` and relaunches.
 

@@ -35,7 +35,11 @@ These adapt the project's existing Tauri v2 CI/CD pipeline guide
   for it exists and there are new commits, auto-bump the patch and sync all three version
   locations, commit `[skip ci]`, push.
 - **Job 2 (`windows-latest`):** `tauri-apps/tauri-action@v0` builds the frontend + Rust release
-  binary, bundles `.msi` + NSIS `.exe`, tags `v{version}`, and publishes a GitHub Release.
+  binary, bundles `.msi` + NSIS `.exe`, tags `v{version}`, and creates a **draft** GitHub Release
+  (signed installers + `latest.json` attached). It is **not** yet public: drafts are excluded from
+  `releases/latest`, the URL the auto-updater polls, so no user updates until a maintainer clicks
+  **Publish release** in GitHub → Releases. This is the manual ship gate — a single bad push to
+  `main` can't auto-update everyone.
 
 ## Version sync (workspace-specific)
 

@@ -74,6 +74,19 @@ jobs:
           fi
 
   # ─── Job 2: build + publish (Windows) ─────────────────────────────────────
+  #
+  # DRAFT-THEN-PROMOTE (manual ship gate):
+  # This job builds the installers, signs them, and creates the GitHub Release —
+  # but as a DRAFT (releaseDraft: true). A draft release is NOT visible at
+  # `releases/latest`, which is exactly the URL the updater polls
+  # (see src-tauri/tauri.conf.json → plugins.updater.endpoints:
+  #  https://github.com/Razee4315/Vuoom/releases/latest/download/latest.json).
+  # So no user auto-updates on a raw push to main — a single bad commit can't
+  # ship to everyone.
+  #
+  # TO SHIP A RELEASE: open the draft in GitHub → Releases, review it, and click
+  # "Publish release". Publishing the draft is what makes it the latest release
+  # and exposes latest.json to the auto-updater, delivering it to all users.
   release:
     needs: check-and-bump
     if: needs.check-and-bump.outputs.should_release == 'true'
@@ -124,5 +137,9 @@ jobs:
             ### Installation
             - **`.msi`** — Windows installer (recommended)
             - **`.exe`** — NSIS installer
-          releaseDraft: false
+          # DRAFT gate: the release (with all artifacts + signed latest.json) is
+          # created but stays hidden from `releases/latest` — and thus from the
+          # auto-updater — until a maintainer clicks "Publish release" in the
+          # GitHub UI. tauri-action uploads artifacts to draft releases fine.
+          releaseDraft: true
           prerelease: false

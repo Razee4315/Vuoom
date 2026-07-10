@@ -1,10 +1,11 @@
 //! Disk-backed frame storage — recordings are no longer capped by RAM.
 //!
 //! During recording a drain thread streams every captured frame straight to
-//! `%TEMP%/vuoom-recovery/frames.raw` (raw BGRA) with a JSON index sidecar; the editor
-//! then reads frames back one at a time (with a one-slot cache for scrubbing). Because
-//! the bytes are already on disk — together with `project.json` written at stop — a crash
-//! or accidental close loses nothing: the next launch can offer to recover the session.
+//! `%TEMP%/vuoom-recovery/frames.raw` (raw BGRA), appending one fixed-size record per
+//! frame to `index.bin` as it goes; the editor then reads frames back one at a time (with
+//! a one-slot cache for scrubbing). Because both the bytes and their index land on disk
+//! incrementally — together with a manifest written at the start of recording — a hard
+//! crash mid-take is recoverable: the next launch reconstructs the frames that survived.
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
@@ -24,6 +25,38 @@ pub struct FrameRec {
     pub len: u32,
 }
 
+/// On-disk size of one `index.bin` record: `qpc`(8) + `w`(4) + `h`(4) + `offset`(8) +
+/// `len`(4), little-endian. Fixed-width so a crash-torn tail is just an ignored partial
+/// record and the whole index can be appended one frame at a time (no rewrite).
+const REC_SIZE: usize = 28;
+
+/// How often (in frames) the index buffer is pushed to the OS. At typical capture rates
+/// this is a few times a second, so a hard crash leaves at most a fraction of a second of
+/// frames un-indexed — without an fsync on the per-frame hot path.
+const INDEX_FLUSH_EVERY: u32 = 15;
+
+fn encode_rec(r: &FrameRec) -> [u8; REC_SIZE] {
+    let mut b = [0u8; REC_SIZE];
+    b[0..8].copy_from_slice(&r.qpc.to_le_bytes());
+    b[8..12].copy_from_slice(&r.w.to_le_bytes());
+    b[12..16].copy_from_slice(&r.h.to_le_bytes());
+    b[16..24].copy_from_slice(&r.offset.to_le_bytes());
+    b[24..28].copy_from_slice(&r.len.to_le_bytes());
+    b
+}
+
+/// Decode one `REC_SIZE`-byte record. `b` must be exactly `REC_SIZE` bytes (guaranteed by
+/// the `chunks_exact` caller), so the fixed-range slices never panic.
+fn decode_rec(b: &[u8]) -> FrameRec {
+    FrameRec {
+        qpc: i64::from_le_bytes(b[0..8].try_into().unwrap()),
+        w: u32::from_le_bytes(b[8..12].try_into().unwrap()),
+        h: u32::from_le_bytes(b[12..16].try_into().unwrap()),
+        offset: u64::from_le_bytes(b[16..24].try_into().unwrap()),
+        len: u32::from_le_bytes(b[24..28].try_into().unwrap()),
+    }
+}
+
 /// The fixed per-user directory holding the latest session's frames + project manifest.
 /// One session at a time: starting a new recording replaces it.
 pub fn recovery_dir() -> PathBuf {
@@ -34,6 +67,11 @@ fn raw_path(dir: &Path) -> PathBuf {
     dir.join("frames.raw")
 }
 fn index_path(dir: &Path) -> PathBuf {
+    dir.join("index.bin")
+}
+/// Older builds wrote a single-blob JSON index; remove it so a stale one can't be paired
+/// with new frames (the reader only understands the append-only binary index now).
+fn legacy_index_path(dir: &Path) -> PathBuf {
     dir.join("index.json")
 }
 
@@ -42,76 +80,85 @@ pub fn project_path(dir: &Path) -> PathBuf {
     dir.join("project.json")
 }
 
-/// Append-only writer used by the recording drain thread (and bundle open).
+/// Append-only writer used by the recording drain thread (and bundle open). Both the pixel
+/// file and the index grow incrementally, so a hard crash mid-take leaves a recoverable
+/// store rather than gigabytes of un-indexed pixels.
 pub struct FrameWriter {
     dir: PathBuf,
     out: BufWriter<File>,
-    index: Vec<FrameRec>,
+    /// Append-only index: one `REC_SIZE` record per frame, flushed a few times a second.
+    idx: BufWriter<File>,
     offset: u64,
+    /// Frames appended since the index buffer was last pushed to the OS.
+    since_flush: u32,
 }
 
 impl FrameWriter {
     /// Start a fresh store in `dir`, replacing any previous session.
     pub fn create(dir: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&dir).map_err(|e| format!("recovery dir: {e}"))?;
-        // A stale manifest must not pair with new frames.
+        // A stale manifest / index must not pair with new frames.
         let _ = fs::remove_file(project_path(&dir));
         let _ = fs::remove_file(index_path(&dir));
+        let _ = fs::remove_file(legacy_index_path(&dir));
         let file = File::create(raw_path(&dir)).map_err(|e| format!("frame file: {e}"))?;
+        let idx = File::create(index_path(&dir)).map_err(|e| format!("frame index: {e}"))?;
         Ok(Self {
             dir,
             out: BufWriter::with_capacity(1 << 20, file),
-            index: Vec::new(),
+            idx: BufWriter::new(idx),
             offset: 0,
+            since_flush: 0,
         })
     }
 
-    /// Append one frame's raw BGRA bytes.
+    /// Append one frame's raw BGRA bytes and its index record.
     pub fn push(&mut self, f: &CapturedFrame) -> Result<(), String> {
         self.out
             .write_all(&f.bgra)
             .map_err(|e| format!("frame write: {e}"))?;
-        self.index.push(FrameRec {
+        let rec = FrameRec {
             qpc: f.qpc,
             w: f.width,
             h: f.height,
             offset: self.offset,
             len: f.bgra.len() as u32,
-        });
+        };
+        self.idx
+            .write_all(&encode_rec(&rec))
+            .map_err(|e| format!("frame index: {e}"))?;
         self.offset += f.bgra.len() as u64;
+        // Cheap periodic flush (buffered, no fsync) so a crash strands at most a fraction of
+        // a second of frames. If the index runs ahead of what actually reached frames.raw,
+        // `open` trims the excess — so this interleaving is always safe.
+        self.since_flush += 1;
+        if self.since_flush >= INDEX_FLUSH_EVERY {
+            let _ = self.idx.flush();
+            self.since_flush = 0;
+        }
         Ok(())
     }
 
-    /// Flush, persist the index sidecar, and reopen the store for reading.
+    /// Flush both files and reopen the store for reading.
     pub fn finish(mut self) -> Result<FrameStore, String> {
         self.out.flush().map_err(|e| format!("frame flush: {e}"))?;
+        self.idx.flush().map_err(|e| format!("frame index: {e}"))?;
         drop(self.out);
-        let json = serde_json::to_string(&self.index).map_err(|e| e.to_string())?;
-        fs::write(index_path(&self.dir), json).map_err(|e| format!("frame index: {e}"))?;
+        drop(self.idx);
         FrameStore::open(&self.dir)
     }
 
     /// Finalize after a mid-recording write failure (e.g. a full disk): keep the frames that
     /// were already written instead of losing the whole take. Best-effort — further I/O
     /// errors are tolerated. When the disk filled, the newest frame's tail may still be in the
-    /// buffer and never reach disk, so any frame whose bytes aren't wholly on disk is dropped;
-    /// every frame the returned store exposes then reads back cleanly.
+    /// buffer and never reach disk; `open` drops any frame whose bytes aren't wholly on disk,
+    /// so every frame the returned store exposes reads back cleanly.
     pub fn finish_salvage(mut self) -> Result<FrameStore, String> {
-        let _ = self.out.flush(); // may fail on a full disk; the trim below covers the gap
+        let _ = self.out.flush(); // may fail on a full disk; open()'s trim covers the gap
+        let _ = self.idx.flush();
         drop(self.out);
-        let on_disk = fs::metadata(raw_path(&self.dir)).map(|m| m.len()).unwrap_or(0);
-        self.index
-            .retain(|r| r.offset + u64::from(r.len) <= on_disk);
-        // Persist the trimmed index too, so a crash-recovery on next launch stays consistent
-        // with the frames that survived; ignore failure (the disk may still be full).
-        if let Ok(json) = serde_json::to_string(&self.index) {
-            let _ = fs::write(index_path(&self.dir), json);
-        }
-        let file = File::open(raw_path(&self.dir)).map_err(|e| format!("frame file: {e}"))?;
-        Ok(FrameStore {
-            index: self.index,
-            read: Mutex::new(ReadState { file, cache: None }),
-        })
+        drop(self.idx);
+        FrameStore::open(&self.dir)
     }
 }
 
@@ -128,11 +175,25 @@ pub struct FrameStore {
 }
 
 impl FrameStore {
-    /// Open the store in `dir` (`frames.raw` + `index.json`).
+    /// Open the store in `dir` (`frames.raw` + `index.bin`).
+    ///
+    /// Robust against a crash mid-recording: fixed-size records mean a torn trailing record
+    /// is simply ignored (`chunks_exact`), and any frame whose bytes didn't fully reach
+    /// `frames.raw` is dropped — so the store only exposes frames that read back cleanly.
     pub fn open(dir: &Path) -> Result<Self, String> {
-        let json = fs::read_to_string(index_path(dir)).map_err(|e| format!("frame index: {e}"))?;
-        let index: Vec<FrameRec> = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        let bytes = fs::read(index_path(dir)).map_err(|e| format!("frame index: {e}"))?;
         let file = File::open(raw_path(dir)).map_err(|e| format!("frame file: {e}"))?;
+        let raw_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        // Records are appended in capture order with monotonically increasing offsets, so the
+        // first one that runs past what's on disk marks the end of the recoverable prefix.
+        let mut index = Vec::with_capacity(bytes.len() / REC_SIZE);
+        for chunk in bytes.chunks_exact(REC_SIZE) {
+            let rec = decode_rec(chunk);
+            if rec.offset + u64::from(rec.len) > raw_len {
+                break;
+            }
+            index.push(rec);
+        }
         Ok(Self {
             index,
             read: Mutex::new(ReadState { file, cache: None }),

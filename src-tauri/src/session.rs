@@ -260,6 +260,27 @@ impl Session {
         *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
         let writer = FrameWriter::create(frame_store::recovery_dir())?;
 
+        // Persist a minimal manifest up front so a hard crash mid-recording leaves a
+        // *detectable* session — recovery keys off `project.json` existing. The real
+        // dimensions/fps/duration are rebuilt from the incrementally-written frame index at
+        // recover time (see `recover_session`); this placeholder just has to parse. Without
+        // it, a crash before stop would strand the on-disk frames with nothing to open them.
+        let (rw, rh) = region.map_or((0, 0), |r| (r.w, r.h));
+        if let Ok(json) = Project::new(SourceInfo {
+            path: String::new(),
+            width: rw,
+            height: rh,
+            fps: 0.0,
+            duration: 0.0,
+        })
+        .to_json()
+        {
+            let _ = std::fs::write(
+                frame_store::project_path(&frame_store::recovery_dir()),
+                json,
+            );
+        }
+
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview — its own capture, so it can never disturb the recording.
@@ -1604,27 +1625,50 @@ impl Session {
         let json = std::fs::read_to_string(frame_store::project_path(&dir)).ok()?;
         let project = Project::from_json(&json).ok()?;
         let store = FrameStore::open(&dir).ok()?;
-        (!store.is_empty()).then_some(project.source.duration)
+        if store.is_empty() {
+            return None;
+        }
+        // A crash mid-recording leaves only the startup placeholder manifest (duration 0);
+        // derive the real length from the frames that survived so the recents card is honest.
+        Some(if project.source.duration > 0.0 {
+            project.source.duration
+        } else {
+            store_duration(&store, self.clock)
+        })
     }
 
     /// Reload the session left in the recovery directory (last recording + its edits as
     /// of stop time). Returns a summary like `stop_recording`.
     pub fn recover_session(&self) -> Result<RecordingSummary, String> {
         let dir = frame_store::recovery_dir();
-        let project = Project::from_json(
+        let mut project = Project::from_json(
             &std::fs::read_to_string(frame_store::project_path(&dir))
                 .map_err(|e| format!("no recoverable session: {e}"))?,
         )
         .map_err(|e| e.to_string())?;
         let store = FrameStore::open(&dir)?;
-        if store.is_empty() {
-            return Err("no recoverable session".into());
-        }
+        let first = *store.recs().first().ok_or("no recoverable session")?;
 
         // The stored QPC stamps all come from the crashed session, so they stay mutually
         // consistent; anchoring the epoch on the first frame reproduces the timeline
         // (within the first frame's capture latency).
-        let start_qpc = store.recs().first().map_or(0, |r| r.qpc);
+        let start_qpc = first.qpc;
+
+        // A take recovered from a hard crash carries only the startup placeholder manifest —
+        // no real dimensions/fps/duration (and no post-processed events/zooms). Rebuild the
+        // source metadata from the frames that survived so the clip is actually openable. A
+        // cleanly stopped session already has these filled in, so leave those untouched.
+        if project.source.duration <= 0.0 || project.source.width == 0 {
+            let duration = store_duration(&store, self.clock);
+            project.source.width = first.w;
+            project.source.height = first.h;
+            project.source.duration = duration;
+            project.source.fps = if duration > 0.0 {
+                store.len() as f64 / duration
+            } else {
+                60.0
+            };
+        }
 
         let track = simulate(
             &project.events,
@@ -1702,6 +1746,15 @@ fn encode_sample_bytes(
     let bytes = std::fs::metadata(&tmp).map_err(|e| e.to_string())?.len();
     let _ = std::fs::remove_file(&tmp);
     Ok(bytes)
+}
+
+/// Recording length (s) implied by the stored frames' QPC span. Rebuilds the source
+/// duration when recovering a crashed take whose manifest is only the startup placeholder.
+fn store_duration(store: &FrameStore, clock: Clock) -> f64 {
+    match (store.recs().first(), store.recs().last()) {
+        (Some(a), Some(b)) => clock.seconds_between(a.qpc, b.qpc),
+        _ => 0.0,
+    }
 }
 
 /// Index of the stored frame whose timestamp is closest to `t` (metadata only — no disk).

@@ -10,7 +10,8 @@ description = "Live-preview bridge: offscreen RGBA readback → localhost binary
 thiserror.workspace = true
 tracing.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
-# Per-session preview auth token — 0.2 is already in the tree (via tokio-tungstenite → rand).
+# Per-session preview auth token — 0.2 is already in the tree (via ring / other transitive
+# deps; tokio-tungstenite 0.29 now pulls rand 0.9 → getrandom 0.3, so it no longer supplies it).
 getrandom = "0.2"

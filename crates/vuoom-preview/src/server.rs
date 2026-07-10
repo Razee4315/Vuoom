@@ -130,7 +130,10 @@ async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token
         if frame.is_empty() {
             continue;
         }
-        if ws.send(Message::Binary(frame)).await.is_err() {
+        // tungstenite 0.29: Message::Binary now holds `bytes::Bytes`, not `Vec<u8>`. The
+        // `binary()` constructor takes any `Into<Bytes>`, so the Vec converts here (a cheap
+        // move into a Bytes — no reallocation).
+        if ws.send(Message::binary(frame)).await.is_err() {
             break;
         }
     }

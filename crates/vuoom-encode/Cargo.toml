@@ -10,7 +10,7 @@ description = "GIF export: frame planning, size estimation, and a pure-Rust (Apa
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
-png = "0.17"
+png = "0.18"
 # Pure-Rust animated-GIF encoder (MIT/Apache), linked — this is the shipping GIF encoder.
 # See docs/06-Export.md.
 gif = "0.13"

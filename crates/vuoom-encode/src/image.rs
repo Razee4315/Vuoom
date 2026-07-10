@@ -80,7 +80,12 @@ pub fn read_png(path: &Path) -> Result<RgbaImage, EncodeError> {
     let mut reader = decoder
         .read_info()
         .map_err(|e| EncodeError::Png(e.to_string()))?;
-    let mut buf = vec![0u8; reader.output_buffer_size()];
+    // png 0.18: output_buffer_size() returns None when the frame would not fit in the
+    // machine's address space; treat that as an unsupported (oversized) PNG.
+    let buf_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| EncodeError::Png("PNG frame too large to allocate".to_string()))?;
+    let mut buf = vec![0u8; buf_size];
     let info = reader
         .next_frame(&mut buf)
         .map_err(|e| EncodeError::Png(e.to_string()))?;

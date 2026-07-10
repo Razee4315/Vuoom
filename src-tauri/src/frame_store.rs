@@ -331,7 +331,12 @@ impl FrameWriter {
     /// buffer and never reach disk; `open` drops any frame whose bytes aren't wholly on disk,
     /// so every frame the returned store exposes reads back cleanly.
     pub fn finish_salvage(mut self) -> Result<FrameStore, String> {
-        let _ = self.out.flush(); // may fail on a full disk; open()'s trim covers the gap
+        tracing::warn!("finalizing a truncated recording after a mid-write failure — salvaging frames already on disk");
+        // These may fail on a full disk; open()'s trim covers the gap. Log a flush failure so
+        // the salvage attempt leaves a trace even when the writes themselves went silent.
+        if let Err(e) = self.out.flush() {
+            tracing::warn!("salvage flush of frame data failed (expected on a full disk): {e}");
+        }
         let _ = self.idx.flush();
         drop(self.out);
         drop(self.idx);

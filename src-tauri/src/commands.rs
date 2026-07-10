@@ -94,11 +94,16 @@ pub fn enter_overlay(
     // Hide the window and let DWM recompose without it before grabbing the clean desktop.
     let _ = main.hide();
     std::thread::sleep(std::time::Duration::from_millis(120));
-    let backdrop = engine
-        .session()
-        .ok()
-        .and_then(|s| s.screenshot().ok())
-        .unwrap_or_default();
+    // A failed grab yields an empty backdrop (the selector still works, just without the
+    // still). Only worth a line once the engine is actually up — an "engine-starting" retry
+    // here isn't a failure. A blank selector was previously silent, so log the real cause.
+    let backdrop = match engine.session() {
+        Ok(session) => session.screenshot().unwrap_or_else(|e| {
+            tracing::warn!("region selector backdrop screenshot failed: {e}");
+            String::new()
+        }),
+        Err(_) => String::new(),
+    };
 
     // Best-effort from here on: the window is currently hidden, so `show()` MUST run on
     // every path — bailing early with `?` would strand an invisible window.

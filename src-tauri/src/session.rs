@@ -188,14 +188,24 @@ impl Session {
     /// # Errors
     /// Returns a message if the preview WebSocket server cannot bind.
     pub fn new() -> Result<Self, String> {
-        let preview = tauri::async_runtime::block_on(PreviewServer::start())
-            .map_err(|e| format!("preview server: {e}"))?;
+        let preview = tauri::async_runtime::block_on(PreviewServer::start()).map_err(|e| {
+            let msg = format!("preview server: {e}");
+            tracing::error!("engine boot failed: {msg}");
+            msg
+        })?;
         // Clear any scratch store left by a previous run's bundle open — its gigabytes would
         // otherwise linger. Recorded sessions are pruned per-take (see `new_session_dir`).
         let _ = std::fs::remove_dir_all(frame_store::scratch_dir());
+        // The GPU compositor backs both preview and export. If it can't be created (no adapter,
+        // driver failure) every seek/export downstream returns "no GPU compositor" — log it
+        // once here at the source instead of leaving those failures unexplained.
+        let compositor = Compositor::new();
+        if compositor.is_none() {
+            tracing::error!("no GPU compositor available — preview and export will not work");
+        }
         Ok(Self {
             preview,
-            compositor: Compositor::new(),
+            compositor,
             clock: Clock::new(),
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
@@ -326,7 +336,10 @@ impl Session {
         let space_warning = match frame_store::free_space_bytes(&frame_store::recovery_root()) {
             // A probe failure means "unknown" — don't block the user on it.
             None => None,
-            Some(free) => check_free_space(free, est_w, est_h)?,
+            Some(free) => check_free_space(free, est_w, est_h).map_err(|e| {
+                tracing::error!("refusing to start recording: {e}");
+                e
+            })?,
         };
 
         // Rotate: this take streams into its own fresh recovery subdir, so the previous
@@ -336,7 +349,10 @@ impl Session {
         // Drop the previous clip BEFORE creating the new store: its open handles may point at
         // a store we might otherwise touch.
         *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let writer = FrameWriter::create(recovery_dir.clone())?;
+        let writer = FrameWriter::create(recovery_dir.clone()).map_err(|e| {
+            tracing::error!("could not open frame store for recording: {e}");
+            e
+        })?;
         *self
             .current_recovery
             .lock()
@@ -490,12 +506,16 @@ impl Session {
             .take()
             .ok_or("recording already stopped")?
             .join()
-            .map_err(|_| "frame drain thread panicked")??;
+            .map_err(|_| {
+                tracing::error!("frame drain thread panicked");
+                "frame drain thread panicked"
+            })??;
         let raw_events: Vec<RawEvent> = session.events_rx.try_iter().collect();
 
         // No frames means the screen capture never started (or was stopped instantly) — fail
         // loudly so the editor shows a clear message instead of a silent, empty player.
         if store.is_empty() {
+            tracing::error!("recording stopped with no frames — screen capture never produced any");
             return Err("No frames were captured — screen capture failed to start.".into());
         }
 
@@ -590,10 +610,12 @@ impl Session {
         // specific cause; then a capture that ended on its own; finally, if the take completed
         // cleanly, the heads-up that it *started* on a low-space disk.
         let warning = if let Some(e) = write_warning {
+            tracing::warn!("recording truncated mid-capture to protect the disk ({e}); kept {frame_count} frames");
             Some(format!(
                 "Recording was cut short to protect your disk — {e}. Kept the {frame_count} frames captured before that."
             ))
         } else if capture_ended_early {
+            tracing::warn!("capture ended before stop was requested (monitor disconnected?); kept {frame_count} frames");
             Some(
                 "Capture ended unexpectedly (monitor disconnected?). Kept the frames recorded up to that point."
                     .to_string(),
@@ -654,6 +676,24 @@ impl Session {
     ///
     /// Uses the pure-Rust encoder so export works with no external tools installed.
     pub fn export_gif(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), String> {
+        // Log every failure exit once at this seam (missing compositor/frames, encode error,
+        // disk-full mid-write) — the frontend only sees the string, so without this the cause
+        // never reaches the log.
+        self.export_gif_impl(out_path, fps, width, quality, progress)
+            .map_err(|e| {
+                tracing::error!("GIF export failed: {e}");
+                e
+            })
+    }
+
+    fn export_gif_impl(
         &self,
         out_path: String,
         fps: u32,
@@ -726,6 +766,22 @@ impl Session {
     /// Composite the output timeline and encode an H.264 MP4 to `out_path`, streaming one
     /// frame at a time (no full-clip RAM spike, unlike GIF which needs a global palette).
     pub fn export_mp4(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), String> {
+        // Log every failure exit once at this seam (see `export_gif`).
+        self.export_mp4_impl(out_path, fps, width, quality, progress)
+            .map_err(|e| {
+                tracing::error!("MP4 export failed: {e}");
+                e
+            })
+    }
+
+    fn export_mp4_impl(
         &self,
         out_path: String,
         fps: u32,
@@ -1627,6 +1683,13 @@ impl Session {
     /// Save the recording as a `dir.vuoom` bundle: the project manifest plus every frame
     /// as a lossless PNG and a time index. Reopenable with [`Self::open_bundle`].
     pub fn save_bundle(&self, dir: &Path) -> Result<(), String> {
+        self.save_bundle_impl(dir).map_err(|e| {
+            tracing::error!(dir = %dir.display(), "saving bundle failed: {e}");
+            e
+        })
+    }
+
+    fn save_bundle_impl(&self, dir: &Path) -> Result<(), String> {
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
         let store = edited.frames.as_ref().ok_or("no recording")?;
@@ -1662,6 +1725,13 @@ impl Session {
     /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
     /// the camera from the persisted events, and repopulate the editor. Returns a summary.
     pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
+        self.open_bundle_impl(dir).map_err(|e| {
+            tracing::error!(dir = %dir.display(), "opening bundle failed: {e}");
+            e
+        })
+    }
+
+    fn open_bundle_impl(&self, dir: &Path) -> Result<RecordingSummary, String> {
         let project = Project::from_json(
             &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
         )
@@ -1754,6 +1824,13 @@ impl Session {
     /// Reload the session left in the recovery directory (last recording + its edits as
     /// of stop time). Returns a summary like `stop_recording`.
     pub fn recover_session(&self) -> Result<RecordingSummary, String> {
+        self.recover_session_impl().map_err(|e| {
+            tracing::error!("recovering session failed: {e}");
+            e
+        })
+    }
+
+    fn recover_session_impl(&self) -> Result<RecordingSummary, String> {
         let active = self
             .current_recovery
             .lock()

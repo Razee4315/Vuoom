@@ -98,7 +98,13 @@ fn run(
         let frame = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(f) => f,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                // The preview's own capture ended (device lost, session died). This never
+                // touches the recording, but log it so a blank director's monitor isn't a
+                // total mystery — the preview simply stops emitting until the next take.
+                tracing::warn!("live preview capture disconnected — preview stopped");
+                break;
+            }
         };
         let t = clock.seconds_between(start, clock.now());
 

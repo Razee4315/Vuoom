@@ -43,14 +43,24 @@ fn init_logging(log_dir: PathBuf) {
         )
     });
 
-    // Best-effort file sink: if the log dir can't be created we still keep stderr
-    // rather than losing diagnostics outright. Option<Layer> is itself a Layer,
-    // so a `None` here is simply a no-op in the stack below.
-    let file_layer = std::fs::create_dir_all(&log_dir).ok().map(|_| {
-        let (writer, guard) =
-            tracing_appender::non_blocking(tracing_appender::rolling::daily(&log_dir, "vuoom.log"));
-        let _ = LOG_GUARD.set(guard);
-        fmt::layer().with_ansi(false).with_writer(writer)
+    // Best-effort file sink: if the log dir can't be created (or the appender can't be
+    // built) we still keep stderr rather than losing diagnostics outright. Option<Layer>
+    // is itself a Layer, so a `None` here is simply a no-op in the stack below.
+    //
+    // Daily rotation with `max_log_files` so the history is bounded: the appender prunes the
+    // oldest files as it rolls over, keeping roughly the last week instead of growing forever.
+    let file_layer = std::fs::create_dir_all(&log_dir).ok().and_then(|()| {
+        tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("vuoom.log")
+            .max_log_files(7)
+            .build(&log_dir)
+            .ok()
+            .map(|appender| {
+                let (writer, guard) = tracing_appender::non_blocking(appender);
+                let _ = LOG_GUARD.set(guard);
+                fmt::layer().with_ansi(false).with_writer(writer)
+            })
     });
 
     let _ = tracing_subscriber::registry()
@@ -113,6 +123,27 @@ pub fn run() {
     // Per-monitor DPI awareness must be set before any window exists, so the capture crop
     // and cursor coordinates are in true physical pixels on scaled displays.
     let _ = vuoom_input::set_per_monitor_aware_v2();
+
+    // Route worker-thread panics to the log — release builds set `windows_subsystem =
+    // "windows"` and have no console, so an un-hooked panic on the capture/drain/preview
+    // threads would vanish silently. Chain to the previous hook so the default stderr
+    // message still prints. Events emitted before the subscriber is installed (inside
+    // `.setup()`) go nowhere, which is acceptable for a crash this early.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let loc = info.location().map_or_else(
+            || "unknown".to_string(),
+            |l| format!("{}:{}", l.file(), l.line()),
+        );
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string panic payload>".to_string());
+        tracing::error!(location = %loc, "thread panicked: {msg}");
+        prev_hook(info);
+    }));
 
     tauri::Builder::default()
         // Single-instance must be registered first (documented requirement). A second

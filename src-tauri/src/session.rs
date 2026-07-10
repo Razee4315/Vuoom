@@ -180,6 +180,11 @@ pub struct Session {
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
     /// *previous* unsaved session rather than the one already in the editor.
     current_recovery: Mutex<Option<PathBuf>>,
+    /// Set by `cancel_export` (Cancel button / window-close) to abort an in-flight export.
+    /// The GIF/MP4 loops poll it every frame and bail early, deleting the partial file. Reset
+    /// to `false` at the start of each export. Only one export runs at a time from the UI, so a
+    /// single flag is enough — no per-export token needed.
+    export_cancel: AtomicBool,
 }
 
 impl Session {
@@ -213,6 +218,7 @@ impl Session {
             pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             current_recovery: Mutex::new(None),
+            export_cancel: AtomicBool::new(false),
         })
     }
 
@@ -670,6 +676,14 @@ impl Session {
         Ok(())
     }
 
+    /// Request that any in-flight GIF/MP4 export abort at the next frame boundary. Idempotent
+    /// and safe to call when no export is running — the flag is reset at the start of each
+    /// export. The aborting loop deletes its partial output file (see `export_gif_impl` /
+    /// `export_mp4_impl`).
+    pub fn cancel_export(&self) {
+        self.export_cancel.store(true, Ordering::SeqCst);
+    }
+
     /// Composite the output-timeline frames (honoring trim + speed regions) and export an
     /// optimized GIF to `out_path`. `progress(done, total)` is called as frames composite
     /// and once more when encoding finishes.
@@ -701,6 +715,9 @@ impl Session {
         quality: u8,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Clear any stale cancel request from a prior export before we begin (see
+        // `cancel_export`): the flag is process-global and one export runs at a time.
+        self.export_cancel.store(false, Ordering::SeqCst);
         // Snapshot the minimal state under a short lock, then release it so the (minutes-long)
         // encode never blocks scrubbing/editing/starting a new recording. The frame store is
         // shared via `Arc` and reads from disk on demand — frames are never all resident, so
@@ -733,8 +750,13 @@ impl Session {
         };
 
         // Composite one output frame on demand — the streaming encoder pulls these and keeps
-        // only the current + previous frame resident.
+        // only the current + previous frame resident. Checked once per frame so a cancel
+        // request (Cancel button / window-close) aborts within one composite instead of
+        // running the full multi-minute encode to completion.
         let compose = |i: usize| -> Result<RgbaImage, String> {
+            if self.export_cancel.load(Ordering::SeqCst) {
+                return Err("export cancelled".into());
+            }
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let idx = nearest_idx(store.recs(), self.clock, start_qpc, t_src).ok_or("no frames")?;
@@ -751,7 +773,7 @@ impl Session {
             );
             Ok(RgbaImage::new(out_w, out_h, rgba))
         };
-        export_gif_native_streaming(
+        let result = export_gif_native_streaming(
             count,
             compose,
             &settings,
@@ -760,7 +782,19 @@ impl Session {
                 progress(done as u32, total as u32);
             },
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+        // On cancellation or any encode error, best-effort delete the partial .gif so the user
+        // is never left with a truncated file at their chosen path.
+        if result.is_err() {
+            let _ = std::fs::remove_file(&out_path);
+        }
+        // A cancel bails out through the compose closure, so the streaming encoder surfaces it
+        // wrapped as "gif encoding failed: export cancelled". Normalize it back to the bare
+        // sentinel the frontend matches on.
+        if self.export_cancel.load(Ordering::SeqCst) {
+            return Err("export cancelled".into());
+        }
+        result
     }
 
     /// Composite the output timeline and encode an H.264 MP4 to `out_path`, streaming one
@@ -789,6 +823,8 @@ impl Session {
         quality: u8,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Clear any stale cancel request before we begin (see `cancel_export` / `export_gif`).
+        self.export_cancel.store(false, Ordering::SeqCst);
         // Snapshot under a short lock, then release it so the long encode doesn't freeze
         // scrub/edit/record (see `export_gif`). MP4 already streams frame-by-frame.
         let (project, track, store, start_qpc) = {
@@ -829,6 +865,12 @@ impl Session {
         // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
         let mut frame_err: Option<String> = None;
         for i in 0..total {
+            // Poll once per frame so a cancel request (Cancel button / window-close) aborts
+            // mid-encode; the shared cleanup below then deletes the half-written .mp4.
+            if self.export_cancel.load(Ordering::SeqCst) {
+                frame_err = Some("export cancelled".into());
+                break;
+            }
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let idx = match nearest_idx(store.recs(), self.clock, start_qpc, t_src) {

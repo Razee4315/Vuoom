@@ -108,11 +108,18 @@ export function ExportDialog(props: {
       props.onStatus(`Exported ${path}`);
     } catch (e) {
       setPhase("configure");
-      props.onStatus(`Export failed: ${String(e)}`);
+      // The backend uses the bare "export cancelled" sentinel for a user-initiated abort
+      // (Cancel button / window-close) so we can show calm copy rather than a scary failure.
+      const msg = String(e);
+      props.onStatus(msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${msg}`);
     } finally {
       unlisten();
     }
   };
+
+  // Abort an in-flight export. The backend loop bails at its next frame check, deletes the
+  // partial file, and `doExport`'s invoke rejects with "export cancelled" (handled above).
+  const cancelExport = () => void invoke("cancel_export").catch(() => undefined);
 
   const copyFile = async () => {
     try {
@@ -142,7 +149,13 @@ export function ExportDialog(props: {
     <div class="modal-backdrop" onClick={() => phase() !== "exporting" && props.onClose()}>
       <div
         class="modal"
-        ref={(el) => dialogA11y(el, "Export", () => phase() !== "exporting" && props.onClose())}
+        ref={(el) =>
+          dialogA11y(el, "Export", () =>
+            // Esc closes the dialog when idle, but during an export it becomes the Cancel
+            // escape hatch instead of a no-op (the backdrop stays click-blocked).
+            phase() === "exporting" ? cancelExport() : props.onClose(),
+          )
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <Show when={phase() === "configure"}>
@@ -217,6 +230,11 @@ export function ExportDialog(props: {
             Compositing {Math.round(progress() * 100)}% — annotations, zoom, speed-up and cuts
             are baked into the final {format().toUpperCase()}.
           </p>
+          <div class="modal-actions">
+            <button class="btn ghost" onClick={cancelExport}>
+              Cancel export
+            </button>
+          </div>
         </Show>
 
         <Show when={phase() === "done"}>

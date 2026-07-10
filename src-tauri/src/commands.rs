@@ -452,6 +452,15 @@ pub async fn export_mp4(
         })
 }
 
+/// Abort an in-flight GIF/MP4 export. The export loop bails at its next frame check with an
+/// `"export cancelled"` error and deletes its partial output file. A no-op if nothing is
+/// exporting (the flag resets when the next export starts).
+#[tauri::command]
+pub async fn cancel_export(engine: tauri::State<'_, Engine>) -> Result<(), String> {
+    engine.session()?.cancel_export();
+    Ok(())
+}
+
 /// Estimate the export size in bytes for the given settings (sample-and-extrapolate).
 #[tauri::command]
 pub async fn estimate_gif(

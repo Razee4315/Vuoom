@@ -18,7 +18,7 @@ pub use timeline::{output_duration, output_to_source};
 pub use timing::TimeRange;
 
 // Re-export the zoom types so a Project is self-describing from one crate.
-pub use vuoom_zoom::{InputEvent, ZoomConfig, ZoomKeyframe};
+pub use vuoom_zoom::{InputEvent, ZoomConfig, ZoomKeyframe, ZoomStyle};
 
 use serde::{Deserialize, Serialize};
 

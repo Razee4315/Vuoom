@@ -39,6 +39,7 @@ import type {
   Trim,
   Vec2,
   ZoomSeg,
+  ZoomStyle,
 } from "./types";
 import "./App.css";
 
@@ -1301,6 +1302,18 @@ function App() {
       setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the cursor");
     } catch (e) {
       setStatus(`Zoom focus failed: ${String(e)}`);
+    }
+  };
+  // ── zoom easing/feel preset ──────────────────────────────────────────────────────
+  const applyZoomStyle = async (style: ZoomStyle) => {
+    const i = selZoom();
+    if (i === null) return;
+    try {
+      setZooms(await invoke<ZoomSeg[]>("set_zoom_style", { index: i, style }));
+      setDirty(true);
+      await pushSeek(playhead());
+    } catch (e) {
+      setStatus(`Zoom feel failed: ${String(e)}`);
     }
   };
   // Crosshair dragging on the canvas.
@@ -2900,6 +2913,31 @@ function App() {
                     }}
                   >
                     Fixed point
+                  </button>
+                </div>
+              </InspRow>
+              <InspRow label="Feel">
+                <div class="style-row">
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Smooth" }}
+                    title="Smooth — the default cinematic glide"
+                    onClick={() => void applyZoomStyle("Smooth")}
+                  >
+                    Smooth
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Snappy" }}
+                    title="Snappy — settles faster, a punchier zoom"
+                    onClick={() => void applyZoomStyle("Snappy")}
+                  >
+                    Snappy
+                  </button>
+                  <button
+                    classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Slow" }}
+                    title="Slow — gentler, more cinematic drift"
+                    onClick={() => void applyZoomStyle("Slow")}
+                  >
+                    Slow
                   </button>
                 </div>
               </InspRow>

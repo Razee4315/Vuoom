@@ -16,6 +16,49 @@ pub enum ZoomMode {
     Manual { pos: DVec2 },
 }
 
+/// Per-segment easing "feel": scales the zoom and pan spring half-lives so an
+/// individual zoom can settle faster or gentler than the global defaults.
+///
+/// `Smooth` is the identity — it reproduces the original behaviour exactly, so it is the
+/// serde default and older bundles (which lack the field) load unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ZoomStyle {
+    /// Default cinematic glide — no change to the configured half-lives.
+    #[default]
+    Smooth,
+    /// Faster settle — shorter half-lives, a punchier zoom.
+    Snappy,
+    /// Gentler, more cinematic — longer half-lives, a slower drift.
+    Slow,
+}
+
+impl ZoomStyle {
+    /// Multiplier applied to the zoom and pan spring half-lives for this style.
+    ///
+    /// `< 1` settles faster (snappier); `> 1` settles slower (gentler). `Smooth` is
+    /// exactly `1.0`, so it leaves the spring math bit-for-bit unchanged.
+    #[must_use]
+    pub fn half_life_mul(self) -> f64 {
+        match self {
+            ZoomStyle::Smooth => 1.0,
+            ZoomStyle::Snappy => 0.55,
+            ZoomStyle::Slow => 1.8,
+        }
+    }
+
+    /// Parse a case-insensitive label (`"smooth"`, `"snappy"`, `"slow"`) — used by the
+    /// Tauri/MCP control surface, which passes the style as a plain string.
+    #[must_use]
+    pub fn from_label(s: &str) -> Option<ZoomStyle> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "smooth" => Some(ZoomStyle::Smooth),
+            "snappy" => Some(ZoomStyle::Snappy),
+            "slow" => Some(ZoomStyle::Slow),
+            _ => None,
+        }
+    }
+}
+
 /// One zoom segment on the timeline.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ZoomKeyframe {
@@ -29,6 +72,10 @@ pub struct ZoomKeyframe {
     pub mode: ZoomMode,
     /// Edge-snap strength for this segment (copied from config at plan time, editable).
     pub edge_snap_ratio: f64,
+    /// Easing preset for this segment's spring motion. Defaults to [`ZoomStyle::Smooth`]
+    /// (current behaviour) so bundles written before this field load unchanged.
+    #[serde(default)]
+    pub style: ZoomStyle,
 }
 
 impl ZoomKeyframe {

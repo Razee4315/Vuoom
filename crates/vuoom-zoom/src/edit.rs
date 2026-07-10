@@ -110,7 +110,7 @@ pub fn resize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keyframe::ZoomMode;
+    use crate::keyframe::{ZoomMode, ZoomStyle};
 
     fn kf(start: f64, end: f64) -> ZoomKeyframe {
         ZoomKeyframe {
@@ -119,6 +119,7 @@ mod tests {
             amount: 1.8,
             mode: ZoomMode::Auto,
             edge_snap_ratio: 0.25,
+            style: ZoomStyle::Smooth,
         }
     }
 

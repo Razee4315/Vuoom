@@ -19,7 +19,7 @@ pub use camera::{
 pub use config::ZoomConfig;
 pub use edit::{insert_sorted, move_to, remove, resize, sort_by_start, MIN_LEN};
 pub use event::{InputEvent, MouseButton};
-pub use keyframe::{ZoomKeyframe, ZoomMode};
+pub use keyframe::{ZoomKeyframe, ZoomMode, ZoomStyle};
 pub use planner::plan_zooms;
 
 /// Convenience: plan zoom segments and simulate the camera in one call.

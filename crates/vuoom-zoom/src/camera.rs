@@ -261,20 +261,30 @@ pub fn simulate(
         }
 
         // Resolve this frame's target from the active keyframe, then run the shared step.
-        let target = match keyframes.iter().find(|k| k.contains(t)) {
-            Some(k) => match k.mode {
-                ZoomMode::Auto => CameraTarget::Auto {
-                    amount: k.amount,
-                    edge_snap_ratio: k.edge_snap_ratio,
-                },
-                ZoomMode::Manual { pos } => CameraTarget::Manual {
-                    amount: k.amount,
-                    focus: pos,
-                },
-            },
-            None => CameraTarget::Idle,
+        // A per-zoom style scales the spring half-lives for the span that zoom drives;
+        // idle frames (between zooms) keep the base config so zoom-out feel is uniform.
+        let (target, hl_mul) = match keyframes.iter().find(|k| k.contains(t)) {
+            Some(k) => {
+                let target = match k.mode {
+                    ZoomMode::Auto => CameraTarget::Auto {
+                        amount: k.amount,
+                        edge_snap_ratio: k.edge_snap_ratio,
+                    },
+                    ZoomMode::Manual { pos } => CameraTarget::Manual {
+                        amount: k.amount,
+                        focus: pos,
+                    },
+                };
+                (target, k.style.half_life_mul())
+            }
+            None => (CameraTarget::Idle, 1.0),
         };
-        frames.push(cam.step(raw_cursor, target, cfg, dt));
+        // Scale the zoom & pan half-lives for this segment's feel. `Smooth` yields a
+        // multiplier of exactly 1.0, so `* 1.0` leaves the values (and output) unchanged.
+        let mut frame_cfg = *cfg;
+        frame_cfg.hl_zoom *= hl_mul;
+        frame_cfg.hl_pan *= hl_mul;
+        frames.push(cam.step(raw_cursor, target, &frame_cfg, dt));
     }
 
     CameraTrack { fps, frames }
@@ -321,6 +331,28 @@ mod tests {
         let (mut x, mut v) = (0.0, 0.0);
         spring_update(&mut x, &mut v, 1.0, 0.0, 1.0 / 60.0);
         assert!(x.is_finite() && v.is_finite(), "x={x} v={v}");
+    }
+
+    #[test]
+    fn zoom_style_changes_settle_speed() {
+        use crate::keyframe::{ZoomKeyframe, ZoomMode, ZoomStyle};
+        let cfg = ZoomConfig::default();
+        let seg = |style| ZoomKeyframe {
+            start: 0.0,
+            end: 6.0,
+            amount: 2.0,
+            mode: ZoomMode::Auto,
+            edge_snap_ratio: 0.0,
+            style,
+        };
+        // How far the zoom has risen shortly after the segment starts: a shorter
+        // half-life closes the gap faster, so snappy leads smooth leads slow.
+        let sample = |style| simulate(&[], &[seg(style)], 6.0, 60.0, &cfg).at(0.4).zoom;
+        let snappy = sample(ZoomStyle::Snappy);
+        let smooth = sample(ZoomStyle::Smooth);
+        let slow = sample(ZoomStyle::Slow);
+        assert!(snappy > smooth, "snappy {snappy} should lead smooth {smooth}");
+        assert!(smooth > slow, "smooth {smooth} should lead slow {slow}");
     }
 
     #[test]

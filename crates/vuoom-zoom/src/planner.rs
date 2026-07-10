@@ -7,7 +7,7 @@
 
 use crate::config::ZoomConfig;
 use crate::event::InputEvent;
-use crate::keyframe::{ZoomKeyframe, ZoomMode};
+use crate::keyframe::{ZoomKeyframe, ZoomMode, ZoomStyle};
 use glam::DVec2;
 
 /// A growing cluster of nearby-in-time-and-space zoom triggers.
@@ -71,6 +71,7 @@ fn manual_toggle_segments(
                 amount: cfg.amount,
                 mode: ZoomMode::Auto,
                 edge_snap_ratio: cfg.edge_snap_ratio,
+                style: ZoomStyle::Smooth,
             });
         }
         i += 2; // skip the matching zoom-out press
@@ -145,6 +146,7 @@ fn click_segments(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec
                 amount: cfg.amount,
                 mode: ZoomMode::Auto,
                 edge_snap_ratio: cfg.edge_snap_ratio,
+                style: ZoomStyle::Smooth,
             });
         }
     }

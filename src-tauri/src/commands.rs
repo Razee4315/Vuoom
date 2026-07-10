@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe};
+use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -628,6 +628,20 @@ pub async fn set_zoom_focus(
         _ => None,
     };
     engine.session()?.set_zoom_focus(index, focus)
+}
+
+/// Set a zoom segment's easing "feel": `style` is one of `"smooth"` (default), `"snappy"`,
+/// or `"slow"` (case-insensitive). Returns the updated segment list. Also the backend for
+/// the MCP `set_zoom_style` control command.
+#[tauri::command]
+pub async fn set_zoom_style(
+    engine: tauri::State<'_, Engine>,
+    index: usize,
+    style: String,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    let style = ZoomStyle::from_label(&style)
+        .ok_or_else(|| format!("unknown zoom style: {style}"))?;
+    engine.session()?.set_zoom_style(index, style)
 }
 
 /// Delete the zoom segment at `index`; returns the updated segment list.

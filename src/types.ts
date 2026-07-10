@@ -66,12 +66,15 @@ export interface AnnotationSet {
 
 /** How a zoom picks its focus — mirrors vuoom_zoom::ZoomMode's serde shape. */
 export type ZoomMode = "Auto" | { Manual: { pos: SerVec } };
+/** Easing preset for a zoom — mirrors vuoom_zoom::ZoomStyle (externally tagged unit variants). */
+export type ZoomStyle = "Smooth" | "Snappy" | "Slow";
 /** Mirrors vuoom_zoom::ZoomKeyframe. */
 export interface ZoomSeg {
   start: number;
   end: number;
   amount: number;
   mode: ZoomMode;
+  style: ZoomStyle;
 }
 export interface SpeedRegion {
   start: number;

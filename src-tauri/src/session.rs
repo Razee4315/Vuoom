@@ -34,7 +34,7 @@ use vuoom_project::{
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, Compositor};
-use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
+use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
 
 /// Summary returned to the UI when recording stops.
 #[derive(Debug, Clone, Serialize)]
@@ -1426,6 +1426,7 @@ impl Session {
             amount,
             mode: ZoomMode::Auto,
             edge_snap_ratio: project.zoom_config.edge_snap_ratio,
+            style: ZoomStyle::default(),
         };
         if vuoom_zoom::insert_sorted(&mut project.zooms, kf).is_none() {
             return Err("no room for a zoom segment here".into());
@@ -1479,6 +1480,24 @@ impl Session {
             },
             None => ZoomMode::Auto,
         };
+        let zooms = project.zooms.clone();
+        resimulate(&mut edited);
+        Ok(zooms)
+    }
+
+    /// Set the easing "feel" preset of the zoom segment at `index` and re-simulate.
+    /// Returns the updated segment list. Preset picks are discrete (one undo step each).
+    pub fn set_zoom_style(
+        &self,
+        index: usize,
+        style: ZoomStyle,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        // A preset click is a single deliberate change — one undo step, never coalesced.
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
+        kf.style = style;
         let zooms = project.zooms.clone();
         resimulate(&mut edited);
         Ok(zooms)

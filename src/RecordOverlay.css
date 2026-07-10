@@ -167,7 +167,7 @@
 }
 .sel-btn {
   padding: 9px 18px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: transparent;
   color: #fff;
@@ -326,7 +326,7 @@
   height: 36px;
 }
 .rec-time {
-  font-weight: 650;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   min-width: 42px;
   font-size: var(--fs-lg);

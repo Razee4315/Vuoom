@@ -5,7 +5,7 @@ import { For, Show, type JSX } from "solid-js";
 import type { Tool, Vec2 } from "./types";
 
 export function ToolIcon(props: { tool: Tool }): JSX.Element {
-  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round" as const, "stroke-linejoin": "round" as const };
+  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round" as const, "stroke-linejoin": "round" as const };
   switch (props.tool) {
     case "select":
       return <svg {...common}><path d="M5 3l6 16 2-6 6-2z" /></svg>;
@@ -73,7 +73,7 @@ export function InspRow(props: { label: string; stack?: boolean; children: JSX.E
 
 export function LockIcon(props: { locked: boolean }): JSX.Element {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
       <rect x="5" y="11" width="14" height="9" rx="2" />
       <Show when={props.locked} fallback={<path d="M8 11V7a4 4 0 0 1 7.5-2" />}>
         <path d="M8 11V7a4 4 0 0 1 8 0v4" />

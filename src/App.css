@@ -9,6 +9,9 @@
   --prominent: #26262a;
   --line: #2a2a2d;
   --text: #f2f2f3;
+  /* Secondary text tier: labels/values that name a control. Between --text and the
+     quieter --muted (hints, help text, placeholders). */
+  --text-2: #bfbfc3;
   --muted: #8d8d93;
   --accent: #ffffff;
   --accent-text: #0e0e0f;
@@ -23,6 +26,7 @@
   --prominent: #ffffff;
   --line: #e3e3e6;
   --text: #161617;
+  --text-2: #414144;
   --muted: #6b6b71;
   --accent: #161617;
   --accent-text: #ffffff;
@@ -37,6 +41,7 @@
   --prominent: #33383c;
   --line: #34383c;
   --text: #e8eaec;
+  --text-2: #c1c5c9;
   --muted: #9aa0a6;
   --accent: #e8eaec;
   --accent-text: #1a1c1e;
@@ -51,6 +56,7 @@
   --prominent: #f1eee7;
   --line: #ddd8cc;
   --text: #2b2a26;
+  --text-2: #4a4840;
   /* Dark enough for >=4.5:1 (WCAG AA) on --panel #efece4; #7a766c was 3.84:1. */
   --muted: #696559;
   --accent: #2b2a26;
@@ -66,6 +72,7 @@
   --prominent: #1f2a39;
   --line: #232c3a;
   --text: #e6ebf2;
+  --text-2: #b8bfca;
   --muted: #8a93a3;
   --accent: #e6ebf2;
   --accent-text: #0b0f17;
@@ -355,7 +362,7 @@ kbd {
   background: transparent;
   color: var(--text);
   font-size: var(--fs-md);
-  font-weight: 550;
+  font-weight: 500;
   text-align: left;
   transition: background 0.1s ease;
 }
@@ -626,7 +633,7 @@ kbd {
 }
 .canvas-placeholder .big {
   font-size: var(--fs-xl);
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
   color: var(--text);
@@ -653,7 +660,7 @@ kbd {
 }
 .recents-label {
   font-size: var(--fs-sm);
-  color: var(--muted);
+  color: var(--text-2);
 }
 .recent-card {
   display: flex;
@@ -732,7 +739,7 @@ kbd {
 }
 .properties h2 {
   font-size: var(--fs-md);
-  font-weight: 650;
+  font-weight: 600;
   margin: 0;
 }
 .inspector-head {
@@ -853,13 +860,13 @@ kbd {
   gap: 6px;
   margin-bottom: 14px;
   font-size: var(--fs-sm);
-  color: var(--muted);
+  color: var(--text-2);
 }
 .field input[type="text"] {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--text);
   font-size: var(--fs-md);
@@ -873,7 +880,7 @@ kbd {
   height: 32px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   cursor: pointer;
 }
@@ -911,7 +918,7 @@ kbd {
 .insp-row-label {
   flex: none;
   font-size: var(--fs-sm);
-  color: var(--muted);
+  color: var(--text-2);
 }
 .insp-row.stack .insp-row-label {
   align-self: flex-start;
@@ -1041,7 +1048,7 @@ kbd {
   width: 34px;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--text);
   font-size: var(--fs-md);
@@ -1056,7 +1063,7 @@ kbd {
   width: auto;
   padding: 0 14px;
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: 500;
 }
 .stylebtn:hover {
   background: var(--hover);
@@ -1101,7 +1108,7 @@ kbd {
   min-width: 0;
   padding: 7px 8px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--text);
   font-size: var(--fs-sm);
@@ -1114,7 +1121,7 @@ kbd {
 .ghost-note {
   padding: 7px 9px;
   border: 1px dashed var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--panel-2);
 }
 .muted {
@@ -1176,7 +1183,7 @@ kbd {
 .tgroup-label {
   margin-right: 2px;
   font-size: var(--fs-xs);
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1213,7 +1220,7 @@ kbd {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: 500;
 }
 .tbtn.on {
   border-color: var(--accent);
@@ -1229,7 +1236,7 @@ kbd {
   color: var(--text);
   font-family: inherit;
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: 500;
   cursor: pointer;
 }
 .tbtn-sel:disabled {
@@ -1239,7 +1246,7 @@ kbd {
 .time {
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
-  font-weight: 550;
+  font-weight: 500;
 }
 .time-sep {
   color: var(--muted);
@@ -1270,7 +1277,7 @@ kbd {
   min-height: 86px;
   margin: 0 16px 14px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel-2);
   overflow: hidden;
   cursor: ew-resize;
@@ -1352,7 +1359,7 @@ kbd {
   top: 50%;
   transform: translateY(-50%);
   font-size: var(--fs-xs);
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -1433,7 +1440,7 @@ kbd {
   border-radius: 6px;
   border: 1px solid transparent;
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: 500;
   color: var(--text);
   text-align: left;
   white-space: nowrap;
@@ -1784,7 +1791,7 @@ kbd {
   color: var(--muted);
 }
 .export-size {
-  font-weight: 650;
+  font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -1901,7 +1908,7 @@ kbd {
 .welcome-title {
   margin: 18px 0 8px;
   font-size: var(--fs-xl);
-  font-weight: 650;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 .welcome-sub {

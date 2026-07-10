@@ -2100,23 +2100,23 @@ function App() {
         <div class="topbar-drag" data-tauri-drag-region="" />
 
         <button class="btn ghost" disabled={!hasClip()} title="Undo (Ctrl+Z)" onClick={() => void doUndo()}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8.5 5L4 9.5 8.5 14M4 9.5h10a6 6 0 0 1 0 12h-3" />
           </svg>
         </button>
         <button class="btn ghost" disabled={!hasClip()} title="Redo (Ctrl+Y)" onClick={() => void doRedo()}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15.5 5L20 9.5 15.5 14M20 9.5H10a6 6 0 0 0 0 12h3" />
           </svg>
         </button>
         <span class="toolbar-sep" />
         <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
           </svg>
         </button>
         <button class="btn ghost" disabled={!hasClip()} title="Save project — video + edits (Ctrl+S)" onClick={() => void onSaveProject()}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 3v5h8V3M7 21v-7h10v7" />
           </svg>
         </button>
@@ -2133,7 +2133,7 @@ function App() {
           <option value="studio">Studio frame</option>
         </select>
         <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
           </svg>
           Export
@@ -2145,7 +2145,7 @@ function App() {
             title={`Update to v${update()!.version} and restart`}
             onClick={() => void runUpdate()}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 3v10m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
             </svg>
             {updating() ? "Updating…" : `Update ${update()!.version}`}
@@ -2158,7 +2158,7 @@ function App() {
           aria-label="Keyboard shortcuts"
           onClick={() => setShowShortcuts(true)}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="6" width="20" height="12" rx="2" />
             <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9.5 14h5" />
           </svg>
@@ -2169,7 +2169,7 @@ function App() {
 
       <Show when={gpuLost()}>
         <div class="gpu-banner" role="alert">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3L2.5 20h19L12 3zm0 7v4m0 3.5h.01" />
           </svg>
           <span>{GPU_FAILED_MSG}</span>
@@ -2179,7 +2179,7 @@ function App() {
             aria-label="Dismiss graphics warning"
             onClick={() => setGpuLost(false)}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -2266,7 +2266,7 @@ function App() {
                       onClick={() => void onRecover()}
                     >
                       <div class="recent-thumb">
-                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                           <rect x="3" y="5" width="18" height="14" rx="2" />
                           <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
                         </svg>
@@ -3072,7 +3072,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => setLooping(!looping())}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M17 2l4 4-4 4" />
                 <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
                 <path d="M7 22l-4-4 4-4" />
@@ -3098,7 +3098,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => void addZoomAtPlayhead()}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
                 <circle cx="10.5" cy="10.5" r="6.5" />
                 <path d="M15.5 15.5L21 21M10.5 7.5v6M7.5 10.5h6" />
               </svg>
@@ -3110,7 +3110,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => void addSpeedAtPlayhead()}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
                 <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
               </svg>
               <span>Speed</span>
@@ -3121,7 +3121,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => void addCutAtPlayhead()}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="6" cy="6" r="2.6" />
                 <circle cx="6" cy="18" r="2.6" />
                 <path d="M8.1 7.8L20 19M8.1 16.2L20 5" />
@@ -3161,7 +3161,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => void toggleClicks()}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
                 <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
                 <circle cx="12" cy="12" r="6.5" />
                 <path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" />
@@ -3175,7 +3175,7 @@ function App() {
               disabled={!hasClip()}
               onClick={() => void toggleKeys()}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2.5" y="6" width="19" height="12" rx="2" />
                 <path d="M6.5 10h0M10.3 10h0M14.1 10h0M17.7 10h0M7.5 14h9" />
               </svg>

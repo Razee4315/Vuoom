@@ -542,6 +542,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
+name = "color_quant"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00c1c79b421ca69d94677a49b2ccf389dab3409952aed790594de8fa03b07989"
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1504,7 +1510,7 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ae047235e33e2829703574b54fdec96bfbad892062d97fed2f76022287de61b"
 dependencies = [
- "color_quant",
+ "color_quant 1.1.0",
  "weezl",
 ]
 
@@ -5475,7 +5481,7 @@ dependencies = [
 name = "vuoom-encode"
 version = "0.1.33"
 dependencies = [
- "color_quant",
+ "color_quant 2.0.0",
  "gif",
  "png 0.17.16",
  "serde",

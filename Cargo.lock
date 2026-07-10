@@ -43,9 +43,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "arbitrary"
@@ -354,9 +354,9 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bytemuck"
-version = "1.25.0"
+version = "1.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
+checksum = "d6aedf8ae72766347502cf3cb4f41cf5e9cc37d28bee90f1fdaaae15f9cf9424"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -4421,9 +4421,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-build"
-version = "2.6.2"
+version = "2.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4aa1f9055fc23919a54e4e125052bed16ed04aef0487086e758fe01a67b451c7"
+checksum = "bc9ce40b16101cb6ea63d3e221567affd1c3a9205f95d7bc574941a10636b632"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -4672,9 +4672,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-utils"
-version = "2.9.2"
+version = "2.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092379df9a707631978e6c56b1bc2401d387f01e2d4a3c123360d167bbb9aa95"
+checksum = "3e176a18e67764923c4f1ce66f25ae4abe5f688384d5eb1a0fa6c77f3d90f887"
 dependencies = [
  "anyhow",
  "brotli",
@@ -5434,7 +5434,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",
@@ -5463,7 +5463,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5473,7 +5473,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "color_quant",
  "gif",
@@ -5486,7 +5486,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5497,9 +5497,10 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "futures-util",
+ "getrandom 0.2.17",
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
@@ -5508,7 +5509,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "glam",
  "serde",
@@ -5518,7 +5519,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5533,7 +5534,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.31"
+version = "0.1.33"
 dependencies = [
  "glam",
  "serde",

@@ -30,6 +30,14 @@ serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
 
+# Diagnostics. `env-filter` gives us RUST_LOG honoring; `tracing-appender`
+# writes a rotating daily log file so a windowed release build (which detaches
+# from any console, so stderr is invisible) still leaves debuggable traces on
+# disk. Init lives in `init_logging` (lib.rs).
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-appender = "0.2"
+
 glam.workspace = true
 
 # Engine crates.

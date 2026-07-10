@@ -14,8 +14,53 @@ mod session;
 mod windows_ext;
 mod zoom_chord;
 
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tauri::Manager;
+use tracing_appender::non_blocking::WorkerGuard;
+
+/// Keeps the non-blocking file-log worker thread alive for the whole process.
+/// Dropping the guard flushes and shuts the writer down, so we park it here for
+/// the app's lifetime rather than in a local that would drop at end of `setup`.
+static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+
+/// Wire up `tracing` before anything interesting happens.
+///
+/// Two sinks: stderr (visible under `cargo run` / a console build) and a rotating
+/// daily file under `log_dir` — the latter matters because release builds set
+/// `windows_subsystem = "windows"` and have no console, so every engine
+/// `tracing::warn!` would otherwise vanish. Level honors `RUST_LOG`; the default
+/// is info for the Vuoom crates and warn for everything else. Uses `try_init`, so
+/// a second call (e.g. from a test harness) is a harmless no-op.
+fn init_logging(log_dir: PathBuf) {
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "warn,vuoom=info,vuoom_lib=info,vuoom_capture=info,vuoom_input=info,\
+             vuoom_zoom=info,vuoom_render=info,vuoom_encode=info,vuoom_project=info,\
+             vuoom_preview=info",
+        )
+    });
+
+    // Best-effort file sink: if the log dir can't be created we still keep stderr
+    // rather than losing diagnostics outright. Option<Layer> is itself a Layer,
+    // so a `None` here is simply a no-op in the stack below.
+    let file_layer = std::fs::create_dir_all(&log_dir).ok().map(|_| {
+        let (writer, guard) =
+            tracing_appender::non_blocking(tracing_appender::rolling::daily(&log_dir, "vuoom.log"));
+        let _ = LOG_GUARD.set(guard);
+        fmt::layer().with_ansi(false).with_writer(writer)
+    });
+
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(file_layer)
+        .try_init();
+
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Vuoom starting");
+}
 
 /// Lazily-booted engine, held as Tauri managed state.
 ///
@@ -85,6 +130,15 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Stand logging up first so engine-boot warnings are captured. Logs land in
+            // the OS app-log dir (Windows: %LOCALAPPDATA%\dev.vuoom.desktop\logs); if that
+            // can't be resolved we fall back to a `logs/` dir under the working dir.
+            let log_dir = app
+                .path()
+                .app_log_dir()
+                .unwrap_or_else(|_| PathBuf::from("logs"));
+            init_logging(log_dir);
+
             // Boot the engine off the main thread: blocking here would stall the event
             // loop and the launch splash would never paint.
             let cell: Arc<OnceLock<Result<session::Session, String>>> = Arc::new(OnceLock::new());

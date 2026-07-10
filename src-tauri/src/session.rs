@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::LivePreview;
-use crate::zoom_chord::ZoomChordPoller;
+use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -465,21 +465,7 @@ impl Session {
 
         // Map the cursor into the captured area. Cursor events are in virtual-desktop
         // physical coords; the crop is monitor-relative, so offset by the monitor origin.
-        let (mx, my) = session.mon_origin;
-        let region = match session.region {
-            Some(r) => CaptureRegion {
-                x: mx + r.x as i32,
-                y: my + r.y as i32,
-                w: r.w as i32,
-                h: r.h as i32,
-            },
-            None => CaptureRegion {
-                x: mx,
-                y: my,
-                w: width as i32,
-                h: height as i32,
-            },
-        };
+        let region = compose_capture_region(session.mon_origin, session.region, width, height);
         let freq = self.clock.freq();
         let mut events: Vec<InputEvent> = raw_events
             .iter()
@@ -496,20 +482,15 @@ impl Session {
             .filter(|e| e.is_zoom_mark())
             .map(InputEvent::t)
             .collect();
-        for m in session.zoom_poll.finish() {
-            let t = self.clock.seconds_between(session.start_qpc, m.qpc);
-            if t < 0.0 || t > duration {
-                continue;
-            }
-            if hook_mark_times.iter().any(|&h| (h - t).abs() < 0.3) {
-                continue;
-            }
-            let pos = DVec2::new(
-                (f64::from(m.x - region.x) / f64::from(region.w.max(1))).clamp(0.0, 1.0),
-                (f64::from(m.y - region.y) / f64::from(region.h.max(1))).clamp(0.0, 1.0),
-            );
-            events.push(InputEvent::ZoomMark { t, pos });
-        }
+        let poll_marks = session.zoom_poll.finish();
+        events.extend(merge_poll_chord_marks(
+            &poll_marks,
+            &hook_mark_times,
+            &region,
+            self.clock,
+            session.start_qpc,
+            duration,
+        ));
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
@@ -544,21 +525,7 @@ impl Session {
 
         // Paused spans become ordinary cuts: skipped by playback/export, but visible and
         // restorable in the editor if a pause was hit by mistake.
-        let mut cuts: Vec<Trim> = session
-            .pauses
-            .iter()
-            .filter_map(|&(s, e)| {
-                let start = self.clock.seconds_between(session.start_qpc, s).max(0.0);
-                let end = e
-                    .map_or(duration, |e| {
-                        self.clock.seconds_between(session.start_qpc, e)
-                    })
-                    .min(duration);
-                (end - start > 0.05).then_some(Trim { start, end })
-            })
-            .collect();
-        sort_cuts(&mut cuts);
-        project.cuts = cuts;
+        project.cuts = pauses_to_cuts(&session.pauses, self.clock, session.start_qpc, duration);
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -1949,6 +1916,88 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
     taps
 }
 
+/// Place the capture region on the virtual desktop: offset the monitor-relative crop by the
+/// captured monitor's origin, so cursor events (in virtual-desktop physical px, negative on
+/// monitors left/above the primary) map into the same coordinate space. `None` crop = the
+/// full monitor (`full_w`×`full_h`) at its origin.
+fn compose_capture_region(
+    mon_origin: (i32, i32),
+    region: Option<CropRegion>,
+    full_w: u32,
+    full_h: u32,
+) -> CaptureRegion {
+    let (mx, my) = mon_origin;
+    match region {
+        Some(r) => CaptureRegion {
+            x: mx + r.x as i32,
+            y: my + r.y as i32,
+            w: r.w as i32,
+            h: r.h as i32,
+        },
+        None => CaptureRegion {
+            x: mx,
+            y: my,
+            w: full_w as i32,
+            h: full_h as i32,
+        },
+    }
+}
+
+/// Turn poll-detected Ctrl+Shift+Z presses into normalized zoom marks, merging them with the
+/// hook-detected marks: presses outside `0.0..=duration` are dropped, and any poll press within
+/// 0.3s of a `hook_mark_times` entry is discarded as a duplicate (the hook mark wins). Each
+/// kept press maps its physical cursor position into the region's normalized `0.0..=1.0` space
+/// (clamped when the cursor sat outside the captured region).
+fn merge_poll_chord_marks(
+    marks: &[ChordMark],
+    hook_mark_times: &[f64],
+    region: &CaptureRegion,
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<InputEvent> {
+    let mut out = Vec::new();
+    for m in marks {
+        let t = clock.seconds_between(start_qpc, m.qpc);
+        if t < 0.0 || t > duration {
+            continue;
+        }
+        if hook_mark_times.iter().any(|&h| (h - t).abs() < 0.3) {
+            continue;
+        }
+        let pos = DVec2::new(
+            (f64::from(m.x - region.x) / f64::from(region.w.max(1))).clamp(0.0, 1.0),
+            (f64::from(m.y - region.y) / f64::from(region.h.max(1))).clamp(0.0, 1.0),
+        );
+        out.push(InputEvent::ZoomMark { t, pos });
+    }
+    out
+}
+
+/// Convert recorded pause spans (`(start_qpc, Option<end_qpc>)`; an open span = still paused
+/// at stop) into sorted timeline cuts. Each span is clamped to the recording bounds
+/// (`0.0..=duration`), an open span runs to `duration`, and spans shorter than 0.05s (a
+/// pause/resume fat-finger) are dropped.
+fn pauses_to_cuts(
+    pauses: &[(i64, Option<i64>)],
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<Trim> {
+    let mut cuts: Vec<Trim> = pauses
+        .iter()
+        .filter_map(|&(s, e)| {
+            let start = clock.seconds_between(start_qpc, s).max(0.0);
+            let end = e
+                .map_or(duration, |e| clock.seconds_between(start_qpc, e))
+                .min(duration);
+            (end - start > 0.05).then_some(Trim { start, end })
+        })
+        .collect();
+    sort_cuts(&mut cuts);
+    cuts
+}
+
 /// Keep speed regions in timeline order (the editor identifies them by sorted index).
 fn sort_speed(regions: &mut [SpeedRegion]) {
     regions.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -2037,6 +2086,7 @@ fn default_end(t: f64, duration: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vuoom_input::RawEventKind;
 
     fn rec(qpc: i64) -> FrameRec {
         FrameRec {
@@ -2066,5 +2116,186 @@ mod tests {
         // Rounds to the nearer neighbour.
         assert_eq!(nearest_idx(&recs, clock, start, 1.4), Some(1));
         assert_eq!(nearest_idx(&recs, clock, start, 1.6), Some(2));
+    }
+
+    // --- multi-monitor origin composition ---
+
+    #[test]
+    fn capture_region_offsets_crop_by_monitor_origin() {
+        // A crop offset within a secondary monitor whose virtual-desktop origin is negative
+        // (to the left of / above the primary).
+        let r = CropRegion {
+            x: 100,
+            y: 50,
+            w: 800,
+            h: 600,
+        };
+        let region = compose_capture_region((-1920, -100), Some(r), 1920, 1080);
+        assert_eq!(
+            (region.x, region.y, region.w, region.h),
+            (-1820, -50, 800, 600)
+        );
+    }
+
+    #[test]
+    fn capture_region_without_crop_is_full_monitor_at_origin() {
+        let full = compose_capture_region((-1920, -100), None, 1920, 1080);
+        assert_eq!(
+            (full.x, full.y, full.w, full.h),
+            (-1920, -100, 1920, 1080)
+        );
+    }
+
+    // --- poll-detected chord merge (dedup + normalized mapping) ---
+
+    fn chord(qpc: i64, x: i32, y: i32) -> ChordMark {
+        ChordMark { qpc, x, y }
+    }
+
+    #[test]
+    fn poll_chord_marks_dedup_filter_and_map_negative_origin() {
+        let clock = Clock::new();
+        let f = clock.freq();
+        let start = 0i64;
+        let q = |t: f64| start + (t * f as f64) as i64;
+        let duration = 10.0;
+        // Secondary monitor to the LEFT of the primary: negative virtual-desktop origin.
+        let region = CaptureRegion {
+            x: -1920,
+            y: 0,
+            w: 1000,
+            h: 500,
+        };
+        let hook_times = [2.0]; // a hook-detected zoom already sits at t = 2.0
+
+        let marks = [
+            chord(q(2.1), -1920 + 500, 250),  // within 0.3s of the hook mark -> deduped away
+            chord(q(5.0), -1920 + 500, 250),  // region center -> (0.5, 0.5)
+            chord(q(-1.0), 0, 0),             // before the epoch -> filtered
+            chord(q(11.0), 0, 0),             // past the duration -> filtered
+            chord(q(7.0), -1920 - 100, 999),  // outside the region -> clamped to (0, 1)
+        ];
+        let out = merge_poll_chord_marks(&marks, &hook_times, &region, clock, start, duration);
+        assert_eq!(out.len(), 2);
+        match out[0] {
+            InputEvent::ZoomMark { t, pos } => {
+                assert!((t - 5.0).abs() < 1e-3);
+                assert!((pos.x - 0.5).abs() < 1e-6 && (pos.y - 0.5).abs() < 1e-6);
+            }
+            _ => panic!("expected ZoomMark"),
+        }
+        match out[1] {
+            // x left of the region -> negative ratio clamps to 0; y below the region -> clamps to 1.
+            InputEvent::ZoomMark { pos, .. } => {
+                assert!((pos.x - 0.0).abs() < 1e-9 && (pos.y - 1.0).abs() < 1e-9);
+            }
+            _ => panic!("expected ZoomMark"),
+        }
+    }
+
+    #[test]
+    fn poll_chord_mark_far_from_any_hook_mark_is_kept() {
+        let clock = Clock::new();
+        let f = clock.freq();
+        let q = |t: f64| (t * f as f64) as i64;
+        let region = CaptureRegion {
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 100,
+        };
+        // Hook mark at 1.0; poll press 0.4s away (> 0.3s) is a distinct zoom, not a dup.
+        let out = merge_poll_chord_marks(&[chord(q(1.4), 50, 50)], &[1.0], &region, clock, 0, 5.0);
+        assert_eq!(out.len(), 1);
+    }
+
+    // --- pause -> cut conversion ---
+
+    #[test]
+    fn pauses_convert_to_sorted_clamped_cuts() {
+        let clock = Clock::new();
+        let f = clock.freq();
+        let start = 5_000i64;
+        let q = |t: f64| start + (t * f as f64) as i64;
+        let duration = 10.0;
+        let pauses = [
+            (q(6.0), Some(q(7.0))),   // closed 6..7
+            (q(2.0), Some(q(3.0))),   // closed 2..3 (earlier — must sort first among closed)
+            (q(8.0), None),           // open at stop -> runs to the duration
+            (q(4.0), Some(q(4.01))),  // ~10ms span -> below the 0.05s floor, dropped
+            (q(-1.0), Some(q(0.5))),  // starts before the epoch -> start clamps to 0.0
+        ];
+        let cuts = pauses_to_cuts(&pauses, clock, start, duration);
+        let got: Vec<(f64, f64)> = cuts.iter().map(|c| (c.start, c.end)).collect();
+
+        assert_eq!(cuts.len(), 4); // the tiny span is dropped
+        assert!(got.windows(2).all(|w| w[0].0 <= w[1].0)); // sorted by start
+        // Earliest span had a pre-epoch start clamped to 0.0.
+        assert!((got[0].0 - 0.0).abs() < 1e-3 && (got[0].1 - 0.5).abs() < 1e-3);
+        // The open span ends at the recording duration.
+        let last = *got.last().unwrap();
+        assert!((last.0 - 8.0).abs() < 1e-3 && (last.1 - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn pause_open_past_duration_clamps_to_duration() {
+        let clock = Clock::new();
+        let f = clock.freq();
+        let q = |t: f64| (t * f as f64) as i64;
+        // A closed span whose end overshoots the recording is clamped back to `duration`.
+        let cuts = pauses_to_cuts(&[(q(1.0), Some(q(99.0)))], clock, 0, 4.0);
+        assert_eq!(cuts.len(), 1);
+        assert!((cuts[0].start - 1.0).abs() < 1e-3 && (cuts[0].end - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn zero_duration_pause_is_dropped() {
+        let clock = Clock::new();
+        // A pause and resume at the same instant produces no cut.
+        assert!(pauses_to_cuts(&[(1_000, Some(1_000))], clock, 0, 5.0).is_empty());
+    }
+
+    // --- shortcut/special key tap extraction ---
+
+    fn rawk(qpc: i64, kind: RawEventKind) -> RawEvent {
+        RawEvent {
+            qpc,
+            x: 0,
+            y: 0,
+            kind,
+        }
+    }
+
+    #[test]
+    fn key_taps_label_chords_and_specials_but_not_plain_typing() {
+        use vuoom_input::RawEventKind::{KeyDown, KeyUp};
+        let clock = Clock::new();
+        let f = clock.freq();
+        let q = |t: f64| (t * f as f64) as i64;
+        let duration = 10.0;
+
+        let raw = [
+            // Ctrl+Shift+P chord.
+            rawk(q(1.0), KeyDown(0x11)),  // Ctrl
+            rawk(q(1.01), KeyDown(0x10)), // Shift
+            rawk(q(1.02), KeyDown(0x50)), // P
+            rawk(q(1.03), KeyUp(0x50)),
+            rawk(q(1.04), KeyUp(0x10)),
+            rawk(q(1.05), KeyUp(0x11)),
+            // Plain typing (no modifier, not a standalone special) -> never labeled.
+            rawk(q(2.0), KeyDown(0x41)), // 'A'
+            rawk(q(2.01), KeyUp(0x41)),
+            // Standalone Enter -> labeled on its own.
+            rawk(q(3.0), KeyDown(0x0D)),
+            rawk(q(3.01), KeyUp(0x0D)),
+            // Enter auto-repeat shortly after -> coalesced into the press above.
+            rawk(q(3.2), KeyDown(0x0D)),
+            // Past the recording end -> filtered.
+            rawk(q(20.0), KeyDown(0x0D)),
+        ];
+        let taps = extract_key_taps(&raw, clock, 0, duration);
+        let labels: Vec<&str> = taps.iter().map(|t| t.label.as_str()).collect();
+        assert_eq!(labels, vec!["Ctrl+Shift+P", "Enter"]);
+        assert!((taps[0].t - 1.02).abs() < 1e-3);
     }
 }

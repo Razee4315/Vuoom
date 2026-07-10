@@ -49,6 +49,9 @@ jobs:
       - name: Type-check frontend (tsc --noEmit)
         run: pnpm run typecheck
 
+      - name: Lint frontend (Biome)
+        run: pnpm run lint
+
       # Build the frontend FIRST: Tauri's generate_context! needs dist/ to exist
       # before cargo can check/compile the app crate.
       - name: Build frontend (vite -> dist/)
@@ -63,5 +66,15 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
-      - name: Rust check (all crates + targets)
-        run: cargo check --workspace --all-targets
+  # ─── Dependency + license audit (cheap ubuntu runner) ─────────────────────
+  # cargo-deny resolves the full dependency graph regardless of target, so it
+  # runs fine on Linux even though Vuoom is Windows-only. Enforces the
+  # Apache-2.0 / no-copyleft license posture (see deny.toml).
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: cargo-deny (advisories, bans, licenses, sources)
+        uses: EmbarkStudios/cargo-deny-action@v2

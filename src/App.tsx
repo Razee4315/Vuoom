@@ -217,6 +217,53 @@ type Drag =
   | { mode: "scale-text"; id: number; anchor: Vec2; startFont: number; startDist: number; cur: number }
   | null;
 
+// Modal a11y, wired via a ref callback: tags the node role="dialog"/aria-modal, moves
+// focus into it on open, keeps Tab/Shift+Tab cycling inside it, closes on Esc, and hands
+// focus back to whatever opened it on close. onCleanup runs in the ref's owner (the <Show>),
+// so restore fires when the dialog unmounts.
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function dialogA11y(el: HTMLElement, label: string, onClose: () => void) {
+  el.setAttribute("role", "dialog");
+  el.setAttribute("aria-modal", "true");
+  el.setAttribute("aria-label", label);
+  if (!el.hasAttribute("tabindex")) el.tabIndex = -1;
+  const opener = document.activeElement as HTMLElement | null;
+  const items = () =>
+    Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null);
+  queueMicrotask(() => (items()[0] ?? el).focus());
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const f = items();
+    if (f.length === 0) {
+      e.preventDefault();
+      el.focus();
+      return;
+    }
+    const first = f[0];
+    const last = f[f.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === el)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  el.addEventListener("keydown", onKey);
+  onCleanup(() => {
+    el.removeEventListener("keydown", onKey);
+    opener?.focus?.();
+  });
+}
+
 function App() {
   const [tool, setTool] = createSignal<Tool>("select");
   // When locked, a drawing tool stays active after creating an element (draw several in a
@@ -291,18 +338,21 @@ function App() {
   ]);
   const onGlobalKey = (e: KeyboardEvent) => {
     const inField = (e.target as HTMLElement).closest("input, textarea");
+    // While a modal owns the screen, skip the editor accelerators (undo/save/export/…) so
+    // they can't mutate the clip behind it — but still swallow browser chords further down.
+    const modalOpen = showExport() || showWelcome();
     // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) — inputs keep their native undo.
-    if (e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
+    if (!modalOpen && e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
       e.preventDefault();
       void (e.shiftKey ? doRedo() : doUndo());
       return;
     }
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
+    if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
       e.preventDefault();
       void doRedo();
       return;
     }
-    if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+    if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey) {
       if (e.code === "KeyS") {
         e.preventDefault();
         if (hasClip()) void onSaveProject();
@@ -602,6 +652,8 @@ function App() {
   const onKey = (e: KeyboardEvent) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea")) return;
+    // A modal owns the screen — its own handler deals with Esc/Tab; don't drive the editor behind it.
+    if (showExport() || showWelcome()) return;
     if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
       e.preventDefault();
       void startRecord();
@@ -3192,7 +3244,7 @@ function App() {
       {/* First-run welcome card. */}
       <Show when={showWelcome()}>
         <div class="modal-backdrop welcome-backdrop">
-          <div class="welcome-card">
+          <div class="welcome-card" ref={(el) => dialogA11y(el, "Welcome to Vuoom", () => dismissWelcome(true))}>
             <LogoWordmark />
             <h2 class="welcome-title">Record. Auto-zoom. Ship.</h2>
             <p class="welcome-sub">
@@ -3508,7 +3560,11 @@ function ExportDialog(props: {
 
   return (
     <div class="modal-backdrop" onClick={() => phase() !== "exporting" && props.onClose()}>
-      <div class="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        class="modal"
+        ref={(el) => dialogA11y(el, "Export", () => phase() !== "exporting" && props.onClose())}
+        onClick={(e) => e.stopPropagation()}
+      >
         <Show when={phase() === "configure"}>
           <h2>Export</h2>
           <div class="format-row">

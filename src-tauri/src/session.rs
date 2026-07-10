@@ -1042,7 +1042,8 @@ impl Session {
 
     /// Set the trim range (seconds). A range covering the whole clip clears the trim.
     pub fn set_trim(&self, start: f64, end: f64) -> Result<(), String> {
-        self.with_project("", |p| {
+        // Handle drags stream this per pointer event — coalesce a run into one undo step.
+        self.with_project("trim", |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, d);
             let e = end.clamp(0.0, d);
@@ -1136,7 +1137,8 @@ impl Session {
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        snapshot(&mut edited, "");
+        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        snapshot(&mut edited, &format!("speed:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let s = start.min(end).clamp(0.0, (d - 0.2).max(0.0));
@@ -1182,7 +1184,8 @@ impl Session {
     /// Retime the cut at `index`. Returns the updated, sorted list.
     pub fn update_cut(&self, index: usize, start: f64, end: f64) -> Result<Vec<Trim>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        snapshot(&mut edited, "");
+        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        snapshot(&mut edited, &format!("cut:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         let s = start.min(end).clamp(0.0, (d - 0.1).max(0.0));
@@ -1249,7 +1252,8 @@ impl Session {
         amount: f64,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        snapshot(&mut edited, "");
+        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        snapshot(&mut edited, &format!("zoom:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
         if !vuoom_zoom::resize(&mut project.zooms, index, start, end, d) {
@@ -1272,7 +1276,8 @@ impl Session {
         focus: Option<(f64, f64)>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        snapshot(&mut edited, "");
+        // Focus dragging streams per pointer event — coalesce a run into one undo step.
+        snapshot(&mut edited, &format!("focus:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
         kf.mode = match focus {
@@ -1324,12 +1329,14 @@ impl Session {
         background: Option<bool>,
         font: Option<String>,
     ) -> Result<(), String> {
-        // Typing and the size slider fire per keystroke / per tick — coalesce each run
-        // into one undo step. Geometry / style commits stay discrete.
+        // Typing, the size slider, and position drags all fire per keystroke / per pointer
+        // event — coalesce each run into one undo step. Style toggles stay discrete.
         let tag = if text.is_some() {
             format!("text:{id}")
         } else if font_size.is_some() {
             format!("font:{id}")
+        } else if x.is_some() || y.is_some() {
+            format!("geo:text:{id}")
         } else {
             String::new()
         };
@@ -1369,7 +1376,8 @@ impl Session {
 
     /// Move an arrow's endpoints.
     pub fn update_arrow(&self, id: u32, fx: f64, fy: f64, tx: f64, ty: f64) -> Result<(), String> {
-        self.with_project("", |p| {
+        // Geometry edits can stream during a drag — coalesce a run into one undo step.
+        self.with_project(&format!("geo:arrow:{id}"), |p| {
             let a = p
                 .arrows
                 .iter_mut()
@@ -1383,7 +1391,8 @@ impl Session {
 
     /// Move/resize a highlight box.
     pub fn update_box(&self, id: u32, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-        self.with_project("", |p| {
+        // Geometry edits can stream during a drag — coalesce a run into one undo step.
+        self.with_project(&format!("geo:box:{id}"), |p| {
             let b = p
                 .highlights
                 .iter_mut()
@@ -1496,7 +1505,8 @@ impl Session {
 
     /// Retime any annotation (text, arrow, or box): set when it appears/disappears.
     pub fn update_annotation_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
-        self.with_project("", |p| {
+        // Timeline band drags stream this per pointer event — coalesce into one undo step.
+        self.with_project(&format!("range:{id}"), |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, (d - 0.1).max(0.0));
             let e = end.clamp(s + 0.1, d.max(s + 0.1));

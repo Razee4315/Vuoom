@@ -142,7 +142,7 @@ function App() {
   // members as "kind:id" keys. The full selection is primary + extras.
   const [selExtra, setSelExtra] = createSignal<Set<string>>(new Set());
   const selKey = (k: Kind, id: number) => `${k}:${id}`;
-  const clearExtra = () => setSelExtra((prev) => (prev.size ? new Set() : prev));
+  const clearExtra = () => setSelExtra((prev) => (prev.size ? new Set<string>() : prev));
   const isSelected = (k: Kind, id: number) => {
     const s = selected();
     return (!!s && s.kind === k && s.id === id) || selExtra().has(selKey(k, id));

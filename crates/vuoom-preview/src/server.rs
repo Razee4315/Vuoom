@@ -106,6 +106,9 @@ async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token
     let expected_path = format!("/ws/{token}");
     // Validate the token during the WS upgrade: on mismatch we return 403 and the handshake
     // is rejected before it ever upgrades, so an unauthorized peer never receives a frame.
+    // The Result<Response, ErrorResponse> shape is tungstenite's `Callback` contract — the
+    // large Err variant is not ours to box.
+    #[allow(clippy::result_large_err)]
     let check_token = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
         if req.uri().path() == expected_path {
             Ok(resp)

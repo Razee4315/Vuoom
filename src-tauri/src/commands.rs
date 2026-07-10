@@ -639,8 +639,8 @@ pub async fn set_zoom_style(
     index: usize,
     style: String,
 ) -> Result<Vec<ZoomKeyframe>, String> {
-    let style = ZoomStyle::from_label(&style)
-        .ok_or_else(|| format!("unknown zoom style: {style}"))?;
+    let style =
+        ZoomStyle::from_label(&style).ok_or_else(|| format!("unknown zoom style: {style}"))?;
     engine.session()?.set_zoom_style(index, style)
 }
 
@@ -919,5 +919,7 @@ pub fn delete_annotation(
     id: u32,
     tag: Option<String>,
 ) -> Result<(), String> {
-    engine.session()?.delete_annotation(id, tag.as_deref().unwrap_or(""))
+    engine
+        .session()?
+        .delete_annotation(id, tag.as_deref().unwrap_or(""))
 }

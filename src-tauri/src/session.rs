@@ -1848,7 +1848,11 @@ impl Session {
     /// only shortens what overflows). Geometry and style are kept verbatim. Fresh ids are
     /// assigned; the whole paste is one snapshot → one undo step. Returns the new items
     /// (kind + id) in paste order so the UI can select them.
-    pub fn paste_annotations(&self, items: Vec<PasteItem>, at: f64) -> Result<Vec<PastedRef>, String> {
+    pub fn paste_annotations(
+        &self,
+        items: Vec<PasteItem>,
+        at: f64,
+    ) -> Result<Vec<PastedRef>, String> {
         if items.is_empty() {
             return Ok(Vec::new());
         }
@@ -1886,19 +1890,28 @@ impl Session {
                     t.id = id;
                     reanchor(&mut t.range);
                     project.texts.push(t);
-                    refs.push(PastedRef { kind: "text".into(), id });
+                    refs.push(PastedRef {
+                        kind: "text".into(),
+                        id,
+                    });
                 }
                 PasteItem::Arrow(mut a) => {
                     a.id = id;
                     reanchor(&mut a.range);
                     project.arrows.push(a);
-                    refs.push(PastedRef { kind: "arrow".into(), id });
+                    refs.push(PastedRef {
+                        kind: "arrow".into(),
+                        id,
+                    });
                 }
                 PasteItem::Box(mut b) => {
                     b.id = id;
                     reanchor(&mut b.range);
                     project.highlights.push(b);
-                    refs.push(PastedRef { kind: "box".into(), id });
+                    refs.push(PastedRef {
+                        kind: "box".into(),
+                        id,
+                    });
                 }
             }
         }
@@ -1922,9 +1935,9 @@ impl Session {
         // the move is a no-op (already at the boundary).
         fn target(dir: &str, i: usize, len: usize) -> Result<Option<usize>, String> {
             match dir {
-                "forward" => Ok((i + 1 < len).then(|| i + 1)),
-                "backward" => Ok((i > 0).then(|| i - 1)),
-                "front" => Ok((i + 1 < len).then(|| len - 1)),
+                "forward" => Ok((i + 1 < len).then_some(i + 1)),
+                "backward" => Ok((i > 0).then_some(i - 1)),
+                "front" => Ok((i + 1 < len).then_some(len - 1)),
                 "back" => Ok((i > 0).then_some(0)),
                 other => Err(format!("bad reorder dir: {other}")),
             }

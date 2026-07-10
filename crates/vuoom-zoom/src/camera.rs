@@ -351,7 +351,10 @@ mod tests {
         let snappy = sample(ZoomStyle::Snappy);
         let smooth = sample(ZoomStyle::Smooth);
         let slow = sample(ZoomStyle::Slow);
-        assert!(snappy > smooth, "snappy {snappy} should lead smooth {smooth}");
+        assert!(
+            snappy > smooth,
+            "snappy {snappy} should lead smooth {smooth}"
+        );
         assert!(smooth > slow, "smooth {smooth} should lead slow {slow}");
     }
 

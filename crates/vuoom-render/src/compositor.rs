@@ -723,7 +723,13 @@ impl Compositor {
             let _ = renderer.render(atlas, viewport, &mut pass);
         }
         self.queue.submit(Some(encoder.finish()));
-        self.read_back_into(&cache.target, &cache.readback, cache.padded_bpr, out_w, out_h)
+        self.read_back_into(
+            &cache.target,
+            &cache.readback,
+            cache.padded_bpr,
+            out_w,
+            out_h,
+        )
     }
 }
 

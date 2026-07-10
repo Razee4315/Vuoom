@@ -2140,10 +2140,7 @@ mod tests {
     #[test]
     fn capture_region_without_crop_is_full_monitor_at_origin() {
         let full = compose_capture_region((-1920, -100), None, 1920, 1080);
-        assert_eq!(
-            (full.x, full.y, full.w, full.h),
-            (-1920, -100, 1920, 1080)
-        );
+        assert_eq!((full.x, full.y, full.w, full.h), (-1920, -100, 1920, 1080));
     }
 
     // --- poll-detected chord merge (dedup + normalized mapping) ---
@@ -2169,11 +2166,11 @@ mod tests {
         let hook_times = [2.0]; // a hook-detected zoom already sits at t = 2.0
 
         let marks = [
-            chord(q(2.1), -1920 + 500, 250),  // within 0.3s of the hook mark -> deduped away
-            chord(q(5.0), -1920 + 500, 250),  // region center -> (0.5, 0.5)
-            chord(q(-1.0), 0, 0),             // before the epoch -> filtered
-            chord(q(11.0), 0, 0),             // past the duration -> filtered
-            chord(q(7.0), -1920 - 100, 999),  // outside the region -> clamped to (0, 1)
+            chord(q(2.1), -1920 + 500, 250), // within 0.3s of the hook mark -> deduped away
+            chord(q(5.0), -1920 + 500, 250), // region center -> (0.5, 0.5)
+            chord(q(-1.0), 0, 0),            // before the epoch -> filtered
+            chord(q(11.0), 0, 0),            // past the duration -> filtered
+            chord(q(7.0), -1920 - 100, 999), // outside the region -> clamped to (0, 1)
         ];
         let out = merge_poll_chord_marks(&marks, &hook_times, &region, clock, start, duration);
         assert_eq!(out.len(), 2);
@@ -2219,18 +2216,18 @@ mod tests {
         let q = |t: f64| start + (t * f as f64) as i64;
         let duration = 10.0;
         let pauses = [
-            (q(6.0), Some(q(7.0))),   // closed 6..7
-            (q(2.0), Some(q(3.0))),   // closed 2..3 (earlier — must sort first among closed)
-            (q(8.0), None),           // open at stop -> runs to the duration
-            (q(4.0), Some(q(4.01))),  // ~10ms span -> below the 0.05s floor, dropped
-            (q(-1.0), Some(q(0.5))),  // starts before the epoch -> start clamps to 0.0
+            (q(6.0), Some(q(7.0))),  // closed 6..7
+            (q(2.0), Some(q(3.0))),  // closed 2..3 (earlier — must sort first among closed)
+            (q(8.0), None),          // open at stop -> runs to the duration
+            (q(4.0), Some(q(4.01))), // ~10ms span -> below the 0.05s floor, dropped
+            (q(-1.0), Some(q(0.5))), // starts before the epoch -> start clamps to 0.0
         ];
         let cuts = pauses_to_cuts(&pauses, clock, start, duration);
         let got: Vec<(f64, f64)> = cuts.iter().map(|c| (c.start, c.end)).collect();
 
         assert_eq!(cuts.len(), 4); // the tiny span is dropped
         assert!(got.windows(2).all(|w| w[0].0 <= w[1].0)); // sorted by start
-        // Earliest span had a pre-epoch start clamped to 0.0.
+                                                           // Earliest span had a pre-epoch start clamped to 0.0.
         assert!((got[0].0 - 0.0).abs() < 1e-3 && (got[0].1 - 0.5).abs() < 1e-3);
         // The open span ends at the recording duration.
         let last = *got.last().unwrap();

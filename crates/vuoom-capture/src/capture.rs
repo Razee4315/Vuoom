@@ -86,7 +86,11 @@ struct Handler {
 }
 
 impl GraphicsCaptureApiHandler for Handler {
-    type Flags = (SyncSender<CapturedFrame>, Arc<AtomicBool>, Option<CropRegion>);
+    type Flags = (
+        SyncSender<CapturedFrame>,
+        Arc<AtomicBool>,
+        Option<CropRegion>,
+    );
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {

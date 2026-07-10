@@ -162,7 +162,13 @@ impl CameraFilter {
             cfg.hl_zoom
         };
         spring_update(&mut self.zoom, &mut self.zoom_v, target_zoom, zoom_hl, dt);
-        spring_vec(&mut self.center, &mut self.center_v, self.pan_target, cfg.hl_pan, dt);
+        spring_vec(
+            &mut self.center,
+            &mut self.center_v,
+            self.pan_target,
+            cfg.hl_pan,
+            dt,
+        );
         self.center = clamp_camera(self.center, self.zoom);
 
         CameraState {

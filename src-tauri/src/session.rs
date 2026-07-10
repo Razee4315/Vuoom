@@ -83,12 +83,15 @@ pub struct ClipState {
     pub frame_preset: String,
 }
 
+/// What the drain thread hands back at stop: the disk store, an optional warning describing
+/// a mid-recording disk-write truncation (frames written before the failure are kept), and a
+/// flag set when the capture channel disconnected before stop was requested (capture ended
+/// on its own — e.g. the monitor was unplugged).
+type DrainOutcome = Result<(FrameStore, Option<String>, bool), String>;
+
 struct Active {
-    /// Streams frames from the capture channel to the disk store (see `frame_store`). On
-    /// success yields the store, an optional warning describing a mid-recording disk-write
-    /// truncation (frames written before the failure are kept), and a flag that is set when
-    /// the capture channel disconnected before stop was requested (capture ended on its own).
-    drain: Option<JoinHandle<Result<(FrameStore, Option<String>, bool), String>>>,
+    /// Streams frames from the capture channel to the disk store (see `frame_store`).
+    drain: Option<JoinHandle<DrainOutcome>>,
     /// Tells the drain thread to stop waiting for further frames.
     drain_stop: Arc<AtomicBool>,
     capture: CaptureHandle,
@@ -350,46 +353,44 @@ impl Session {
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
-        let drain = std::thread::spawn(
-            move || -> Result<(FrameStore, Option<String>, bool), String> {
-                let mut writer = writer;
-                // If a disk write fails mid-recording, stop writing but keep draining the
-                // channel (so capture never blocks and RAM stays bounded) and remember why —
-                // at stop we finalize with the frames already on disk instead of erroring the
-                // whole take out.
-                let mut write_err: Option<String> = None;
-                // Set if the capture channel disconnects before a stop was requested — i.e. the
-                // capture ended on its own (monitor unplugged, WGC session died). We keep the
-                // frames already on disk and surface a warning instead of ending silently.
-                let mut ended_early = false;
-                loop {
-                    match frames_rx.recv_timeout(Duration::from_millis(200)) {
-                        Ok(f) => {
-                            if write_err.is_none() {
-                                if let Err(e) = writer.push(&f) {
-                                    write_err = Some(e);
-                                }
+        let drain = std::thread::spawn(move || -> DrainOutcome {
+            let mut writer = writer;
+            // If a disk write fails mid-recording, stop writing but keep draining the
+            // channel (so capture never blocks and RAM stays bounded) and remember why —
+            // at stop we finalize with the frames already on disk instead of erroring the
+            // whole take out.
+            let mut write_err: Option<String> = None;
+            // Set if the capture channel disconnects before a stop was requested — i.e. the
+            // capture ended on its own (monitor unplugged, WGC session died). We keep the
+            // frames already on disk and surface a warning instead of ending silently.
+            let mut ended_early = false;
+            loop {
+                match frames_rx.recv_timeout(Duration::from_millis(200)) {
+                    Ok(f) => {
+                        if write_err.is_none() {
+                            if let Err(e) = writer.push(&f) {
+                                write_err = Some(e);
                             }
                         }
-                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                            if stop_flag.load(Ordering::Relaxed) {
-                                break;
-                            }
-                        }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                            ended_early = !stop_flag.load(Ordering::Relaxed);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if stop_flag.load(Ordering::Relaxed) {
                             break;
                         }
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        ended_early = !stop_flag.load(Ordering::Relaxed);
+                        break;
+                    }
                 }
-                let store = if write_err.is_some() {
-                    writer.finish_salvage()?
-                } else {
-                    writer.finish()?
-                };
-                Ok((store, write_err, ended_early))
-            },
-        );
+            }
+            let store = if write_err.is_some() {
+                writer.finish_salvage()?
+            } else {
+                writer.finish()?
+            };
+            Ok((store, write_err, ended_early))
+        });
 
         *active = Some(Active {
             drain: Some(drain),

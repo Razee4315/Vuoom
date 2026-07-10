@@ -1167,6 +1167,11 @@ function App() {
     setBackdrop(null);
     setStatus("Recording cancelled");
   };
+  const onRecordFailed = (message: string) => {
+    setRecordPhase("idle");
+    setBackdrop(null);
+    setStatus(`Recording failed: ${message}`);
+  };
 
   const loadFinishedClip = async (summary: RecordingSummary) => {
     setHasClip(true);
@@ -3074,6 +3079,7 @@ function App() {
           onZoomChange={setZoomAmount}
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
+          onFailed={onRecordFailed}
         />
       </Show>
 

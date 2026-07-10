@@ -52,6 +52,8 @@ export default function RecordOverlay(props: {
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
+  /** A real failure (capture never started, finish errored) — surfaces the backend reason. */
+  onFailed: (message: string) => void;
 }) {
   const [phase, setPhase] = createSignal<"select" | "countdown" | "recording">("select");
   const [preset, setPreset] = createSignal<Preset>(PRESETS[1]);
@@ -148,8 +150,12 @@ export default function RecordOverlay(props: {
       }
       startMs = Date.now();
       elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
-    } catch {
-      cancel();
+    } catch (e) {
+      // Capture never started — clean up the backend flow, then surface the real reason
+      // (e.g. "No frames were captured…") instead of a bland "cancelled".
+      clearCountdown();
+      stopTimer();
+      void invoke("cancel_record_flow").finally(() => props.onFailed(String(e)));
     }
   };
 
@@ -161,8 +167,10 @@ export default function RecordOverlay(props: {
     try {
       const summary = await invoke<Summary>("finish_recording");
       props.onFinished(summary);
-    } catch {
-      props.onCancel();
+    } catch (e) {
+      // Stop failed — the take may still be recoverable, so leave the flow intact and
+      // surface the real error rather than pretending the user cancelled.
+      props.onFailed(String(e));
     }
   };
 

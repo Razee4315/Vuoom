@@ -1637,6 +1637,43 @@ kbd {
   margin-top: 20px;
 }
 
+/* Keyboard cheat-sheet ("?" modal) */
+.shortcuts-modal {
+  width: min(640px, 94vw);
+}
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px 28px;
+}
+.shortcut-group-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: var(--fs-sm);
+}
+.shortcut-label {
+  color: var(--text);
+}
+.shortcut-keys {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.shortcut-keys kbd {
+  font-size: var(--fs-xs);
+}
+
 /* live duration + size estimate row */
 .export-meta {
   display: flex;

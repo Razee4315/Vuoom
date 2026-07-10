@@ -169,6 +169,67 @@ const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string 
 // e.code → tool, for single-key tool switching (only while a clip is loaded).
 const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));
 
+// The one source of truth for the "?" cheat-sheet. Kept next to the handlers above so it
+// can't drift — every chord here is wired in onKey / onGlobalKey / RecordOverlay.
+const SHORTCUTS: { group: string; items: { keys: string[]; label: string }[] }[] = [
+  {
+    group: "Recording",
+    items: [
+      { keys: ["Ctrl", "Shift", "R"], label: "Start recording" },
+      { keys: ["Ctrl", "Shift", "X"], label: "Stop recording" },
+      { keys: ["Esc"], label: "Cancel region / countdown" },
+    ],
+  },
+  {
+    group: "Playback",
+    items: [
+      { keys: ["Space"], label: "Play / pause" },
+      { keys: ["←", "→"], label: "Scrub (Shift = 1s)" },
+      { keys: ["Home"], label: "Jump to start" },
+      { keys: ["End"], label: "Jump to end" },
+    ],
+  },
+  {
+    group: "Tools",
+    items: [
+      { keys: ["V"], label: "Select" },
+      { keys: ["T"], label: "Text" },
+      { keys: ["A"], label: "Arrow" },
+      { keys: ["L"], label: "Line" },
+      { keys: ["S"], label: "Shape" },
+      { keys: ["H"], label: "Highlight" },
+    ],
+  },
+  {
+    group: "Insert",
+    items: [
+      { keys: ["Z"], label: "Zoom at playhead" },
+      { keys: ["X"], label: "Speed at playhead" },
+      { keys: ["C"], label: "Cut at playhead" },
+    ],
+  },
+  {
+    group: "Editing",
+    items: [
+      { keys: ["Ctrl", "Z"], label: "Undo" },
+      { keys: ["Ctrl", "Y"], label: "Redo" },
+      { keys: ["Ctrl", "D"], label: "Duplicate selection" },
+      { keys: ["Del"], label: "Delete selection" },
+      { keys: ["←", "→", "↑", "↓"], label: "Nudge selection (Shift = further)" },
+      { keys: ["Esc"], label: "Clear selection" },
+    ],
+  },
+  {
+    group: "Project",
+    items: [
+      { keys: ["Ctrl", "O"], label: "Open project" },
+      { keys: ["Ctrl", "S"], label: "Save project" },
+      { keys: ["Ctrl", "E"], label: "Export" },
+      { keys: ["?"], label: "Toggle this cheat-sheet" },
+    ],
+  },
+];
+
 // ── small helpers ──────────────────────────────────────────────────────────────
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 const v2 = (p: SerVec | Vec2): Vec2 => (Array.isArray(p) ? { x: p[0], y: p[1] } : p);
@@ -316,6 +377,8 @@ function App() {
   const [updating, setUpdating] = createSignal(false);
   // First-run onboarding: a one-time welcome card, then a coachmark pointing at Record.
   const [showWelcome, setShowWelcome] = createSignal(false);
+  // Keyboard cheat-sheet modal (opened with "?").
+  const [showShortcuts, setShowShortcuts] = createSignal(false);
   const [coachRecord, setCoachRecord] = createSignal(false);
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
@@ -340,7 +403,7 @@ function App() {
     const inField = (e.target as HTMLElement).closest("input, textarea");
     // While a modal owns the screen, skip the editor accelerators (undo/save/export/…) so
     // they can't mutate the clip behind it — but still swallow browser chords further down.
-    const modalOpen = showExport() || showWelcome();
+    const modalOpen = showExport() || showWelcome() || showShortcuts();
     // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) — inputs keep their native undo.
     if (!modalOpen && e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
       e.preventDefault();
@@ -366,10 +429,6 @@ function App() {
       if (e.code === "KeyE") {
         e.preventDefault();
         if (hasClip()) setShowExport(true);
-        return;
-      }
-      if (e.code === "KeyA" && !inField) {
-        e.preventDefault();
         return;
       }
       // Ctrl+D would otherwise be swallowed below as a browser-bookmark chord.
@@ -652,8 +711,14 @@ function App() {
   const onKey = (e: KeyboardEvent) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea")) return;
+    // "?" toggles the keyboard cheat-sheet (Shift+/) — available any time except behind another modal.
+    if (e.key === "?" && !showExport() && !showWelcome()) {
+      e.preventDefault();
+      setShowShortcuts((v) => !v);
+      return;
+    }
     // A modal owns the screen — its own handler deals with Esc/Tab; don't drive the editor behind it.
-    if (showExport() || showWelcome()) return;
+    if (showExport() || showWelcome() || showShortcuts()) return;
     if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
       e.preventDefault();
       void startRecord();
@@ -706,10 +771,24 @@ function App() {
       !e.altKey &&
       !e.metaKey &&
       !e.shiftKey &&
+      editingText() === null &&
+      (e.code === "KeyZ" || e.code === "KeyX" || e.code === "KeyC")
+    ) {
+      // Insert a segment at the playhead — Z/X/C mirror the Insert group (Zoom/Speed/Cut).
+      e.preventDefault();
+      if (e.code === "KeyZ") void addZoomAtPlayhead();
+      else if (e.code === "KeyX") void addSpeedAtPlayhead();
+      else void addCutAtPlayhead();
+    } else if (
+      hasClip() &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
       TOOL_KEYS[e.code] &&
       editingText() === null
     ) {
-      // Single-key tool switching (V/T/A/B/E) — matches the badges on the tool rail.
+      // Single-key tool switching (V/T/A/L/S/H) — matches the badges on the tool rail.
       e.preventDefault();
       setTool(TOOL_KEYS[e.code]);
     }
@@ -2128,6 +2207,17 @@ function App() {
           </button>
         </Show>
         <span class="toolbar-sep" />
+        <button
+          class="btn ghost"
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          onClick={() => setShowShortcuts(true)}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="6" width="20" height="12" rx="2" />
+            <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9.5 14h5" />
+          </svg>
+        </button>
         <ThemeMenu current={theme()} onSelect={setTheme} />
         <WindowControls />
       </header>
@@ -3239,6 +3329,42 @@ function App() {
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
         />
+      </Show>
+
+      {/* Keyboard cheat-sheet — data-driven from SHORTCUTS so it can't drift. */}
+      <Show when={showShortcuts()}>
+        <div class="modal-backdrop">
+          <div
+            class="modal shortcuts-modal"
+            ref={(el) => dialogA11y(el, "Keyboard shortcuts", () => setShowShortcuts(false))}
+          >
+            <h2>Keyboard shortcuts</h2>
+            <div class="shortcuts-grid">
+              <For each={SHORTCUTS}>
+                {(g) => (
+                  <section class="shortcut-group">
+                    <h3 class="shortcut-group-title">{g.group}</h3>
+                    <For each={g.items}>
+                      {(s) => (
+                        <div class="shortcut-row">
+                          <span class="shortcut-label">{s.label}</span>
+                          <span class="shortcut-keys">
+                            <For each={s.keys}>{(k) => <kbd>{k}</kbd>}</For>
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </section>
+                )}
+              </For>
+            </div>
+            <div class="modal-actions">
+              <button class="btn ghost" onClick={() => setShowShortcuts(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
 
       {/* First-run welcome card. */}

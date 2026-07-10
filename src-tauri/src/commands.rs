@@ -84,6 +84,8 @@ pub fn enter_overlay(
                 name: n.clone(),
                 x: m.position().x,
                 y: m.position().y,
+                w: m.size().width,
+                h: m.size().height,
             })
         });
         let _ = session.set_monitor(info);
@@ -261,13 +263,18 @@ pub fn set_region(
     h: Option<u32>,
 ) -> Result<(), String> {
     let region = match (x, y, w, h) {
-        (Some(x), Some(y), Some(w), Some(h)) if w > 0 && h > 0 => Some(CropRegion { x, y, w, h }),
-        _ => None,
+        (None, None, None, None) => None, // no fields → full screen
+        (Some(x), Some(y), Some(w), Some(h)) => Some(CropRegion { x, y, w, h }),
+        // A partial spec is a caller bug — don't silently fall back to full screen.
+        _ => return Err("set_region: provide all of x, y, w, h — or none for full screen".into()),
     };
+    // Validate against the target monitor first; only mirror an accepted region into the
+    // border state, so a rejected rect can't leave a stale frame behind.
+    engine.session()?.set_region(region)?;
     if let Ok(mut slot) = border.region.lock() {
         *slot = region;
     }
-    engine.session()?.set_region(region)
+    Ok(())
 }
 
 /// Capture a still of the full display for the region selector's backdrop (data-URL PNG).

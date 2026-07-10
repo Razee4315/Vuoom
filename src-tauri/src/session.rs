@@ -48,13 +48,16 @@ pub struct RecordingSummary {
     pub warning: Option<String>,
 }
 
-/// The monitor the next recording captures: its Win32 device name (e.g. `\\.\DISPLAY2`)
-/// and virtual-desktop origin in physical px (for mapping global cursor coordinates).
+/// The monitor the next recording captures: its Win32 device name (e.g. `\\.\DISPLAY2`),
+/// virtual-desktop origin in physical px (for mapping global cursor coordinates) and its
+/// physical size (for validating a requested capture region against its bounds).
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
     pub name: String,
     pub x: i32,
     pub y: i32,
+    pub w: u32,
+    pub h: u32,
 }
 
 /// All annotations on the project, sent to the editor overlay so it can draw selection
@@ -82,9 +85,10 @@ pub struct ClipState {
 
 struct Active {
     /// Streams frames from the capture channel to the disk store (see `frame_store`). On
-    /// success yields the store and, if a disk write failed mid-recording, a warning
-    /// describing the truncation (the frames written before the failure are kept).
-    drain: Option<JoinHandle<Result<(FrameStore, Option<String>), String>>>,
+    /// success yields the store, an optional warning describing a mid-recording disk-write
+    /// truncation (frames written before the failure are kept), and a flag that is set when
+    /// the capture channel disconnected before stop was requested (capture ended on its own).
+    drain: Option<JoinHandle<Result<(FrameStore, Option<String>, bool), String>>>,
     /// Tells the drain thread to stop waiting for further frames.
     drain_stop: Arc<AtomicBool>,
     capture: CaptureHandle,
@@ -196,8 +200,45 @@ impl Session {
         })
     }
 
-    /// Set the capture region (physical px) for the next recording; `None` = full display.
+    /// Set the capture region (monitor-relative physical px) for the next recording;
+    /// `None` = full display.
+    ///
+    /// # Errors
+    /// Rejects an empty region, or one that falls outside the target monitor's bounds, so a
+    /// bad rect fails loudly instead of being silently clamped to a 1px sliver at capture time.
     pub fn set_region(&self, region: Option<CropRegion>) -> Result<(), String> {
+        if let Some(r) = region {
+            // Smallest region worth recording (matches the selector's own minimum). Below this
+            // the crop would be a useless sliver.
+            const MIN_PX: u32 = 8;
+            if r.w < MIN_PX || r.h < MIN_PX {
+                return Err("capture region is empty".into());
+            }
+            // When the target monitor's size is known, the region must land on it. We reject by
+            // how much actually falls INSIDE the monitor, not by a strict edge test: an origin
+            // outside (or barely inside) the monitor is what `clamp_region` collapses to a 1px
+            // sliver, whereas a rect that merely overhangs the far edge by a pixel (rounding at
+            // the selector) still clamps to a sensible crop and is fine. The monitor may be
+            // unset (e.g. a full-primary target that never went through the selector) — then we
+            // can only reject a degenerate rect, not an out-of-bounds one.
+            if let Some(m) = self
+                .pending_monitor
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
+                if m.w > 0 && m.h > 0 {
+                    let visible_w = m.w.saturating_sub(r.x).min(r.w);
+                    let visible_h = m.h.saturating_sub(r.y).min(r.h);
+                    if visible_w < MIN_PX || visible_h < MIN_PX {
+                        return Err(format!(
+                            "capture region {}×{} at ({}, {}) is outside the {}×{} monitor",
+                            r.w, r.h, r.x, r.y, m.w, m.h
+                        ));
+                    }
+                }
+            }
+        }
         *self
             .pending_region
             .lock()
@@ -297,6 +338,10 @@ impl Session {
             let _ = std::fs::write(frame_store::project_path(&recovery_dir), json);
         }
 
+        // Latch the recording epoch BEFORE spawning capture/input, so no frame or event that
+        // arrives during startup can be stamped earlier than the epoch (a negative time would
+        // otherwise slip into normalization / zoom planning).
+        let start_qpc = self.clock.now();
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview — its own capture, so it can never disturb the recording.
@@ -305,14 +350,18 @@ impl Session {
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
-        let drain =
-            std::thread::spawn(move || -> Result<(FrameStore, Option<String>), String> {
+        let drain = std::thread::spawn(
+            move || -> Result<(FrameStore, Option<String>, bool), String> {
                 let mut writer = writer;
                 // If a disk write fails mid-recording, stop writing but keep draining the
                 // channel (so capture never blocks and RAM stays bounded) and remember why —
                 // at stop we finalize with the frames already on disk instead of erroring the
                 // whole take out.
                 let mut write_err: Option<String> = None;
+                // Set if the capture channel disconnects before a stop was requested — i.e. the
+                // capture ended on its own (monitor unplugged, WGC session died). We keep the
+                // frames already on disk and surface a warning instead of ending silently.
+                let mut ended_early = false;
                 loop {
                     match frames_rx.recv_timeout(Duration::from_millis(200)) {
                         Ok(f) => {
@@ -327,7 +376,10 @@ impl Session {
                                 break;
                             }
                         }
-                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            ended_early = !stop_flag.load(Ordering::Relaxed);
+                            break;
+                        }
                     }
                 }
                 let store = if write_err.is_some() {
@@ -335,8 +387,9 @@ impl Session {
                 } else {
                     writer.finish()?
                 };
-                Ok((store, write_err))
-            });
+                Ok((store, write_err, ended_early))
+            },
+        );
 
         *active = Some(Active {
             drain: Some(drain),
@@ -346,7 +399,7 @@ impl Session {
             mon_origin,
             recorder,
             events_rx,
-            start_qpc: self.clock.now(),
+            start_qpc,
             zoom_poll: ZoomChordPoller::start(),
             recovery_dir,
             pauses: Vec::new(),
@@ -379,15 +432,19 @@ impl Session {
         let Some(mut session) = active.take() else {
             return Err("not recording".into());
         };
+        // Mark the intended stop BEFORE tearing down capture: stopping the capture drops the
+        // channel sender, which the drain sees as a disconnect. With the flag already set, that
+        // self-inflicted disconnect isn't misread as the capture ending on its own.
+        session.drain_stop.store(true, Ordering::Relaxed);
         session._preview.stop(); // tear down the live monitor before post-processing
         session.capture.stop();
         session.recorder.stop();
 
         // Let the drain thread flush remaining frames and hand back the disk store. A disk
         // write that failed mid-recording comes back as a warning (not an error): the frames
-        // written before the failure are kept and the take truncates gracefully.
-        session.drain_stop.store(true, Ordering::Relaxed);
-        let (store, write_warning) = session
+        // written before the failure are kept and the take truncates gracefully. The trailing
+        // flag is set when capture disconnected before we asked it to (monitor unplugged etc.).
+        let (store, write_warning, capture_ended_early) = session
             .drain
             .take()
             .ok_or("recording already stopped")?
@@ -520,15 +577,26 @@ impl Session {
             ..Edited::default()
         };
 
+        // Surface the first thing that went wrong, if anything: a disk-write truncation is the
+        // more specific cause, otherwise flag a capture that ended on its own mid-take.
+        let warning = if let Some(e) = write_warning {
+            Some(format!(
+                "Recording was cut short — a disk write failed ({e}). Kept the {frame_count} frames captured before that."
+            ))
+        } else if capture_ended_early {
+            Some(
+                "Capture ended unexpectedly (monitor disconnected?). Kept the frames recorded up to that point."
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+
         Ok(RecordingSummary {
             duration,
             frames: frame_count,
             zooms: zoom_count,
-            warning: write_warning.map(|e| {
-                format!(
-                    "Recording was cut short — a disk write failed ({e}). Kept the {frame_count} frames captured before that."
-                )
-            }),
+            warning,
         })
     }
 

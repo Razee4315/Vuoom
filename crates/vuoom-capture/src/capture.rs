@@ -111,6 +111,26 @@ impl GraphicsCaptureApiHandler for Handler {
         }
         let width = frame.width();
         let height = frame.height();
+        // Prefer WGC's SystemRelativeTime (the frame's real capture instant) over the callback
+        // arrival time, so frames align tightly with input events. SystemRelativeTime shares the
+        // QueryPerformanceCounter epoch but is expressed in 100 ns ticks, so rescale to raw QPC
+        // ticks: qpc = ticks * freq / 10_000_000 (i128 avoids overflow on long uptimes).
+        //
+        // Defensive: if the timestamp is missing or lands implausibly far from `now` (i.e. it is
+        // NOT on the QPC axis we assume — a wrong-epoch conversion would poison every frame
+        // time), fall back to the callback time. `now` here is the capture instant to within the
+        // WGC→callback latency, so a sane frame time is at most ~1 s away.
+        let now = self.clock.now();
+        let freq = i128::from(self.clock.freq());
+        let qpc = frame
+            .timestamp()
+            .ok()
+            // 100 ns ticks → raw QPC ticks. Stay in i128 through the sanity check so a
+            // wrong-epoch value can never overflow the i64 subtraction below.
+            .map(|ts| (i128::from(ts.Duration) * freq) / 10_000_000)
+            .filter(|&t| (t - i128::from(now)).abs() < freq)
+            .map(|t| t as i64)
+            .unwrap_or(now);
         let buffer = frame.buffer()?;
         let mut scratch: Vec<u8> = Vec::new();
         let full = buffer.as_nopadding_buffer(&mut scratch);
@@ -126,7 +146,7 @@ impl GraphicsCaptureApiHandler for Handler {
             width: w,
             height: h,
             bgra,
-            qpc: self.clock.now(),
+            qpc,
         };
         match self.tx.try_send(captured) {
             Ok(()) => {}

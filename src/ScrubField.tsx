@@ -1,11 +1,15 @@
 import { createSignal, Show, type JSX } from "solid-js";
 
 /**
- * A numeric field you can **drag to scrub** or **click to type** — the core inspector
- * ergonomic borrowed from pro editors. Horizontal drag changes the value; hold Shift for
- * a coarse (×8) sweep or Ctrl/Cmd for fine (×0.15) control. `onInput` fires live during
- * the gesture (for preview); `onCommit` fires once at the end (the undo boundary). A
- * `null` value renders an em-dash for mixed/unknown selections.
+ * A numeric field you can **drag to scrub**, **click to type**, or **step with the
+ * keyboard** — the core inspector ergonomic borrowed from pro editors. Horizontal drag
+ * changes the value; hold Shift for a coarse (×8) sweep or Ctrl/Cmd for fine (×0.15)
+ * control. When focused it behaves as an ARIA spinbutton: Arrow keys step by `step`
+ * (Shift ×10), Page keys step by ×10, Home/End jump to the bounds, and Enter or typing a
+ * digit drops into the text-edit mode. `onInput` fires live during the gesture (for
+ * preview); `onCommit` fires at each committed change (the undo boundary) — a keyboard
+ * step is treated as one discrete committed change. A `null` value renders an em-dash for
+ * mixed/unknown selections.
  */
 export interface ScrubFieldProps {
   value: number | null;
@@ -38,6 +42,10 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
   // Overrides props.value while a drag is in flight, so the readout tracks the cursor
   // even before the parent round-trips the committed value back through props.
   const [live, setLive] = createSignal<number | null>(null);
+  // When true, the edit input seeds the caret at the end (typed-to-edit) instead of
+  // selecting all (clicked/Enter-to-edit).
+  const [seedAtEnd, setSeedAtEnd] = createSignal(false);
+  let scrubEl: HTMLDivElement | undefined;
 
   const scale = () => props.displayScale ?? 1;
   const sens = () => props.sensitivity ?? (props.max - props.min) / 320;
@@ -81,19 +89,85 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
       if (v !== null) props.onCommit(v);
       setLive(null);
     } else {
-      // A plain click (no drag) → switch to type mode.
-      setDraft(props.value === null ? "" : fmt(props.value));
-      setEditing(true);
+      // A plain click (no drag) → switch to type mode with the whole value selected.
+      beginEdit(props.value === null ? "" : fmt(props.value), false);
     }
   };
 
-  const commitEdit = (raw: string) => {
+  // Enter text-edit mode. `atEnd` places the caret after the seed text (typed-to-edit);
+  // otherwise the seed is selected so the first keystroke replaces it (clicked/Enter).
+  const beginEdit = (seed: string, atEnd: boolean) => {
+    setSeedAtEnd(atEnd);
+    setDraft(seed);
+    setEditing(true);
+  };
+
+  const commitEdit = (raw: string, refocus: boolean) => {
     setEditing(false);
+    if (refocus) queueMicrotask(() => scrubEl?.focus());
     const cleaned = raw.replace(/[^0-9.+-]/g, "").trim();
     if (cleaned === "") return;
     const parsed = Number(cleaned);
     if (!Number.isFinite(parsed)) return;
     props.onCommit(clamp(snap(parsed / scale()), props.min, props.max));
+  };
+
+  // A single keyboard step is one discrete, committed change: preview via onInput then
+  // draw the undo boundary via onCommit, mirroring how a mouse gesture settles.
+  const stepTo = (target: number) => {
+    const v = clamp(snap(target), props.min, props.max);
+    props.onInput?.(v);
+    props.onCommit(v);
+  };
+  const stepBy = (deltaSteps: number) => {
+    const base = props.value ?? (props.min + props.max) / 2;
+    stepTo(base + deltaSteps * props.step);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (props.disabled) return;
+    // Keys the field consumes must not leak to the app's global shortcuts (Z/X/C, space…).
+    const handled = () => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    switch (e.key) {
+      case "ArrowUp":
+        handled();
+        stepBy(e.shiftKey ? 10 : 1);
+        return;
+      case "ArrowDown":
+        handled();
+        stepBy(e.shiftKey ? -10 : -1);
+        return;
+      case "PageUp":
+        handled();
+        stepBy(10);
+        return;
+      case "PageDown":
+        handled();
+        stepBy(-10);
+        return;
+      case "Home":
+        handled();
+        stepTo(props.min);
+        return;
+      case "End":
+        handled();
+        stepTo(props.max);
+        return;
+      case "Enter":
+      case "F2":
+        handled();
+        beginEdit(props.value === null ? "" : fmt(props.value), false);
+        return;
+      default:
+        // Typing a digit, sign or decimal point drops into edit mode seeded with it.
+        if (e.key.length === 1 && /[0-9.+-]/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+          handled();
+          beginEdit(e.key, true);
+        }
+    }
   };
 
   return (
@@ -107,26 +181,41 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
           value={draft()}
           ref={(el) => queueMicrotask(() => {
             el.focus();
-            el.select();
+            if (seedAtEnd()) el.setSelectionRange(el.value.length, el.value.length);
+            else el.select();
           })}
           onInput={(e) => setDraft(e.currentTarget.value)}
           onKeyDown={(e) => {
+            e.stopPropagation();
             if (e.key === "Enter") {
               e.preventDefault();
-              commitEdit(e.currentTarget.value);
+              commitEdit(e.currentTarget.value, true);
             } else if (e.key === "Escape") {
               e.preventDefault();
               setEditing(false);
+              queueMicrotask(() => scrubEl?.focus());
             }
           }}
-          onBlur={(e) => commitEdit(e.currentTarget.value)}
+          onBlur={(e) => commitEdit(e.currentTarget.value, false)}
         />
       }
     >
       <div
+        ref={scrubEl}
         class="scrub"
         classList={{ disabled: !!props.disabled, mixed: shown() === null }}
         title={props.title}
+        tabindex={props.disabled ? -1 : 0}
+        role="spinbutton"
+        aria-label={props.title}
+        aria-disabled={props.disabled ? "true" : undefined}
+        aria-valuemin={props.min * scale()}
+        aria-valuemax={props.max * scale()}
+        aria-valuenow={shown() === null ? undefined : shown()! * scale()}
+        aria-valuetext={
+          shown() === null ? "mixed" : `${fmt(shown()!)}${props.suffix ?? ""}`
+        }
+        onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

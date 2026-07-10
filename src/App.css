@@ -932,7 +932,8 @@ kbd {
   align-items: baseline;
   justify-content: flex-end;
   gap: 1px;
-  min-width: 56px;
+  /* Match .scrub-input width so toggling to the text field doesn't shift the layout. */
+  width: 72px;
   padding: 5px 9px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -949,6 +950,10 @@ kbd {
 .scrub:hover {
   background: var(--prominent);
   border-color: var(--muted);
+}
+.scrub:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .scrub.disabled {
   opacity: 0.45;

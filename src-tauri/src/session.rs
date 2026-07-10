@@ -640,16 +640,25 @@ impl Session {
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
     pub fn seek(&self, t: f64) -> Result<(), String> {
-        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        // Snapshot the consistent (project, track, frames, epoch) tuple under a short lock, then
+        // release it before the disk read + GPU composite + readback (~50-150ms at 4K) so a
+        // scrub never serializes with edits. Cloning the four together preserves a coherent
+        // snapshot the same way the export paths do.
+        let (project, track, store, start_qpc) = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                edited.project.as_ref().ok_or("no recording")?.clone(),
+                edited.track.as_ref().ok_or("no recording")?.clone(),
+                Arc::clone(edited.frames.as_ref().ok_or("no frames")?),
+                edited.start_qpc,
+            )
+        };
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
-        let project = edited.project.as_ref().ok_or("no recording")?;
-        let track = edited.track.as_ref().ok_or("no recording")?;
-        let store = edited.frames.as_ref().ok_or("no frames")?;
-        let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t).ok_or("no frames")?;
+        let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
         let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
-        let mut scene = build_scene(project, track, out_w, out_h, t);
+        let mut scene = build_scene(&project, &track, out_w, out_h, t);
         // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
         // the preview — a baked copy would lag the overlay during a drag and look glitchy.
         // They ARE baked into the final GIF at export time.
@@ -933,7 +942,20 @@ impl Session {
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
 
-        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        // Detach the state the sampling needs under a short lock, then drop the real lock so the
+        // GPU compositing + throwaway GIF encodes below run unlocked (they only read, never
+        // mutate `edited`). `undo`/`redo` stay empty — the helpers read only project/track/
+        // frames/start_qpc. The Arc-shared frame store reads from disk on demand.
+        let edited = {
+            let guard = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            Edited {
+                frames: guard.frames.as_ref().map(Arc::clone),
+                project: guard.project.clone(),
+                track: guard.track.clone(),
+                start_qpc: guard.start_qpc,
+                ..Edited::default()
+            }
+        };
         let total = self.output_frame_count(&edited, fps)?;
         let win = WINDOW.min(total);
         // One mid-clip window for short clips, two spread out for longer ones.
@@ -1732,9 +1754,18 @@ impl Session {
     }
 
     fn save_bundle_impl(&self, dir: &Path) -> Result<(), String> {
-        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        let project = edited.project.as_ref().ok_or("no recording")?;
-        let store = edited.frames.as_ref().ok_or("no recording")?;
+        // Snapshot the project + frame-store handle under a short lock, then release it so the
+        // per-frame disk read + PNG encode below (minutes for a long clip) never freezes
+        // scrubbing/editing/recording. An edit that lands mid-save just means the bundle captures
+        // the pre-edit project — an acceptable, self-consistent snapshot of that instant.
+        let (project, store, start_qpc) = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                edited.project.as_ref().ok_or("no recording")?.clone(),
+                Arc::clone(edited.frames.as_ref().ok_or("no recording")?),
+                edited.start_qpc,
+            )
+        };
         let frames_dir = dir.join("frames");
         std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
 
@@ -1746,7 +1777,7 @@ impl Session {
             write_png(&frames_dir.join(format!("{n:05}.png")), &img).map_err(|e| e.to_string())?;
             index.push(FrameIndex {
                 n,
-                t: self.clock.seconds_between(edited.start_qpc, f.qpc),
+                t: self.clock.seconds_between(start_qpc, f.qpc),
                 w: f.width,
                 h: f.height,
             });

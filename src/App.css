@@ -1592,6 +1592,18 @@ kbd {
   background: var(--accent);
 }
 
+/* Magnetic-snap guide — flashes at the snapped time during a timeline drag. */
+.tl-snapline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--accent);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 5;
+}
+
 .tl-playhead {
   position: absolute;
   top: 0;

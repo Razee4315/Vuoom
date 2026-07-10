@@ -1480,11 +1480,19 @@ function App() {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     trimDrag = which;
+    snapHold = null;
   };
   const onTrimMove = (e: PointerEvent) => {
     if (!trimDrag || !tlEl) return;
-    const t = tlTime(e);
     const cur = trim() ?? { start: 0, end: duration() };
+    let t = tlTime(e);
+    const snap = snapProbes([t], trimDrag === "start" ? "tS" : "tE", e.altKey);
+    if (snap) {
+      t += snap.off;
+      setSnapLine(snap.line);
+    } else {
+      setSnapLine(null);
+    }
     const next =
       trimDrag === "start"
         ? { start: Math.min(t, cur.end - 0.2), end: cur.end }
@@ -1496,6 +1504,8 @@ function App() {
   const onTrimUp = async () => {
     if (!trimDrag) return;
     trimDrag = null;
+    setSnapLine(null);
+    snapHold = null;
     const t = trim();
     if (!t) return;
     try {
@@ -1525,6 +1535,7 @@ function App() {
   const onZoomDown = (idx: number, z: ZoomSeg, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    snapHold = null;
     setZoomDrag({
       idx,
       mode: force,
@@ -1557,6 +1568,142 @@ function App() {
     }
     return { start, end };
   };
+
+  // ── magnetic snapping ─────────────────────────────────────────────────────────────
+  // Ported from palmier's SnapEngine: an 8px catch radius, the playhead gets a 1.5× radius
+  // and wins ties, and a snap is "sticky" — once engaged it takes 1.5× the radius to break
+  // away. Alt bypasses. `snapHold` is the per-drag sticky target (seconds); `snapLine`
+  // drives the guide that flashes across the timeline while a snap is engaged.
+  const SNAP_PX = 8;
+  const SNAP_STICKY = 1.5;
+  const SNAP_PLAYHEAD = 1.5;
+  let snapHold: number | null = null;
+  const [snapLine, setSnapLine] = createSignal<number | null>(null);
+
+  // Grid step: the smallest of these that renders ≥8px wide, so we snap to whole seconds on
+  // a long clip and finer marks on a short one (there's no timeline zoom yet).
+  const snapGrid = () => {
+    const pps = pxPerSec();
+    if (pps <= 0) return 1;
+    return [0.25, 0.5, 1, 5].find((s) => s * pps >= SNAP_PX) ?? 5;
+  };
+
+  // Fixed snap targets: clip bounds, the trim in/out, and every segment edge on every track
+  // (cross-track alignment is free and useful). `excludeTag` drops the segment being dragged
+  // so an edge never snaps to its own original position. Playhead and grid are added by
+  // snapProbes so they can carry their own catch radius.
+  const snapTargets = (excludeTag?: string): number[] => {
+    const out: number[] = [0, duration()];
+    const tr = trim();
+    if (tr) {
+      if (excludeTag !== "tS") out.push(tr.start);
+      if (excludeTag !== "tE") out.push(tr.end);
+    }
+    const seg = (tag: string, s: number, e: number) => {
+      if (tag !== excludeTag) out.push(s, e);
+    };
+    zooms().forEach((z, i) => {
+      seg(`z${i}`, z.start, z.end);
+    });
+    speed().forEach((r, i) => {
+      seg(`s${i}`, r.start, r.end);
+    });
+    cuts().forEach((c, i) => {
+      seg(`c${i}`, c.start, c.end);
+    });
+    annBars().forEach((b) => {
+      seg(`a${b.kind}${b.id}`, b.start, b.end);
+    });
+    return out;
+  };
+
+  // Snap the given probe time(s) to the nearest target. Returns the time offset to apply to
+  // every probe (so a two-edge segment move shifts as one unit) plus the guide position, or
+  // null when nothing is in reach. Playhead considered first + strict-less keeps its tie
+  // priority; while a snap is held it takes 1.5× the radius for any probe to break away.
+  const snapProbes = (
+    probes: number[],
+    excludeTag: string | undefined,
+    alt: boolean,
+  ): { off: number; line: number } | null => {
+    const pps = pxPerSec();
+    if (alt || pps <= 0) {
+      snapHold = null;
+      return null;
+    }
+    const base = SNAP_PX / pps; // 8px, in seconds
+    if (snapHold !== null) {
+      const hold = base * SNAP_STICKY;
+      let bp: number | null = null;
+      let bd = Number.POSITIVE_INFINITY;
+      for (const p of probes) {
+        const d = Math.abs(p - snapHold);
+        if (d <= hold && d < bd) {
+          bd = d;
+          bp = p;
+        }
+      }
+      if (bp !== null) return { off: snapHold - bp, line: snapHold };
+      snapHold = null;
+    }
+    const targets = snapTargets(excludeTag);
+    const ph = playhead();
+    const grid = snapGrid();
+    // Collect every in-reach (probe, target) pair, then take the closest. Playhead is pushed
+    // first (and compared with strict-less below) so it wins ties — its priority.
+    const cands: { off: number; line: number; dist: number }[] = [];
+    const consider = (p: number, target: number, thr: number) => {
+      const d = Math.abs(p - target);
+      if (d <= thr) cands.push({ off: target - p, line: target, dist: d });
+    };
+    for (const p of probes) {
+      consider(p, ph, base * SNAP_PLAYHEAD); // playhead: wider radius, considered first
+      for (const t of targets) consider(p, t, base);
+      const g = Math.round(p / grid) * grid; // nearest grid line
+      if (g >= 0 && g <= duration()) consider(p, g, base);
+    }
+    let best: { off: number; line: number; dist: number } | null = null;
+    for (const c of cands) if (!best || c.dist < best.dist) best = c;
+    if (!best) return null;
+    snapHold = best.line;
+    return { off: best.off, line: best.line };
+  };
+
+  // Snap a clamped segment drag: re-clamp with the snap offset folded into dt, and keep the
+  // guide only if the intended edge actually reached the target (a neighbour may block it).
+  const snapSegDrag = (
+    mode: "move" | "l" | "r",
+    orig: { start: number; end: number },
+    dt: number,
+    minLen: number,
+    prevEnd: number,
+    nextStart: number,
+    excludeTag: string,
+    alt: boolean,
+  ) => {
+    const c = clampSegDrag(mode, orig, dt, minLen, prevEnd, nextStart);
+    const probes = mode === "move" ? [c.start, c.end] : mode === "l" ? [c.start] : [c.end];
+    const snap = snapProbes(probes, excludeTag, alt);
+    if (!snap) {
+      setSnapLine(null);
+      return c;
+    }
+    const c2 = clampSegDrag(mode, orig, dt + snap.off, minLen, prevEnd, nextStart);
+    const landed =
+      mode === "move"
+        ? Math.abs(c2.start - snap.line) < 1e-4 || Math.abs(c2.end - snap.line) < 1e-4
+        : mode === "l"
+          ? Math.abs(c2.start - snap.line) < 1e-4
+          : Math.abs(c2.end - snap.line) < 1e-4;
+    if (landed) {
+      setSnapLine(snap.line);
+      return c2;
+    }
+    snapHold = null;
+    setSnapLine(null);
+    return c;
+  };
+
   const onZoomMove = (e: PointerEvent) => {
     const d = zoomDrag();
     if (!d) return;
@@ -1564,13 +1711,15 @@ function App() {
     const arr = zooms();
     const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
     const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
-    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart);
+    const { start, end } = snapSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart, `z${d.idx}`, e.altKey);
     setZoomDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onZoomUp = async () => {
     const d = zoomDrag();
     if (!d) return;
     setZoomDrag(null);
+    setSnapLine(null);
+    snapHold = null;
     setSelected(null);
     setSelSpeed(null);
     setSelCut(null);
@@ -1598,6 +1747,7 @@ function App() {
   const onSpeedDown = (idx: number, r: SpeedRegion, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    snapHold = null;
     setSpeedDrag({
       idx,
       mode: force,
@@ -1614,13 +1764,15 @@ function App() {
     const arr = speed();
     const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
     const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
-    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart);
+    const { start, end } = snapSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart, `s${d.idx}`, e.altKey);
     setSpeedDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onSpeedUp = async () => {
     const d = speedDrag();
     if (!d) return;
     setSpeedDrag(null);
+    setSnapLine(null);
+    snapHold = null;
     setSelected(null);
     setSelZoom(null);
     setSelCut(null);
@@ -1649,6 +1801,7 @@ function App() {
   const onCutDown = (idx: number, c: Trim, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    snapHold = null;
     setCutDrag({
       idx,
       mode: force,
@@ -1665,13 +1818,15 @@ function App() {
     const arr = cuts();
     const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
     const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
-    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.1, prevEnd, nextStart);
+    const { start, end } = snapSegDrag(d.mode, d.orig, dt, 0.1, prevEnd, nextStart, `c${d.idx}`, e.altKey);
     setCutDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onCutUp = async () => {
     const d = cutDrag();
     if (!d) return;
     setCutDrag(null);
+    setSnapLine(null);
+    snapHold = null;
     setSelected(null);
     setSelZoom(null);
     setSelSpeed(null);
@@ -1739,6 +1894,7 @@ function App() {
     (e: PointerEvent) => {
       e.stopPropagation();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      snapHold = null;
       setAnnDrag({
         kind: b.kind,
         id: b.id,
@@ -1753,22 +1909,15 @@ function App() {
     const d = annDrag();
     if (!d) return;
     const dt = tlTime(e) - d.grabT;
-    let { start, end } = d.orig;
-    if (d.mode === "move") {
-      const len = end - start;
-      start = Math.min(Math.max(0, start + dt), duration() - len);
-      end = start + len;
-    } else if (d.mode === "l") {
-      start = Math.min(Math.max(0, start + dt), end - 0.2);
-    } else {
-      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
-    }
+    const { start, end } = snapSegDrag(d.mode, d.orig, dt, 0.2, 0, duration(), `a${d.kind}${d.id}`, e.altKey);
     setAnnDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onAnnUp = async () => {
     const d = annDrag();
     if (!d) return;
     setAnnDrag(null);
+    setSnapLine(null);
+    snapHold = null;
     setSelZoom(null);
     setSelSpeed(null);
     setSelCut(null);
@@ -3115,6 +3264,11 @@ function App() {
               onPointerMove={onTrimMove}
               onPointerUp={() => void onTrimUp()}
             />
+
+            {/* Snap guide — flashes at the snapped time while a segment/trim drag is engaged. */}
+            <Show when={snapLine() !== null}>
+              <div class="tl-snapline" style={{ left: `${pct(snapLine()!)}%` }} />
+            </Show>
 
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
               <i />

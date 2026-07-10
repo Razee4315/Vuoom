@@ -257,6 +257,18 @@ pub fn project_path(dir: &Path) -> PathBuf {
     dir.join("project.json")
 }
 
+/// The previously written *distinct* frame, kept in RAM (one frame — already bounded) so an
+/// identical follow-up is stored as a back-reference to its pixels instead of a second full
+/// copy. `bgra` is the exact byte slice living on disk at `offset`; `w`/`h` guard the compare
+/// so a dimension change is never mistaken for a duplicate.
+struct PrevFrame {
+    bgra: Vec<u8>,
+    w: u32,
+    h: u32,
+    offset: u64,
+    len: u32,
+}
+
 /// Append-only writer used by the recording drain thread (and bundle open). Both the pixel
 /// file and the index grow incrementally, so a hard crash mid-take leaves a recoverable
 /// store rather than gigabytes of un-indexed pixels.
@@ -268,6 +280,8 @@ pub struct FrameWriter {
     offset: u64,
     /// Frames appended since the index buffer was last pushed to the OS.
     since_flush: u32,
+    /// Last distinct frame written, for consecutive-frame deduplication (see [`push`]).
+    prev: Option<PrevFrame>,
 }
 
 impl FrameWriter {
@@ -286,25 +300,60 @@ impl FrameWriter {
             idx: BufWriter::new(idx),
             offset: 0,
             since_flush: 0,
+            prev: None,
         })
     }
 
-    /// Append one frame's raw BGRA bytes and its index record.
-    pub fn push(&mut self, f: &CapturedFrame) -> Result<(), String> {
-        self.out
-            .write_all(&f.bgra)
-            .map_err(|e| format!("frame write: {e}"))?;
-        let rec = FrameRec {
-            qpc: f.qpc,
-            w: f.width,
-            h: f.height,
-            offset: self.offset,
-            len: f.bgra.len() as u32,
+    /// Append one frame: either its raw BGRA bytes plus a fresh index record, or — when the
+    /// frame is byte-for-byte identical to the previously written one (same dimensions) — just
+    /// a 28-byte index record pointing back at the existing pixels. A mostly-static screencast
+    /// thus collapses to near-zero pixel growth instead of storing tens of GB of duplicates.
+    /// Takes the frame by value so a distinct frame's buffer MOVES into the dedup slot —
+    /// cloning it would add a multi-MB memcpy per frame to the drain's hot path.
+    pub fn push(&mut self, f: CapturedFrame) -> Result<(), String> {
+        // A duplicate reuses the previous record's `offset`/`len` (bytes already on disk) with
+        // the new `qpc`. Only the else branch touches `frames.raw`, so a dup push never does
+        // pixel I/O and cannot fail on a full disk.
+        let is_dup = self
+            .prev
+            .as_ref()
+            .is_some_and(|p| p.w == f.width && p.h == f.height && p.bgra == f.bgra);
+        let rec = if is_dup {
+            let p = self.prev.as_ref().unwrap();
+            FrameRec {
+                qpc: f.qpc,
+                w: f.width,
+                h: f.height,
+                offset: p.offset,
+                len: p.len,
+            }
+        } else {
+            self.out
+                .write_all(&f.bgra)
+                .map_err(|e| format!("frame write: {e}"))?;
+            let rec = FrameRec {
+                qpc: f.qpc,
+                w: f.width,
+                h: f.height,
+                offset: self.offset,
+                len: f.bgra.len() as u32,
+            };
+            self.offset += f.bgra.len() as u64;
+            // Remember this frame (its bytes live at `rec.offset`) so the next identical one
+            // can back-reference it. A differing frame — including any dimension change —
+            // takes this branch and overwrites `prev`, so the compare is always sound.
+            self.prev = Some(PrevFrame {
+                bgra: f.bgra,
+                w: f.width,
+                h: f.height,
+                offset: rec.offset,
+                len: rec.len,
+            });
+            rec
         };
         self.idx
             .write_all(&encode_rec(&rec))
             .map_err(|e| format!("frame index: {e}"))?;
-        self.offset += f.bgra.len() as u64;
         // Cheap periodic flush (buffered, no fsync) so a crash strands at most a fraction of
         // a second of frames. If the index runs ahead of what actually reached frames.raw,
         // `open` trims the excess — so this interleaving is always safe.
@@ -366,8 +415,12 @@ impl FrameStore {
         let bytes = fs::read(index_path(dir)).map_err(|e| format!("frame index: {e}"))?;
         let file = File::open(raw_path(dir)).map_err(|e| format!("frame file: {e}"))?;
         let raw_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-        // Records are appended in capture order with monotonically increasing offsets, so the
-        // first one that runs past what's on disk marks the end of the recoverable prefix.
+        // Records append in capture order. A frame that writes new pixels has a strictly
+        // higher offset than any before it; a deduplicated frame back-references earlier bytes
+        // (a smaller offset already known to be on disk). So the *first* record whose bytes run
+        // past what's on disk is always a forward-writing one and marks the end of the
+        // recoverable prefix — everything after it is untrustworthy, hence `break`. A dup
+        // record points backward and always passes the check, so it's never the trip wire.
         let mut index = Vec::with_capacity(bytes.len() / REC_SIZE);
         for chunk in bytes.chunks_exact(REC_SIZE) {
             let rec = decode_rec(chunk);
@@ -419,5 +472,145 @@ impl FrameStore {
         });
         rs.cache = Some((i, Arc::clone(&frame)));
         Ok(frame)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// A fresh, unique temp dir for one test's store (auto-cleaned at the end of the test).
+    fn tmp_dir(tag: &str) -> PathBuf {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("vuoom-fs-test-{tag}-{n}-{seq}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A 2x2 BGRA frame whose 16 bytes are all `fill`.
+    fn frame(fill: u8, qpc: i64) -> CapturedFrame {
+        CapturedFrame {
+            width: 2,
+            height: 2,
+            bgra: vec![fill; 2 * 2 * 4],
+            qpc,
+        }
+    }
+
+    fn assert_pixels(store: &FrameStore, i: usize, fill: u8, qpc: i64) {
+        let f = store.frame(i).unwrap();
+        assert_eq!(f.width, 2);
+        assert_eq!(f.height, 2);
+        assert_eq!(f.qpc, qpc);
+        assert_eq!(f.bgra, vec![fill; 16], "frame {i} pixels");
+    }
+
+    #[test]
+    fn dedup_stores_identical_frame_as_backreference() {
+        let dir = tmp_dir("dedup");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        w.push(frame(0xAA, 10)).unwrap(); // A
+        w.push(frame(0xAA, 20)).unwrap(); // A again (duplicate)
+        w.push(frame(0xBB, 30)).unwrap(); // B
+        let store = w.finish().unwrap();
+
+        // Only A's and B's pixels hit frames.raw — the duplicate wrote no pixels.
+        let raw_len = fs::metadata(raw_path(&dir)).unwrap().len();
+        assert_eq!(raw_len, 32, "raw file holds A(16)+B(16), not the duplicate");
+
+        // All three records still read back the correct pixels & timestamps.
+        assert_eq!(store.len(), 3);
+        assert_pixels(&store, 0, 0xAA, 10);
+        assert_pixels(&store, 1, 0xAA, 20);
+        assert_pixels(&store, 2, 0xBB, 30);
+
+        // The duplicate record back-references A's byte range.
+        let recs = store.recs();
+        assert_eq!(recs[1].offset, recs[0].offset);
+        assert_eq!(recs[1].len, recs[0].len);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dimension_change_is_not_deduplicated() {
+        let dir = tmp_dir("dims");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        // Two frames with the same fill byte but different sizes must both be stored raw.
+        w.push(CapturedFrame {
+            width: 2,
+            height: 2,
+            bgra: vec![0xAA; 16],
+            qpc: 1,
+        })
+        .unwrap();
+        w.push(CapturedFrame {
+            width: 3,
+            height: 2,
+            bgra: vec![0xAA; 24],
+            qpc: 2,
+        })
+        .unwrap();
+        let store = w.finish().unwrap();
+
+        let raw_len = fs::metadata(raw_path(&dir)).unwrap().len();
+        assert_eq!(raw_len, 40, "16 + 24 bytes, nothing deduplicated");
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.frame(1).unwrap().width, 3);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_keeps_all_when_last_record_is_a_backreferencing_dup() {
+        // A, B, B: the final record is a duplicate pointing back at B's on-disk bytes.
+        let dir = tmp_dir("trim-dup-tail");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        w.push(frame(0xAA, 1)).unwrap();
+        w.push(frame(0xBB, 2)).unwrap();
+        w.push(frame(0xBB, 3)).unwrap(); // dup of B
+        w.finish().unwrap();
+
+        // Re-open from disk: the trailing dup's target bytes exist, so all three survive.
+        let store = FrameStore::open(&dir).unwrap();
+        assert_eq!(store.len(), 3);
+        assert_pixels(&store, 2, 0xBB, 3);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_truncates_at_a_forward_record_past_eof() {
+        // A, A(dup), B on disk, then simulate a crash that lost B's pixel bytes by truncating
+        // frames.raw to just A's 16 bytes. B's forward record now overruns EOF and is dropped,
+        // but the two A records (offset 0, within EOF) survive.
+        let dir = tmp_dir("trim-forward");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        w.push(frame(0xAA, 1)).unwrap();
+        w.push(frame(0xAA, 2)).unwrap(); // dup
+        w.push(frame(0xBB, 3)).unwrap();
+        w.finish().unwrap();
+
+        // Chop frames.raw back to A's bytes only.
+        let f = File::options().write(true).open(raw_path(&dir)).unwrap();
+        f.set_len(16).unwrap();
+        drop(f);
+
+        let store = FrameStore::open(&dir).unwrap();
+        assert_eq!(
+            store.len(),
+            2,
+            "B's forward record is trimmed; both A's remain"
+        );
+        assert_pixels(&store, 0, 0xAA, 1);
+        assert_pixels(&store, 1, 0xAA, 2);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -438,7 +438,7 @@ impl Session {
                             }
                         }
                         if write_err.is_none() {
-                            if let Err(e) = writer.push(&f) {
+                            if let Err(e) = writer.push(f) {
                                 write_err = Some(e);
                             }
                         }
@@ -1852,7 +1852,7 @@ impl Session {
         for fi in &index {
             let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
                 .map_err(|e| e.to_string())?;
-            writer.push(&CapturedFrame {
+            writer.push(CapturedFrame {
                 width: fi.w,
                 height: fi.h,
                 bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory

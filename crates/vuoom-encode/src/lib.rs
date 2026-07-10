@@ -1,22 +1,18 @@
 //! GIF export (v1's only output format).
 //!
-//! Composited RGBA frames are downscaled and frame-selected to the target fps, then fed
-//! to **gifski**, which ships as a separate bundled binary invoked out-of-process so
-//! Vuoom's own code stays Apache-2.0 (gifski is AGPL — never linked). An optional
-//! gifsicle pass shrinks further. Size is estimated by sample-and-extrapolate.
-//! See `docs/06-Export.md` and `docs/10-Licensing.md`.
+//! Composited RGBA frames are downscaled and frame-selected to the target fps, then encoded
+//! by the pure-Rust `native` encoder (`gif` + `color_quant`): one global palette for the whole
+//! clip, delta-encoded frames, streamed to disk to bound memory. This keeps Vuoom's own code
+//! Apache-2.0 (nothing AGPL is linked). Size is estimated by sample-and-extrapolate.
+//! See `docs/06-Export.md`.
 
 mod error;
-mod export;
-mod gifski;
 mod image;
 mod native;
 mod plan;
 mod settings;
 
 pub use error::EncodeError;
-pub use export::export_gif;
-pub use gifski::{build_gifsicle_args, build_gifski_args, run_gifsicle, run_gifski};
 pub use image::{encode_png_to_vec, read_png, swizzle_rb, write_png, RgbaImage};
 pub use native::{
     downscale_rgba, export_gif_native, export_gif_native_streaming, frame_delay_cs,

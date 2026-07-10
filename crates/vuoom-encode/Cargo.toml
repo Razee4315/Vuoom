@@ -4,20 +4,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "GIF export: frame planning, size estimation, and gifski invoked as an OUT-OF-PROCESS binary (keeps Vuoom Apache-2.0)."
+description = "GIF export: frame planning, size estimation, and a pure-Rust (Apache/MIT) animated-GIF encoder (keeps Vuoom Apache-2.0)."
 
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 png = "0.17"
-tempfile = "3"
-# Pure-Rust animated-GIF encoder (MIT/Apache) for the no-gifski fallback path — linked,
-# unlike gifski which stays out-of-process. See docs/06-Export.md.
+# Pure-Rust animated-GIF encoder (MIT/Apache), linked — this is the shipping GIF encoder.
+# See docs/06-Export.md.
 gif = "0.13"
 # NeuQuant quantizer (MIT/Apache, already a transitive dep of `gif`) — used directly to
 # build ONE global palette for the whole clip so frames can be delta-encoded.
 color_quant = "1.1"
 
-# gifski is AGPL — invoked as a bundled binary via std::process, NEVER linked.
-# See docs/06-Export.md and docs/10-Licensing.md.
+[dev-dependencies]
+tempfile = "3"

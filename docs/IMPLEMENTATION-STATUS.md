@@ -20,7 +20,7 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | Framing (background, padding, corners, shadow, aspect dims) | `vuoom-project` | ✅ |
 | Speed-region time remapping (source ↔ played) | `vuoom-project` | ✅ |
 | GIF frame-planning + size estimation | `vuoom-encode` | ✅ |
-| GIF export orchestration (PNG write → gifski → gifsicle, out-of-process) | `vuoom-encode` | ✅ |
+| GIF export orchestration (streaming pure-Rust `gif` encoder, global palette + delta frames) | `vuoom-encode` | ✅ |
 | Compositor layout math (camera src/dst rects, corners) | `vuoom-render` | ✅ |
 | Scene builder (project + camera → GPU draw list) | `vuoom-render` | ✅ |
 | Preview wire-protocol (RGBA + LE trailer) | `vuoom-preview` | ✅ |

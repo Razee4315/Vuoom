@@ -6,7 +6,6 @@
 //! `new()` returns `None` when no GPU adapter is available (e.g. a CI runner without a
 //! GPU), so tests skip gracefully rather than fail.
 
-use crate::layout::CompositeLayout;
 use crate::scene::Scene;
 use crate::shapes::{build_shape_vertices, ShapeVertex};
 use glyphon::{
@@ -311,7 +310,9 @@ impl Compositor {
         })
     }
 
-    /// Read a `COPY_SRC` RGBA texture back into tightly-packed RGBA8 bytes.
+    /// Read a `COPY_SRC` RGBA texture back into tightly-packed RGBA8 bytes. Only the
+    /// `clear_to_rgba` smoke test uses this; the hot path uses `read_back_into`.
+    #[cfg(test)]
     fn read_back(&self, texture: &wgpu::Texture, width: u32, height: u32) -> Vec<u8> {
         let unpadded = width * 4;
         let padded = unpadded.div_ceil(256) * 256;
@@ -504,6 +505,7 @@ impl Compositor {
 
     /// Render an offscreen RGBA texture cleared to `color` and read it back (a smoke test
     /// for the device + render-pass + readback path).
+    #[cfg(test)]
     #[must_use]
     pub fn clear_to_rgba(&self, width: u32, height: u32, color: [f64; 4]) -> Vec<u8> {
         let texture = self.offscreen(width, height);
@@ -534,123 +536,6 @@ impl Compositor {
         }
         self.queue.submit(Some(encoder.finish()));
         self.read_back(&texture, width, height)
-    }
-
-    /// Composite a BGRA source frame into an `out_w`×`out_h` RGBA frame: the styled
-    /// background with the zoom/pan-cropped source inside the rounded-corner frame from
-    /// `layout`. Returns tightly-packed RGBA8 bytes.
-    #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn composite(
-        &self,
-        source_bgra: &[u8],
-        src_w: u32,
-        src_h: u32,
-        out_w: u32,
-        out_h: u32,
-        layout: &CompositeLayout,
-        bg: [f32; 4],
-    ) -> Vec<u8> {
-        // Upload the source as a BGRA texture.
-        let src_tex = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("vuoom-source"),
-            size: wgpu::Extent3d {
-                width: src_w,
-                height: src_h,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &src_tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            source_bgra,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(src_w * 4),
-                rows_per_image: Some(src_h),
-            },
-            wgpu::Extent3d {
-                width: src_w,
-                height: src_h,
-                depth_or_array_layers: 1,
-            },
-        );
-        let src_view = src_tex.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let uniforms = Uniforms {
-            out_size: [out_w as f32, out_h as f32],
-            src_min: [layout.src_rect.x as f32, layout.src_rect.y as f32],
-            src_size: [layout.src_rect.w as f32, layout.src_rect.h as f32],
-            dst_min: [layout.dst_rect.x as f32, layout.dst_rect.y as f32],
-            dst_size: [layout.dst_rect.w as f32, layout.dst_rect.h as f32],
-            corner_px: layout.corner_radius_px as f32,
-            _pad: 0.0,
-            bg,
-        };
-        let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vuoom-uniforms"),
-            size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.queue
-            .write_buffer(&ubuf, 0, bytemuck::bytes_of(&uniforms));
-
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vuoom-composite-bg"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ubuf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-
-        let target = self.offscreen(out_w, out_h);
-        let tview = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("vuoom-composite-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &tview,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.draw(0..3, 0..1);
-        }
-        self.queue.submit(Some(encoder.finish()));
-        self.read_back(&target, out_w, out_h)
     }
 
     /// Composite a frame and overlay the scene's shape annotations (highlight boxes and
@@ -846,6 +731,7 @@ impl Compositor {
 mod tests {
     use super::*;
     use crate::layout::{CompositeLayout, NormRect, PxRect};
+    use crate::scene::Scene;
 
     #[test]
     fn clear_renders_and_reads_back() {
@@ -880,7 +766,17 @@ mod tests {
             },
             corner_radius_px: 1.0,
         };
-        let px = compositor.composite(&source, 4, 4, 8, 8, &layout, [0.0, 0.0, 0.0, 1.0]);
+        // Minimal scene (no annotations) exercises the same composite pipeline as export.
+        let scene = Scene {
+            layout,
+            texts: Vec::new(),
+            arrows: Vec::new(),
+            highlights: Vec::new(),
+            ripples: Vec::new(),
+            key_chips: Vec::new(),
+            key_texts: Vec::new(),
+        };
+        let px = compositor.composite_scene(&source, 4, 4, 8, 8, &scene, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(px.len(), 8 * 8 * 4);
     }
 }

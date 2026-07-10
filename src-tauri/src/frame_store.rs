@@ -90,6 +90,29 @@ impl FrameWriter {
         fs::write(index_path(&self.dir), json).map_err(|e| format!("frame index: {e}"))?;
         FrameStore::open(&self.dir)
     }
+
+    /// Finalize after a mid-recording write failure (e.g. a full disk): keep the frames that
+    /// were already written instead of losing the whole take. Best-effort — further I/O
+    /// errors are tolerated. When the disk filled, the newest frame's tail may still be in the
+    /// buffer and never reach disk, so any frame whose bytes aren't wholly on disk is dropped;
+    /// every frame the returned store exposes then reads back cleanly.
+    pub fn finish_salvage(mut self) -> Result<FrameStore, String> {
+        let _ = self.out.flush(); // may fail on a full disk; the trim below covers the gap
+        drop(self.out);
+        let on_disk = fs::metadata(raw_path(&self.dir)).map(|m| m.len()).unwrap_or(0);
+        self.index
+            .retain(|r| r.offset + u64::from(r.len) <= on_disk);
+        // Persist the trimmed index too, so a crash-recovery on next launch stays consistent
+        // with the frames that survived; ignore failure (the disk may still be full).
+        if let Ok(json) = serde_json::to_string(&self.index) {
+            let _ = fs::write(index_path(&self.dir), json);
+        }
+        let file = File::open(raw_path(&self.dir)).map_err(|e| format!("frame file: {e}"))?;
+        Ok(FrameStore {
+            index: self.index,
+            read: Mutex::new(ReadState { file, cache: None }),
+        })
+    }
 }
 
 struct ReadState {

@@ -22,6 +22,8 @@ interface RecordingSummary {
   duration: number;
   frames: number;
   zooms: number;
+  /** Set when the take was truncated (e.g. the disk filled mid-recording). */
+  warning?: string | null;
 }
 
 interface Color {
@@ -1277,7 +1279,10 @@ function App() {
     setSelZoom(null);
     setSelSpeed(null);
     setSelCut(null);
-    setStatus(`Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`);
+    setStatus(
+      summary.warning ??
+        `Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`,
+    );
     await refresh();
     await refreshClip();
     scrub(trim()?.start ?? 0);

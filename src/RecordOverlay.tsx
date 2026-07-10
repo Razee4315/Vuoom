@@ -9,6 +9,8 @@ interface Summary {
   duration: number;
   frames: number;
   zooms: number;
+  /** Set when the take was truncated (e.g. the disk filled mid-recording). */
+  warning?: string | null;
 }
 
 type Preset = { id: string; label: string; hint: string; ratio: number | null | "full" };

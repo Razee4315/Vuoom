@@ -37,11 +37,15 @@ use vuoom_render::{build_scene, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode};
 
 /// Summary returned to the UI when recording stops.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecordingSummary {
     pub duration: f64,
     pub frames: usize,
     pub zooms: usize,
+    /// Set when the recording was truncated (e.g. the disk filled mid-capture): the clip keeps
+    /// every frame written before the failure, and this message explains the shortfall so the
+    /// editor can warn the user instead of the whole take failing.
+    pub warning: Option<String>,
 }
 
 /// The monitor the next recording captures: its Win32 device name (e.g. `\\.\DISPLAY2`)
@@ -77,8 +81,10 @@ pub struct ClipState {
 }
 
 struct Active {
-    /// Streams frames from the capture channel to the disk store (see `frame_store`).
-    drain: Option<JoinHandle<Result<FrameStore, String>>>,
+    /// Streams frames from the capture channel to the disk store (see `frame_store`). On
+    /// success yields the store and, if a disk write failed mid-recording, a warning
+    /// describing the truncation (the frames written before the failure are kept).
+    drain: Option<JoinHandle<Result<(FrameStore, Option<String>), String>>>,
     /// Tells the drain thread to stop waiting for further frames.
     drain_stop: Arc<AtomicBool>,
     capture: CaptureHandle,
@@ -262,21 +268,38 @@ impl Session {
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
-        let drain = std::thread::spawn(move || -> Result<FrameStore, String> {
-            let mut writer = writer;
-            loop {
-                match frames_rx.recv_timeout(Duration::from_millis(200)) {
-                    Ok(f) => writer.push(&f)?,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if stop_flag.load(Ordering::Relaxed) {
-                            break;
+        let drain =
+            std::thread::spawn(move || -> Result<(FrameStore, Option<String>), String> {
+                let mut writer = writer;
+                // If a disk write fails mid-recording, stop writing but keep draining the
+                // channel (so capture never blocks and RAM stays bounded) and remember why —
+                // at stop we finalize with the frames already on disk instead of erroring the
+                // whole take out.
+                let mut write_err: Option<String> = None;
+                loop {
+                    match frames_rx.recv_timeout(Duration::from_millis(200)) {
+                        Ok(f) => {
+                            if write_err.is_none() {
+                                if let Err(e) = writer.push(&f) {
+                                    write_err = Some(e);
+                                }
+                            }
                         }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if stop_flag.load(Ordering::Relaxed) {
+                                break;
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
-            }
-            writer.finish()
-        });
+                let store = if write_err.is_some() {
+                    writer.finish_salvage()?
+                } else {
+                    writer.finish()?
+                };
+                Ok((store, write_err))
+            });
 
         *active = Some(Active {
             drain: Some(drain),
@@ -322,9 +345,11 @@ impl Session {
         session.capture.stop();
         session.recorder.stop();
 
-        // Let the drain thread flush remaining frames and hand back the disk store.
+        // Let the drain thread flush remaining frames and hand back the disk store. A disk
+        // write that failed mid-recording comes back as a warning (not an error): the frames
+        // written before the failure are kept and the take truncates gracefully.
         session.drain_stop.store(true, Ordering::Relaxed);
-        let store = session
+        let (store, write_warning) = session
             .drain
             .take()
             .ok_or("recording already stopped")?
@@ -463,6 +488,11 @@ impl Session {
             duration,
             frames: frame_count,
             zooms: zoom_count,
+            warning: write_warning.map(|e| {
+                format!(
+                    "Recording was cut short — a disk write failed ({e}). Kept the {frame_count} frames captured before that."
+                )
+            }),
         })
     }
 
@@ -1553,6 +1583,7 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            warning: None,
         };
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         // Fresh clip → fresh (empty) undo history.
@@ -1606,6 +1637,7 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            warning: None,
         };
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         *edited = Edited {

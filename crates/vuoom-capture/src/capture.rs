@@ -6,7 +6,7 @@
 //! real GPU + display.)
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use vuoom_input::Clock;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
@@ -77,14 +77,16 @@ impl CaptureHandle {
 }
 
 struct Handler {
-    tx: Sender<CapturedFrame>,
+    tx: SyncSender<CapturedFrame>,
     clock: Clock,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
+    /// Frames dropped because the bounded channel was full (drain couldn't keep up).
+    dropped: u64,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
-    type Flags = (Sender<CapturedFrame>, Arc<AtomicBool>, Option<CropRegion>);
+    type Flags = (SyncSender<CapturedFrame>, Arc<AtomicBool>, Option<CropRegion>);
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
@@ -94,6 +96,7 @@ impl GraphicsCaptureApiHandler for Handler {
             clock: Clock::new(),
             stop,
             crop,
+            dropped: 0,
         })
     }
 
@@ -115,12 +118,29 @@ impl GraphicsCaptureApiHandler for Handler {
             Some(r) => crop_bgra(full, width, height, r),
             None => (width, height, full.to_vec()),
         };
-        let _ = self.tx.send(CapturedFrame {
+        // Bounded, drop-newest: never block this WGC callback thread and never let full
+        // BGRA frames pile up in RAM. If the drain lags we drop the newest frame (and warn);
+        // if the drain has died (e.g. a disk write failed) the channel disconnects, so stop
+        // capturing rather than spin producing frames nothing consumes.
+        let captured = CapturedFrame {
             width: w,
             height: h,
             bgra,
             qpc: self.clock.now(),
-        });
+        };
+        match self.tx.try_send(captured) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                self.dropped += 1;
+                if self.dropped == 1 || self.dropped % 60 == 0 {
+                    tracing::warn!(
+                        "frame drain can't keep up — dropped {} frame(s) so far",
+                        self.dropped
+                    );
+                }
+            }
+            Err(TrySendError::Disconnected(_)) => control.stop(),
+        }
         Ok(())
     }
 
@@ -149,7 +169,7 @@ fn pick_monitor(name: Option<&str>) -> Result<Monitor, CaptureError> {
 /// # Errors
 /// Returns [`CaptureError`] if the monitor or capture session cannot be started.
 pub fn run_display(
-    tx: Sender<CapturedFrame>,
+    tx: SyncSender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
     monitor: Option<&str>,
@@ -178,6 +198,11 @@ pub fn run_display(
     Ok(())
 }
 
+/// Frames buffered between the capture thread and the disk-drain consumer. Small on
+/// purpose: it only needs to absorb brief write jitter, and each slot is a full BGRA screen
+/// (several MB), so a large bound would be a large RAM ceiling.
+const CHANNEL_CAP: usize = 8;
+
 /// Spawn display capture on a background thread; returns the frame receiver and a
 /// [`CaptureHandle`] to stop it. When `crop` is set, frames are cropped to that
 /// sub-rectangle (monitor-relative physical px) before being sent. `monitor` is a Win32
@@ -187,7 +212,9 @@ pub fn spawn_region(
     crop: Option<CropRegion>,
     monitor: Option<String>,
 ) -> (Receiver<CapturedFrame>, CaptureHandle) {
-    let (tx, rx) = channel();
+    // Bounded so a stalled/dead drain applies backpressure (drop-newest, see the handler)
+    // instead of growing RAM without limit — each buffered frame is a full BGRA screen.
+    let (tx, rx) = sync_channel(CHANNEL_CAP);
     let stop = Arc::new(AtomicBool::new(false));
     let handle = CaptureHandle {
         stop: Arc::clone(&stop),

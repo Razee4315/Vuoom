@@ -210,6 +210,8 @@ pub fn run() {
             commands::open_project_bundle,
             commands::check_recovery,
             commands::recover_session,
+            commands::recovery_storage,
+            commands::clear_recovery_storage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

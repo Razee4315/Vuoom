@@ -194,6 +194,52 @@ pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+/// Recursively sum the byte size of every file under `dir`. Best-effort: an entry that can't
+/// be read is skipped rather than failing the whole walk. Cheap here — the recovery root only
+/// ever holds a couple of session dirs plus scratch.
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for e in entries.flatten() {
+            match e.file_type() {
+                Ok(ft) if ft.is_dir() => total += dir_size(&e.path()),
+                Ok(ft) if ft.is_file() => total += e.metadata().map(|m| m.len()).unwrap_or(0),
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+/// Total bytes held under the recovery root and the number of stored recording sessions
+/// (numeric session subdirs). Backs the storage readout in the UI. The scratch dir counts
+/// toward the bytes but not the session tally.
+pub fn recovery_usage() -> (u64, usize) {
+    (dir_size(&recovery_root()), session_dirs().len())
+}
+
+/// Delete every stored recovery dir — rotated sessions and the scratch store — except `keep`
+/// (the store backing the currently-loaded clip). Returns the bytes freed. Best-effort per
+/// dir: one that fails to delete is left in place and not counted.
+pub fn clear_recovery(keep: Option<&Path>) -> u64 {
+    let mut targets = session_dirs();
+    let scratch = scratch_dir();
+    if scratch.is_dir() {
+        targets.push(scratch);
+    }
+    let mut freed = 0;
+    for dir in targets {
+        if keep.is_some_and(|k| same_dir(k, &dir)) {
+            continue;
+        }
+        let size = dir_size(&dir);
+        if fs::remove_dir_all(&dir).is_ok() {
+            freed += size;
+        }
+    }
+    freed
+}
+
 fn raw_path(dir: &Path) -> PathBuf {
     dir.join("frames.raw")
 }

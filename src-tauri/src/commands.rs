@@ -319,6 +319,26 @@ pub async fn recover_session(engine: tauri::State<'_, Engine>) -> Result<Recordi
     engine.session()?.recover_session()
 }
 
+/// Bytes held in the recovery store plus how many sessions those bytes back.
+#[derive(Clone, Copy, Serialize)]
+pub struct RecoveryStorage {
+    bytes: u64,
+    sessions: usize,
+}
+
+/// Report the recovery store's disk usage for the storage readout.
+#[tauri::command]
+pub fn recovery_storage(engine: tauri::State<'_, Engine>) -> Result<RecoveryStorage, String> {
+    let (bytes, sessions) = engine.session()?.recovery_storage();
+    Ok(RecoveryStorage { bytes, sessions })
+}
+
+/// Delete saved recovery data (except the currently-loaded clip's store); returns bytes freed.
+#[tauri::command]
+pub fn clear_recovery_storage(engine: tauri::State<'_, Engine>) -> Result<u64, String> {
+    engine.session()?.clear_recovery_storage()
+}
+
 // ── Recording / preview / export ──────────────────────────────────────────────
 
 /// The localhost port the webview connects to for the live preview stream.

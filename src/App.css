@@ -1674,6 +1674,34 @@ kbd {
 .shortcut-keys kbd {
   font-size: var(--fs-xs);
 }
+/* Recovery-store usage line in the shortcuts panel footer */
+.storage-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.storage-clear {
+  flex: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--record);
+  cursor: pointer;
+}
+.storage-clear:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.storage-clear:disabled {
+  color: var(--muted);
+  cursor: default;
+}
 
 /* live duration + size estimate row */
 .export-meta {

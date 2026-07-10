@@ -22,7 +22,7 @@ import {
 } from "./EditorPrimitives";
 import { dialogA11y } from "./dialog";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
-import { cssColor, fmt, fmtT, hexRgb, rgbHex } from "./format";
+import { cssColor, fmt, fmtBytes, fmtT, hexRgb, rgbHex } from "./format";
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
 import type {
   AnnotationSet,
@@ -121,6 +121,9 @@ function App() {
   const [showWelcome, setShowWelcome] = createSignal(false);
   // Keyboard cheat-sheet modal (opened with "?").
   const [showShortcuts, setShowShortcuts] = createSignal(false);
+  // Recovery-store disk usage, shown in the shortcuts panel. `null` until first probed.
+  const [recoveryBytes, setRecoveryBytes] = createSignal<number | null>(null);
+  const [clearingStorage, setClearingStorage] = createSignal(false);
   const [coachRecord, setCoachRecord] = createSignal(false);
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
@@ -1862,6 +1865,40 @@ function App() {
     }
   };
 
+  // Probe the recovery store's disk usage for the shortcuts-panel storage line.
+  const refreshStorage = async () => {
+    try {
+      const s = await invoke<{ bytes: number; sessions: number }>("recovery_storage");
+      setRecoveryBytes(s.bytes);
+    } catch {
+      setRecoveryBytes(null);
+    }
+  };
+  // Load the size lazily whenever the shortcuts panel opens, so it's current without polling.
+  createEffect(() => {
+    if (showShortcuts()) void refreshStorage();
+  });
+
+  // Delete recovery data from previous sessions. Destructive — confirm first — and the
+  // currently-loaded clip's store is always kept by the backend.
+  const clearStorage = async () => {
+    const ok = await ask(
+      "Delete saved recovery data? Unsaved takes from previous sessions can no longer be recovered.",
+      { title: "Clear recovery storage?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+    );
+    if (!ok) return;
+    setClearingStorage(true);
+    try {
+      const freed = await invoke<number>("clear_recovery_storage");
+      await refreshStorage();
+      setStatus(`Cleared ${fmtBytes(freed)} of recovery data`);
+    } catch (e) {
+      setStatus(`Couldn't clear storage: ${String(e)}`);
+    } finally {
+      setClearingStorage(false);
+    }
+  };
+
   const onOpenProject = async () => {
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
@@ -3109,6 +3146,20 @@ function App() {
                   </section>
                 )}
               </For>
+            </div>
+            <div class="storage-line">
+              <span>
+                Recovery storage:{" "}
+                {recoveryBytes() === null ? "…" : fmtBytes(recoveryBytes()!)}
+              </span>
+              <button
+                class="storage-clear"
+                disabled={clearingStorage() || !recoveryBytes()}
+                title="Delete recovery data from previous sessions"
+                onClick={() => void clearStorage()}
+              >
+                {clearingStorage() ? "Clearing…" : "Clear"}
+              </button>
             </div>
             <div class="modal-actions">
               <button class="btn ghost" onClick={() => setShowShortcuts(false)}>

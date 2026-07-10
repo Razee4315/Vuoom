@@ -21,5 +21,6 @@ export const fmtT = (t: number) => `${fmt(t)}.${Math.floor((t % 1) * 10)}`;
 export const fmtBytes = (b: number) => {
   if (b <= 0) return "—";
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
-  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };

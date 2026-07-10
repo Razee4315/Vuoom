@@ -1820,6 +1820,34 @@ impl Session {
         Ok(summary)
     }
 
+    /// Bytes held under the recovery root and how many recording sessions those bytes back —
+    /// for the storage readout. Cheap (walks the two-or-three recovery dirs).
+    pub fn recovery_storage(&self) -> (u64, usize) {
+        frame_store::recovery_usage()
+    }
+
+    /// Delete all stored recovery data except the store backing the currently-loaded clip.
+    /// Returns the bytes freed. Rejected while a recording is running — the active take streams
+    /// into its recovery dir, so deleting anything mid-record risks corrupting it.
+    pub fn clear_recovery_storage(&self) -> Result<u64, String> {
+        if self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return Err("Can't clear storage while recording.".into());
+        }
+        // Keep the current clip's store (the opened bundle's scratch dir or a recovered take),
+        // so clearing never pulls the frames out from under the editor.
+        let keep = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        Ok(frame_store::clear_recovery(keep.as_deref()))
+    }
+
     /// Run `f` against the editable project, recording an undo snapshot first.
     /// `tag` controls undo coalescing — see [`snapshot`].
     fn with_project<F>(&self, tag: &str, f: F) -> Result<(), String>

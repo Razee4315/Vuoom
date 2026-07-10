@@ -67,6 +67,39 @@ const TEXT_FONTS: { id: string; label: string; css: string }[] = [
 ];
 const fontCss = (name: string) => TEXT_FONTS.find((f) => f.id === name)?.css ?? "Inter, sans-serif";
 
+/// True when a timeline segment [start,end] never survives to the export because its visible
+/// (trimmed) span is entirely swallowed — either it falls fully outside the trim window, or the
+/// portion inside the trim window is completely covered by cut regions. Pure; recomputes freely
+/// in JSX from the current cuts()/trim() signals. `trim` null means "no trim" (full clip).
+/// Cuts count as covering even when they only blanket the visible part of the segment, since the
+/// out-of-trim remainder is dropped anyway.
+function isSwallowed(start: number, end: number, cuts: Trim[], trim: Trim | null): boolean {
+  if (end <= start) return true; // degenerate span — nothing to render
+  const t0 = trim ? trim.start : 0;
+  const t1 = trim ? trim.end : Infinity;
+  // Clamp the segment to the trim window; if nothing is left, it's outside the export entirely.
+  const vs = Math.max(start, t0);
+  const ve = Math.min(end, t1);
+  if (ve <= vs) return true;
+  // Merge overlapping/adjacent cuts, then check whether they fully cover [vs, ve].
+  const merged = cuts
+    .filter((c) => c.end > c.start)
+    .sort((a, b) => a.start - b.start)
+    .reduce<Trim[]>((acc, c) => {
+      const last = acc[acc.length - 1];
+      if (last && c.start <= last.end) last.end = Math.max(last.end, c.end);
+      else acc.push({ start: c.start, end: c.end });
+      return acc;
+    }, []);
+  let cursor = vs;
+  for (const c of merged) {
+    if (c.start > cursor) return false; // uncovered gap before this cut
+    if (c.end > cursor) cursor = c.end;
+    if (cursor >= ve) return true;
+  }
+  return cursor >= ve;
+}
+
 function App() {
   const [tool, setTool] = createSignal<Tool>("select");
   // When locked, a drawing tool stays active after creating an element (draw several in a
@@ -3225,14 +3258,19 @@ function App() {
               <For each={zooms()}>
                 {(z, i) => {
                   const g = () => zoomGeom(i(), z);
+                  const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
                   return (
                     <div
-                      classList={{ "tl-seg": true, selected: selZoom() === i() }}
+                      classList={{ "tl-seg": true, selected: selZoom() === i(), swallowed: gone() }}
                       style={{
                         left: `${pct(g().start)}%`,
                         width: `${Math.max(pct(g().end) - pct(g().start), 1.6)}%`,
                       }}
-                      title={`Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`}
+                      title={
+                        gone()
+                          ? "Hidden by a cut — this zoom never appears in the export"
+                          : `Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`
+                      }
                       onPointerDown={onZoomDown(i(), z, "move")}
                       onPointerMove={onZoomMove}
                       onPointerUp={() => void onZoomUp()}
@@ -3254,6 +3292,7 @@ function App() {
               <For each={annBars()}>
                 {(b) => {
                   const g = () => annGeom(b);
+                  const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
                   return (
                     <div class="tl-lane">
                       <button
@@ -3261,12 +3300,17 @@ function App() {
                           "tl-ann": true,
                           [`tl-${b.kind}`]: true,
                           selected: selected()?.kind === b.kind && selected()?.id === b.id,
+                          swallowed: gone(),
                         }}
                         style={{
                           left: `${pct(g().start)}%`,
                           width: `${Math.max(pct(g().end) - pct(g().start), 2.4)}%`,
                         }}
-                        title={`${b.label} · drag to move, drag an edge to set how long it shows`}
+                        title={
+                          gone()
+                            ? "Hidden by a cut — this note never appears in the export"
+                            : `${b.label} · drag to move, drag an edge to set how long it shows`
+                        }
                         onPointerDown={onAnnDown(b, "move")}
                         onPointerMove={onAnnMove}
                         onPointerUp={() => void onAnnUp()}
@@ -3284,9 +3328,10 @@ function App() {
             <For each={speed()}>
               {(r, i) => {
                 const g = () => speedGeom(i(), r);
+                const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
                 return (
                   <div
-                    classList={{ "tl-speedband": true, selected: selSpeed() === i() }}
+                    classList={{ "tl-speedband": true, selected: selSpeed() === i(), swallowed: gone() }}
                     style={{
                       left: `${pct(g().start)}%`,
                       width: `${Math.max(pct(g().end) - pct(g().start), 1.2)}%`,
@@ -3295,7 +3340,11 @@ function App() {
                     <div class="tl-handle l" onPointerDown={onSpeedDown(i(), r, "l")} onPointerMove={onSpeedMove} onPointerUp={() => void onSpeedUp()} />
                     <button
                       class="tl-speedchip"
-                      title={`Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`}
+                      title={
+                        gone()
+                          ? "Hidden by a cut — this speed-up never affects the export"
+                          : `Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`
+                      }
                       onPointerDown={onSpeedDown(i(), r, "move")}
                       onPointerMove={onSpeedMove}
                       onPointerUp={() => void onSpeedUp()}

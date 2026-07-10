@@ -1469,6 +1469,26 @@ kbd {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
+/* Segments whose visible span is fully swallowed by a cut (or falls outside the trim) never
+   render in the export. Dim them and lay a faint diagonal hatch on top so they read as inert
+   without shouting — the tooltip spells out why. Cut bands are never flagged. Still draggable,
+   so the user can pull them back out of the cut. */
+.tl-seg.swallowed,
+.tl-ann.swallowed,
+.tl-speedband.swallowed {
+  opacity: 0.4;
+  filter: saturate(0.45);
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--text) 26%, transparent) 0 1px,
+    transparent 1px 7px
+  );
+}
+.tl-seg.swallowed.selected,
+.tl-ann.swallowed.selected,
+.tl-speedband.swallowed.selected {
+  opacity: 0.7; /* lift a touch when selected so its edges/handles stay legible while editing */
+}
 /* Stretches playing at N× (auto-skimmed idle or manually added) */
 .tl-speedband {
   position: absolute;

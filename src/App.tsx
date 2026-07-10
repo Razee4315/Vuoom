@@ -1518,21 +1518,37 @@ function App() {
       moved: force !== "move",
     });
   };
+  // Clamp a dragged segment against its same-type neighbours so the timeline never shows
+  // an overlap. `prevEnd` / `nextStart` are the facing edges of the adjacent segments
+  // (folded together with the [0, duration] bounds by the callers).
+  const clampSegDrag = (
+    mode: "move" | "l" | "r",
+    orig: { start: number; end: number },
+    dt: number,
+    minLen: number,
+    prevEnd: number,
+    nextStart: number,
+  ) => {
+    let { start, end } = orig;
+    if (mode === "move") {
+      const len = end - start;
+      start = Math.min(Math.max(prevEnd, start + dt), nextStart - len);
+      end = start + len;
+    } else if (mode === "l") {
+      start = Math.min(Math.max(prevEnd, start + dt), end - minLen);
+    } else {
+      end = Math.max(Math.min(nextStart, end + dt), start + minLen);
+    }
+    return { start, end };
+  };
   const onZoomMove = (e: PointerEvent) => {
     const d = zoomDrag();
     if (!d) return;
-    const t = tlTime(e);
-    const dt = t - d.grabT;
-    let { start, end } = d.orig;
-    if (d.mode === "move") {
-      const len = end - start;
-      start = Math.min(Math.max(0, start + dt), duration() - len);
-      end = start + len;
-    } else if (d.mode === "l") {
-      start = Math.min(Math.max(0, start + dt), end - 0.2);
-    } else {
-      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
-    }
+    const dt = tlTime(e) - d.grabT;
+    const arr = zooms();
+    const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
+    const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
+    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart);
     setZoomDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onZoomUp = async () => {
@@ -1579,16 +1595,10 @@ function App() {
     const d = speedDrag();
     if (!d) return;
     const dt = tlTime(e) - d.grabT;
-    let { start, end } = d.orig;
-    if (d.mode === "move") {
-      const len = end - start;
-      start = Math.min(Math.max(0, start + dt), duration() - len);
-      end = start + len;
-    } else if (d.mode === "l") {
-      start = Math.min(Math.max(0, start + dt), end - 0.2);
-    } else {
-      end = Math.max(Math.min(duration(), end + dt), start + 0.2);
-    }
+    const arr = speed();
+    const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
+    const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
+    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart);
     setSpeedDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onSpeedUp = async () => {
@@ -1636,16 +1646,10 @@ function App() {
     const d = cutDrag();
     if (!d) return;
     const dt = tlTime(e) - d.grabT;
-    let { start, end } = d.orig;
-    if (d.mode === "move") {
-      const len = end - start;
-      start = Math.min(Math.max(0, start + dt), duration() - len);
-      end = start + len;
-    } else if (d.mode === "l") {
-      start = Math.min(Math.max(0, start + dt), end - 0.1);
-    } else {
-      end = Math.max(Math.min(duration(), end + dt), start + 0.1);
-    }
+    const arr = cuts();
+    const prevEnd = Math.max(0, arr[d.idx - 1]?.end ?? 0);
+    const nextStart = Math.min(duration(), arr[d.idx + 1]?.start ?? duration());
+    const { start, end } = clampSegDrag(d.mode, d.orig, dt, 0.1, prevEnd, nextStart);
     setCutDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
   };
   const onCutUp = async () => {

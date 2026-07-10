@@ -1231,7 +1231,9 @@ impl Session {
             mode: ZoomMode::Auto,
             edge_snap_ratio: project.zoom_config.edge_snap_ratio,
         };
-        vuoom_zoom::insert_sorted(&mut project.zooms, kf);
+        if vuoom_zoom::insert_sorted(&mut project.zooms, kf).is_none() {
+            return Err("no room for a zoom segment here".into());
+        }
         let zooms = project.zooms.clone();
         resimulate(&mut edited);
         Ok(zooms)

@@ -156,7 +156,7 @@ impl GraphicsCaptureApiHandler for Handler {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
                 self.dropped += 1;
-                if self.dropped == 1 || self.dropped % 60 == 0 {
+                if self.dropped == 1 || self.dropped.is_multiple_of(60) {
                     tracing::warn!(
                         "frame drain can't keep up — dropped {} frame(s) so far",
                         self.dropped

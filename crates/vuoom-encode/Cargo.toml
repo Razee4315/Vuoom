@@ -16,7 +16,7 @@ png = "0.17"
 gif = "0.13"
 # NeuQuant quantizer (MIT/Apache, already a transitive dep of `gif`) — used directly to
 # build ONE global palette for the whole clip so frames can be delta-encoded.
-color_quant = "1.1"
+color_quant = "2.0"
 
 [dev-dependencies]
 tempfile = "3"

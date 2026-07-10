@@ -5,7 +5,7 @@
 //! stops the session. See `docs/03-Capture.md`. (Compile-verified on CI; runtime needs a
 //! real GPU + display.)
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use vuoom_input::Clock;
@@ -67,12 +67,23 @@ pub enum CaptureError {
 #[derive(Clone)]
 pub struct CaptureHandle {
     stop: Arc<AtomicBool>,
+    /// Shared with the capture handler: total frames dropped because the bounded channel was
+    /// full (the drain couldn't keep up). Read by the caller at stop time to warn the user
+    /// that the take is choppy — see [`CaptureHandle::dropped`].
+    dropped: Arc<AtomicU64>,
 }
 
 impl CaptureHandle {
     /// Signal the capture thread to stop on its next frame.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Frames dropped so far because the bounded channel was full (drain couldn't keep up).
+    /// Read after `stop` (once capture has wound down) for the final count.
+    #[must_use]
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -81,8 +92,9 @@ struct Handler {
     clock: Clock,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    /// Frames dropped because the bounded channel was full (drain couldn't keep up).
-    dropped: u64,
+    /// Frames dropped because the bounded channel was full (drain couldn't keep up). Shared
+    /// with the owning [`CaptureHandle`] so the caller can surface the count to the user.
+    dropped: Arc<AtomicU64>,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
@@ -90,17 +102,18 @@ impl GraphicsCaptureApiHandler for Handler {
         SyncSender<CapturedFrame>,
         Arc<AtomicBool>,
         Option<CropRegion>,
+        Arc<AtomicU64>,
     );
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let (tx, stop, crop) = ctx.flags;
+        let (tx, stop, crop, dropped) = ctx.flags;
         Ok(Self {
             tx,
             clock: Clock::new(),
             stop,
             crop,
-            dropped: 0,
+            dropped,
         })
     }
 
@@ -155,12 +168,9 @@ impl GraphicsCaptureApiHandler for Handler {
         match self.tx.try_send(captured) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                self.dropped += 1;
-                if self.dropped == 1 || self.dropped.is_multiple_of(60) {
-                    tracing::warn!(
-                        "frame drain can't keep up — dropped {} frame(s) so far",
-                        self.dropped
-                    );
+                let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n == 1 || n.is_multiple_of(60) {
+                    tracing::warn!("frame drain can't keep up — dropped {n} frame(s) so far");
                 }
             }
             Err(TrySendError::Disconnected(_)) => control.stop(),
@@ -196,6 +206,7 @@ pub fn run_display(
     tx: SyncSender<CapturedFrame>,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
+    dropped: Arc<AtomicU64>,
     monitor: Option<&str>,
 ) -> Result<(), CaptureError> {
     let monitor = pick_monitor(monitor)?;
@@ -216,7 +227,7 @@ pub fn run_display(
         MinimumUpdateIntervalSettings::Default,
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (tx, stop, crop),
+        (tx, stop, crop, dropped),
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
@@ -240,11 +251,15 @@ pub fn spawn_region(
     // instead of growing RAM without limit — each buffered frame is a full BGRA screen.
     let (tx, rx) = sync_channel(CHANNEL_CAP);
     let stop = Arc::new(AtomicBool::new(false));
+    // Shared drop counter: the handler increments it whenever the bounded channel is full and
+    // the caller reads it back through the returned `CaptureHandle` to warn about a choppy take.
+    let dropped = Arc::new(AtomicU64::new(0));
     let handle = CaptureHandle {
         stop: Arc::clone(&stop),
+        dropped: Arc::clone(&dropped),
     };
     std::thread::spawn(move || {
-        if let Err(e) = run_display(tx, stop, crop, monitor.as_deref()) {
+        if let Err(e) = run_display(tx, stop, crop, dropped, monitor.as_deref()) {
             tracing::error!("screen capture stopped: {e}");
         }
     });

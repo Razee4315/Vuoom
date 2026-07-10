@@ -516,6 +516,10 @@ impl Session {
                 tracing::error!("frame drain thread panicked");
                 "frame drain thread panicked"
             })??;
+        // Capture has wound down by now (its sender is dropped and the drain has joined), so the
+        // shared drop counter is settled. A non-zero count means the bounded channel overflowed —
+        // frames the drain couldn't keep up with — which we may surface as a warning below.
+        let dropped = session.capture.dropped();
         let raw_events: Vec<RawEvent> = session.events_rx.try_iter().collect();
 
         // No frames means the screen capture never started (or was stopped instantly) — fail
@@ -611,10 +615,19 @@ impl Session {
             ..Edited::default()
         };
 
+        // Any drop is worth a log line (helps diagnose choppy takes after the fact); only a
+        // material shortfall becomes a user-facing warning below.
+        if dropped > 0 {
+            tracing::warn!(
+                "capture dropped {dropped} frame(s) during recording; kept {frame_count}"
+            );
+        }
+
         // Surface the first thing that went wrong, if anything: a mid-recording disk stop
         // (an actual write failure, or the drain's proactive low-space cutoff) is the most
-        // specific cause; then a capture that ended on its own; finally, if the take completed
-        // cleanly, the heads-up that it *started* on a low-space disk.
+        // specific cause; then a capture that ended on its own; then a take that came out
+        // choppy because capture outran the drain; finally, if the take completed cleanly, the
+        // heads-up that it *started* on a low-space disk.
         let warning = if let Some(e) = write_warning {
             tracing::warn!("recording truncated mid-capture to protect the disk ({e}); kept {frame_count} frames");
             Some(format!(
@@ -626,6 +639,8 @@ impl Session {
                 "Capture ended unexpectedly (monitor disconnected?). Kept the frames recorded up to that point."
                     .to_string(),
             )
+        } else if let Some(w) = dropped_frames_warning(dropped, frame_count) {
+            Some(w)
         } else {
             session.space_warning.take()
         };
@@ -2344,6 +2359,36 @@ const DRAIN_STOP_FLOOR_BYTES: u64 = 512 * 1024 * 1024;
 /// exactly why free space is guarded before and during recording.
 fn raw_write_rate_bps(w: u32, h: u32) -> u64 {
     u64::from(w) * u64::from(h) * 4 * ESTIMATE_FPS
+}
+
+/// A dropped frame is only worth warning about once it's a material fraction of the take: more
+/// than this share of all captured frames …
+const DROP_WARN_FRACTION: f64 = 0.02;
+/// … or more than this many frames outright. A handful of drops at capture start-up (before the
+/// drain warms up) is normal and stays silent.
+const DROP_WARN_MIN_FRAMES: u64 = 30;
+
+/// Build the "capture couldn't keep up" warning if `dropped` is a material shortfall relative to
+/// the `kept` frames written to disk. Percentage is measured against everything the capture
+/// produced (`kept + dropped`). Returns `None` for a negligible number of drops.
+fn dropped_frames_warning(dropped: u64, kept: usize) -> Option<String> {
+    if dropped == 0 {
+        return None;
+    }
+    let total = dropped + kept as u64;
+    let pct = if total > 0 {
+        dropped as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
+    if dropped > DROP_WARN_MIN_FRAMES || pct > DROP_WARN_FRACTION * 100.0 {
+        Some(format!(
+            "Capture couldn't keep up — dropped {dropped} frames ({pct:.1}%). \
+             Try a smaller region or a less busy disk."
+        ))
+    } else {
+        None
+    }
 }
 
 /// Decide whether a recording may start given `free_bytes` on the recording volume and the

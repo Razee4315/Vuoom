@@ -10,6 +10,10 @@
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: #fff;
   user-select: none;
+  /* The overlay is intentionally always-dark (it paints over the frozen desktop), so it
+     keeps its own surface colors — but the record accent is one token, same value as
+     App.css's --record. */
+  --record: #e5484d;
 }
 
 .sel-root kbd,
@@ -174,9 +178,9 @@
   background: rgba(255, 255, 255, 0.1);
 }
 .sel-btn.primary {
-  background: #e5484d;
+  background: var(--record);
   color: #fff;
-  border-color: #e5484d;
+  border-color: var(--record);
   font-weight: 600;
   padding: 9px 22px;
 }
@@ -262,7 +266,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--record);
   animation: rec-pulse 1.2s ease-in-out infinite;
 }
 @keyframes rec-pulse {
@@ -340,7 +344,7 @@
   padding: 8px 18px;
   border: none;
   border-radius: 9px;
-  background: #e5484d;
+  background: var(--record);
   color: #fff;
   font-weight: 600;
   font-size: var(--fs-md);

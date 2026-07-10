@@ -2867,13 +2867,40 @@ function App() {
                 </div>
               </InspRow>
             </InspSection>
+            <InspSection title="Timing">
+              <InspRow label="Start">
+                <ScrubField
+                  value={Number(selectedZoom()!.start.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When this zoom starts — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const z = selectedZoom()!;
+                    void applyZoomEdit(selZoom()!, v, z.end, z.amount);
+                  }}
+                />
+              </InspRow>
+              <InspRow label="End">
+                <ScrubField
+                  value={Number(selectedZoom()!.end.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When this zoom ends — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const z = selectedZoom()!;
+                    void applyZoomEdit(selZoom()!, z.start, v, z.amount);
+                  }}
+                />
+              </InspRow>
+            </InspSection>
             <Show when={selZoomFocus()}>
               <p class="muted small">Drag the crosshair on the video to aim this zoom.</p>
             </Show>
-            <p class="muted small">
-              {fmt(selectedZoom()!.start)} – {fmt(selectedZoom()!.end)} · drag the block on the
-              timeline to retime, drag its edges to resize.
-            </p>
+            <p class="muted small">Drag the block on the timeline, or its edges, to retime.</p>
             <button class="btn danger" onClick={() => void deleteSelectedZoom()}>
               Delete zoom
             </button>
@@ -2904,10 +2931,37 @@ function App() {
                 />
               </InspRow>
             </InspSection>
-            <p class="muted small">
-              {fmt(selectedSpeed()!.start)} – {fmt(selectedSpeed()!.end)} · drag the band on the
-              timeline to retime, drag its edges to resize.
-            </p>
+            <InspSection title="Timing">
+              <InspRow label="Start">
+                <ScrubField
+                  value={Number(selectedSpeed()!.start.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When this speed region starts — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const r = selectedSpeed()!;
+                    void applySpeedEdit(selSpeed()!, v, r.end, r.factor);
+                  }}
+                />
+              </InspRow>
+              <InspRow label="End">
+                <ScrubField
+                  value={Number(selectedSpeed()!.end.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When this speed region ends — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const r = selectedSpeed()!;
+                    void applySpeedEdit(selSpeed()!, r.start, v, r.factor);
+                  }}
+                />
+              </InspRow>
+            </InspSection>
+            <p class="muted small">Drag the band on the timeline, or its edges, to retime.</p>
             <button class="btn danger" onClick={() => void deleteSelectedSpeed()}>
               Delete speed region
             </button>
@@ -2922,10 +2976,39 @@ function App() {
             onResizeMove={onInspMove}
             onResizeUp={onInspUp}
           >
+            <InspSection title="Timing">
+              <InspRow label="Start">
+                <ScrubField
+                  value={Number(selectedCut()!.start.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When the removed section starts — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const c = selectedCut()!;
+                    void applyCutEdit(selCut()!, v, c.end);
+                  }}
+                />
+              </InspRow>
+              <InspRow label="End">
+                <ScrubField
+                  value={Number(selectedCut()!.end.toFixed(1))}
+                  min={0}
+                  max={duration()}
+                  step={0.1}
+                  suffix="s"
+                  title="When the removed section ends — drag to scrub, click to type"
+                  onCommit={(v) => {
+                    const c = selectedCut()!;
+                    void applyCutEdit(selCut()!, c.start, v);
+                  }}
+                />
+              </InspRow>
+            </InspSection>
             <p class="muted small">
-              {fmt(selectedCut()!.start)} – {fmt(selectedCut()!.end)} is removed from the GIF —
-              playback and export skip straight over it. Drag the band on the timeline to retime,
-              drag its edges to resize.
+              This section is removed from the GIF — playback and export skip straight over it. Drag
+              the band on the timeline, or its edges, to retime.
             </p>
             <button class="btn danger" onClick={() => void deleteSelectedCut()}>
               Restore this section

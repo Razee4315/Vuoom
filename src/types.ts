@@ -95,6 +95,7 @@ export interface ClipState {
   show_clicks: boolean;
   show_keys: boolean;
   frame_preset: string;
+  background_preset: string;
 }
 
 export type Kind = "text" | "arrow" | "box";

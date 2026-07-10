@@ -217,6 +217,7 @@ pub fn run() {
             commands::set_show_clicks,
             commands::set_show_keys,
             commands::set_frame_preset,
+            commands::set_background_preset,
             commands::set_trim,
             commands::auto_speed,
             commands::clear_speed,

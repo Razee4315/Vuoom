@@ -34,6 +34,33 @@ struct TextState {
     renderer: TextRenderer,
 }
 
+/// The backdrop fill for the area behind/around the framed recording: a linear 2-stop
+/// gradient. A solid fill is the degenerate case (`color2 == color`).
+///
+/// `dir` is the gradient axis as a unit vector in output UV space (0..1, y down); the
+/// compositor projects each pixel onto it and normalizes across the frame, so the two stops
+/// land on opposite corners for a diagonal `dir`. Colors are straight RGBA, interpolated in
+/// the same (non-linearized) space the target texture is written in — matching the existing
+/// solid-fill and source `mix` handling.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BgFill {
+    pub color: [f32; 4],
+    pub color2: [f32; 4],
+    pub dir: [f32; 2],
+}
+
+impl BgFill {
+    /// A flat solid fill (both stops equal, direction irrelevant).
+    #[must_use]
+    pub fn solid(color: [f32; 4]) -> Self {
+        Self {
+            color,
+            color2: color,
+            dir: [0.0, 1.0],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
@@ -45,6 +72,9 @@ struct Uniforms {
     corner_px: f32,
     _pad: f32,
     bg: [f32; 4],
+    bg2: [f32; 4],
+    bg_dir: [f32; 2],
+    _pad2: [f32; 2],
 }
 
 #[repr(C)]
@@ -550,7 +580,7 @@ impl Compositor {
         out_w: u32,
         out_h: u32,
         scene: &Scene,
-        bg: [f32; 4],
+        bg: BgFill,
     ) -> Vec<u8> {
         let layout = &scene.layout;
 
@@ -596,7 +626,10 @@ impl Compositor {
             dst_size: [layout.dst_rect.w as f32, layout.dst_rect.h as f32],
             corner_px: layout.corner_radius_px as f32,
             _pad: 0.0,
-            bg,
+            bg: bg.color,
+            bg2: bg.color2,
+            bg_dir: bg.dir,
+            _pad2: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -782,7 +815,15 @@ mod tests {
             key_chips: Vec::new(),
             key_texts: Vec::new(),
         };
-        let px = compositor.composite_scene(&source, 4, 4, 8, 8, &scene, [0.0, 0.0, 0.0, 1.0]);
+        let px = compositor.composite_scene(
+            &source,
+            4,
+            4,
+            8,
+            8,
+            &scene,
+            BgFill::solid([0.0, 0.0, 0.0, 1.0]),
+        );
         assert_eq!(px.len(), 8 * 8 * 4);
     }
 }

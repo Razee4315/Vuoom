@@ -11,7 +11,7 @@ mod layout;
 mod scene;
 mod shapes;
 
-pub use compositor::Compositor;
+pub use compositor::{BgFill, Compositor};
 
 pub use layout::{
     camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,

@@ -351,6 +351,34 @@ kbd {
   margin: 0 4px;
   flex: none;
 }
+/* Backdrop swatch picker — sits beside the frame <select>, shown once a frame is applied. */
+.bg-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  margin-left: 2px;
+}
+.bg-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  flex: none;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.bg-swatch:hover {
+  transform: scale(1.12);
+}
+.bg-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.bg-swatch.sel {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--accent);
+}
 /* Project name sits just right of Record; shrinks first when the bar gets tight. */
 .project-name {
   flex: 0 1 220px;

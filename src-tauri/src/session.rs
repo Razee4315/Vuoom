@@ -33,7 +33,7 @@ use vuoom_project::{
     HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
     TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
-use vuoom_render::{build_scene, Compositor};
+use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
 
 /// Summary returned to the UI when recording stops.
@@ -81,6 +81,9 @@ pub struct ClipState {
     pub show_keys: bool,
     /// Active framing preset name, derived from the padding (the editor's frame picker).
     pub frame_preset: String,
+    /// Active backdrop preset name (`Background::preset_name`), or `""` if the backdrop is a
+    /// custom one that matches no preset. Drives the background swatch picker's selection.
+    pub background_preset: String,
 }
 
 /// What the drain thread hands back at stop: the disk store, an optional warning describing
@@ -703,7 +706,7 @@ impl Session {
             out_w,
             out_h,
             &scene,
-            background_color(&project.frame),
+            background_fill(&project.frame),
         );
         let meta = FrameMeta {
             stride: out_w * 4,
@@ -777,7 +780,7 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
 
         let (out_w, out_h) = project.output_dims();
-        let bg = background_color(&project.frame);
+        let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let count = ((d_out * f64::from(fps)).ceil() as usize).max(1);
@@ -882,7 +885,7 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
 
         let (out_w, out_h) = project.output_dims();
-        let bg = background_color(&project.frame);
+        let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
@@ -1042,7 +1045,7 @@ impl Session {
         }
 
         let (out_w, out_h) = project.output_dims();
-        let bg = background_color(&project.frame);
+        let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
 
@@ -1184,6 +1187,12 @@ impl Session {
                 _ => "studio",
             }
             .into(),
+            background_preset: project
+                .frame
+                .background
+                .preset_name()
+                .unwrap_or_default()
+                .into(),
         })
     }
 
@@ -1208,9 +1217,21 @@ impl Session {
     /// corners and shadow; preview and export both honor it.
     pub fn set_frame_preset(&self, preset: &str) -> Result<(), String> {
         self.with_project("", |p| {
+            // The frame preset owns padding/corners/shadow; the backdrop is chosen separately
+            // (`set_background_preset`). Preserve whatever backdrop the user picked across frame
+            // switches — but when they first enable a frame on a still-default black backdrop,
+            // seed a tasteful graphite gradient so the padded area doesn't read as a black void.
+            let keep_bg = p.frame.background.clone();
+            let default_bg =
+                Background::preset("graphite").unwrap_or(Background::Solid(Color::BLACK));
+            let bg_for_framed = if keep_bg == Background::Solid(Color::BLACK) {
+                default_bg
+            } else {
+                keep_bg.clone()
+            };
             p.frame = match preset {
                 "subtle" => FrameStyle {
-                    background: Background::Solid(Color::rgb(0.10, 0.11, 0.12)),
+                    background: bg_for_framed,
                     padding: 0.04,
                     corner_radius: 0.012,
                     shadow: Shadow {
@@ -1219,7 +1240,7 @@ impl Session {
                     },
                 },
                 "studio" => FrameStyle {
-                    background: Background::Solid(Color::rgb(0.90, 0.89, 0.87)),
+                    background: bg_for_framed,
                     padding: 0.075,
                     corner_radius: 0.02,
                     shadow: Shadow {
@@ -1227,8 +1248,24 @@ impl Session {
                         ..Shadow::default()
                     },
                 },
-                _ => FrameStyle::default(),
+                // No frame: edge-to-edge. Keep the backdrop field for round-tripping, but it's
+                // never visible (zero padding = the recording fills the whole output).
+                _ => FrameStyle {
+                    background: keep_bg,
+                    ..FrameStyle::default()
+                },
             };
+            Ok(())
+        })
+    }
+
+    /// Set the backdrop behind/around a framed recording to a named preset (see
+    /// [`Background::preset`] — gradients like `graphite`/`slate`/`teal`, plus `solid`). The
+    /// compositor renders it into both the preview and the export; one undo step per pick.
+    pub fn set_background_preset(&self, name: &str) -> Result<(), String> {
+        let bg = Background::preset(name).ok_or("unknown background preset")?;
+        self.with_project("", |p| {
+            p.frame.background = bg;
             Ok(())
         })
     }
@@ -2339,13 +2376,32 @@ fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>, Vec<Trim>) {
     (t0, span, regions, cuts)
 }
 
-fn background_color(frame: &FrameStyle) -> [f32; 4] {
-    let c = match &frame.background {
-        Background::Solid(c) => *c,
-        Background::Gradient { from, .. } => *from,
-        Background::Image { .. } | Background::Blur { .. } => Color::rgb(0.08, 0.08, 0.09),
-    };
-    [c.r, c.g, c.b, c.a]
+/// Resolve the project's backdrop into the compositor's [`BgFill`] (a linear 2-stop gradient;
+/// a solid fill is the degenerate `color2 == color` case). Image/Blur backdrops aren't
+/// rendered yet, so they fall back to a flat neutral dark.
+fn background_fill(frame: &FrameStyle) -> BgFill {
+    let rgba = |c: Color| [c.r, c.g, c.b, c.a];
+    match &frame.background {
+        Background::Solid(c) => BgFill::solid(rgba(*c)),
+        Background::Gradient {
+            from,
+            to,
+            angle_deg,
+        } => {
+            // Gradient axis as a unit vector in output UV space (y down). The compositor
+            // projects each pixel onto it and normalizes across the frame, so `from` lands on
+            // the corner the axis points away from and `to` on the corner it points toward.
+            let rad = angle_deg.to_radians();
+            BgFill {
+                color: rgba(*from),
+                color2: rgba(*to),
+                dir: [rad.cos() as f32, rad.sin() as f32],
+            }
+        }
+        Background::Image { .. } | Background::Blur { .. } => {
+            BgFill::solid([0.08, 0.08, 0.09, 1.0])
+        }
+    }
 }
 
 fn next_id(project: &Project) -> u32 {

@@ -747,6 +747,13 @@ pub fn set_frame_preset(engine: tauri::State<'_, Engine>, preset: String) -> Res
     engine.session()?.set_frame_preset(&preset)
 }
 
+/// Set the backdrop behind a framed recording to a named preset (gradient or solid) — the
+/// compositor renders it into both the preview and the export.
+#[tauri::command]
+pub fn set_background_preset(engine: tauri::State<'_, Engine>, name: String) -> Result<(), String> {
+    engine.session()?.set_background_preset(&name)
+}
+
 /// Move/edit a text label (omit a field to leave it unchanged).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

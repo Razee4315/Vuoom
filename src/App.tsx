@@ -132,6 +132,7 @@ function App() {
   const [showClicks, setShowClicks] = createSignal(false);
   const [showKeys, setShowKeys] = createSignal(false);
   const [framePreset, setFramePreset] = createSignal("none");
+  const [bgPreset, setBgPreset] = createSignal("");
   const [recoverable, setRecoverable] = createSignal<number | null>(null);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   const [drag, setDrag] = createSignal<Drag>(null);
@@ -426,6 +427,7 @@ function App() {
       setShowClicks(cs.show_clicks);
       setShowKeys(cs.show_keys);
       setFramePreset(cs.frame_preset);
+      setBgPreset(cs.background_preset);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -1469,6 +1471,9 @@ function App() {
     try {
       await invoke("set_frame_preset", { preset });
       setFramePreset(preset);
+      // The backend seeds a graphite backdrop the first time a frame is enabled on the
+      // still-default black one; mirror that so the swatch picker reflects it immediately.
+      if (preset !== "none" && !bgPreset()) setBgPreset("graphite");
       setDirty(true);
       await pushSeek(playhead());
       setStatus(
@@ -1476,6 +1481,30 @@ function App() {
       );
     } catch (e) {
       setStatus(`Frame failed: ${String(e)}`);
+    }
+  };
+
+  // ── background backdrop (gradient/solid behind a framed recording) ───────────────
+  // Swatch CSS mirrors the Rust presets in vuoom-project/frame.rs (135° = top-left light).
+  const BG_SWATCHES: { name: string; label: string; css: string }[] = [
+    { name: "graphite", label: "Graphite", css: "linear-gradient(135deg,#29292b,#0a0a0d)" },
+    { name: "slate", label: "Slate", css: "linear-gradient(135deg,#333d4d,#12171f)" },
+    { name: "teal", label: "Teal", css: "linear-gradient(135deg,#0f3335,#051417)" },
+    { name: "dusk", label: "Dusk", css: "linear-gradient(135deg,#2b3043,#0f0f1a)" },
+    { name: "paper", label: "Paper", css: "linear-gradient(135deg,#f5f2eb,#d9d4c7)" },
+    { name: "midnight", label: "Midnight", css: "linear-gradient(135deg,#0f121a,#030305)" },
+    { name: "solid", label: "Solid", css: "#17171a" },
+  ];
+  const applyBackground = async (name: string) => {
+    if (!hasClip()) return;
+    try {
+      await invoke("set_background_preset", { name });
+      setBgPreset(name);
+      setDirty(true);
+      await pushSeek(playhead());
+      setStatus(`Backdrop: ${name}`);
+    } catch (e) {
+      setStatus(`Backdrop failed: ${String(e)}`);
     }
   };
 
@@ -2267,6 +2296,24 @@ function App() {
           <option value="subtle">Subtle frame</option>
           <option value="studio">Studio frame</option>
         </select>
+        <Show when={hasClip() && framePreset() !== "none"}>
+          <div class="bg-swatches" title="Backdrop behind the framed recording">
+            <For each={BG_SWATCHES}>
+              {(sw) => (
+                <button
+                  type="button"
+                  class="bg-swatch"
+                  classList={{ sel: bgPreset() === sw.name }}
+                  style={{ background: sw.css }}
+                  title={sw.label}
+                  aria-label={`Backdrop: ${sw.label}`}
+                  aria-pressed={bgPreset() === sw.name}
+                  onClick={() => void applyBackground(sw.name)}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
         <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />

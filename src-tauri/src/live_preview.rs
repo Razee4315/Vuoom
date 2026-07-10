@@ -18,7 +18,7 @@ use vuoom_capture::{spawn_region, CapturedFrame, CropRegion};
 use vuoom_encode::{downscale_rgba, swizzle_rb, RgbaImage};
 use vuoom_input::Clock;
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
-use vuoom_zoom::{clamp_camera, spring_update, CameraState, ZoomConfig};
+use vuoom_zoom::{CameraFilter, CameraState, CameraTarget, ZoomConfig};
 
 use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
@@ -196,19 +196,14 @@ fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32)
     )
 }
 
-/// An online version of [`vuoom_zoom::simulate`]'s per-frame step: the same critically-damped
-/// springs, fed live. Ctrl+Shift+Z is an explicit toggle — zoom in (and follow the cursor)
-/// on one press, zoom back out on the next — matching what the final render produces.
+/// The live-preview camera: the real recorder's [`CameraFilter`] driven online instead of
+/// from a precomputed keyframe track. Ctrl+Shift+Z is an explicit toggle — zoom in (and
+/// follow the cursor) on one press, zoom back out on the next — matching the final render.
+/// The per-frame spring math lives in `vuoom_zoom` so the two paths stay in lock-step.
 struct LiveCamera {
     cfg: ZoomConfig,
     amount: f64,
-    smoothed: DVec2,
-    smoothed_v: DVec2,
-    center: DVec2,
-    center_v: DVec2,
-    pan_target: DVec2,
-    zoom: f64,
-    zoom_v: f64,
+    cam: CameraFilter,
     active: bool,
     last_t: f64,
 }
@@ -218,13 +213,7 @@ impl LiveCamera {
         Self {
             cfg,
             amount,
-            smoothed: DVec2::splat(0.5),
-            smoothed_v: DVec2::ZERO,
-            center: DVec2::splat(0.5),
-            center_v: DVec2::ZERO,
-            pan_target: DVec2::splat(0.5),
-            zoom: 1.0,
-            zoom_v: 0.0,
+            cam: CameraFilter::new(DVec2::splat(0.5)),
             active: false,
             last_t: 0.0,
         }
@@ -235,82 +224,18 @@ impl LiveCamera {
     }
 
     fn step(&mut self, t: f64, cursor: DVec2) -> CameraState {
+        // Real wall-clock dt, clamped so a stalled frame can't launch the springs.
         let dt = (t - self.last_t).clamp(1e-4, 0.1);
         self.last_t = t;
 
-        // Pre-smooth the raw cursor ("shaky -> glide").
-        spring_update(
-            &mut self.smoothed.x,
-            &mut self.smoothed_v.x,
-            cursor.x,
-            self.cfg.hl_cursor,
-            dt,
-        );
-        spring_update(
-            &mut self.smoothed.y,
-            &mut self.smoothed_v.y,
-            cursor.y,
-            self.cfg.hl_cursor,
-            dt,
-        );
-
-        let (target_zoom, focus) = if self.active {
-            (
-                self.amount,
-                snap_to_edges(self.smoothed, self.cfg.edge_snap_ratio),
-            )
+        let target = if self.active {
+            CameraTarget::Auto {
+                amount: self.amount,
+                edge_snap_ratio: self.cfg.edge_snap_ratio,
+            }
         } else {
-            (1.0, DVec2::splat(0.5))
+            CameraTarget::Idle
         };
-
-        // Jitter dead-zone: only retarget when the focus leaves a box around the center.
-        if !self.active || (focus - self.center).abs().max_element() > self.cfg.dead_zone {
-            self.pan_target = focus;
-        }
-
-        let zoom_hl = if target_zoom < self.zoom {
-            self.cfg.hl_zoom * 0.85
-        } else {
-            self.cfg.hl_zoom
-        };
-        spring_update(&mut self.zoom, &mut self.zoom_v, target_zoom, zoom_hl, dt);
-        spring_update(
-            &mut self.center.x,
-            &mut self.center_v.x,
-            self.pan_target.x,
-            self.cfg.hl_pan,
-            dt,
-        );
-        spring_update(
-            &mut self.center.y,
-            &mut self.center_v.y,
-            self.pan_target.y,
-            self.cfg.hl_pan,
-            dt,
-        );
-        self.center = clamp_camera(self.center, self.zoom);
-
-        CameraState {
-            center: self.center,
-            zoom: self.zoom,
-        }
-    }
-}
-
-/// Bias a focus point toward a screen edge when the cursor is near it (mirrors the private
-/// helper in `vuoom_zoom::camera`), so corner content is not cropped by the camera clamp.
-fn snap_to_edges(p: DVec2, ratio: f64) -> DVec2 {
-    DVec2::new(snap_axis(p.x, ratio), snap_axis(p.y, ratio))
-}
-
-fn snap_axis(v: f64, ratio: f64) -> f64 {
-    if ratio <= 0.0 {
-        v
-    } else if v < ratio {
-        (v - (ratio - v)).max(0.0)
-    } else if v > 1.0 - ratio {
-        (v + (v - (1.0 - ratio))).min(1.0)
-    } else {
-        v
+        self.cam.step(cursor, target, &self.cfg, dt)
     }
 }

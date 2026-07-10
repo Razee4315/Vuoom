@@ -75,6 +75,103 @@ fn snap_axis(v: f64, ratio: f64) -> f64 {
     }
 }
 
+/// What the camera should aim for on a single frame, before smoothing and clamping.
+///
+/// This is the one place the offline planner (keyframe-driven) and the live preview
+/// (hotkey-toggle-driven) differ — they resolve *what* to look at from different inputs,
+/// then hand it to the same [`CameraFilter::step`] so the motion stays identical.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CameraTarget {
+    /// No active zoom: settle back to the centered, unzoomed pose.
+    Idle,
+    /// Auto-follow: zoom to `amount`, focus the edge-snapped smoothed cursor.
+    Auto { amount: f64, edge_snap_ratio: f64 },
+    /// Manual: zoom to `amount`, hold a fixed normalized focus point.
+    Manual { amount: f64, focus: DVec2 },
+}
+
+/// The online spring state behind the camera: pre-smooth, zoom, and pan springs plus the
+/// jitter dead-zone. Shared verbatim by the offline [`simulate`] and the live preview so
+/// the two can never drift out of lock-step. Call [`CameraFilter::step`] once per frame.
+#[derive(Debug, Clone, Copy)]
+pub struct CameraFilter {
+    smoothed: DVec2,
+    smoothed_v: DVec2,
+    center: DVec2,
+    center_v: DVec2,
+    pan_target: DVec2,
+    zoom: f64,
+    zoom_v: f64,
+}
+
+impl CameraFilter {
+    /// Start from a resting camera (centered, unzoomed) with the pre-smoother primed to
+    /// `cursor` so the first frame does not spring in from an arbitrary point.
+    #[must_use]
+    pub fn new(cursor: DVec2) -> Self {
+        Self {
+            smoothed: cursor,
+            smoothed_v: DVec2::ZERO,
+            center: DVec2::splat(0.5),
+            center_v: DVec2::ZERO,
+            pan_target: DVec2::splat(0.5),
+            zoom: 1.0,
+            zoom_v: 0.0,
+        }
+    }
+
+    /// Advance the camera by `dt` seconds toward `target`, feeding in the latest raw cursor.
+    ///
+    /// Pre-smooths the cursor, resolves the target zoom/focus (with edge-snap and the jitter
+    /// dead-zone), integrates the zoom and pan springs, and clamps the viewport on-screen.
+    pub fn step(
+        &mut self,
+        raw_cursor: DVec2,
+        target: CameraTarget,
+        cfg: &ZoomConfig,
+        dt: f64,
+    ) -> CameraState {
+        // Pre-smooth the raw cursor ("shaky -> glide").
+        spring_vec(
+            &mut self.smoothed,
+            &mut self.smoothed_v,
+            raw_cursor,
+            cfg.hl_cursor,
+            dt,
+        );
+
+        let (target_zoom, focus, active) = match target {
+            CameraTarget::Idle => (1.0, DVec2::splat(0.5), false),
+            CameraTarget::Auto {
+                amount,
+                edge_snap_ratio,
+            } => (amount, snap_to_edges(self.smoothed, edge_snap_ratio), true),
+            CameraTarget::Manual { amount, focus } => (amount, focus, true),
+        };
+
+        // Jitter dead-zone: only retarget when the focus leaves a box around the center,
+        // or when there is no active zoom (so we re-center cleanly on zoom-out).
+        if !active || (focus - self.center).abs().max_element() > cfg.dead_zone {
+            self.pan_target = focus;
+        }
+
+        // Zoom-out a touch faster than zoom-in (matches the documented feel).
+        let zoom_hl = if target_zoom < self.zoom {
+            cfg.hl_zoom * 0.85
+        } else {
+            cfg.hl_zoom
+        };
+        spring_update(&mut self.zoom, &mut self.zoom_v, target_zoom, zoom_hl, dt);
+        spring_vec(&mut self.center, &mut self.center_v, self.pan_target, cfg.hl_pan, dt);
+        self.center = clamp_camera(self.center, self.zoom);
+
+        CameraState {
+            center: self.center,
+            zoom: self.zoom,
+        }
+    }
+}
+
 /// A precomputed per-frame camera path. Deterministic: the same inputs always produce
 /// the same track, so scrubbing and GIF export share one source of truth.
 #[derive(Debug, Clone)]
@@ -144,13 +241,7 @@ pub fn simulate(
     samples.sort_by(|a, b| a.0.total_cmp(&b.0));
 
     let mut raw_cursor = samples.first().map_or(DVec2::splat(0.5), |s| s.1);
-    let mut smoothed = raw_cursor;
-    let mut smoothed_v = DVec2::ZERO;
-    let mut center = DVec2::splat(0.5);
-    let mut center_v = DVec2::ZERO;
-    let mut pan_target = DVec2::splat(0.5);
-    let mut zoom = 1.0_f64;
-    let mut zoom_v = 0.0_f64;
+    let mut cam = CameraFilter::new(raw_cursor);
 
     let mut si = 0;
     let mut frames = Vec::with_capacity(frame_count);
@@ -162,44 +253,22 @@ pub fn simulate(
             raw_cursor = samples[si].1;
             si += 1;
         }
-        // Pre-smooth ("shaky -> glide").
-        spring_vec(
-            &mut smoothed,
-            &mut smoothed_v,
-            raw_cursor,
-            cfg.hl_cursor,
-            dt,
-        );
 
-        let active = keyframes.iter().find(|k| k.contains(t));
-        let (target_zoom, focus) = match active {
-            Some(k) => {
-                let f = match k.mode {
-                    ZoomMode::Auto => snap_to_edges(smoothed, k.edge_snap_ratio),
-                    ZoomMode::Manual { pos } => pos,
-                };
-                (k.amount, f)
-            }
-            None => (1.0, DVec2::splat(0.5)),
+        // Resolve this frame's target from the active keyframe, then run the shared step.
+        let target = match keyframes.iter().find(|k| k.contains(t)) {
+            Some(k) => match k.mode {
+                ZoomMode::Auto => CameraTarget::Auto {
+                    amount: k.amount,
+                    edge_snap_ratio: k.edge_snap_ratio,
+                },
+                ZoomMode::Manual { pos } => CameraTarget::Manual {
+                    amount: k.amount,
+                    focus: pos,
+                },
+            },
+            None => CameraTarget::Idle,
         };
-
-        // Jitter dead-zone: only retarget when the focus leaves a box around the center,
-        // or when there is no active zoom (so we re-center cleanly on zoom-out).
-        if active.is_none() || (focus - center).abs().max_element() > cfg.dead_zone {
-            pan_target = focus;
-        }
-
-        // Zoom-out a touch faster than zoom-in (matches the documented feel).
-        let zoom_hl = if target_zoom < zoom {
-            cfg.hl_zoom * 0.85
-        } else {
-            cfg.hl_zoom
-        };
-        spring_update(&mut zoom, &mut zoom_v, target_zoom, zoom_hl, dt);
-        spring_vec(&mut center, &mut center_v, pan_target, cfg.hl_pan, dt);
-        center = clamp_camera(center, zoom);
-
-        frames.push(CameraState { center, zoom });
+        frames.push(cam.step(raw_cursor, target, cfg, dt));
     }
 
     CameraTrack { fps, frames }

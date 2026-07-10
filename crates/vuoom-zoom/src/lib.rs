@@ -13,7 +13,9 @@ mod event;
 mod keyframe;
 mod planner;
 
-pub use camera::{clamp_camera, simulate, spring_update, CameraState, CameraTrack};
+pub use camera::{
+    clamp_camera, simulate, spring_update, CameraFilter, CameraState, CameraTarget, CameraTrack,
+};
 pub use config::ZoomConfig;
 pub use edit::{insert_sorted, move_to, remove, resize, sort_by_start, MIN_LEN};
 pub use event::{InputEvent, MouseButton};

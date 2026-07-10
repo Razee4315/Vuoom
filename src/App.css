@@ -51,7 +51,8 @@
   --prominent: #f1eee7;
   --line: #ddd8cc;
   --text: #2b2a26;
-  --muted: #7a766c;
+  /* Dark enough for >=4.5:1 (WCAG AA) on --panel #efece4; #7a766c was 3.84:1. */
+  --muted: #696559;
   --accent: #2b2a26;
   --accent-text: #f6f4ef;
   --canvas-a: #e6e2d8;

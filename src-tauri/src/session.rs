@@ -1905,6 +1905,67 @@ impl Session {
         Ok(refs)
     }
 
+    /// Move an annotation within its own type's Vec, changing its stacking order. `dir` is one
+    /// of `"forward"` / `"backward"` / `"front"` / `"back"`.
+    ///
+    /// Stacking is per-type in BOTH renderers (highlights below arrows below texts, fixed), so
+    /// this only reorders an item relative to its own kind — the order the canvas overlay and
+    /// the export compositor both honour by iterating each Vec front-to-back (later = on top).
+    /// A no-op at a boundary (already front/back) succeeds without recording an undo step.
+    pub fn reorder_annotation(&self, id: u32, dir: &str) -> Result<(), String> {
+        // Locate the item's Vec + current index without holding the snapshot yet, so a no-op
+        // move at a boundary leaves the undo history untouched.
+        fn index_of<T>(v: &[T], id: u32, get: impl Fn(&T) -> u32) -> Option<usize> {
+            v.iter().position(|x| get(x) == id)
+        }
+        // Compute the destination index for `dir` within a Vec of length `len`, or `None` when
+        // the move is a no-op (already at the boundary).
+        fn target(dir: &str, i: usize, len: usize) -> Result<Option<usize>, String> {
+            match dir {
+                "forward" => Ok((i + 1 < len).then(|| i + 1)),
+                "backward" => Ok((i > 0).then(|| i - 1)),
+                "front" => Ok((i + 1 < len).then(|| len - 1)),
+                "back" => Ok((i > 0).then_some(0)),
+                other => Err(format!("bad reorder dir: {other}")),
+            }
+        }
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        // Find which Vec owns the id and where the move lands. `None` target → boundary no-op.
+        let plan: Option<(u8, usize, usize)> =
+            if let Some(i) = index_of(&project.texts, id, |t| t.id) {
+                target(dir, i, project.texts.len())?.map(|j| (0, i, j))
+            } else if let Some(i) = index_of(&project.arrows, id, |a| a.id) {
+                target(dir, i, project.arrows.len())?.map(|j| (1, i, j))
+            } else if let Some(i) = index_of(&project.highlights, id, |h| h.id) {
+                target(dir, i, project.highlights.len())?.map(|j| (2, i, j))
+            } else {
+                return Err("no such annotation".into());
+            };
+        let Some((kind, i, j)) = plan else {
+            return Ok(()); // already at the boundary — nothing to do
+        };
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        // Remove-then-insert moves the item to `j` and shifts everything between, preserving the
+        // relative order of the rest (a plain swap would only work for adjacent moves).
+        match kind {
+            0 => {
+                let item = project.texts.remove(i);
+                project.texts.insert(j, item);
+            }
+            1 => {
+                let item = project.arrows.remove(i);
+                project.arrows.insert(j, item);
+            }
+            _ => {
+                let item = project.highlights.remove(i);
+                project.highlights.insert(j, item);
+            }
+        }
+        Ok(())
+    }
+
     /// Delete any annotation (text, arrow, or box) by id. `tag` is the undo-coalesce key
     /// (see [`snapshot`]): empty for a discrete single delete, a shared non-empty value to
     /// fold a whole group delete into one undo step.

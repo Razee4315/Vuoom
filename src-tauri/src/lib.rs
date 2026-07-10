@@ -245,6 +245,7 @@ pub fn run() {
             commands::update_annotation_range,
             commands::duplicate_annotation,
             commands::paste_annotations,
+            commands::reorder_annotation,
             commands::delete_annotation,
             commands::undo,
             commands::redo,

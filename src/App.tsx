@@ -301,6 +301,21 @@ function App() {
         return;
       }
     }
+    // Z-order for the primary selected annotation: Ctrl+] / Ctrl+[ nudge one step,
+    // Ctrl+Shift+] / Ctrl+Shift+[ jump to front / back. Guarded like the other editor
+    // accelerators (no modal, not in a field, an annotation selected).
+    if (!modalOpen && e.ctrlKey && !e.altKey && !inField && hasClip() && selected()) {
+      if (e.code === "BracketRight") {
+        e.preventDefault();
+        void reorderSelected(e.shiftKey ? "front" : "forward");
+        return;
+      }
+      if (e.code === "BracketLeft") {
+        e.preventDefault();
+        void reorderSelected(e.shiftKey ? "back" : "backward");
+        return;
+      }
+    }
     const browserChord =
       (e.ctrlKey && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
       (e.ctrlKey && !e.shiftKey && e.code === "KeyR") ||
@@ -1280,6 +1295,29 @@ function App() {
       setStatus("Duplicated — drag the copy into place");
     } catch (e) {
       setStatus(`Duplicate failed: ${String(e)}`);
+    }
+  };
+
+  // Change the stacking order of the primary selected annotation within its own type. Stacking
+  // is per-type (highlights below arrows below texts), so this only reorders relative to items
+  // of the same kind. dir: "forward" | "backward" | "front" | "back".
+  const reorderSelected = async (dir: "forward" | "backward" | "front" | "back") => {
+    const s = selected();
+    if (!s) return;
+    try {
+      await invoke("reorder_annotation", { id: s.id, dir });
+      await refresh();
+      await pushSeek(playhead());
+      setStatus(
+        {
+          forward: "Brought forward",
+          backward: "Sent backward",
+          front: "Brought to front",
+          back: "Sent to back",
+        }[dir],
+      );
+    } catch (e) {
+      setStatus(`Reorder failed: ${String(e)}`);
     }
   };
 
@@ -3209,6 +3247,22 @@ function App() {
             <button class="btn block" title="Duplicate (Ctrl+D)" onClick={() => void duplicateSelected()}>
               Duplicate
             </button>
+            <div class="btn-row">
+              <button
+                class="btn"
+                title="Bring forward (Ctrl+]) · Shift for front"
+                onClick={(e) => void reorderSelected(e.shiftKey ? "front" : "forward")}
+              >
+                Forward
+              </button>
+              <button
+                class="btn"
+                title="Send backward (Ctrl+[) · Shift for back"
+                onClick={(e) => void reorderSelected(e.shiftKey ? "back" : "backward")}
+              >
+                Backward
+              </button>
+            </div>
             <button class="btn danger" onClick={() => void deleteSelection()}>
               Delete element
             </button>

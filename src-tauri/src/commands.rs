@@ -897,6 +897,19 @@ pub fn paste_annotations(
     engine.session()?.paste_annotations(items, at)
 }
 
+/// Reorder an annotation within its own type's stack. `dir` is one of
+/// `"forward"` / `"backward"` / `"front"` / `"back"`. Stacking is per-type (highlights below
+/// arrows below texts, fixed in both renderers), so this only moves the item relative to others
+/// of its kind. One undo step per move; a no-op at the boundary succeeds silently.
+#[tauri::command]
+pub fn reorder_annotation(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    dir: String,
+) -> Result<(), String> {
+    engine.session()?.reorder_annotation(id, &dir)
+}
+
 /// Delete an annotation (text, arrow, or box) by id. `tag` coalesces undo history: a group
 /// delete passes one shared non-empty tag so every removal in the run undoes as a single step;
 /// a lone delete omits it (empty tag → its own discrete undo step, as before).

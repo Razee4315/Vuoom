@@ -1175,6 +1175,16 @@ kbd {
   background: var(--record);
   color: #fff;
 }
+/* Two equal-width buttons side by side (e.g. Forward / Backward z-order). */
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.btn-row > .btn {
+  flex: 1;
+  justify-content: center;
+}
 
 /* ============================================================
    Timeline

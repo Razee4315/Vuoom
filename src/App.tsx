@@ -2840,6 +2840,10 @@ function App() {
                   step={0.1}
                   suffix="×"
                   title="Zoom strength — drag to scrub, click to type"
+                  onInput={(v) => {
+                    const z = selectedZoom()!;
+                    void applyZoomEdit(selZoom()!, z.start, z.end, v);
+                  }}
                   onCommit={(v) => {
                     const z = selectedZoom()!;
                     void applyZoomEdit(selZoom()!, z.start, z.end, v);
@@ -2924,6 +2928,10 @@ function App() {
                   step={0.25}
                   suffix="×"
                   title="Playback rate — drag to scrub, click to type"
+                  onInput={(v) => {
+                    const r = selectedSpeed()!;
+                    void applySpeedEdit(selSpeed()!, r.start, r.end, v);
+                  }}
                   onCommit={(v) => {
                     const r = selectedSpeed()!;
                     void applySpeedEdit(selSpeed()!, r.start, r.end, v);

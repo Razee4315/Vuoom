@@ -26,6 +26,8 @@ import { cssColor, fmt, fmtBytes, fmtT, GPU_FAILED_MSG, hexRgb, rgbHex } from ".
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
 import type {
   AnnotationSet,
+  ArrowAnn,
+  BoxAnn,
   ClipState,
   Color,
   Drag,
@@ -280,6 +282,22 @@ function App() {
       if (e.code === "KeyD" && !inField) {
         e.preventDefault();
         if (hasClip() && selected()) void duplicateSelected();
+        return;
+      }
+      // Ctrl+C / Ctrl+V — copy the annotation selection, paste at the playhead. Both no-op
+      // silently when there's nothing to act on: Ctrl+C with no annotation selected (a
+      // zoom/speed/cut selection leaves selected() null) and Ctrl+V with an empty clipboard
+      // both fall through WITHOUT preventDefault, so they never steal native copy/paste in a
+      // text field (guarded by !inField) or hijack the event from a non-annotation selection.
+      if (e.code === "KeyC" && !inField && hasClip() && selected()) {
+        if (copySelected()) {
+          e.preventDefault();
+          return;
+        }
+      }
+      if (e.code === "KeyV" && !inField && hasClip() && clipboard().length > 0) {
+        e.preventDefault();
+        void pasteClipboard();
         return;
       }
     }
@@ -1262,6 +1280,67 @@ function App() {
       setStatus("Duplicated — drag the copy into place");
     } catch (e) {
       setStatus(`Duplicate failed: ${String(e)}`);
+    }
+  };
+
+  // ── copy / paste ─────────────────────────────────────────────────────────────────
+  // A frontend-only clipboard of deep-copied annotation snapshots (geometry + style + their
+  // absolute time windows). It never touches the OS clipboard, and — being self-contained —
+  // survives the originals being moved or deleted, and can be pasted repeatedly.
+  type ClipItem =
+    | ({ kind: "text" } & TextAnn)
+    | ({ kind: "arrow" } & ArrowAnn)
+    | ({ kind: "box" } & BoxAnn);
+  const [clipboard, setClipboard] = createSignal<ClipItem[]>([]);
+  // Snapshot the current annotation selection into the clipboard. Returns whether anything was
+  // captured so the caller only swallows Ctrl+C when there was a selection to copy.
+  const copySelected = (): boolean => {
+    const all = selectionAll();
+    if (all.length === 0) return false;
+    const items: ClipItem[] = [];
+    for (const sel of all) {
+      if (sel.kind === "text") {
+        const a = anns().texts.find((t) => t.id === sel.id);
+        if (a) items.push({ kind: "text", ...structuredClone(a) });
+      } else if (sel.kind === "arrow") {
+        const a = anns().arrows.find((x) => x.id === sel.id);
+        if (a) items.push({ kind: "arrow", ...structuredClone(a) });
+      } else {
+        const a = anns().highlights.find((b) => b.id === sel.id);
+        if (a) items.push({ kind: "box", ...structuredClone(a) });
+      }
+    }
+    if (items.length === 0) return false;
+    setClipboard(items);
+    setStatus(`Copied ${items.length} annotation${items.length > 1 ? "s" : ""}`);
+    return true;
+  };
+  // Paste the clipboard at the playhead. The backend re-anchors the set so its earliest item
+  // starts at the playhead (relative offsets + durations preserved), assigns fresh ids in one
+  // undo step, and hands back the new (kind,id) refs so we can select them (primary = first).
+  const pasteClipboard = async () => {
+    const items = clipboard();
+    if (items.length === 0) return;
+    try {
+      const refs = await invoke<{ kind: Kind; id: number }[]>("paste_annotations", {
+        items,
+        at: playhead(),
+      });
+      await refresh();
+      await pushSeek(playhead());
+      setSelZoom(null);
+      setSelSpeed(null);
+      setSelCut(null);
+      clearExtra();
+      if (refs.length > 0) {
+        setSelected({ kind: refs[0].kind, id: refs[0].id });
+        const extras = new Set<string>();
+        for (let i = 1; i < refs.length; i++) extras.add(selKey(refs[i].kind, refs[i].id));
+        setSelExtra(extras);
+      }
+      setStatus(`Pasted ${refs.length} annotation${refs.length > 1 ? "s" : ""}`);
+    } catch (e) {
+      setStatus(`Paste failed: ${String(e)}`);
     }
   };
 

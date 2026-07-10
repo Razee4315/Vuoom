@@ -244,6 +244,7 @@ pub fn run() {
             commands::set_arrow_style,
             commands::update_annotation_range,
             commands::duplicate_annotation,
+            commands::paste_annotations,
             commands::delete_annotation,
             commands::undo,
             commands::redo,

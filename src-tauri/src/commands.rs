@@ -7,7 +7,7 @@
 
 use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::region_border::RegionBorder;
-use crate::session::{AnnotationSet, ClipState, RecordingSummary};
+use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSummary};
 use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
 use crate::Engine;
 use serde::Serialize;
@@ -882,6 +882,19 @@ pub async fn redo(engine: tauri::State<'_, Engine>) -> Result<bool, String> {
 #[tauri::command]
 pub fn duplicate_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<u32, String> {
     engine.session()?.duplicate_annotation(id)
+}
+
+/// Paste copied annotation snapshots at `at`: the set is re-anchored so its earliest item
+/// starts at `at` (relative offsets + per-item duration preserved, ends clamped to the clip).
+/// The whole paste is one undo step. Returns the new items (kind + id) so the editor can
+/// select the pastes.
+#[tauri::command]
+pub fn paste_annotations(
+    engine: tauri::State<'_, Engine>,
+    items: Vec<PasteItem>,
+    at: f64,
+) -> Result<Vec<PastedRef>, String> {
+    engine.session()?.paste_annotations(items, at)
 }
 
 /// Delete an annotation (text, arrow, or box) by id. `tag` coalesces undo history: a group

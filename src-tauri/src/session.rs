@@ -69,6 +69,27 @@ pub struct AnnotationSet {
     pub highlights: Vec<HighlightBox>,
 }
 
+/// One item in a paste payload: a full annotation snapshot from the frontend clipboard,
+/// internally tagged by `kind` (`"text"`/`"arrow"`/`"box"`) so all three shapes ride one
+/// ordered list — the order is preserved so the first item pasted becomes the primary
+/// selection. The clipboard is self-contained (deep copies), so a paste does not depend on
+/// the originals still existing.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum PasteItem {
+    Text(TextAnnotation),
+    Arrow(ArrowAnnotation),
+    Box(HighlightBox),
+}
+
+/// A reference to one freshly-pasted annotation (its kind + new id), returned so the UI can
+/// select the pastes (primary = first, the rest as extras).
+#[derive(Debug, Clone, Serialize)]
+pub struct PastedRef {
+    pub kind: String,
+    pub id: u32,
+}
+
 /// Everything the editor timeline binds to: duration, trim, speed regions, zoom segments.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClipState {
@@ -1819,6 +1840,69 @@ impl Session {
             return Ok(new_id);
         }
         Err("no such annotation".into())
+    }
+
+    /// Paste a set of copied annotation snapshots at time `at`. The set is re-anchored so the
+    /// EARLIEST copied annotation starts at `at`, preserving every item's relative time offset
+    /// and its duration (each item's end is clamped to the clip end, so a paste near the tail
+    /// only shortens what overflows). Geometry and style are kept verbatim. Fresh ids are
+    /// assigned; the whole paste is one snapshot → one undo step. Returns the new items
+    /// (kind + id) in paste order so the UI can select them.
+    pub fn paste_annotations(&self, items: Vec<PasteItem>, at: f64) -> Result<Vec<PastedRef>, String> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let d = project.source.duration;
+        // The earliest copied start anchors to the playhead; every other item keeps its offset
+        // relative to that earliest, so the set's internal timing is preserved.
+        let earliest = items
+            .iter()
+            .map(|it| match it {
+                PasteItem::Text(t) => t.range.start,
+                PasteItem::Arrow(a) => a.range.start,
+                PasteItem::Box(b) => b.range.start,
+            })
+            .fold(f64::INFINITY, f64::min);
+        // Re-anchor a range onto [0, d]: preserve duration, clamp the end to the clip, and keep
+        // fades sane if the window ended up shorter than them.
+        let reanchor = |range: &mut TimeRange| {
+            let dur = (range.end - range.start).max(0.1);
+            let s = (at + (range.start - earliest)).clamp(0.0, (d - 0.1).max(0.0));
+            let e = (s + dur).min(d.max(s + 0.1));
+            range.start = s;
+            range.end = e;
+            let span = e - s;
+            range.fade_in = range.fade_in.min(span / 2.0);
+            range.fade_out = range.fade_out.min(span / 2.0);
+        };
+        let mut refs = Vec::with_capacity(items.len());
+        for item in items {
+            let id = next_id(project);
+            match item {
+                PasteItem::Text(mut t) => {
+                    t.id = id;
+                    reanchor(&mut t.range);
+                    project.texts.push(t);
+                    refs.push(PastedRef { kind: "text".into(), id });
+                }
+                PasteItem::Arrow(mut a) => {
+                    a.id = id;
+                    reanchor(&mut a.range);
+                    project.arrows.push(a);
+                    refs.push(PastedRef { kind: "arrow".into(), id });
+                }
+                PasteItem::Box(mut b) => {
+                    b.id = id;
+                    reanchor(&mut b.range);
+                    project.highlights.push(b);
+                    refs.push(PastedRef { kind: "box".into(), id });
+                }
+            }
+        }
+        Ok(refs)
     }
 
     /// Delete any annotation (text, arrow, or box) by id. `tag` is the undo-coalesce key

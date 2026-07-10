@@ -58,6 +58,8 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
       { keys: ["Ctrl", "Z"], label: "Undo" },
       { keys: ["Ctrl", "Y"], label: "Redo" },
       { keys: ["Ctrl", "D"], label: "Duplicate selection" },
+      { keys: ["Ctrl", "C"], label: "Copy selection" },
+      { keys: ["Ctrl", "V"], label: "Paste at playhead" },
       { keys: ["Del"], label: "Delete selection" },
       { keys: ["←", "→", "↑", "↓"], label: "Nudge selection (Shift = further)" },
       { keys: ["Esc"], label: "Clear selection" },

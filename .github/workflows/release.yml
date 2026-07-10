@@ -24,7 +24,7 @@ jobs:
       version: ${{ steps.bump.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history: list tags + count commits since last tag
 
@@ -93,7 +93,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository (with bumped version)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
 

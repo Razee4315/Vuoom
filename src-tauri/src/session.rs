@@ -8,7 +8,7 @@
 //! Runtime behaviour (capture/GPU/input) is verified by running on a real Windows machine;
 //! CI verifies it compiles.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -97,6 +97,9 @@ struct Active {
     /// Poll-based Ctrl+Shift+Z recorder — catches chord presses the keyboard hook misses
     /// (e.g. while an elevated window has focus). Merged with hook marks at stop time.
     zoom_poll: ZoomChordPoller,
+    /// The rotated recovery subdir this take streams into. The final manifest is written here
+    /// at stop time (not the shared root), so each take is independently recoverable.
+    recovery_dir: PathBuf,
     /// Pause spans `(start_qpc, end_qpc)` — an open span means "currently paused".
     /// Converted to cuts at stop time, so pauses stay editable in the timeline.
     pauses: Vec<(i64, Option<i64>)>,
@@ -163,6 +166,10 @@ pub struct Session {
     pending_monitor: Mutex<Option<MonitorInfo>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
+    /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
+    /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
+    /// *previous* unsaved session rather than the one already in the editor.
+    current_recovery: Mutex<Option<PathBuf>>,
 }
 
 impl Session {
@@ -173,6 +180,9 @@ impl Session {
     pub fn new() -> Result<Self, String> {
         let preview = tauri::async_runtime::block_on(PreviewServer::start())
             .map_err(|e| format!("preview server: {e}"))?;
+        // Clear any scratch store left by a previous run's bundle open — its gigabytes would
+        // otherwise linger. Recorded sessions are pruned per-take (see `new_session_dir`).
+        let _ = std::fs::remove_dir_all(frame_store::scratch_dir());
         Ok(Self {
             preview,
             compositor: Compositor::new(),
@@ -182,6 +192,7 @@ impl Session {
             pending_region: Mutex::new(None),
             pending_monitor: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
+            current_recovery: Mutex::new(None),
         })
     }
 
@@ -255,10 +266,18 @@ impl Session {
         let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Drop the previous clip BEFORE recreating the store files: its open handles point
-        // at the same recovery directory this recording is about to replace.
+        // Rotate: this take streams into its own fresh recovery subdir, so the previous
+        // session's store survives until a later recording ages it out. `new_session_dir`
+        // prunes older sessions first, keeping disk use bounded.
+        let recovery_dir = frame_store::new_session_dir();
+        // Drop the previous clip BEFORE creating the new store: its open handles may point at
+        // a store we might otherwise touch.
         *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let writer = FrameWriter::create(frame_store::recovery_dir())?;
+        let writer = FrameWriter::create(recovery_dir.clone())?;
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(recovery_dir.clone());
 
         // Persist a minimal manifest up front so a hard crash mid-recording leaves a
         // *detectable* session — recovery keys off `project.json` existing. The real
@@ -275,10 +294,7 @@ impl Session {
         })
         .to_json()
         {
-            let _ = std::fs::write(
-                frame_store::project_path(&frame_store::recovery_dir()),
-                json,
-            );
+            let _ = std::fs::write(frame_store::project_path(&recovery_dir), json);
         }
 
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
@@ -332,6 +348,7 @@ impl Session {
             events_rx,
             start_qpc: self.clock.now(),
             zoom_poll: ZoomChordPoller::start(),
+            recovery_dir,
             pauses: Vec::new(),
             _preview: preview,
         });
@@ -486,13 +503,11 @@ impl Session {
         sort_cuts(&mut cuts);
         project.cuts = cuts;
 
-        // Persist the manifest next to the on-disk frames: together they make the
-        // recording recoverable if the app crashes or is closed before exporting.
+        // Persist the manifest next to the on-disk frames (in this take's own recovery
+        // subdir): together they make the recording recoverable if the app crashes or is
+        // closed before exporting.
         if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(
-                frame_store::project_path(&frame_store::recovery_dir()),
-                json,
-            );
+            let _ = std::fs::write(frame_store::project_path(&session.recovery_dir), json);
         }
 
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -1570,11 +1585,13 @@ impl Session {
         let freq = self.clock.freq();
         let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
 
-        // Decode into the recovery-dir frame store: one frame in memory at a time, and the
-        // opened project becomes the recoverable session like a fresh recording would.
-        // Drop the current clip first — its store handles point at the same files.
+        // Decode into the dedicated scratch store — NOT a rotated recording session — so
+        // opening a bundle never buries the last recording's recoverable take. One frame in
+        // memory at a time. Drop the current clip first: its store handles may point at the
+        // scratch files we're about to truncate.
+        let scratch = frame_store::scratch_dir();
         *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let mut writer = FrameWriter::create(frame_store::recovery_dir())?;
+        let mut writer = FrameWriter::create(scratch.clone())?;
         for fi in &index {
             let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
                 .map_err(|e| e.to_string())?;
@@ -1587,11 +1604,12 @@ impl Session {
         }
         let store = writer.finish()?;
         if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(
-                frame_store::project_path(&frame_store::recovery_dir()),
-                json,
-            );
+            let _ = std::fs::write(frame_store::project_path(&scratch), json);
         }
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(scratch);
 
         let track = simulate(
             &project.events,
@@ -1621,7 +1639,13 @@ impl Session {
     /// Whether a recoverable session (frames + manifest from a crash or accidental close)
     /// is sitting in the recovery directory. Returns its duration in seconds.
     pub fn recovery_available(&self) -> Option<f64> {
-        let dir = frame_store::recovery_dir();
+        // The most recent recoverable session that isn't the one already loaded in the editor.
+        let active = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let dir = frame_store::latest_recoverable(active.as_deref())?;
         let json = std::fs::read_to_string(frame_store::project_path(&dir)).ok()?;
         let project = Project::from_json(&json).ok()?;
         let store = FrameStore::open(&dir).ok()?;
@@ -1640,7 +1664,13 @@ impl Session {
     /// Reload the session left in the recovery directory (last recording + its edits as
     /// of stop time). Returns a summary like `stop_recording`.
     pub fn recover_session(&self) -> Result<RecordingSummary, String> {
-        let dir = frame_store::recovery_dir();
+        let active = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let dir =
+            frame_store::latest_recoverable(active.as_deref()).ok_or("no recoverable session")?;
         let mut project = Project::from_json(
             &std::fs::read_to_string(frame_store::project_path(&dir))
                 .map_err(|e| format!("no recoverable session: {e}"))?,
@@ -1683,6 +1713,12 @@ impl Session {
             zooms: project.zooms.len(),
             warning: None,
         };
+        // The recovered take is now the loaded clip, so later recovery checks skip it and
+        // surface the *previous* session instead.
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         *edited = Edited {
             frames: Some(Arc::new(store)),

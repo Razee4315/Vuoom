@@ -1,7 +1,7 @@
 //! Disk-backed frame storage — recordings are no longer capped by RAM.
 //!
 //! During recording a drain thread streams every captured frame straight to
-//! `%TEMP%/vuoom-recovery/frames.raw` (raw BGRA), appending one fixed-size record per
+//! `%TEMP%/vuoom-recovery/<session-id>/frames.raw` (raw BGRA), appending one fixed-size record per
 //! frame to `index.bin` as it goes; the editor then reads frames back one at a time (with
 //! a one-slot cache for scrubbing). Because both the bytes and their index land on disk
 //! incrementally — together with a manifest written at the start of recording — a hard
@@ -11,6 +11,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use vuoom_capture::CapturedFrame;
@@ -57,10 +58,105 @@ fn decode_rec(b: &[u8]) -> FrameRec {
     }
 }
 
-/// The fixed per-user directory holding the latest session's frames + project manifest.
-/// One session at a time: starting a new recording replaces it.
-pub fn recovery_dir() -> PathBuf {
+/// Root holding the per-session recovery subdirs. Each subdir is a full raw-BGRA store
+/// (gigabytes), so we retain only a couple (see [`new_session_dir`]) and prune the rest.
+pub fn recovery_root() -> PathBuf {
     std::env::temp_dir().join("vuoom-recovery")
+}
+
+/// Fixed scratch subdir backing an opened `.vuoom` bundle. Named non-numerically so recovery
+/// scanning skips it — opening a bundle must never bury the last recording's recoverable
+/// session. Truncated (not rotated) on each reuse, so it holds at most one bundle's frames.
+pub fn scratch_dir() -> PathBuf {
+    recovery_root().join("scratch")
+}
+
+/// How many recorded sessions to retain: the current one plus the immediately previous, so a
+/// crash at the very start of a new take can't lose the last good session. Bounds disk use —
+/// these dirs each hold gigabytes of raw BGRA.
+const KEEP_SESSIONS: usize = 2;
+
+/// Parse a session subdir's file name back into its numeric id. Non-numeric entries (the
+/// `scratch` dir, stray files) return `None` and are ignored by scanning/pruning, so junk in
+/// the recovery root can't derail rotation.
+fn session_id_of(path: &Path) -> Option<u128> {
+    path.file_name()?.to_str()?.parse::<u128>().ok()
+}
+
+/// Existing session subdirs under the recovery root, newest id first. Junk (unparseable
+/// names, stray files, the scratch dir) is skipped.
+fn session_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<(u128, PathBuf)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(recovery_root()) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if let Some(id) = session_id_of(&p) {
+                    dirs.push((id, p));
+                }
+            }
+        }
+    }
+    dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    dirs.into_iter().map(|(_, p)| p).collect()
+}
+
+/// A strictly-increasing session id (ms since the epoch, bumped past the newest existing id
+/// if the clock didn't advance) so "newest first" ordering is always well-defined.
+fn next_session_id() -> u128 {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let max_existing = session_dirs()
+        .first()
+        .and_then(|p| session_id_of(p))
+        .unwrap_or(0);
+    now.max(max_existing.saturating_add(1))
+}
+
+/// Create a fresh session subdir under the recovery root, pruning old ones first so at most
+/// [`KEEP_SESSIONS`] remain (counting the one being created). The newest existing session —
+/// the last recording's recoverable store — is always kept, so starting a new take never
+/// destroys it. Returns the new dir.
+pub fn new_session_dir() -> PathBuf {
+    let root = recovery_root();
+    let _ = fs::create_dir_all(&root);
+    // Keep only the newest `KEEP_SESSIONS - 1` existing sessions; the dir we're about to
+    // create takes the last slot. Older ones (and their gigabytes) are removed now.
+    for old in session_dirs().into_iter().skip(KEEP_SESSIONS - 1) {
+        let _ = fs::remove_dir_all(&old);
+    }
+    let dir = root.join(next_session_id().to_string());
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+/// Whether two recovery dirs refer to the same session (compared by id, falling back to a
+/// path match for the non-numeric scratch dir).
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (session_id_of(a), session_id_of(b)) {
+        (Some(x), Some(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// The newest session subdir that holds a non-empty, openable store and isn't `exclude` (the
+/// currently-loaded session). Skips empty/torn stores — a take that crashed at the very start
+/// leaves only a placeholder manifest — so recovery lands on the most recent real content.
+pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
+    for dir in session_dirs() {
+        if exclude.is_some_and(|e| same_dir(e, &dir)) {
+            continue;
+        }
+        if !project_path(&dir).exists() {
+            continue;
+        }
+        if matches!(FrameStore::open(&dir), Ok(store) if !store.is_empty()) {
+            return Some(dir);
+        }
+    }
+    None
 }
 
 fn raw_path(dir: &Path) -> PathBuf {
@@ -94,7 +190,7 @@ pub struct FrameWriter {
 }
 
 impl FrameWriter {
-    /// Start a fresh store in `dir`, replacing any previous session.
+    /// Start a fresh store in `dir`, replacing any prior store already at that path.
     pub fn create(dir: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&dir).map_err(|e| format!("recovery dir: {e}"))?;
         // A stale manifest / index must not pair with new frames.

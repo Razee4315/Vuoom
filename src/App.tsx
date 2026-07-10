@@ -135,6 +135,63 @@ function App() {
   const [bgPreset, setBgPreset] = createSignal("");
   const [recoverable, setRecoverable] = createSignal<number | null>(null);
   const [selected, setSelected] = createSignal<Selection | null>(null);
+  // Multi-selection foundation (annotations only). `selected` stays the PRIMARY / last-clicked
+  // item so all single-selection code + the inspector keep working; `selExtra` holds the extra
+  // members as "kind:id" keys. The full selection is primary + extras.
+  const [selExtra, setSelExtra] = createSignal<Set<string>>(new Set());
+  const selKey = (k: Kind, id: number) => `${k}:${id}`;
+  const clearExtra = () => setSelExtra((prev) => (prev.size ? new Set() : prev));
+  const isSelected = (k: Kind, id: number) => {
+    const s = selected();
+    return (!!s && s.kind === k && s.id === id) || selExtra().has(selKey(k, id));
+  };
+  const selectionAll = (): Selection[] => {
+    const out: Selection[] = [];
+    const s = selected();
+    if (s) out.push(s);
+    for (const key of selExtra()) {
+      const [k, idStr] = key.split(":");
+      out.push({ kind: k as Kind, id: Number(idStr) });
+    }
+    return out;
+  };
+  const selCount = () => selectionAll().length;
+  // Whenever the primary clears, drop the extras too — this single effect covers every
+  // setSelected(null) site (Escape, inspector ✕, undo/redo resync, new recording, delete…).
+  createEffect(() => {
+    if (selected() === null) clearExtra();
+  });
+  // Shift/Ctrl-click toggle: add X (promoting it to primary, demoting the old primary to an
+  // extra) or remove X (promoting an extra when X was the primary). Annotations-only.
+  const toggleSelect = (kind: Kind, id: number) => {
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    const s = selected();
+    const key = selKey(kind, id);
+    if (s && s.kind === kind && s.id === id) {
+      const extras = new Set(selExtra());
+      const first = extras.values().next().value as string | undefined;
+      if (first) {
+        extras.delete(first);
+        const [k, idStr] = first.split(":");
+        setSelExtra(extras);
+        setSelected({ kind: k as Kind, id: Number(idStr) });
+      } else {
+        setSelected(null);
+      }
+      return;
+    }
+    const extras = new Set(selExtra());
+    if (extras.has(key)) {
+      extras.delete(key);
+      setSelExtra(extras);
+      return;
+    }
+    if (s) extras.add(selKey(s.kind, s.id));
+    setSelExtra(extras);
+    setSelected({ kind, id });
+  };
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
@@ -527,7 +584,7 @@ function App() {
       void deleteSelectedCut();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
-      void deleteSelected();
+      void deleteSelection();
     } else if (
       e.key === "Escape" &&
       (selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null)
@@ -645,6 +702,10 @@ function App() {
   const liveGeom = (kind: Kind, id: number): number[] => {
     const d = drag();
     if (d && (d.mode === "move" || d.mode === "resize") && d.kind === kind && d.id === id) return d.geom;
+    if (d && d.mode === "move" && d.group) {
+      const m = d.group.find((x) => x.kind === kind && x.id === id);
+      if (m) return m.geom;
+    }
     return geomOf(kind, id);
   };
   const applyGeom = async (kind: Kind, id: number, g: number[]) => {
@@ -787,6 +848,7 @@ function App() {
       setSelZoom(null);
       setSelSpeed(null);
       setSelCut(null);
+      clearExtra();
       setSelected({ kind: "text", id });
       setEditingText(id);
       if (!toolLock()) setTool("select");
@@ -848,12 +910,28 @@ function App() {
     }
     const hit = hitTest(p);
     if (hit) {
-      setSelZoom(null);
-      setSelSpeed(null);
-      setSelCut(null);
-      setSelected(hit);
+      // Shift/Ctrl-click toggles the item in/out of the multi-selection (no drag).
+      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+        toggleSelect(hit.kind, hit.id);
+        return;
+      }
+      // Plain click on a NEW / lone item replaces the selection; plain click on a member of an
+      // existing multi-selection keeps the whole group so the drag below moves all of it.
+      if (!isSelected(hit.kind, hit.id) || selCount() <= 1) {
+        setSelZoom(null);
+        setSelSpeed(null);
+        setSelCut(null);
+        clearExtra();
+        setSelected(hit);
+      }
+      const group = selectionAll()
+        .filter((s) => !(s.kind === hit.kind && s.id === hit.id))
+        .map((s) => {
+          const gg = geomOf(s.kind, s.id);
+          return { kind: s.kind, id: s.id, orig: gg, geom: gg.slice() };
+        });
       const g = geomOf(hit.kind, hit.id);
-      setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice() });
+      setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice(), group });
     }
     // Clicking empty space keeps the current selection (and its inspector) open —
     // it only closes on the inspector's ✕ or Esc, so the layout doesn't jump around.
@@ -890,7 +968,23 @@ function App() {
         g = [clamp01(og[0] + dx), clamp01(og[1] + dy), clamp01(og[2] + dx), clamp01(og[3] + dy)];
       else g = [clamp01(og[0] + dx), clamp01(og[1] + dy)];
       g = snapMoveGeom(d.kind, g);
-      setDrag({ ...d, geom: g });
+      // Translate the rest of the multi-selection by the SAME net delta the primary took
+      // (post-snap), so the group moves rigidly and snapping keys off the primary alone.
+      let group = d.group;
+      if (group && group.length) {
+        const ndx = g[0] - og[0];
+        const ndy = g[1] - og[1];
+        group = group.map((m) => {
+          const mo = m.orig;
+          let mg: number[];
+          if (m.kind === "box") mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy), mo[2], mo[3]];
+          else if (m.kind === "arrow")
+            mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy), clamp01(mo[2] + ndx), clamp01(mo[3] + ndy)];
+          else mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy)];
+          return { ...m, geom: mg };
+        });
+      }
+      setDrag({ ...d, geom: g, group });
     } else if (d.mode === "resize") {
       const og = d.orig;
       let g = og.slice();
@@ -932,6 +1026,7 @@ function App() {
         await pushSeek(playhead());
         setSelZoom(null);
         setSelSpeed(null);
+        clearExtra();
         setSelected({ kind: "arrow", id });
         if (!toolLock()) setTool("select");
       }
@@ -957,6 +1052,7 @@ function App() {
         await pushSeek(playhead());
         setSelZoom(null);
         setSelSpeed(null);
+        clearExtra();
         setSelected({ kind: "box", id });
         if (!toolLock()) setTool("select");
       }
@@ -970,6 +1066,10 @@ function App() {
       // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
       // the drag, so the overlay never flashes back to the pre-drag position for a frame.
       await applyGeom(d.kind, d.id, d.geom);
+      // Commit every other group member (per-item backend commands → per-item geo: undo tags).
+      if (d.mode === "move" && d.group) {
+        for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
+      }
       await refresh();
       setDrag(null);
     }
@@ -1094,10 +1194,19 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
-  const deleteSelected = async () => {
-    const s = selected();
-    if (!s) return;
-    await invoke("delete_annotation", { id: s.id });
+  // Delete the whole selection (primary + extras). A lone delete keeps today's behaviour
+  // (empty, non-coalescing undo tag). A group delete passes ONE shared non-empty tag for the
+  // run so the backend's snapshot() coalesces every removal into a single undo step.
+  let delGesture = 0;
+  const deleteSelection = async () => {
+    const all = selectionAll();
+    if (all.length === 0) return;
+    if (all.length === 1) {
+      await invoke("delete_annotation", { id: all[0].id });
+    } else {
+      const tag = `multidel:${++delGesture}`;
+      for (const it of all) await invoke("delete_annotation", { id: it.id, tag });
+    }
     setSelected(null);
     await refresh();
     await pushSeek(playhead());
@@ -1148,6 +1257,7 @@ function App() {
       const id = await invoke<number>("duplicate_annotation", { id: s.id });
       await refresh();
       await pushSeek(playhead());
+      clearExtra();
       setSelected({ kind: s.kind, id });
       setStatus("Duplicated — drag the copy into place");
     } catch (e) {
@@ -2048,6 +2158,8 @@ function App() {
     orig: { start: number; end: number };
     cur: { start: number; end: number };
     moved: boolean;
+    // A Shift/Ctrl-click on the bar toggles multi-selection instead of selecting/retiming.
+    additive: boolean;
   } | null>(null);
   const annGeom = (b: { kind: Kind; id: number; start: number; end: number }) => {
     const d = annDrag();
@@ -2067,6 +2179,7 @@ function App() {
         orig: { start: b.start, end: b.end },
         cur: { start: b.start, end: b.end },
         moved: force !== "move",
+        additive: force === "move" && (e.shiftKey || e.ctrlKey || e.metaKey),
       });
     };
   const onAnnMove = (e: PointerEvent) => {
@@ -2082,9 +2195,16 @@ function App() {
     setAnnDrag(null);
     setSnapLine(null);
     snapHold = null;
+    // A Shift/Ctrl-click (no drag) toggles the bar in/out of the multi-selection.
+    if (d.additive && !d.moved) {
+      toggleSelect(d.kind, d.id);
+      scrub(d.orig.start);
+      return;
+    }
     setSelZoom(null);
     setSelSpeed(null);
     setSelCut(null);
+    clearExtra();
     setSelected({ kind: d.kind, id: d.id });
     if (d.moved) {
       try {
@@ -2481,7 +2601,7 @@ function App() {
                 {/* boxes */}
                 <For each={anns().highlights}>
                   {(b) => {
-                    const sel = () => selected()?.kind === "box" && selected()?.id === b.id;
+                    const sel = () => isSelected("box", b.id);
                     return (
                       <Show when={inView(b.range, sel())}>
                         {(() => {
@@ -2535,7 +2655,7 @@ function App() {
                 {/* arrows */}
                 <For each={anns().arrows}>
                   {(ar) => {
-                    const sel = () => selected()?.kind === "arrow" && selected()?.id === ar.id;
+                    const sel = () => isSelected("arrow", ar.id);
                     return (
                       <Show when={inView(ar.range, sel())}>
                         {(() => {
@@ -2566,7 +2686,7 @@ function App() {
                 {/* text */}
                 <For each={anns().texts}>
                   {(tx) => {
-                    const sel = () => selected()?.kind === "text" && selected()?.id === tx.id;
+                    const sel = () => isSelected("text", tx.id);
                     return (
                       <Show when={inView(tx.range, sel()) && editingText() !== tx.id}>
                         {(() => {
@@ -2760,12 +2880,23 @@ function App() {
 
         <Show when={selected()}>
           <InspectorPanel
-            title={inspTitle()}
+            title={selCount() > 1 ? `${selCount()} selected` : inspTitle()}
             onClose={() => setSelected(null)}
             onResizeDown={onInspDown}
             onResizeMove={onInspMove}
             onResizeUp={onInspUp}
           >
+            {/* Multiple annotations selected — minimal group actions only (no mixed-value editing). */}
+            <Show when={selCount() > 1}>
+              <InspSection title="Selection">
+                <p class="muted small">{selCount()} annotations selected.</p>
+                <p class="muted small">Drag any one on the canvas to move them together.</p>
+                <button class="btn danger" onClick={() => void deleteSelection()}>
+                  Delete {selCount()} annotations
+                </button>
+              </InspSection>
+            </Show>
+            <Show when={selCount() <= 1}>
             <Show when={selectedText()}>
               <InspSection title="Text">
                 <InspRow label="Content" stack>
@@ -2999,9 +3130,10 @@ function App() {
             <button class="btn block" title="Duplicate (Ctrl+D)" onClick={() => void duplicateSelected()}>
               Duplicate
             </button>
-            <button class="btn danger" onClick={() => void deleteSelected()}>
+            <button class="btn danger" onClick={() => void deleteSelection()}>
               Delete element
             </button>
+            </Show>
           </InspectorPanel>
         </Show>
 
@@ -3478,7 +3610,7 @@ function App() {
                         classList={{
                           "tl-ann": true,
                           [`tl-${b.kind}`]: true,
-                          selected: selected()?.kind === b.kind && selected()?.id === b.id,
+                          selected: isSelected(b.kind, b.id),
                           swallowed: gone(),
                         }}
                         style={{

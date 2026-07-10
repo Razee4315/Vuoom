@@ -1821,9 +1821,11 @@ impl Session {
         Err("no such annotation".into())
     }
 
-    /// Delete any annotation (text, arrow, or box) by id.
-    pub fn delete_annotation(&self, id: u32) -> Result<(), String> {
-        self.with_project("", |p| {
+    /// Delete any annotation (text, arrow, or box) by id. `tag` is the undo-coalesce key
+    /// (see [`snapshot`]): empty for a discrete single delete, a shared non-empty value to
+    /// fold a whole group delete into one undo step.
+    pub fn delete_annotation(&self, id: u32, tag: &str) -> Result<(), String> {
+        self.with_project(tag, |p| {
             p.texts.retain(|a| a.id != id);
             p.arrows.retain(|a| a.id != id);
             p.highlights.retain(|a| a.id != id);

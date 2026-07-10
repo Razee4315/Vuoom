@@ -884,8 +884,14 @@ pub fn duplicate_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result
     engine.session()?.duplicate_annotation(id)
 }
 
-/// Delete an annotation (text, arrow, or box) by id.
+/// Delete an annotation (text, arrow, or box) by id. `tag` coalesces undo history: a group
+/// delete passes one shared non-empty tag so every removal in the run undoes as a single step;
+/// a lone delete omits it (empty tag → its own discrete undo step, as before).
 #[tauri::command]
-pub fn delete_annotation(engine: tauri::State<'_, Engine>, id: u32) -> Result<(), String> {
-    engine.session()?.delete_annotation(id)
+pub fn delete_annotation(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    tag: Option<String>,
+) -> Result<(), String> {
+    engine.session()?.delete_annotation(id, tag.as_deref().unwrap_or(""))
 }

@@ -111,7 +111,17 @@ export type Drag =
   | { mode: "create-box"; start: Vec2; cur: Vec2 }
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
-  | { mode: "move"; kind: Kind; id: number; grab: Vec2; orig: number[]; geom: number[] }
+  // `group` carries the OTHER selected annotations so a canvas drag of any member
+  // translates the whole multi-selection rigidly (empty/undefined for a lone selection).
+  | {
+      mode: "move";
+      kind: Kind;
+      id: number;
+      grab: Vec2;
+      orig: number[];
+      geom: number[];
+      group?: { kind: Kind; id: number; orig: number[]; geom: number[] }[];
+    }
   | { mode: "resize"; kind: Kind; id: number; handle: string; orig: number[]; geom: number[] }
   // Corner-dragging a text label scales its font size (anchored to the opposite corner),
   // so text scales typographically instead of stretching.

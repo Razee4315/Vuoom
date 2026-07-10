@@ -55,6 +55,33 @@ struct ShapeUniforms {
     _pad: [f32; 2],
 }
 
+/// Size-keyed GPU resources reused across same-dimension `composite_scene` calls. Everything
+/// here depends only on the input/output dimensions, so during an export (constant dims) it is
+/// built once and every frame streams its per-frame data in via `queue.write_*`. Recreated when
+/// the dimensions change.
+struct CompositeCache {
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    src_tex: wgpu::Texture,
+    ubuf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    shape_ubuf: wgpu::Buffer,
+    shape_bind_group: wgpu::BindGroup,
+    target: wgpu::Texture,
+    target_view: wgpu::TextureView,
+    readback: wgpu::Buffer,
+    /// `bytes_per_row` of `readback`, rounded up to `COPY_BYTES_PER_ROW_ALIGNMENT` (256).
+    padded_bpr: u32,
+}
+
+impl CompositeCache {
+    fn matches(&self, src_w: u32, src_h: u32, out_w: u32, out_h: u32) -> bool {
+        self.src_w == src_w && self.src_h == src_h && self.out_w == out_w && self.out_h == out_h
+    }
+}
+
 /// A headless GPU compositor.
 pub struct Compositor {
     device: wgpu::Device,
@@ -65,6 +92,9 @@ pub struct Compositor {
     shape_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     text: Mutex<TextState>,
+    /// Reused size-keyed resources for the hot `composite_scene` path. `None` until the first
+    /// composite; rebuilt whenever the frame dimensions change.
+    cache: Mutex<Option<CompositeCache>>,
 }
 
 impl Compositor {
@@ -260,6 +290,7 @@ impl Compositor {
             shape_bind_group_layout,
             sampler,
             text,
+            cache: Mutex::new(None),
         })
     }
 
@@ -329,6 +360,146 @@ impl Compositor {
         drop(data);
         buffer.unmap();
         out
+    }
+
+    /// Copy a `COPY_SRC` RGBA texture into the caller-owned (cached) readback buffer and return
+    /// tightly-packed RGBA8 bytes. Mirrors `read_back` but reuses `buffer` instead of
+    /// allocating one per call. `padded` must equal the buffer's `bytes_per_row`.
+    fn read_back_into(
+        &self,
+        texture: &wgpu::Texture,
+        buffer: &wgpu::Buffer,
+        padded: u32,
+        width: u32,
+        height: u32,
+    ) -> Vec<u8> {
+        let unpadded = width * 4;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        let _ = self.device.poll(wgpu::PollType::Wait);
+
+        let data = slice.get_mapped_range();
+        let mut out = Vec::with_capacity((unpadded * height) as usize);
+        for row in 0..height {
+            let start = (row * padded) as usize;
+            out.extend_from_slice(&data[start..start + unpadded as usize]);
+        }
+        drop(data);
+        buffer.unmap();
+        out
+    }
+
+    /// Build the size-keyed resources for `composite_scene` at the given dimensions. Per-frame
+    /// data (source pixels, uniforms) is streamed into these afterwards via `queue.write_*`.
+    fn build_cache(&self, src_w: u32, src_h: u32, out_w: u32, out_h: u32) -> CompositeCache {
+        let src_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vuoom-source"),
+            size: wgpu::Extent3d {
+                width: src_w,
+                height: src_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let src_view = src_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-composite-bg"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubuf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&src_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        let shape_ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-shape-uniforms"),
+            size: std::mem::size_of::<ShapeUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let shape_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-shape-bg"),
+            layout: &self.shape_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shape_ubuf.as_entire_binding(),
+            }],
+        });
+
+        let target = self.offscreen(out_w, out_h);
+        let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let padded_bpr = (out_w * 4).div_ceil(256) * 256;
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-readback"),
+            size: u64::from(padded_bpr) * u64::from(out_h),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        CompositeCache {
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+            src_tex,
+            ubuf,
+            bind_group,
+            shape_ubuf,
+            shape_bind_group,
+            target,
+            target_view,
+            readback,
+            padded_bpr,
+        }
     }
 
     /// Render an offscreen RGBA texture cleared to `color` and read it back (a smoke test
@@ -498,23 +669,23 @@ impl Compositor {
     ) -> Vec<u8> {
         let layout = &scene.layout;
 
-        let src_tex = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("vuoom-source"),
-            size: wgpu::Extent3d {
-                width: src_w,
-                height: src_h,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        // Reuse the size-keyed GPU resources when the dimensions haven't changed (the common
+        // case for an export loop); rebuild them only when a dimension differs. The guard is
+        // held for the whole call, serializing composites — matching the pre-existing text
+        // Mutex — so the single cached source/target/readback are never used concurrently.
+        let mut cache_guard = self.cache.lock().expect("composite cache poisoned");
+        if !cache_guard
+            .as_ref()
+            .is_some_and(|c| c.matches(src_w, src_h, out_w, out_h))
+        {
+            *cache_guard = Some(self.build_cache(src_w, src_h, out_w, out_h));
+        }
+        let cache = cache_guard.as_ref().expect("cache just populated");
+
+        // Stream this frame's source pixels into the cached source texture.
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &src_tex,
+                texture: &cache.src_tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -531,7 +702,6 @@ impl Compositor {
                 depth_or_array_layers: 1,
             },
         );
-        let src_view = src_tex.create_view(&wgpu::TextureViewDescriptor::default());
 
         let uniforms = Uniforms {
             out_size: [out_w as f32, out_h as f32],
@@ -543,54 +713,17 @@ impl Compositor {
             _pad: 0.0,
             bg,
         };
-        let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vuoom-uniforms"),
-            size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         self.queue
-            .write_buffer(&ubuf, 0, bytemuck::bytes_of(&uniforms));
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vuoom-composite-bg"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ubuf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
+            .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
 
         let verts = build_shape_vertices(scene);
         let shape_uniforms = ShapeUniforms {
             out_size: [out_w as f32, out_h as f32],
             _pad: [0.0, 0.0],
         };
-        let shape_ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vuoom-shape-uniforms"),
-            size: std::mem::size_of::<ShapeUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         self.queue
-            .write_buffer(&shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
-        let shape_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vuoom-shape-bg"),
-            layout: &self.shape_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: shape_ubuf.as_entire_binding(),
-            }],
-        });
+            .write_buffer(&cache.shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
+        // Shape vertices vary in count per frame, so this buffer stays per-frame.
         let shape_vbuf = if verts.is_empty() {
             None
         } else {
@@ -675,8 +808,6 @@ impl Compositor {
             swash_cache,
         );
 
-        let target = self.offscreen(out_w, out_h);
-        let tview = target.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -684,7 +815,7 @@ impl Compositor {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("vuoom-composite-scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &tview,
+                    view: &cache.target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -696,18 +827,18 @@ impl Compositor {
                 occlusion_query_set: None,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_bind_group(0, &cache.bind_group, &[]);
             pass.draw(0..3, 0..1);
             if let Some(vbuf) = &shape_vbuf {
                 pass.set_pipeline(&self.shape_pipeline);
-                pass.set_bind_group(0, &shape_bg, &[]);
+                pass.set_bind_group(0, &cache.shape_bind_group, &[]);
                 pass.set_vertex_buffer(0, vbuf.slice(..));
                 pass.draw(0..verts.len() as u32, 0..1);
             }
             let _ = renderer.render(atlas, viewport, &mut pass);
         }
         self.queue.submit(Some(encoder.finish()));
-        self.read_back(&target, out_w, out_h)
+        self.read_back_into(&cache.target, &cache.readback, cache.padded_bpr, out_w, out_h)
     }
 }
 

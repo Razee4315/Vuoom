@@ -14,7 +14,19 @@ all-features = false
 [advisories]
 # Warn (don't hard-fail CI) on yanked crates; error on known vulnerabilities.
 yanked = "warn"
-ignore = []
+# Only flag unmaintained crates we depend on DIRECTLY. The transitive tree pulls a pile of
+# unmaintained-but-harmless crates we cannot swap (gtk3 bindings via tauri's Linux target,
+# unic-* and ttf-parser via glyphon, paste/proc-macro-error via macros) — those are their
+# parents' problem, and erroring on them would make every CI run red for nothing actionable.
+unmaintained = "workspace"
+ignore = [
+    # quick-xml 0.39.x DoS advisories (quadratic duplicate-attribute check, unbounded
+    # namespace allocations). Pulled transitively by tauri tooling to parse local, trusted
+    # XML — not attacker-controlled input. The fix is in a newer minor the tauri tree
+    # doesn't accept yet; Dependabot will pick it up when it does.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
 
 [licenses]
 # Permissive licenses present in (or acceptable for) the dependency tree.

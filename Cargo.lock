@@ -693,9 +693,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -5434,7 +5434,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",
@@ -5463,7 +5463,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5473,7 +5473,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "color_quant",
  "gif",
@@ -5486,7 +5486,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5497,7 +5497,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "futures-util",
  "thiserror 2.0.18",
@@ -5508,7 +5508,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "glam",
  "serde",
@@ -5518,7 +5518,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5533,7 +5533,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "glam",
  "serde",

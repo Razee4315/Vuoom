@@ -62,6 +62,8 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
+    # GetDiskFreeSpaceExW — free-space guard so a raw-BGRA stream can't silently fill the disk.
+    "Win32_Storage_FileSystem",
 ] }
 # CF_HDROP clipboard file copy (paste the exported GIF into Slack/Discord/etc.).
 # Safe wrapper over the DROPFILES + clipboard dance; replaces hand-rolled unsafe.

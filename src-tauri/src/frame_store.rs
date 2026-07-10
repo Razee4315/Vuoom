@@ -64,6 +64,41 @@ pub fn recovery_root() -> PathBuf {
     std::env::temp_dir().join("vuoom-recovery")
 }
 
+/// Free bytes available to the caller on the volume backing `path`. `None` if the query
+/// fails or the volume can't be resolved — callers treat that as "unknown, don't block".
+///
+/// Recordings stream raw uncompressed BGRA here (~250 MB/s at 1080p, ~1 GB/s at 4K), so
+/// without a guard a take can fill a system disk in minutes; this backs the record-start
+/// free-space check and the drain's proactive low-space stop.
+#[cfg(windows)]
+pub fn free_space_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    // `GetDiskFreeSpaceExW` needs an existing directory on the target volume, but the recovery
+    // root may not be created yet — walk up to the first ancestor that exists.
+    let mut dir = path;
+    while !dir.exists() {
+        dir = dir.parent()?;
+    }
+    let wide: Vec<u16> = dir
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut free: u64 = 0;
+    // SAFETY: `wide` is a valid NUL-terminated UTF-16 path; `free` is a live out-pointer.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut free), None, None) }.ok()?;
+    Some(free)
+}
+
+/// Non-Windows stub (the app is Windows-only; keeps the crate portable for `cargo check`).
+#[cfg(not(windows))]
+pub fn free_space_bytes(_path: &Path) -> Option<u64> {
+    None
+}
+
 /// Fixed scratch subdir backing an opened `.vuoom` bundle. Named non-numerically so recovery
 /// scanning skips it — opening a bundle must never bury the last recording's recoverable
 /// session. Truncated (not rotated) on each reuse, so it holds at most one bundle's frames.

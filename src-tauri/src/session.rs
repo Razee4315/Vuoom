@@ -110,6 +110,9 @@ struct Active {
     /// Pause spans `(start_qpc, end_qpc)` — an open span means "currently paused".
     /// Converted to cuts at stop time, so pauses stay editable in the timeline.
     pauses: Vec<(i64, Option<i64>)>,
+    /// Set at record start when free disk space was low (but above the hard floor): surfaced
+    /// as the stop-time warning so the user knows the take started on a nearly-full disk.
+    space_warning: Option<String>,
     /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
     _preview: LivePreview,
 }
@@ -310,6 +313,22 @@ impl Session {
         let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
 
+        // Guard the recording volume BEFORE creating anything: raw uncompressed BGRA streams to
+        // disk at ~250 MB/s (1080p) to ~1 GB/s (4K), so without a check a take can silently fill
+        // a system disk in minutes. Estimate the write size from the capture dimensions (region,
+        // else monitor, else a 1080p fallback) and block if free space is under the hard floor;
+        // warn (surfaced at stop) if it's above the floor but only a few minutes' worth.
+        let (est_w, est_h) = region
+            .map(|r| (r.w, r.h))
+            .or_else(|| monitor.as_ref().map(|m| (m.w, m.h)))
+            .unwrap_or((1920, 1080));
+        let _ = std::fs::create_dir_all(frame_store::recovery_root());
+        let space_warning = match frame_store::free_space_bytes(&frame_store::recovery_root()) {
+            // A probe failure means "unknown" — don't block the user on it.
+            None => None,
+            Some(free) => check_free_space(free, est_w, est_h)?,
+        };
+
         // Rotate: this take streams into its own fresh recovery subdir, so the previous
         // session's store survives until a later recording ages it out. `new_session_dir`
         // prunes older sessions first, keeping disk use bounded.
@@ -353,6 +372,7 @@ impl Session {
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
+        let probe_dir = recovery_dir.clone();
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
             // If a disk write fails mid-recording, stop writing but keep draining the
@@ -364,9 +384,28 @@ impl Session {
             // capture ended on its own (monitor unplugged, WGC session died). We keep the
             // frames already on disk and surface a warning instead of ending silently.
             let mut ended_early = false;
+            // Proactive low-disk guard: re-probe free space every `DISK_CHECK_EVERY` frames
+            // (cheap — a few times a second at most, never per frame) and stop writing before
+            // the volume actually fills. Reuses the salvage + warning path, so we keep the
+            // frames already on disk instead of hard-filling the user's disk.
+            let mut since_disk_check: u32 = 0;
             loop {
                 match frames_rx.recv_timeout(Duration::from_millis(200)) {
                     Ok(f) => {
+                        if write_err.is_none() {
+                            since_disk_check += 1;
+                            if since_disk_check >= DISK_CHECK_EVERY {
+                                since_disk_check = 0;
+                                if let Some(free) = frame_store::free_space_bytes(&probe_dir) {
+                                    if free < DRAIN_STOP_FLOOR_BYTES {
+                                        write_err = Some(format!(
+                                            "low on space, ~{} MB left",
+                                            free / (1024 * 1024)
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                         if write_err.is_none() {
                             if let Err(e) = writer.push(&f) {
                                 write_err = Some(e);
@@ -404,6 +443,7 @@ impl Session {
             zoom_poll: ZoomChordPoller::start(),
             recovery_dir,
             pauses: Vec::new(),
+            space_warning,
             _preview: preview,
         });
         Ok(())
@@ -545,11 +585,13 @@ impl Session {
             ..Edited::default()
         };
 
-        // Surface the first thing that went wrong, if anything: a disk-write truncation is the
-        // more specific cause, otherwise flag a capture that ended on its own mid-take.
+        // Surface the first thing that went wrong, if anything: a mid-recording disk stop
+        // (an actual write failure, or the drain's proactive low-space cutoff) is the most
+        // specific cause; then a capture that ended on its own; finally, if the take completed
+        // cleanly, the heads-up that it *started* on a low-space disk.
         let warning = if let Some(e) = write_warning {
             Some(format!(
-                "Recording was cut short — a disk write failed ({e}). Kept the {frame_count} frames captured before that."
+                "Recording was cut short to protect your disk — {e}. Kept the {frame_count} frames captured before that."
             ))
         } else if capture_ended_early {
             Some(
@@ -557,7 +599,7 @@ impl Session {
                     .to_string(),
             )
         } else {
-            None
+            session.space_warning.take()
         };
 
         Ok(RecordingSummary {
@@ -2096,6 +2138,61 @@ fn default_end(t: f64, duration: f64) -> f64 {
     (t + 3.0).min(duration.max(t + 0.5))
 }
 
+// ── disk free-space guard ───────────────────────────────────────────────────────
+// Raw uncompressed BGRA streams straight to disk, so the store grows at `w*h*4` bytes per
+// captured frame. Without a guard a full-screen/4K take can silently fill a system disk in
+// minutes, so `start_recording` checks free space up front and the drain re-checks while
+// recording (see `frame_store::free_space_bytes`).
+
+/// Conservative capture rate (fps) used to size the raw-BGRA write estimate. Real capture is
+/// usually 30–60 fps; picking the low end keeps the estimate from over-reserving space.
+const ESTIMATE_FPS: u64 = 30;
+/// Absolute minimum free space to start any recording, regardless of dimensions — leaves
+/// headroom so even a tiny capture can't creep a nearly-full disk to zero.
+const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Also require at least this many seconds of capture to fit, so a large/4K take that would
+/// blow past the 2 GB floor in seconds is still blocked up front.
+const MIN_FREE_SECONDS: u64 = 30;
+/// Above the floor but below this many seconds of capture: start, but warn the user.
+const LOW_FREE_SECONDS: u64 = 5 * 60;
+/// How often (in frames) the drain re-checks free space — ~2 s at 30 fps, far from per-frame.
+const DISK_CHECK_EVERY: u32 = 60;
+/// The drain stops writing (salvaging the take) once free space drops below this, so a runaway
+/// raw stream can't fully fill the volume before an actual write error would hit.
+const DRAIN_STOP_FLOOR_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Bytes per second the raw-BGRA store grows at for a `w`×`h` capture (`w*h*4` × a
+/// conservative fps). Enormous by design — ~250 MB/s at 1080p, ~1 GB/s at 4K — which is
+/// exactly why free space is guarded before and during recording.
+fn raw_write_rate_bps(w: u32, h: u32) -> u64 {
+    u64::from(w) * u64::from(h) * 4 * ESTIMATE_FPS
+}
+
+/// Decide whether a recording may start given `free_bytes` on the recording volume and the
+/// capture dimensions. `Err` blocks the take (not enough space); `Ok(Some(_))` starts it but
+/// carries a heads-up warning; `Ok(None)` is plenty of space.
+fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, String> {
+    let rate = raw_write_rate_bps(w, h).max(1);
+    let floor = MIN_FREE_BYTES.max(rate.saturating_mul(MIN_FREE_SECONDS));
+    let free_gb = free_bytes as f64 / 1e9;
+    if free_bytes < floor {
+        let need_gb = floor as f64 / 1e9;
+        let mbps = rate / (1024 * 1024);
+        return Err(format!(
+            "Not enough disk space to record: only {free_gb:.1} GB free, need at least {need_gb:.1} GB. \
+             Vuoom records raw video (~{mbps} MB/s at this size) — free up space and try again."
+        ));
+    }
+    if free_bytes < rate.saturating_mul(LOW_FREE_SECONDS) {
+        let minutes = free_bytes / rate / 60;
+        return Ok(Some(format!(
+            "Heads up: your disk was low on space when recording started — about {minutes} min fits \
+             ({free_gb:.1} GB free). Vuoom stops automatically before the disk fills."
+        )));
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2307,5 +2404,48 @@ mod tests {
         let labels: Vec<&str> = taps.iter().map(|t| t.label.as_str()).collect();
         assert_eq!(labels, vec!["Ctrl+Shift+P", "Enter"]);
         assert!((taps[0].t - 1.02).abs() < 1e-3);
+    }
+
+    // --- disk free-space guard ---
+
+    const GB: u64 = 1_000_000_000;
+
+    #[test]
+    fn raw_write_rate_scales_with_pixel_area() {
+        // 4K has 4× the pixels of 1080p, so 4× the byte rate.
+        assert_eq!(
+            raw_write_rate_bps(3840, 2160),
+            4 * raw_write_rate_bps(1920, 1080)
+        );
+        // 1080p at 30 fps: 1920*1080*4*30 bytes/s.
+        assert_eq!(raw_write_rate_bps(1920, 1080), 1920 * 1080 * 4 * 30);
+    }
+
+    #[test]
+    fn free_space_blocks_below_absolute_floor() {
+        // 1 GB is under the 2 GB hard floor even for a tiny capture.
+        let err = check_free_space(GB, 640, 480).unwrap_err();
+        assert!(err.contains("Not enough disk space"));
+    }
+
+    #[test]
+    fn free_space_blocks_when_under_thirty_seconds_of_capture() {
+        // 5 GB clears the 2 GB floor, but 1080p burns ~250 MB/s, so 30 s needs ~7.5 GB.
+        assert!(check_free_space(5 * GB, 1920, 1080).is_err());
+    }
+
+    #[test]
+    fn free_space_warns_when_low_but_sufficient() {
+        // 20 GB at 1080p: above the ~7.5 GB / 30 s floor but below the ~75 GB / 5 min warn line.
+        let warn = check_free_space(20 * GB, 1920, 1080)
+            .expect("should start")
+            .expect("should warn");
+        assert!(warn.contains("low on space"));
+    }
+
+    #[test]
+    fn free_space_ok_when_plenty() {
+        // 500 GB at 1080p clears even the 5 min warn line — no warning.
+        assert_eq!(check_free_space(500 * GB, 1920, 1080), Ok(None));
     }
 }

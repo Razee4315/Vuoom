@@ -1061,13 +1061,17 @@ function App() {
     const el = contentInput;
     if (el && t && document.activeElement !== el) el.value = t.text;
   });
-  const editStyle = async (patch: { thickness?: number; filled?: boolean }) => {
-    const s = selected();
-    if (!s) return;
-    await invoke("set_annotation_style", { id: s.id, ...patch });
-    await refresh();
-    await pushSeek(playhead());
-  };
+  // Scrub-driven inspector edits (thickness / opacity / colour / font size / text) fire on
+  // every pointer-move or keystroke, so they run through pushEdit — the same edit throttle
+  // the inline text editor uses — to bound the invoke→refresh→seek round-trips. pushEdit
+  // appends the seek and always lets the trailing value land, so the drag-end value sticks.
+  const editStyle = (patch: { thickness?: number; filled?: boolean }) =>
+    pushEdit(async () => {
+      const s = selected();
+      if (!s) return;
+      await invoke("set_annotation_style", { id: s.id, ...patch });
+      await refresh();
+    });
   const setShape = async (ellipse: boolean) => {
     const s = selected();
     if (s?.kind !== "box") return;
@@ -1082,13 +1086,13 @@ function App() {
     await refresh();
     await pushSeek(playhead());
   };
-  const setOpacity = async (a: number) => {
-    const s = selected();
-    if (!s) return;
-    await invoke("set_annotation_opacity", { id: s.id, a });
-    await refresh();
-    await pushSeek(playhead());
-  };
+  const setOpacity = (a: number) =>
+    pushEdit(async () => {
+      const s = selected();
+      if (!s) return;
+      await invoke("set_annotation_opacity", { id: s.id, a });
+      await refresh();
+    });
   const inspTitle = () => {
     const s = selected()!;
     if (s.kind === "box") {
@@ -1107,28 +1111,28 @@ function App() {
     if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.color;
     return anns().highlights.find((b) => b.id === s.id)?.color;
   };
-  const setColor = async (hex: string) => {
-    const s = selected();
-    if (!s) return;
-    const c = hexRgb(hex);
-    await invoke("set_annotation_color", { id: s.id, r: c.r, g: c.g, b: c.b });
-    await refresh();
-    await pushSeek(playhead());
-  };
-  const editText = async (text: string) => {
-    const s = selected();
-    if (s?.kind !== "text") return;
-    await invoke("update_text", { id: s.id, text });
-    await refresh();
-    await pushSeek(playhead());
-  };
-  const editFontSize = async (size: number) => {
-    const s = selected();
-    if (s?.kind !== "text") return;
-    await invoke("update_text", { id: s.id, fontSize: size });
-    await refresh();
-    await pushSeek(playhead());
-  };
+  const setColor = (hex: string) =>
+    pushEdit(async () => {
+      const s = selected();
+      if (!s) return;
+      const c = hexRgb(hex);
+      await invoke("set_annotation_color", { id: s.id, r: c.r, g: c.g, b: c.b });
+      await refresh();
+    });
+  const editText = (text: string) =>
+    pushEdit(async () => {
+      const s = selected();
+      if (s?.kind !== "text") return;
+      await invoke("update_text", { id: s.id, text });
+      await refresh();
+    });
+  const editFontSize = (size: number) =>
+    pushEdit(async () => {
+      const s = selected();
+      if (s?.kind !== "text") return;
+      await invoke("update_text", { id: s.id, fontSize: size });
+      await refresh();
+    });
   const editTextStyle = async (patch: {
     bold?: boolean;
     italic?: boolean;

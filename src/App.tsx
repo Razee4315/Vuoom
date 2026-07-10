@@ -137,9 +137,14 @@ function App() {
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
-  // Pixel width of the timeline track surface — drives the adaptive ruler ticks
-  // (kept in sync via a ResizeObserver in onMount).
+  // Pixel width of the timeline *viewport* (the outer .tl box) — drives the fit-to-width
+  // scale and the adaptive ruler ticks (kept in sync via a ResizeObserver in onMount).
   const [tlWidth, setTlWidth] = createSignal(800);
+  // Timeline horizontal scale. null = fit-to-width (the default: the track exactly fills
+  // the viewport, every position resolves in % of duration — identical to the old layout).
+  // A number is a fixed px-per-second scale; the inner track grows wider than the viewport
+  // and the wrapper scrolls. Ctrl+wheel / the +/−/Fit cluster drive it.
+  const [tlScale, setTlScale] = createSignal<number | null>(null);
   // While an annotation is dragged on the canvas, the normalized x/y of an active
   // center/edge snap guide (or null). Drawn as crosshair lines on the overlay.
   const [snapX, setSnapX] = createSignal<number | null>(null);
@@ -1509,12 +1514,19 @@ function App() {
   };
 
   // ── timeline (ruler + tracks + drag-to-scrub) ─────────────────────────────────────
-  let tlEl: HTMLDivElement | undefined;
+  let tlEl: HTMLDivElement | undefined; // outer viewport box (.tl)
+  let tlScrollEl: HTMLDivElement | undefined; // horizontal-scroll wrapper (.tl-scroll)
+  let tlTrackEl: HTMLDivElement | undefined; // inner track (.tl-track-inner) — the scaled surface
   let tlDrag = false;
-  const tlTime = (e: PointerEvent) => {
-    const r = tlEl!.getBoundingClientRect();
-    return clamp01((e.clientX - r.left) / r.width) * duration();
+  // Single source of truth for clientX → time. It measures the *inner track*, whose
+  // getBoundingClientRect already reflects scrollLeft (its left edge slides negative as the
+  // wrapper scrolls) and whose width is the scaled track width — so this one formula works
+  // in both fit mode and zoomed-and-scrolled mode with no scroll math of its own.
+  const timeFromClientX = (clientX: number) => {
+    const r = (tlTrackEl ?? tlEl)!.getBoundingClientRect();
+    return clamp01((clientX - r.left) / r.width) * duration();
   };
+  const tlTime = (e: PointerEvent) => timeFromClientX(e.clientX);
   const tlSeekFromEvent = (e: PointerEvent) => {
     if (!tlEl || !hasClip() || duration() <= 0) return;
     scrub(tlTime(e));
@@ -1626,8 +1638,8 @@ function App() {
   let snapHold: number | null = null;
   const [snapLine, setSnapLine] = createSignal<number | null>(null);
 
-  // Grid step: the smallest of these that renders ≥8px wide, so we snap to whole seconds on
-  // a long clip and finer marks on a short one (there's no timeline zoom yet).
+  // Grid step: the smallest of these that renders ≥8px wide at the *effective* scale, so we
+  // snap to whole seconds on a long clip and finer marks as the timeline is zoomed in.
   const snapGrid = () => {
     const pps = pxPerSec();
     if (pps <= 0) return 1;
@@ -1890,7 +1902,84 @@ function App() {
   // minor subdivision that keeps minor ticks ≥11px apart. The midpoint minor is drawn
   // taller. Mirrors the spacing logic in pro editors instead of a fixed tick count.
   const NICE_STEPS = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600];
-  const pxPerSec = () => (duration() > 0 ? tlWidth() / duration() : 0);
+  // Fit scale = the px-per-second at which the track exactly fills the viewport.
+  const fitPps = () => (duration() > 0 ? tlWidth() / duration() : 0);
+  // Effective px-per-second: the current zoom scale, or the fit scale in fit mode. EVERYTHING
+  // downstream (ruler ticks, and — crucially — the snap catch radius which is SNAP_PX/pxPerSec)
+  // reads this, so snap tolerances and grid stay constant in *screen pixels* at any zoom.
+  const pxPerSec = () => tlScale() ?? fitPps();
+  const TL_MAX_PPS = 200; // ~200 px/s ceiling; fitPps() is the floor
+  // CSS width for the inner track: 100% in fit mode (exact old layout), else duration*scale
+  // (never below the viewport, so a barely-zoomed track can't leave a gap).
+  const trackWidth = () => {
+    const s = tlScale();
+    if (s == null || duration() <= 0) return "100%";
+    return `${Math.max(duration() * s, tlWidth())}px`;
+  };
+  // Apply a new scale while keeping `tAnchor` (seconds) pinned under viewport pixel `keepX`.
+  // Any target at or below fit snaps back to fit mode (null) so fit renders byte-identical.
+  const applyScaleAnchored = (next: number, tAnchor: number, keepX: number) => {
+    if (next <= fitPps() + 0.001 || duration() <= 0) {
+      setTlScale(null);
+      return;
+    }
+    const n = Math.min(TL_MAX_PPS, next);
+    setTlScale(n);
+    // Width updates reactively; set scrollLeft after the DOM reflows.
+    requestAnimationFrame(() => {
+      if (!tlScrollEl) return;
+      const w = duration() * n;
+      const max = Math.max(0, w - tlScrollEl.clientWidth);
+      tlScrollEl.scrollLeft = Math.max(0, Math.min(tAnchor * n - keepX, max));
+    });
+  };
+  // +/− buttons: zoom around the centre of the current view.
+  const zoomTimeline = (dir: 1 | -1) => {
+    if (duration() <= 0) return;
+    const cur = tlScale() ?? fitPps();
+    if (cur <= 0) return;
+    const w = tlScrollEl?.clientWidth ?? tlWidth();
+    const centerX = (tlScrollEl?.scrollLeft ?? 0) + w / 2;
+    applyScaleAnchored(cur * (dir > 0 ? 1.6 : 1 / 1.6), centerX / cur, w / 2);
+  };
+  // Ctrl+wheel zooms around the cursor; plain wheel scrolls horizontally when zoomed.
+  const onTlWheel = (e: WheelEvent) => {
+    if (!hasClip() || duration() <= 0) return;
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const cur = tlScale() ?? fitPps();
+      if (cur <= 0) return;
+      const keepX = e.clientX - (tlScrollEl ?? tlEl)!.getBoundingClientRect().left;
+      applyScaleAnchored(cur * Math.exp(-e.deltaY * 0.0015), timeFromClientX(e.clientX), keepX);
+    } else if (tlScale() != null && tlScrollEl) {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (delta !== 0) {
+        e.preventDefault();
+        tlScrollEl.scrollLeft += delta;
+      }
+    }
+  };
+  // Re-fit if the viewport grew past the current scale (window resize / smaller clip): the
+  // fit floor rose above the zoom, so drop back to fit mode rather than show a sub-fit track.
+  createEffect(() => {
+    const s = tlScale();
+    if (s != null && s < fitPps()) setTlScale(null);
+  });
+  // While zoomed, keep the playhead on screen: when it leaves the visible span, jump the
+  // wrapper so the head sits ~40% from the left. Only fires on playhead change, so manual
+  // horizontal scrolling of a paused clip is never fought.
+  createEffect(() => {
+    const s = tlScale();
+    const ph = playhead();
+    if (s == null || !tlScrollEl) return;
+    const x = ph * s;
+    const view = tlScrollEl.scrollLeft;
+    const w = tlScrollEl.clientWidth;
+    if (x < view + 24 || x > view + w - 24) {
+      const max = Math.max(0, duration() * s - w);
+      tlScrollEl.scrollLeft = Math.max(0, Math.min(x - w * 0.4, max));
+    }
+  });
   const tickStep = () => {
     const target = pxPerSec() > 0 ? 90 / pxPerSec() : duration();
     return NICE_STEPS.find((s) => s >= target) ?? NICE_STEPS[NICE_STEPS.length - 1];
@@ -3261,7 +3350,10 @@ function App() {
         <div
           class="tl"
           classList={{ empty: !hasClip() }}
-          ref={(el) => (tlEl = el)}
+          ref={(el) => {
+            tlEl = el;
+            el.addEventListener("wheel", onTlWheel, { passive: false });
+          }}
           onPointerDown={(e) => {
             if (!hasClip()) return;
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -3277,6 +3369,8 @@ function App() {
             when={hasClip()}
             fallback={<div class="tl-empty">Your recording's timeline appears here</div>}
           >
+            <div class="tl-scroll" ref={(el) => (tlScrollEl = el)}>
+            <div class="tl-track-inner" ref={(el) => (tlTrackEl = el)} style={{ width: trackWidth() }}>
             <div class="tl-ruler">
               <For each={tickMarks()}>
                 {(m) => (
@@ -3450,6 +3544,30 @@ function App() {
 
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
               <i />
+            </div>
+            </div>
+            </div>
+            {/* Zoom cluster — floats over the timeline's top-right, never scrolls with it. */}
+            <div class="tl-zoomctl" onPointerDown={(e) => e.stopPropagation()}>
+              <button
+                class="tl-zbtn"
+                title="Zoom out timeline"
+                onClick={() => zoomTimeline(-1)}
+                disabled={tlScale() === null}
+              >
+                −
+              </button>
+              <button
+                class="tl-zbtn fit"
+                classList={{ on: tlScale() === null }}
+                title="Fit timeline to width"
+                onClick={() => setTlScale(null)}
+              >
+                Fit
+              </button>
+              <button class="tl-zbtn" title="Zoom in timeline (Ctrl+scroll)" onClick={() => zoomTimeline(1)}>
+                +
+              </button>
             </div>
           </Show>
         </div>

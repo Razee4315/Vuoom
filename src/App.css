@@ -1292,6 +1292,66 @@ kbd {
   font-size: var(--fs-sm);
   color: var(--muted);
 }
+/* Horizontal-scroll viewport. In fit mode the inner track is exactly 100% wide so no
+   scrollbar shows; once zoomed the track overflows and this wrapper scrolls. */
+.tl-scroll {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+/* The scaled track surface. All %-positioned children resolve against its width, so the
+   only thing that changes between fit and zoom is this element's width. */
+.tl-track-inner {
+  position: relative;
+  min-width: 100%;
+  /* Fill the .tl min-height (86px − 2px border) so the playhead/trim span the full box
+     exactly as they did when they were direct children of .tl. */
+  min-height: 84px;
+}
+/* Zoom controls — a small cluster pinned over the timeline's top-right corner. */
+.tl-zoomctl {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  z-index: 6;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel-2) 78%, transparent);
+  backdrop-filter: blur(3px);
+  border: 1px solid var(--line);
+  cursor: default;
+}
+.tl-zbtn {
+  min-width: 22px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.tl-zbtn:hover:not(:disabled) {
+  background: var(--panel);
+  color: var(--text);
+}
+.tl-zbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tl-zbtn.on {
+  color: var(--accent);
+}
 .tl-ruler {
   position: relative;
   height: 20px;
@@ -2111,6 +2171,9 @@ kbd {
   }
   .tl {
     min-height: 72px;
+  }
+  .tl-track-inner {
+    min-height: 70px;
   }
   .tl.empty {
     height: 72px;

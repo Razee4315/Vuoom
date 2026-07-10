@@ -143,12 +143,74 @@ impl Project {
         serde_json::to_string_pretty(self)
     }
 
-    /// Parse a `.vuoom` JSON manifest.
+    /// Parse a `.vuoom` JSON manifest, migrating older schemas forward first.
+    ///
+    /// The document is read untyped, its `schema` is inspected (absent means the
+    /// pre-schema-field v1 layout), [`migrate`] advances it one version at a time up
+    /// to [`Self::SCHEMA`], and only then is it deserialized into a typed [`Project`].
+    /// This gives every future schema bump a concrete place to transform old JSON
+    /// instead of relying solely on `#[serde(default)]`.
     ///
     /// # Errors
-    /// Returns a [`serde_json::Error`] if the JSON is malformed or mistyped.
+    /// Returns a [`serde_json::Error`] if the JSON is malformed or mistyped, or if the
+    /// manifest was written by a *newer* Vuoom (schema greater than [`Self::SCHEMA`]),
+    /// which this build cannot safely interpret.
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(s)
+        use serde::de::Error as _;
+
+        let mut value: serde_json::Value = serde_json::from_str(s)?;
+
+        // Bundles predating the `schema` field are v1 by definition.
+        let schema = value
+            .get("schema")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1) as u32;
+
+        // A newer bundle may have renamed or retyped fields this build has never
+        // seen; deserializing it would silently drop or mangle data, so refuse.
+        if schema > Self::SCHEMA {
+            return Err(serde_json::Error::custom(format!(
+                "this project was saved by a newer Vuoom (schema {schema}, this build \
+                 understands up to schema {}); please update Vuoom to open it",
+                Self::SCHEMA
+            )));
+        }
+
+        // Advance the raw document one version at a time until it matches SCHEMA.
+        for from in schema..Self::SCHEMA {
+            migrate(from, &mut value);
+        }
+
+        // Whatever the document claimed, the typed struct carries the current version.
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert("schema".into(), serde_json::Value::from(Self::SCHEMA));
+        }
+
+        serde_json::from_value(value)
+    }
+}
+
+/// Transform a raw `.vuoom` document in place from schema `from` to schema `from + 1`.
+///
+/// [`Project::from_json`] calls this sequentially (`from`, `from + 1`, …) until the
+/// document reaches [`Project::SCHEMA`], so each arm only has to advance a single
+/// version. This is the hook the next schema bump plugs into: when a field is renamed,
+/// retyped, or split, add the matching arm here to rewrite the JSON so the typed
+/// deserialization that follows still succeeds on old bundles.
+///
+/// # Migration steps
+/// - `1 => 2`: schema 2 added the persisted `events` log alongside `cuts`,
+///   `show_clicks`, `key_taps`, and `show_keys`. Every one of those is
+///   `#[serde(default)]`, so a v1 document deserializes unchanged — this step is an
+///   intentional no-op, kept to document the transition and anchor the loop above.
+fn migrate(from: u32, value: &mut serde_json::Value) {
+    let _ = value;
+    match from {
+        // 1 -> 2: purely additive, all new fields covered by serde defaults.
+        1 => {}
+        // No transform registered for this step; the typed deserialization in
+        // `from_json` remains the final gate on validity.
+        _ => {}
     }
 }
 
@@ -195,6 +257,48 @@ mod tests {
         let json = p.to_json().expect("serialize");
         let back = Project::from_json(&json).expect("deserialize");
         assert_eq!(p, back);
+    }
+
+    #[test]
+    fn legacy_v1_bundle_migrates_and_round_trips() {
+        // Simulate a schema-1 bundle: strip the `schema` tag (v1 predates the field)
+        // and every field schema 2 introduced, leaving only the original v1 shape.
+        let p = Project::new(sample_source());
+        let mut v: serde_json::Value = serde_json::from_str(&p.to_json().unwrap()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("schema");
+        obj.remove("events");
+        obj.remove("cuts");
+        obj.remove("show_clicks");
+        obj.remove("key_taps");
+        obj.remove("show_keys");
+        let legacy = serde_json::to_string(&v).unwrap();
+
+        let back = Project::from_json(&legacy).expect("v1 bundle should migrate + parse");
+        // Migration stamps the current schema; serde defaults fill the new fields.
+        assert_eq!(back.schema, Project::SCHEMA);
+        assert!(back.events.is_empty());
+        assert!(back.cuts.is_empty());
+        assert!(!back.show_clicks);
+        assert!(back.key_taps.is_empty());
+        assert!(!back.show_keys);
+        assert_eq!(back, p);
+    }
+
+    #[test]
+    fn newer_schema_is_rejected() {
+        let p = Project::new(sample_source());
+        let mut v: serde_json::Value = serde_json::from_str(&p.to_json().unwrap()).unwrap();
+        v.as_object_mut()
+            .unwrap()
+            .insert("schema".into(), serde_json::Value::from(99));
+        let doc = serde_json::to_string(&v).unwrap();
+
+        let err = Project::from_json(&doc).expect_err("a newer schema must be rejected");
+        assert!(
+            err.to_string().contains("newer Vuoom"),
+            "unexpected error message: {err}"
+        );
     }
 
     #[test]

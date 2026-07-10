@@ -5483,7 +5483,7 @@ version = "0.1.33"
 dependencies = [
  "color_quant 2.0.0",
  "gif",
- "png 0.17.16",
+ "png 0.18.1",
  "serde",
  "tempfile",
  "thiserror 2.0.18",

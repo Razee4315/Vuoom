@@ -3666,10 +3666,16 @@ function ExportDialog(props: {
     }
   };
 
-  const copyGif = async () => {
+  const copyFile = async () => {
     try {
-      await invoke("copy_gif_to_clipboard", { path: outPath() });
-      setCopied("Copied! Paste it into Slack, Discord, or a GitHub comment.");
+      await invoke("copy_export_to_clipboard", { path: outPath() });
+      // Honest per-format copy: GIFs paste as animations almost everywhere; MP4s are
+      // copied as a *file*, which many chat apps won't accept from the clipboard.
+      setCopied(
+        format() === "gif"
+          ? "Copied! Paste it into Slack, Discord, or a GitHub comment."
+          : "Copied as a file. If pasting doesn't work, drag it in from Show in folder.",
+      );
     } catch (e) {
       setCopied(`Copy failed: ${String(e)}`);
     }
@@ -3771,7 +3777,7 @@ function ExportDialog(props: {
             {outPath()}
           </p>
           <div class="done-actions">
-            <button class="btn export" onClick={() => void copyGif()}>
+            <button class="btn export" onClick={() => void copyFile()}>
               Copy {format().toUpperCase()}
             </button>
             <button class="btn" onClick={() => void copyPath()}>
@@ -3781,7 +3787,12 @@ function ExportDialog(props: {
               Show in folder
             </button>
           </div>
-          <p class="muted small">{copied() || "Paste the copied GIF anywhere that accepts files."}</p>
+          <p class="muted small">
+            {copied() ||
+              (format() === "gif"
+                ? "Paste the copied GIF anywhere that accepts files."
+                : "Copy puts the MP4 on the clipboard as a file — drag from the folder if an app won't paste it.")}
+          </p>
           <div class="modal-actions">
             <button class="btn" onClick={props.onClose}>
               Done

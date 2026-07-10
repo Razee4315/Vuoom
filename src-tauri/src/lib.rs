@@ -185,7 +185,7 @@ pub fn run() {
             commands::set_zoom_focus,
             commands::delete_zoom,
             commands::estimate_gif,
-            commands::copy_gif_to_clipboard,
+            commands::copy_export_to_clipboard,
             commands::update_text,
             commands::update_arrow,
             commands::update_box,

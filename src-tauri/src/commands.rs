@@ -438,10 +438,10 @@ pub async fn estimate_gif(
     engine.session()?.estimate_gif(fps, width, quality)
 }
 
-/// Put the exported GIF on the clipboard as a file (CF_HDROP), so pasting into Slack /
-/// Discord / a GitHub comment uploads the animated file.
+/// Put an exported file (GIF or MP4) on the clipboard as CF_HDROP, so pasting into Slack /
+/// Discord / a GitHub comment uploads the actual file.
 #[tauri::command]
-pub fn copy_gif_to_clipboard(path: String) -> Result<(), String> {
+pub fn copy_export_to_clipboard(path: String) -> Result<(), String> {
     copy_file_to_clipboard(&path)
 }
 

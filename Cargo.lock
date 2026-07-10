@@ -4518,6 +4518,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-single-instance"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c8f29386f5e9fdc699182388a33ee80a56de436d91b67459e86afef426282af"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.18",
+ "tracing",
+ "windows-sys 0.60.2",
+ "zbus",
+]
+
+[[package]]
 name = "tauri-plugin-updater"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5307,7 +5322,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "base64 0.22.1",
  "glam",
@@ -5318,6 +5333,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-process",
+ "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "vuoom-capture",
  "vuoom-encode",
@@ -5331,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5341,7 +5357,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "color_quant",
  "gif",
@@ -5354,7 +5370,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5365,7 +5381,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "futures-util",
  "thiserror 2.0.18",
@@ -5376,7 +5392,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "glam",
  "serde",
@@ -5386,7 +5402,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5401,7 +5417,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.28"
+version = "0.1.30"
 dependencies = [
  "glam",
  "serde",

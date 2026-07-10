@@ -70,6 +70,16 @@ pub fn run() {
     let _ = vuoom_input::set_per_monitor_aware_v2();
 
     tauri::Builder::default()
+        // Single-instance must be registered first (documented requirement). A second
+        // launch fires this callback in the running instance — instead of spinning up a
+        // rival that would race on the shared %TEMP%/vuoom-recovery store — then exits.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())

@@ -18,6 +18,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+# Guard against two Vuooms running at once: both would race on recovery
+# session-id allocation/pruning under %TEMP%/vuoom-recovery and corrupt each
+# other's recordings. Must be the first plugin registered (see lib.rs).
+tauri-plugin-single-instance = "2"
 # Auto-update from GitHub Releases: the updater checks/downloads/installs the
 # signed bundle; the process plugin relaunches the app afterwards.
 tauri-plugin-updater = "2"

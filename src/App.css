@@ -290,6 +290,9 @@ kbd {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  /* Anchored to the top-right corner it drops from. */
+  transform-origin: top right;
+  animation: ui-dropdown-in var(--dur-transition) var(--ease);
 }
 .theme-item {
   width: 100%;
@@ -1631,6 +1634,8 @@ kbd {
   background: rgba(0, 0, 0, 0.55);
   display: grid;
   place-items: center;
+  /* Backdrop fades in only — the card underneath does the scale. */
+  animation: ui-fade-in var(--dur-transition) var(--ease);
 }
 .modal {
   width: min(460px, 92vw);
@@ -1639,6 +1644,8 @@ kbd {
   border-radius: var(--radius-lg);
   padding: 22px;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  transform-origin: center;
+  animation: ui-pop-in var(--dur-transition) var(--ease);
 }
 .modal h2 {
   margin: 0 0 16px;
@@ -1812,6 +1819,64 @@ kbd {
 }
 
 /* ============================================================
+   Entrance animations — subtle fade + scale for surfaces that
+   pop into existence (modals, welcome card, theme dropdown,
+   coachmark). Short and quiet; the token duration/easing keep
+   them in step with the rest of the UI.
+   ============================================================ */
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Centred surfaces (modals, welcome card) — fade, rise a touch, scale up. */
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* Dropdown — unfolds from its anchor corner with almost no travel. */
+@keyframes ui-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* Coachmark — settles down from the arrow that points at Record. */
+@keyframes ui-coach-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* Respect the OS setting — no entrance motion when reduced motion is asked for. */
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal,
+  .welcome-card,
+  .thememenu-list,
+  .coachmark {
+    animation: none;
+  }
+}
+
+/* ============================================================
    Onboarding — first-run welcome card + Record coachmark
    ============================================================ */
 .welcome-backdrop {
@@ -1825,6 +1890,8 @@ kbd {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   text-align: center;
+  transform-origin: center;
+  animation: ui-pop-in var(--dur-transition) var(--ease);
 }
 .welcome-title {
   margin: 18px 0 8px;
@@ -1915,6 +1982,9 @@ kbd {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
+  /* Grows down from the arrow that points up at the Record button. */
+  transform-origin: top left;
+  animation: ui-coach-in var(--dur-transition) var(--ease);
 }
 .coach-arrow {
   position: absolute;

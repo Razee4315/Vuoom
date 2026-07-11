@@ -11,7 +11,8 @@ use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSu
 use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
 use crate::Engine;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
@@ -27,6 +28,10 @@ pub struct BorderState {
     pub origin: Mutex<(i32, i32)>,
     /// The live strips while recording; dropping them removes the frame.
     pub border: Mutex<Option<RegionBorder>>,
+    /// Bumped on every panel move — the drag guard's debounce watches it settle.
+    pub move_gen: Arc<AtomicU64>,
+    /// Whether a drag-guard debounce thread is already waiting (at most one at a time).
+    pub guard_active: Arc<AtomicBool>,
 }
 
 // ── Recording flow ───────────────────────────────────────────────────────────────
@@ -184,6 +189,126 @@ fn pick_panel_spot(
     corners
         .into_iter()
         .find(|&(px, py)| !rects_overlap((px, py, pw, ph), r))
+}
+
+/// Nearest position that pushes `panel` just clear of `region` (already inflated) while
+/// staying fully on `mon`. `None` when no side of the region has room for the panel.
+fn snap_outside(panel: Rect, region: Rect, mon: Rect) -> Option<(i32, i32)> {
+    let (px, py, pw, ph) = panel;
+    let (rx, ry, rw, rh) = region;
+    let (mx, my, mw, mh) = mon;
+    // Push the panel out along one axis, keeping the other where the user dropped it.
+    let candidates = [
+        (rx - pw, py), // flush left of the region
+        (rx + rw, py), // flush right
+        (px, ry - ph), // flush above
+        (px, ry + rh), // flush below
+    ];
+    candidates
+        .into_iter()
+        .filter(|&(x, y)| x >= mx && y >= my && x + pw <= mx + mw && y + ph <= my + mh)
+        .min_by_key(|&(x, y)| (x - px).abs() + (y - py).abs())
+}
+
+/// Panel-drag guard: while a region recording is running, react to the recording panel
+/// being moved. `WDA_EXCLUDEFROMCAPTURE` is not airtight on Windows 10 — an excluded
+/// window overlapping the captured area shows up in the recording (and in the panel's own
+/// live preview) as a solid black rectangle — so the panel must physically stay outside
+/// the region. `enter_stopbar` parks it clear and `start_recording` minimizes it when
+/// covered, but the panel is draggable; this closes that last gap. Wired to
+/// `WindowEvent::Moved` in `lib.rs`.
+///
+/// Moves are debounced (Windows streams `Moved` continuously during a drag): a single
+/// watcher thread waits for the position to settle, then snaps the panel to the nearest
+/// clear spot — fighting the native drag loop mid-drag would just make the window flicker.
+pub fn guard_panel_moved(window: &tauri::Window) {
+    let app = window.app_handle();
+    // Cheap pre-checks so ordinary window moves (editor, selector) cost nothing. The
+    // stop-hotkey watcher exists exactly while a recording is running. Full-screen
+    // recordings have no clear spot at all — `start_recording` minimizes for those.
+    let Some(hotkey) = app.try_state::<RecordingHotkey>() else {
+        return;
+    };
+    if !hotkey.0.lock().is_ok_and(|s| s.is_some()) {
+        return;
+    }
+    let Some(border) = app.try_state::<BorderState>() else {
+        return;
+    };
+    if region_virtual(&border).is_none() {
+        return;
+    }
+
+    border.move_gen.fetch_add(1, Ordering::Relaxed);
+    if border.guard_active.swap(true, Ordering::Relaxed) {
+        return; // a watcher is already waiting for this drag to settle
+    }
+    let app = app.clone();
+    let moves = Arc::clone(&border.move_gen);
+    let active = Arc::clone(&border.guard_active);
+    std::thread::spawn(move || {
+        let mut last = moves.load(Ordering::Relaxed);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            let now = moves.load(Ordering::Relaxed);
+            if now == last {
+                break;
+            }
+            last = now;
+        }
+        active.store(false, Ordering::Relaxed);
+        snap_panel_out(&app);
+    });
+}
+
+/// If the recording panel currently overlaps the recorded region, move it to the nearest
+/// clear spot on its monitor — or minimize it when the region leaves no room anywhere.
+fn snap_panel_out(app: &AppHandle) {
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    if main.is_minimized().unwrap_or(false) {
+        return; // minimized windows report an off-screen position; nothing to guard
+    }
+    // Re-check the recording state — the drag may have settled after Stop.
+    let Some(hotkey) = app.try_state::<RecordingHotkey>() else {
+        return;
+    };
+    if !hotkey.0.lock().is_ok_and(|s| s.is_some()) {
+        return;
+    }
+    let Some(border) = app.try_state::<BorderState>() else {
+        return;
+    };
+    let Some(region) = region_virtual(&border) else {
+        return;
+    };
+    let region = inflate(region, REGION_PAD);
+    let Some(panel) = window_rect(&main) else {
+        return;
+    };
+    if !rects_overlap(panel, region) {
+        return;
+    }
+    let spot = main.current_monitor().ok().flatten().and_then(|m| {
+        let mon = (
+            m.position().x,
+            m.position().y,
+            m.size().width as i32,
+            m.size().height as i32,
+        );
+        snap_outside(panel, region, mon)
+    });
+    match spot {
+        Some((x, y)) => {
+            let _ = main.set_position(PhysicalPosition::new(x, y));
+        }
+        // The region crowds out every side of this monitor — same fallback as a
+        // full-screen recording: get out of the shot entirely.
+        None => {
+            let _ = main.minimize();
+        }
+    }
 }
 
 /// Step 2 — a region (or full screen) was confirmed: drop out of fullscreen and shrink the

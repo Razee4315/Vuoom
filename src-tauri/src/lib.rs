@@ -172,6 +172,14 @@ pub fn run() {
                     session.cancel_export();
                 }
             }
+            // While a region recording runs, keep the draggable panel out of the captured
+            // area — on Windows 10 a capture-excluded window that overlaps the region
+            // still lands in the recording as a black rectangle.
+            if let tauri::WindowEvent::Moved(_) = event {
+                if window.label() == "main" {
+                    commands::guard_panel_moved(window);
+                }
+            }
         })
         .setup(|app| {
             // Stand logging up first so engine-boot warnings are captured. Logs land in

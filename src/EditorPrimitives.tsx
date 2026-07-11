@@ -65,16 +65,32 @@ export function LockIcon(props: { locked: boolean }): JSX.Element {
 }
 
 export function Handles(props: { pts: Vec2[]; cursors?: string[] }): JSX.Element {
+  // Figma-style square handles: an 8px panel-filled square with a 1.5px accent border, sitting
+  // on a slightly larger dark "ring" square so the handle stays crisp on any footage/background.
+  // Both squares are centered on the point; styling lives in `.handle-ring` / `.handle` (tokens).
+  const SIZE = 8;
+  const RING = SIZE + 3; // the dark backing halo, ~1.5px proud on every side
   return (
     <For each={props.pts}>
       {(p, i) => (
-        <circle
-          class="handle"
-          cx={p.x}
-          cy={p.y}
-          r={6}
-          style={{ cursor: props.cursors?.[i()] ?? "pointer" }}
-        />
+        <g style={{ cursor: props.cursors?.[i()] ?? "pointer" }}>
+          <rect
+            class="handle-ring"
+            x={p.x - RING / 2}
+            y={p.y - RING / 2}
+            width={RING}
+            height={RING}
+            rx={2}
+          />
+          <rect
+            class="handle"
+            x={p.x - SIZE / 2}
+            y={p.y - SIZE / 2}
+            width={SIZE}
+            height={SIZE}
+            rx={1.5}
+          />
+        </g>
       )}
     </For>
   );

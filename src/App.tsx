@@ -942,18 +942,35 @@ function App() {
       const hit = hitTest(p);
       if (hit?.kind === "text") {
         setDrag(null);
-        // Release the pointer capture grabbed at the top of this handler. Without this the
-        // completing pointerup is delivered to the (non-focusable) overlay, and the browser
-        // redirects that click's implicit focus to the capturing element — blurring the inline
-        // editor we're about to focus, so it tears down instantly. Releasing here lets the
-        // pointerup resolve normally and the editor keeps focus until blur / Enter / Esc.
+        // Release the pointer capture grabbed at the top of this handler so the pending
+        // pointerup resolves normally on the window.
         try {
           (e.currentTarget as Element).releasePointerCapture(e.pointerId);
         } catch {
           /* capture already released */
         }
         setSelected(hit);
-        setEditingText(hit.id);
+        // Open the inline editor on the double-click's RELEASE, not here on its press.
+        //
+        // Verified root cause of the "editor opens then instantly closes / now nothing shows"
+        // regression: the second click dispatches `pointerdown` → (microtask checkpoint) →
+        // `mousedown` → `pointerup` → `mouseup` → `click` → `dblclick`. If we `setEditingText`
+        // here, Solid mounts the <input> and the ref focuses it in the microtask that runs
+        // immediately after THIS pointerdown listener — i.e. BEFORE the compatibility
+        // `mousedown`. `mousedown`'s (uncancelled) default action then runs the HTML focusing
+        // steps on the non-focusable overlay, pulling focus off the freshly-focused input; its
+        // onBlur fires, `finishTextEdit()` commits + unmounts it, and the editor vanishes in the
+        // same frame. Releasing pointer capture alone never helped because the focus theft is the
+        // `mousedown` default action, not the capture. (The Text-TOOL create path is immune only
+        // because its `setEditingText` runs after an awaited `invoke`, i.e. after every mouse
+        // event of that click has already fired.)
+        //
+        // The focus-changing default action is bound to `mousedown` (press). Deferring the mount
+        // to the gesture's `pointerup` (release) means we mount + focus AFTER `mousedown` has
+        // passed; the trailing `mouseup`/`click`/`dblclick` carry no focus default, so the input
+        // keeps focus until the user blurs / presses Enter / Esc. This is event-driven (no timer).
+        const id = hit.id;
+        window.addEventListener("pointerup", () => setEditingText(id), { once: true });
         return;
       }
     }

@@ -162,6 +162,37 @@ body,
   overscroll-behavior: none;
 }
 
+/* ---- Themed scrollbars (app-wide) ----
+   WebView2 is Chromium, so style every scrollable surface — inspector, timeline scroll,
+   dropdowns/lists — to match the active theme instead of the raw OS scrollbar. Tokens only,
+   so it reads correctly in both light and dark mono themes. Firefox falls back to
+   `scrollbar-width`/`scrollbar-color` (harmless in WebView2). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 8px;
+  /* Inset the thumb from the track edges so it reads as a slim pill. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 button {
   font-family: inherit;
   color: inherit;
@@ -201,22 +232,27 @@ kbd {
 /* ---- Single frameless top bar: brand · record · name · actions · window controls ---- */
 .topbar {
   display: flex;
+  flex-wrap: nowrap; /* single row, always — never spill controls onto a second line */
   align-items: center;
   gap: 10px;
   padding-left: 14px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  min-width: 0; /* let the flexible middle actually shrink instead of forcing overflow */
 }
-/* Flexible, draggable gap that pins the action cluster to the right edge. */
+/* Flexible, draggable gap that pins the action cluster to the right edge. Collapses fully so
+   it never steals width the toolbar needs before the window controls would clip. */
 .topbar-drag {
   flex: 1 1 0;
   align-self: stretch;
-  min-width: 12px;
+  min-width: 0;
 }
-/* Theme + window controls stretch to the full bar height like the old titlebar. */
+/* Theme + window controls stretch to the full bar height like the old titlebar — and never
+   shrink or clip, so minimize/maximize/close stay visible at every window width. */
 .topbar > .thememenu,
 .topbar > .winctl {
   align-self: stretch;
+  flex: 0 0 auto;
 }
 /* Everything except the name and the drag gap holds its size. */
 .topbar > .brand,
@@ -382,7 +418,9 @@ kbd {
 /* Project name sits just right of Record; shrinks first when the bar gets tight. */
 .project-name {
   flex: 0 1 220px;
-  min-width: 60px;
+  /* min-width:0 lets the name collapse (with an ellipsis) so the action cluster + window
+     controls keep their width first. This is the primary shrink zone alongside .topbar-drag. */
+  min-width: 0;
   margin: 0;
   padding: 7px 12px;
   border: 1px solid transparent;
@@ -392,6 +430,7 @@ kbd {
   font-size: var(--fs-md);
   font-weight: 500;
   text-align: left;
+  text-overflow: ellipsis;
   transition: background 0.1s ease;
 }
 .project-name:hover {
@@ -402,9 +441,13 @@ kbd {
   background: var(--panel-2);
   border-color: var(--line);
 }
-/* Narrow window: tighten the top bar so its controls never clip or overflow. The window can
-   be sized below its 880×560 minimum programmatically, so degrade spacing gracefully. */
-@media (max-width: 1000px) {
+/* Tighten the top bar BEFORE the roomy layout would overflow. The full-width toolbar (logo +
+   record + name + ~9 action buttons + frame select + swatches + theme + window controls) needs
+   roughly this much room; below it we compact spacing/padding so the window controls never clip.
+   Kicking in here (instead of at 1000px) removes the old dead zone just above 1000px where the
+   roomy layout overflowed and pushed minimize/maximize/close off the right edge. The extra slack
+   at wider "tight" widths is absorbed by the flexible .topbar-drag, so it never looks cramped. */
+@media (max-width: 1280px) {
   .topbar {
     gap: 6px;
     padding-left: 8px;
@@ -885,12 +928,19 @@ kbd {
 .text-plate {
   fill: rgba(13, 13, 15, 0.7);
 }
+/* Selection handles: a light square with an accent border over a dark backing square, so the
+   grip reads crisply on both bright and dark footage across every mono theme. */
+.handle-ring {
+  fill: rgba(0, 0, 0, 0.55);
+  stroke: none;
+}
 .handle {
-  fill: var(--accent);
-  stroke: var(--accent-text);
+  fill: var(--panel);
+  stroke: var(--accent);
   stroke-width: 1.5;
-  cursor: pointer;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  /* No cursor rule here: the per-handle directional cursor sits on the parent <g> in
+     EditorPrimitives and must inherit — a direct rule on the rect would override it. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
 .sel-outline {
   fill: none;
@@ -2254,9 +2304,11 @@ kbd {
   .statusline {
     display: none;
   }
+  /* Keep the top bar at least as tight as the ≤1280px rule (never loosen it as the window gets
+     narrower, or the window controls would clip again). */
   .topbar {
-    gap: 8px;
-    padding-left: 10px;
+    gap: 6px;
+    padding-left: 8px;
   }
 }
 

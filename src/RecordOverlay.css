@@ -56,6 +56,35 @@
   pointer-events: none;
 }
 
+/* Resize handles: crisp light squares with a dark ring so they read on any backdrop.
+   Hit-testing is done in JS against the pointer, so these stay visual-only. */
+.sel-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: #fff;
+  border: 1px solid #0b0b0c;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Live dimensions tag pinned above the selection while drawing/adjusting. */
+.sel-dimtag {
+  position: absolute;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(11, 11, 12, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .sel-drawhint,
 .sel-fullhint {
   position: absolute;

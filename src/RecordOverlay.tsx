@@ -61,7 +61,13 @@ export default function RecordOverlay(props: {
   const [count, setCount] = createSignal(3);
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
-  let start: { x: number; y: number } | null = null;
+  // Cursor over the selection surface — reflects what a press-drag would do (draw / move /
+  // resize a given edge). Applied inline so it overrides the base crosshair.
+  const [cursor, setCursor] = createSignal("crosshair");
+  // The active pointer gesture on the selection surface. `null` when idle (hover only).
+  let drag:
+    | { mode: "new" | "move" | "resize"; hx: number; hy: number; px0: number; py0: number; rect0: Rect }
+    | null = null;
   let elapsedTimer: number | undefined;
   let countTimer: number | undefined;
   let startMs = 0;
@@ -114,6 +120,15 @@ export default function RecordOverlay(props: {
       });
     }
     await invoke("enter_stopbar"); // shrink the host window to the bar
+    // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
+    // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
+    // Best-effort: the command may not exist on older backends — the frame still appears when
+    // recording starts. Cancel/Esc runs cancel_record_flow → drop_border, which clears it.
+    try {
+      await invoke("show_region_border");
+    } catch {
+      /* backend without show_region_border — border still shows at record start */
+    }
     setPhase("countdown");
     runCountdown();
   };
@@ -192,24 +207,174 @@ export default function RecordOverlay(props: {
     }
   };
 
-  // ── region drawing (select phase) ──────────────────────────────────────────────
+  // ── region select + adjust (select phase) ───────────────────────────────────────
+  // The 8 resize handles, addressed as (hx, hy) in {-1, 0, 1}: -1 = left/top edge,
+  // 1 = right/bottom edge, 0 = centre of that axis. (0, 0) is the interior (move), not a handle.
+  const HANDLES: { hx: -1 | 0 | 1; hy: -1 | 0 | 1 }[] = [
+    { hx: -1, hy: -1 }, { hx: 0, hy: -1 }, { hx: 1, hy: -1 },
+    { hx: -1, hy: 0 }, { hx: 1, hy: 0 },
+    { hx: -1, hy: 1 }, { hx: 0, hy: 1 }, { hx: 1, hy: 1 },
+  ];
+  const HANDLE_HIT = 12; // px half-extent for grabbing a handle
+
+  type Hit =
+    | { mode: "resize"; hx: -1 | 0 | 1; hy: -1 | 0 | 1 }
+    | { mode: "move" }
+    | { mode: "new" };
+
+  // What a press at (px, py) would start: grab a handle, move the region, or draw a fresh one.
+  const hitTest = (px: number, py: number): Hit => {
+    const r = sel();
+    if (!r || preset().ratio === "full") return { mode: "new" };
+    const xs: [-1 | 0 | 1, number][] = [
+      [-1, r.x],
+      [0, r.x + r.w / 2],
+      [1, r.x + r.w],
+    ];
+    const ys: [-1 | 0 | 1, number][] = [
+      [-1, r.y],
+      [0, r.y + r.h / 2],
+      [1, r.y + r.h],
+    ];
+    for (const [hy, ay] of ys) {
+      for (const [hx, ax] of xs) {
+        if (hx === 0 && hy === 0) continue; // interior, not a handle
+        if (Math.abs(px - ax) <= HANDLE_HIT && Math.abs(py - ay) <= HANDLE_HIT) {
+          return { mode: "resize", hx, hy };
+        }
+      }
+    }
+    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return { mode: "move" };
+    return { mode: "new" };
+  };
+
+  const cursorFor = (h: Hit): string => {
+    if (h.mode === "move") return "move";
+    if (h.mode === "new") return "crosshair";
+    if (h.hx !== 0 && h.hy !== 0) return h.hx === h.hy ? "nwse-resize" : "nesw-resize";
+    return h.hx !== 0 ? "ew-resize" : "ns-resize";
+  };
+
+  // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Preserves
+  // size, sliding the rect back in bounds — used when moving and after a resize.
+  const clampToView = (r: Rect): Rect => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let { x, y } = r;
+    if (x + r.w > vw) x = vw - r.w;
+    if (y + r.h > vh) y = vh - r.h;
+    return { x: Math.max(0, x), y: Math.max(0, y), w: r.w, h: r.h };
+  };
+
+  // Minimum region in CSS px (>= 64 physical px, above the Rust MIN_PX=8 sliver guard).
+  const minCss = () => {
+    const { sx, sy } = toPhysical();
+    return { w: 64 / (sx || 1), h: 64 / (sy || 1) };
+  };
+
+  const resizeRect = (px: number, py: number) => {
+    const { hx, hy, rect0 } = drag!;
+    const ratio = preset().ratio;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const cx = Math.max(0, Math.min(px, vw));
+    const cy = Math.max(0, Math.min(py, vh));
+    // The anchor is the fixed point opposite the grabbed handle (an edge or the centre).
+    const ax = hx === 1 ? rect0.x : hx === -1 ? rect0.x + rect0.w : rect0.x + rect0.w / 2;
+    const ay = hy === 1 ? rect0.y : hy === -1 ? rect0.y + rect0.h : rect0.y + rect0.h / 2;
+    const { w: minW, h: minH } = minCss();
+
+    if (typeof ratio === "number") {
+      // Fixed aspect: derive size on the driving axis, keep ratio, grow from the anchor.
+      let w: number;
+      if (hx !== 0 && hy !== 0) w = Math.max(Math.abs(cx - ax), Math.abs(cy - ay) * ratio);
+      else if (hx !== 0) w = Math.abs(cx - ax);
+      else w = Math.abs(cy - ay) * ratio;
+      const mW = Math.max(minW, minH * ratio);
+      if (w < mW) w = mW;
+      const h = w / ratio;
+      const x = hx === 1 ? ax : hx === -1 ? ax - w : ax - w / 2;
+      const y = hy === 1 ? ay : hy === -1 ? ay - h : ay - h / 2;
+      setSel(clampToView({ x, y, w, h }));
+      return;
+    }
+
+    // Free draw: each active edge follows the pointer; clamp at min without flipping.
+    let { x, y, w, h } = rect0;
+    if (hx === 1) {
+      x = ax;
+      w = cx - ax;
+    } else if (hx === -1) {
+      x = cx;
+      w = ax - cx;
+    }
+    if (hy === 1) {
+      y = ay;
+      h = cy - ay;
+    } else if (hy === -1) {
+      y = cy;
+      h = ay - cy;
+    }
+    if (w < minW) {
+      w = minW;
+      if (hx === -1) x = ax - minW;
+    }
+    if (h < minH) {
+      h = minH;
+      if (hy === -1) y = ay - minH;
+    }
+    setSel(clampToView({ x, y, w, h }));
+  };
+
   const onDown = (e: PointerEvent) => {
     if (phase() !== "select" || preset().ratio === "full") return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    start = { x: e.clientX, y: e.clientY };
-    setSel({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+    const hit = hitTest(e.clientX, e.clientY);
+    if (hit.mode === "new") {
+      drag = { mode: "new", hx: 0, hy: 0, px0: e.clientX, py0: e.clientY, rect0: { x: e.clientX, y: e.clientY, w: 0, h: 0 } };
+      setSel({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+    } else {
+      drag = {
+        mode: hit.mode,
+        hx: hit.mode === "resize" ? hit.hx : 0,
+        hy: hit.mode === "resize" ? hit.hy : 0,
+        px0: e.clientX,
+        py0: e.clientY,
+        rect0: { ...sel()! },
+      };
+    }
+    setCursor(cursorFor(hit));
   };
+
   const onMove = (e: PointerEvent) => {
-    if (!start) return;
-    const ratio = preset().ratio;
-    const x = Math.min(start.x, e.clientX);
-    const y = Math.min(start.y, e.clientY);
-    const w = Math.abs(e.clientX - start.x);
-    const h = typeof ratio === "number" ? w / ratio : Math.abs(e.clientY - start.y);
-    setSel({ x, y, w, h });
+    if (!drag) {
+      // Idle hover: show what a press here would do.
+      if (phase() === "select" && preset().ratio !== "full") setCursor(cursorFor(hitTest(e.clientX, e.clientY)));
+      return;
+    }
+    if (drag.mode === "new") {
+      const ratio = preset().ratio;
+      const x = Math.min(drag.px0, e.clientX);
+      const y = Math.min(drag.py0, e.clientY);
+      const w = Math.abs(e.clientX - drag.px0);
+      const h = typeof ratio === "number" ? w / ratio : Math.abs(e.clientY - drag.py0);
+      setSel({ x, y, w, h });
+    } else if (drag.mode === "move") {
+      const r0 = drag.rect0;
+      setSel(clampToView({ x: r0.x + (e.clientX - drag.px0), y: r0.y + (e.clientY - drag.py0), w: r0.w, h: r0.h }));
+    } else {
+      resizeRect(e.clientX, e.clientY);
+    }
   };
+
   const onUp = () => {
-    start = null;
+    // A near-zero "new" drag (a stray click outside the region) clears the selection rather
+    // than leaving a sliver; a real drag/resize/move keeps its result for further adjustment.
+    if (drag?.mode === "new") {
+      const r = sel();
+      if (r && (r.w < 4 || r.h < 4)) setSel(null);
+    }
+    drag = null;
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -240,7 +405,8 @@ export default function RecordOverlay(props: {
   const pickPreset = (p: Preset) => {
     setPreset(p);
     setSel(null);
-    start = null;
+    drag = null;
+    setCursor(p.ratio === "full" ? "default" : "crosshair");
   };
   const dims = () => {
     const r = sel();
@@ -323,6 +489,7 @@ export default function RecordOverlay(props: {
       <div
         class="sel-root"
         classList={{ full: preset().ratio === "full" }}
+        style={preset().ratio === "full" ? undefined : { cursor: cursor() }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -337,13 +504,34 @@ export default function RecordOverlay(props: {
           />
         </Show>
 
-        {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow. */}
+        {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow.
+            The 8 handles + dims tag ride on top for adjustment (hit-tested in JS, so they
+            stay pointer-events:none and never block a drag). */}
         <Show when={preset().ratio !== "full" && sel()}>
           {(r) => (
-            <div
-              class="sel-rect"
-              style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
-            />
+            <>
+              <div
+                class="sel-rect"
+                style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
+              />
+              <div
+                class="sel-dimtag"
+                style={{ left: `${Math.max(4, r().x)}px`, top: `${Math.max(4, r().y - 26)}px` }}
+              >
+                {dims()}
+              </div>
+              <For each={HANDLES}>
+                {(hnd) => (
+                  <div
+                    class="sel-handle"
+                    style={{
+                      left: `${r().x + ((hnd.hx + 1) / 2) * r().w}px`,
+                      top: `${r().y + ((hnd.hy + 1) / 2) * r().h}px`,
+                    }}
+                  />
+                )}
+              </For>
+            </>
           )}
         </Show>
         <Show when={preset().ratio === "full"}>

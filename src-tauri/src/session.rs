@@ -2337,6 +2337,7 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
 /// chips) and cross-referenced to their definitions so a future chord change updates both:
 ///   - `Ctrl+Shift+X` — the stop-recording hotkey (`hotkey.rs`).
 ///   - `Ctrl+Shift+Z` — the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+///
 /// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
 /// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
 /// chip because bare modifiers never emit a tap on their own (they only set flags below).

@@ -465,7 +465,10 @@ pub async fn start_recording(
         let covered = match region {
             None => true,
             Some(r) => {
-                let rect = inflate((mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32), REGION_PAD);
+                let rect = inflate(
+                    (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32),
+                    REGION_PAD,
+                );
                 match window_rect(&main) {
                     Some(p) => rects_overlap(p, rect),
                     None => true,
@@ -478,7 +481,10 @@ pub async fn start_recording(
     }
     // Arm the drag wall for region recordings (nothing to slide against for full screen).
     if let Some(r) = region {
-        let forbidden = inflate((mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32), REGION_PAD);
+        let forbidden = inflate(
+            (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32),
+            REGION_PAD,
+        );
         drag_wall::install(&app, forbidden);
     }
     if let Ok(mut slot) = hotkey.0.lock() {

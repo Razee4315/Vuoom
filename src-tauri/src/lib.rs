@@ -5,10 +5,12 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod drag_wall;
 mod frame_store;
 mod hotkey;
 mod live_preview;
 mod mp4;
+mod prefs;
 mod region_border;
 mod session;
 mod windows_ext;
@@ -196,12 +198,15 @@ pub fn run() {
                 let _ = main.maximize();
                 // Exclude the main window from screen capture up front, at creation, so the
                 // affinity is on the top-level HWND long before any recording starts and can
-                // never be missed by a code path. `WDA_EXCLUDEFROMCAPTURE` persists on the
-                // handle, so the recording panel — wherever the user drags it, even over the
-                // recorded region — shows the desktop behind it in the capture instead of the
-                // panel. WGC monitor capture honors this on Windows 10 2004+ / Windows 11 (the
-                // same mechanism that keeps the region-border strips out of frame). The
-                // capture flow re-asserts it in `enter_overlay` as belt-and-suspenders.
+                // never be missed by a code path. `WDA_EXCLUDEFROMCAPTURE` is a genuine second
+                // line of defense on Windows 11 (an excluded window shows the desktop behind
+                // it in the capture) and harmless on Windows 10. It is NOT sufficient on its
+                // own on Win10, though: there an excluded window that overlaps the recorded
+                // region is captured as a solid BLACK rectangle rather than re-composited. The
+                // panel is therefore kept physically outside the region by the record flow
+                // (park + minimize + the WM_MOVING drag wall, see commands.rs / drag_wall.rs);
+                // the region-border strips avoid the problem by sitting just outside the crop.
+                // The capture flow re-asserts this affinity in `enter_overlay`.
                 let _ = windows_ext::exclude_from_capture(&main);
             }
             build_tray(app.handle())?;
@@ -262,6 +267,8 @@ pub fn run() {
             commands::enter_stopbar,
             commands::finish_recording,
             commands::cancel_record_flow,
+            commands::show_region_border,
+            commands::hide_region_border,
             commands::set_region,
             commands::screenshot,
             commands::set_zoom_amount,
@@ -271,6 +278,8 @@ pub fn run() {
             commands::recover_session,
             commands::recovery_storage,
             commands::clear_recovery_storage,
+            prefs::get_pref,
+            prefs::set_pref,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

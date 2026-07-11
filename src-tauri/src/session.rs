@@ -2332,8 +2332,24 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
     Some(if d_hi < d_prev { hi } else { prev })
 }
 
+/// Vuoom's own control chords — these drive the app, not the demo, so they must never render
+/// as keystroke-overlay chips. Kept here next to `extract_key_taps` (the layer that builds
+/// chips) and cross-referenced to their definitions so a future chord change updates both:
+///   - `Ctrl+Shift+X` — the stop-recording hotkey (`hotkey.rs`).
+///   - `Ctrl+Shift+Z` — the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+/// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
+/// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
+/// chip because bare modifiers never emit a tap on their own (they only set flags below).
+const VK_X: u16 = 0x58;
+const VK_Z: u16 = 0x5A;
+fn is_app_control_chord(ctrl: bool, shift: bool, vk: u16) -> bool {
+    ctrl && shift && (vk == VK_X || vk == VK_Z)
+}
+
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
-/// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced.
+/// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced. Vuoom's
+/// own control chords (see `is_app_control_chord`) are dropped — they're app control, not
+/// demo content.
 fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f64) -> Vec<KeyTap> {
     use vuoom_input::{is_standalone, key_name, modifier, Modifier, RawEventKind};
 
@@ -2366,6 +2382,9 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
             continue;
         }
         let Some(name) = key_name(vk) else { continue };
+        if is_app_control_chord(ctrl, shift, vk) {
+            continue; // Vuoom's own stop / zoom chord — not demo content
+        }
         let chord = ctrl || alt || win;
         if !chord && !is_standalone(vk) {
             continue; // plain typing — never labeled
@@ -2878,6 +2897,38 @@ mod tests {
         let labels: Vec<&str> = taps.iter().map(|t| t.label.as_str()).collect();
         assert_eq!(labels, vec!["Ctrl+Shift+P", "Enter"]);
         assert!((taps[0].t - 1.02).abs() < 1e-3);
+    }
+
+    #[test]
+    fn vuoom_control_chords_are_suppressed() {
+        use vuoom_input::RawEventKind::{KeyDown, KeyUp};
+        let clock = Clock::new();
+        let f = clock.freq();
+        let q = |t: f64| (t * f as f64) as i64;
+
+        let raw = [
+            // Ctrl+Shift+X — the stop hotkey — must not appear.
+            rawk(q(1.0), KeyDown(0x11)),
+            rawk(q(1.01), KeyDown(0x10)),
+            rawk(q(1.02), KeyDown(0x58)), // X
+            rawk(q(1.03), KeyUp(0x58)),
+            rawk(q(1.04), KeyUp(0x10)),
+            rawk(q(1.05), KeyUp(0x11)),
+            // Ctrl+Shift+Z — the zoom chord — must not appear either.
+            rawk(q(2.0), KeyDown(0x11)),
+            rawk(q(2.01), KeyDown(0x10)),
+            rawk(q(2.02), KeyDown(0x5A)), // Z
+            rawk(q(2.03), KeyUp(0x5A)),
+            rawk(q(2.04), KeyUp(0x10)),
+            rawk(q(2.05), KeyUp(0x11)),
+            // A real user chord (Ctrl+Shift+C) still renders.
+            rawk(q(3.0), KeyDown(0x11)),
+            rawk(q(3.01), KeyDown(0x10)),
+            rawk(q(3.02), KeyDown(0x43)), // C
+        ];
+        let taps = extract_key_taps(&raw, clock, 0, 10.0);
+        let labels: Vec<&str> = taps.iter().map(|t| t.label.as_str()).collect();
+        assert_eq!(labels, vec!["Ctrl+Shift+C"]);
     }
 
     // --- disk free-space guard ---

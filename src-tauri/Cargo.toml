@@ -56,6 +56,9 @@ vuoom-preview.workspace = true
 windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Input_KeyboardAndMouse",
+    # SetWindowSubclass/DefSubclassProc/RemoveWindowSubclass — the recording panel's
+    # WM_MOVING drag wall (see drag_wall.rs) subclasses the main window's top-level HWND.
+    "Win32_UI_Shell",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Media_MediaFoundation",

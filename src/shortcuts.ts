@@ -3,12 +3,12 @@
 import type { Tool } from "./types";
 
 export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
-  { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click an element to select, drag to move, drag a handle to resize. (V)" },
-  { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click on the video to drop a text label. (T)" },
-  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag on the video to draw an arrow — switch to line/double in the panel. (A)" },
-  { id: "line", label: "Line", key: "L", code: "KeyL", hint: "Drag on the video to draw a plain line (no arrowhead). (L)" },
-  { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to draw a box — switch to ellipse in the panel. (S)" },
-  { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag to highlight an area with a translucent marker. (H)" },
+  { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click to select, drag to move or resize. (V)" },
+  { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click to add a text label. (T)" },
+  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag to draw an arrow. (A)" },
+  { id: "line", label: "Line", key: "L", code: "KeyL", hint: "Drag to draw a line. (L)" },
+  { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to draw a box. (S)" },
+  { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag to highlight an area. (H)" },
 ];
 // e.code → tool, for single-key tool switching (only while a clip is loaded).
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));

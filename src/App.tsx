@@ -56,6 +56,10 @@ import "./App.css";
 /// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
 const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
 
+/// Per-corner resize cursors for the four selection handles, in the order they are drawn:
+/// top-left, top-right, bottom-left, bottom-right. Opposite corners share a diagonal.
+const CORNER_CURSORS = ["nwse-resize", "nesw-resize", "nesw-resize", "nwse-resize"];
+
 /// Bundled text fonts. `id` is the family name sent to the renderer (empty = default sans);
 /// `css` styles the on-canvas preview + the in-typeface picker. Mirrors the @font-face set
 /// in App.css and the fonts loaded into glyphon for export.
@@ -380,9 +384,9 @@ function App() {
       try {
         const conn = await invoke<{ port: number; token: string }>("preview_port");
         preview.connect(conn.port, conn.token);
-        setStatus("Ready — press Record to capture your screen");
+        setStatus("Ready. Press Record to start.");
         hideSplash();
-        maybeShowWelcome();
+        void maybeShowWelcome();
         // One-shot health probe: a failed GPU compositor still "boots", but preview and
         // export are dead — warn up front instead of every operation failing cryptically.
         invoke<{ gpu: boolean }>("engine_health")
@@ -403,7 +407,7 @@ function App() {
         await new Promise((r) => setTimeout(r, 150));
       }
     }
-    setStatus("The engine did not start — try restarting Vuoom.");
+    setStatus("The engine did not start. Try restarting Vuoom.");
     hideSplash();
   };
 
@@ -436,7 +440,7 @@ function App() {
               : "Downloading update…",
           );
         } else if (ev.event === "Finished") {
-          setStatus("Update downloaded — restarting…");
+          setStatus("Update downloaded. Restarting…");
         }
       });
       await relaunch();
@@ -447,20 +451,35 @@ function App() {
   };
 
   // ── first-run onboarding ───────────────────────────────────────────────────────
-  const maybeShowWelcome = () => {
+  // The disk-backed pref is the durable source of truth (localStorage doesn't survive an app
+  // restart on every machine); localStorage is only a same-session fast-path cache. The card
+  // shows only when NEITHER store has recorded a dismissal, so once dismissed it never returns.
+  const maybeShowWelcome = async () => {
+    let seen = false;
     try {
-      if (!localStorage.getItem("vuoom-seen-welcome")) setShowWelcome(true);
+      seen = !!localStorage.getItem("vuoom-seen-welcome");
     } catch {
-      /* storage unavailable — skip onboarding */
+      /* storage unavailable */
     }
+    try {
+      const pref = await invoke<string | null>("get_pref", { key: "seen_welcome" });
+      seen = seen || !!pref;
+    } catch {
+      /* pref store unavailable — fall back to the cache result */
+    }
+    if (!seen) setShowWelcome(true);
   };
-  // Dismiss the welcome card; `hint` pops a coachmark pointing at Record for skippers.
+  // Dismiss the welcome card; `hint` pops a coachmark pointing at Record for skippers. Persist
+  // to BOTH the disk pref (durable) and localStorage (fast cache) so it stays dismissed.
   const dismissWelcome = (hint: boolean) => {
     try {
       localStorage.setItem("vuoom-seen-welcome", "1");
     } catch {
       /* ignore */
     }
+    void invoke("set_pref", { key: "seen_welcome", value: "1" }).catch(() => {
+      /* pref store unavailable — localStorage cache still covers this session */
+    });
     setShowWelcome(false);
     if (hint && recordBtnEl) {
       const r = recordBtnEl.getBoundingClientRect();
@@ -923,6 +942,16 @@ function App() {
       const hit = hitTest(p);
       if (hit?.kind === "text") {
         setDrag(null);
+        // Release the pointer capture grabbed at the top of this handler. Without this the
+        // completing pointerup is delivered to the (non-focusable) overlay, and the browser
+        // redirects that click's implicit focus to the capturing element — blurring the inline
+        // editor we're about to focus, so it tears down instantly. Releasing here lets the
+        // pointerup resolve normally and the editor keeps focus until blur / Enter / Esc.
+        try {
+          (e.currentTarget as Element).releasePointerCapture(e.pointerId);
+        } catch {
+          /* capture already released */
+        }
         setSelected(hit);
         setEditingText(hit.id);
         return;
@@ -1312,7 +1341,7 @@ function App() {
       await pushSeek(playhead());
       clearExtra();
       setSelected({ kind: s.kind, id });
-      setStatus("Duplicated — drag the copy into place");
+      setStatus("Duplicated. Drag the copy into place.");
     } catch (e) {
       setStatus(`Duplicate failed: ${String(e)}`);
     }
@@ -1508,7 +1537,7 @@ function App() {
       setSelCut(null);
       setSelZoom(idx >= 0 ? idx : null);
       await pushSeek(playhead());
-      setStatus("Zoom added — drag its edges on the timeline to retime");
+      setStatus("Zoom added. Drag its edges to retime.");
     } catch (e) {
       setStatus(`Could not add zoom: ${String(e)}`);
     }
@@ -1635,7 +1664,7 @@ function App() {
       setSelZoom(null);
       setSelCut(null);
       setSelSpeed(idx >= 0 ? idx : null);
-      setStatus("Speed region added — drag it on the timeline to retime");
+      setStatus("Speed region added. Drag it to retime.");
     } catch (e) {
       setStatus(`Could not add speed region: ${String(e)}`);
     }
@@ -1682,7 +1711,7 @@ function App() {
       setSelZoom(null);
       setSelSpeed(null);
       setSelCut(idx >= 0 ? idx : null);
-      setStatus("Section cut — drag the band to choose exactly what's removed");
+      setStatus("Section cut. Drag the band to adjust.");
     } catch (e) {
       setStatus(`Could not cut: ${String(e)}`);
     }
@@ -1724,7 +1753,7 @@ function App() {
       setDirty(true);
       await pushSeek(playhead());
       setStatus(
-        preset === "none" ? "Frame removed — edge-to-edge export" : `Frame: ${preset}`,
+        preset === "none" ? "Frame removed. Edge to edge export." : `Frame: ${preset}`,
       );
     } catch (e) {
       setStatus(`Frame failed: ${String(e)}`);
@@ -2434,7 +2463,7 @@ function App() {
       const summary = await invoke<RecordingSummary>("recover_session");
       setRecoverable(null);
       await loadFinishedClip(summary);
-      setStatus(`Recovered ${summary.duration.toFixed(1)}s — don't forget to export`);
+      setStatus(`Recovered ${summary.duration.toFixed(1)}s. Don't forget to export.`);
     } catch (e) {
       setRecoverable(null);
       setStatus(`Recovery failed: ${String(e)}`);
@@ -2497,7 +2526,7 @@ function App() {
         <button
           class="btn record"
           ref={(el) => (recordBtnEl = el)}
-          title="Record your screen (Ctrl+Shift+R) — captures the monitor Vuoom is on"
+          title="Record your screen (Ctrl+Shift+R)"
           onClick={() => void startRecord()}
         >
           <span class="dot" /> Record
@@ -2529,20 +2558,21 @@ function App() {
           </svg>
         </button>
         <span class="toolbar-sep" />
-        <button class="btn ghost" title="Open a saved project (Ctrl+O)" onClick={() => void onOpenProject()}>
+        <button class="btn ghost" title="Open project (Ctrl+O)" onClick={() => void onOpenProject()}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
           </svg>
         </button>
-        <button class="btn ghost" disabled={!hasClip()} title="Save project — video + edits (Ctrl+S)" onClick={() => void onSaveProject()}>
+        <button class="btn ghost" disabled={!hasClip()} title="Save project (Ctrl+S)" onClick={() => void onSaveProject()}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 3v5h8V3M7 21v-7h10v7" />
           </svg>
+          Save
         </button>
         <span class="toolbar-sep" />
         <select
           class="tbtn-sel"
-          title="Frame the recording on a padded backdrop with rounded corners + shadow"
+          title="Add a padded frame and backdrop"
           disabled={!hasClip()}
           value={framePreset()}
           onChange={(e) => void applyFramePreset(e.currentTarget.value)}
@@ -2552,7 +2582,7 @@ function App() {
           <option value="studio">Studio frame</option>
         </select>
         <Show when={hasClip() && framePreset() !== "none"}>
-          <div class="bg-swatches" title="Backdrop behind the framed recording">
+          <div class="bg-swatches" title="Backdrop behind the frame">
             <For each={BG_SWATCHES}>
               {(sw) => (
                 <button
@@ -2630,7 +2660,12 @@ function App() {
           // columns drop out of the empty editor — keeping the focus on Record. Once a clip is
           // loaded the inspector column stays reserved (it falls back to a hint when nothing is
           // selected) so deselecting or arming a tool never reflows the canvas.
-          "grid-template-columns": hasClip() ? `76px 1fr ${inspectorW()}px` : "1fr",
+          // The canvas column is minmax(0, 1fr) so it can shrink below its content instead of
+          // forcing horizontal overflow; the inspector clamps to 40vw so it never crowds the
+          // canvas off-screen on a very narrow window.
+          "grid-template-columns": hasClip()
+            ? `76px minmax(0, 1fr) min(${inspectorW()}px, 40vw)`
+            : "1fr",
         }}
       >
         <Show when={hasClip()}>
@@ -2661,7 +2696,7 @@ function App() {
               <div class="canvas-placeholder">
                 <p class="big">Ready when you are</p>
                 <p class="sub">
-                  Record your screen — Vuoom zooms in where you click, then exports a crisp
+                  Record your screen. Vuoom zooms in where you click, then exports a crisp
                   GIF or MP4.
                 </p>
                 <button class="btn record cta" onClick={() => void startRecord()}>
@@ -2705,13 +2740,6 @@ function App() {
                 onPointerDown={(e) => void onPointerDown(e)}
                 onPointerMove={onPointerMove}
                 onPointerUp={(e) => void onPointerUp(e)}
-                onDblClick={(e) => {
-                  const hit = hitTest(norm(e as unknown as PointerEvent));
-                  if (hit?.kind === "text") {
-                    setSelected(hit);
-                    setEditingText(hit.id);
-                  }
-                }}
               >
                 {/* boxes */}
                 <For each={anns().highlights}>
@@ -2724,7 +2752,10 @@ function App() {
                           const a = () => px({ x: g()[0], y: g()[1] });
                           const s = () => px({ x: g()[2], y: g()[3] });
                           return (
-                            <g opacity={isGhost(b.range, sel()) ? 0.35 : 1}>
+                            <g
+                              opacity={isGhost(b.range, sel()) ? 0.35 : 1}
+                              style={{ cursor: sel() ? "move" : undefined }}
+                            >
                               <Show
                                 when={b.shape === "Ellipse"}
                                 fallback={
@@ -2757,6 +2788,7 @@ function App() {
                                     { x: a().x, y: a().y + s().y },
                                     { x: a().x + s().x, y: a().y + s().y },
                                   ]}
+                                  cursors={CORNER_CURSORS}
                                 />
                               </Show>
                             </g>
@@ -2778,7 +2810,10 @@ function App() {
                           const f = () => px({ x: g()[0], y: g()[1] });
                           const tp = () => px({ x: g()[2], y: g()[3] });
                           return (
-                            <g opacity={isGhost(ar.range, sel()) ? 0.35 : 1}>
+                            <g
+                              opacity={isGhost(ar.range, sel()) ? 0.35 : 1}
+                              style={{ cursor: sel() ? "move" : undefined }}
+                            >
                               <ArrowLine
                                 from={f()}
                                 to={tp()}
@@ -2788,7 +2823,7 @@ function App() {
                                 headTo={arrowHeads(ar.style).to}
                               />
                               <Show when={sel()}>
-                                <Handles pts={[f(), tp()]} />
+                                <Handles pts={[f(), tp()]} cursors={["move", "move"]} />
                               </Show>
                             </g>
                           );
@@ -2810,7 +2845,10 @@ function App() {
                           const fs = () => liveFont(tx.id, tx.font_size) * stage().h;
                           const wbox = () => Math.max(40, tx.text.length * fs() * 0.6);
                           return (
-                            <g opacity={isGhost(tx.range, sel()) ? 0.35 : 1}>
+                            <g
+                              opacity={isGhost(tx.range, sel()) ? 0.35 : 1}
+                              style={{ cursor: sel() ? "move" : undefined }}
+                            >
                               <Show when={tx.background}>
                                 <rect
                                   class="text-plate"
@@ -2849,6 +2887,7 @@ function App() {
                                     { x: p().x, y: p().y + fs() },
                                     { x: p().x + wbox(), y: p().y + fs() },
                                   ]}
+                                  cursors={CORNER_CURSORS}
                                 />
                               </Show>
                             </g>
@@ -3041,7 +3080,7 @@ function App() {
                     </button>
                     <button
                       classList={{ stylebtn: true, label: true, on: selectedText()!.background }}
-                      title="Background plate — keeps the caption legible over busy footage"
+                      title="Legible plate behind the text"
                       onClick={() => void editTextStyle({ background: !selectedText()!.background })}
                     >
                       BG
@@ -3072,7 +3111,7 @@ function App() {
                     step={0.005}
                     displayScale={100}
                     suffix="%"
-                    title="Font size as a percent of the video height — drag to scrub, click to type"
+                    title="Font size (percent of height). Drag to scrub, click to type"
                     onInput={(v) => void editFontSize(v)}
                     onCommit={(v) => void editFontSize(v)}
                   />
@@ -3122,7 +3161,7 @@ function App() {
                     step={0.05}
                     displayScale={100}
                     suffix="%"
-                    title="Opacity — drag to scrub, click to type"
+                    title="Opacity. Drag to scrub, click to type"
                     onInput={(v) => void setOpacity(v)}
                     onCommit={(v) => void setOpacity(v)}
                   />
@@ -3217,7 +3256,7 @@ function App() {
                     max={duration()}
                     step={0.1}
                     suffix="s"
-                    title="When this appears — drag to scrub, click to type"
+                    title="When this appears. Drag to scrub, click to type"
                     onCommit={(v) => void editRange(v, selectedRange()!.end)}
                   />
                 </InspRow>
@@ -3228,7 +3267,7 @@ function App() {
                     max={duration()}
                     step={0.1}
                     suffix="s"
-                    title="When this disappears — drag to scrub, click to type"
+                    title="When this disappears. Drag to scrub, click to type"
                     onCommit={(v) => void editRange(selectedRange()!.start, v)}
                   />
                 </InspRow>
@@ -3237,7 +3276,7 @@ function App() {
 
             <Show when={selectedRange() && isGhost(selectedRange()!, true)}>
               <p class="muted small ghost-note">
-                Hidden at the playhead (shown dimmed for editing) — it appears from{" "}
+                Hidden at the playhead (shown dimmed for editing). It appears from{" "}
                 {fmt(selectedRange()!.start)} to {fmt(selectedRange()!.end)}.
               </p>
             </Show>
@@ -3284,7 +3323,7 @@ function App() {
                   max={4}
                   step={0.1}
                   suffix="×"
-                  title="Zoom strength — drag to scrub, click to type"
+                  title="Zoom strength. Drag to scrub, click to type"
                   onInput={(v) => {
                     const z = selectedZoom()!;
                     void applyZoomEdit(selZoom()!, z.start, z.end, v);
@@ -3299,14 +3338,14 @@ function App() {
                 <div class="style-row">
                   <button
                     classList={{ stylebtn: true, label: true, on: !selZoomFocus() }}
-                    title="The camera follows your recorded cursor"
+                    title="Camera follows your recorded cursor"
                     onClick={() => void applyZoomFocus(null)}
                   >
                     Follow cursor
                   </button>
                   <button
                     classList={{ stylebtn: true, label: true, on: !!selZoomFocus() }}
-                    title="Hold one spot — drag the crosshair on the video to aim"
+                    title="Hold one spot. Drag the crosshair to aim."
                     onClick={() => {
                       if (!selZoomFocus()) void applyZoomFocus({ x: 0.5, y: 0.5 });
                     }}
@@ -3319,21 +3358,21 @@ function App() {
                 <div class="style-row">
                   <button
                     classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Smooth" }}
-                    title="Smooth — the default cinematic glide"
+                    title="Smooth cinematic glide (default)"
                     onClick={() => void applyZoomStyle("Smooth")}
                   >
                     Smooth
                   </button>
                   <button
                     classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Snappy" }}
-                    title="Snappy — settles faster, a punchier zoom"
+                    title="Snappy, settles faster"
                     onClick={() => void applyZoomStyle("Snappy")}
                   >
                     Snappy
                   </button>
                   <button
                     classList={{ stylebtn: true, label: true, on: selectedZoom()!.style === "Slow" }}
-                    title="Slow — gentler, more cinematic drift"
+                    title="Slow, gentle drift"
                     onClick={() => void applyZoomStyle("Slow")}
                   >
                     Slow
@@ -3349,7 +3388,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When this zoom starts — drag to scrub, click to type"
+                  title="When this zoom starts. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const z = selectedZoom()!;
                     void applyZoomEdit(selZoom()!, v, z.end, z.amount);
@@ -3363,7 +3402,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When this zoom ends — drag to scrub, click to type"
+                  title="When this zoom ends. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const z = selectedZoom()!;
                     void applyZoomEdit(selZoom()!, z.start, v, z.amount);
@@ -3397,7 +3436,7 @@ function App() {
                   max={8}
                   step={0.25}
                   suffix="×"
-                  title="Playback rate — drag to scrub, click to type"
+                  title="Playback rate. Drag to scrub, click to type"
                   onInput={(v) => {
                     const r = selectedSpeed()!;
                     void applySpeedEdit(selSpeed()!, r.start, r.end, v);
@@ -3417,7 +3456,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When this speed region starts — drag to scrub, click to type"
+                  title="When this speed region starts. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const r = selectedSpeed()!;
                     void applySpeedEdit(selSpeed()!, v, r.end, r.factor);
@@ -3431,7 +3470,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When this speed region ends — drag to scrub, click to type"
+                  title="When this speed region ends. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const r = selectedSpeed()!;
                     void applySpeedEdit(selSpeed()!, r.start, v, r.factor);
@@ -3462,7 +3501,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When the removed section starts — drag to scrub, click to type"
+                  title="When the removed section starts. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const c = selectedCut()!;
                     void applyCutEdit(selCut()!, v, c.end);
@@ -3476,7 +3515,7 @@ function App() {
                   max={duration()}
                   step={0.1}
                   suffix="s"
-                  title="When the removed section ends — drag to scrub, click to type"
+                  title="When the removed section ends. Drag to scrub, click to type"
                   onCommit={(v) => {
                     const c = selectedCut()!;
                     void applyCutEdit(selCut()!, c.start, v);
@@ -3485,8 +3524,8 @@ function App() {
               </InspRow>
             </InspSection>
             <p class="muted small">
-              This section is removed from the GIF — playback and export skip straight over it. Drag
-              the band on the timeline, or its edges, to retime.
+              This section is removed from the GIF. Playback and export skip over it. Drag the
+              band on the timeline, or its edges, to retime.
             </p>
             <button class="btn danger" onClick={() => void deleteSelectedCut()}>
               Restore this section
@@ -3503,8 +3542,8 @@ function App() {
             </div>
             <p class="muted small">{TOOLS.find((t) => t.id === tool())?.hint}</p>
             <p class="muted small">
-              Double-click the tool to keep it active for several in a row. Press <kbd>Esc</kbd> or{" "}
-              <kbd>V</kbd> to go back to Select — options appear here once you place an element.
+              Double click the tool to keep it active. Press <kbd>Esc</kbd> or <kbd>V</kbd> for
+              Select. Options appear here once you place an element.
             </p>
           </aside>
         </Show>
@@ -3552,7 +3591,7 @@ function App() {
             <button
               class="tbtn"
               classList={{ on: looping() }}
-              title="Loop playback — preview the clip the way the GIF loops"
+              title="Loop playback"
               disabled={!hasClip()}
               onClick={() => setLooping(!looping())}
             >
@@ -3590,7 +3629,7 @@ function App() {
             </button>
             <button
               class="tbtn wide"
-              title={`Mark 2s at the playhead to play at ${skimFactor()}× — drag the band to retime`}
+              title={`Play 2s at ${skimFactor()}×. Drag the band to retime.`}
               disabled={!hasClip()}
               onClick={() => void addSpeedAtPlayhead()}
             >
@@ -3601,7 +3640,7 @@ function App() {
             </button>
             <button
               class="tbtn wide"
-              title="Remove 1s at the playhead from the GIF — drag the band to choose the exact section"
+              title="Cut 1s at the playhead. Drag the band to adjust."
               disabled={!hasClip()}
               onClick={() => void addCutAtPlayhead()}
             >
@@ -3655,7 +3694,7 @@ function App() {
             <button
               class="tbtn wide"
               classList={{ on: showKeys() }}
-              title="Show pressed shortcuts (Ctrl+C…) as chips in the GIF — plain typing is never shown"
+              title="Show pressed shortcuts as chips. Plain typing is hidden."
               disabled={!hasClip()}
               onClick={() => void toggleKeys()}
             >
@@ -3724,7 +3763,7 @@ function App() {
                       }}
                       title={
                         gone()
-                          ? "Hidden by a cut — this zoom never appears in the export"
+                          ? "Hidden by a cut. Never appears in the export."
                           : `Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`
                       }
                       onPointerDown={onZoomDown(i(), z, "move")}
@@ -3764,7 +3803,7 @@ function App() {
                         }}
                         title={
                           gone()
-                            ? "Hidden by a cut — this note never appears in the export"
+                            ? "Hidden by a cut. Never appears in the export."
                             : `${b.label} · drag to move, drag an edge to set how long it shows`
                         }
                         onPointerDown={onAnnDown(b, "move")}
@@ -3798,7 +3837,7 @@ function App() {
                       class="tl-speedchip"
                       title={
                         gone()
-                          ? "Hidden by a cut — this speed-up never affects the export"
+                          ? "Hidden by a cut. Never affects the export."
                           : `Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`
                       }
                       onPointerDown={onSpeedDown(i(), r, "move")}
@@ -3828,7 +3867,7 @@ function App() {
                     <div class="tl-handle l" onPointerDown={onCutDown(i(), c, "l")} onPointerMove={onCutMove} onPointerUp={() => void onCutUp()} />
                     <button
                       class="tl-cutchip"
-                      title="Removed from the GIF · drag the chip to move, drag an edge to resize, Delete to restore"
+                      title="Removed from the GIF. Drag to move, edges to resize, Delete to restore."
                       onPointerDown={onCutDown(i(), c, "move")}
                       onPointerMove={onCutMove}
                       onPointerUp={() => void onCutUp()}
@@ -3847,7 +3886,7 @@ function App() {
             <div
               class="tl-trim"
               style={{ left: `${pct(tStart())}%` }}
-              title="Trim start — drag"
+              title="Trim start"
               onPointerDown={onTrimDown("start")}
               onPointerMove={onTrimMove}
               onPointerUp={() => void onTrimUp()}
@@ -3855,7 +3894,7 @@ function App() {
             <div
               class="tl-trim end"
               style={{ left: `${pct(tEnd())}%` }}
-              title="Trim end — drag"
+              title="Trim end"
               onPointerDown={onTrimDown("end")}
               onPointerMove={onTrimMove}
               onPointerUp={() => void onTrimUp()}

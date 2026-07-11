@@ -402,6 +402,28 @@ kbd {
   background: var(--panel-2);
   border-color: var(--line);
 }
+/* Narrow window: tighten the top bar so its controls never clip or overflow. The window can
+   be sized below its 880×560 minimum programmatically, so degrade spacing gracefully. */
+@media (max-width: 1000px) {
+  .topbar {
+    gap: 6px;
+    padding-left: 8px;
+  }
+  .topbar > .btn {
+    padding: 7px 10px;
+    gap: 6px;
+  }
+  .project-name {
+    flex-basis: 130px;
+    min-width: 40px;
+  }
+  .tbtn-sel {
+    max-width: 112px;
+  }
+  .toolbar-sep {
+    margin: 0 2px;
+  }
+}
 .btn {
   display: inline-flex;
   align-items: center;
@@ -630,6 +652,9 @@ kbd {
   justify-content: center;
   gap: 12px;
   padding: 18px 28px 26px;
+  /* min-width/height 0 let this grid column shrink below its content instead of forcing the
+     whole workspace to overflow horizontally on a narrow window. */
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }

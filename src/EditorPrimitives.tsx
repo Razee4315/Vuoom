@@ -64,10 +64,18 @@ export function LockIcon(props: { locked: boolean }): JSX.Element {
   );
 }
 
-export function Handles(props: { pts: Vec2[] }): JSX.Element {
+export function Handles(props: { pts: Vec2[]; cursors?: string[] }): JSX.Element {
   return (
     <For each={props.pts}>
-      {(p) => <circle class="handle" cx={p.x} cy={p.y} r={6} />}
+      {(p, i) => (
+        <circle
+          class="handle"
+          cx={p.x}
+          cy={p.y}
+          r={6}
+          style={{ cursor: props.cursors?.[i()] ?? "pointer" }}
+        />
+      )}
     </For>
   );
 }

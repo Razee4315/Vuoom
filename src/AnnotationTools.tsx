@@ -110,11 +110,7 @@ export function ToolRail(props: {
                     type="button"
                     classList={{ tool: true, active: isActive(id), locked: isLocked(id) }}
                     aria-pressed={isActive(id)}
-                    title={
-                      id === "select"
-                        ? `${m.label} — ${m.key}`
-                        : `${m.label} — ${m.key}  ·  double-click to keep active`
-                    }
+                    title={`${m.label} (${m.key})`}
                     onClick={() => props.onPick(id)}
                     onDblClick={() => id !== "select" && props.onLock(id)}
                   >
@@ -147,8 +143,8 @@ export function ToolRail(props: {
         aria-pressed={props.locked}
         title={
           props.locked
-            ? "Keep tool active: ON — draw several in a row. Click to turn off (or double-click any tool to lock it)."
-            : "Keep tool active: OFF — returns to Select after each shape. Click to keep the current tool armed."
+            ? "Tool stays active. Click to turn off."
+            : "Tool returns to Select after each shape. Click to keep it active, or double click a tool."
         }
         onClick={() => props.onToggleLock()}
       >

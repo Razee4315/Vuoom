@@ -172,14 +172,6 @@ pub fn run() {
                     session.cancel_export();
                 }
             }
-            // While a region recording runs, keep the draggable panel out of the captured
-            // area — on Windows 10 a capture-excluded window that overlaps the region
-            // still lands in the recording as a black rectangle.
-            if let tauri::WindowEvent::Moved(_) = event {
-                if window.label() == "main" {
-                    commands::guard_panel_moved(window);
-                }
-            }
         })
         .setup(|app| {
             // Stand logging up first so engine-boot warnings are captured. Logs land in
@@ -202,6 +194,15 @@ pub fn run() {
             });
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.maximize();
+                // Exclude the main window from screen capture up front, at creation, so the
+                // affinity is on the top-level HWND long before any recording starts and can
+                // never be missed by a code path. `WDA_EXCLUDEFROMCAPTURE` persists on the
+                // handle, so the recording panel — wherever the user drags it, even over the
+                // recorded region — shows the desktop behind it in the capture instead of the
+                // panel. WGC monitor capture honors this on Windows 10 2004+ / Windows 11 (the
+                // same mechanism that keeps the region-border strips out of frame). The
+                // capture flow re-asserts it in `enter_overlay` as belt-and-suspenders.
+                let _ = windows_ext::exclude_from_capture(&main);
             }
             build_tray(app.handle())?;
             Ok(())

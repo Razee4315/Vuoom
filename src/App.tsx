@@ -17,9 +17,8 @@ import {
   InspectorPanel,
   InspRow,
   InspSection,
-  LockIcon,
-  ToolIcon,
 } from "./EditorPrimitives";
+import { ToolRail } from "./AnnotationTools";
 import { dialogA11y } from "./dialog";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
 import { cssColor, fmt, fmtBytes, fmtT, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
@@ -108,6 +107,14 @@ function App() {
   // When locked, a drawing tool stays active after creating an element (draw several in a
   // row); when unlocked (default) we fall back to Select so the new element is editable.
   const [toolLock, setToolLock] = createSignal(false);
+  // Tool-rail gestures. Single-click just arms a tool (one-shot by default); double-clicking a
+  // drawing tool also turns lock on, the discoverable "draw several" gesture. Lock is a sticky
+  // user preference — a single click never silently clears it.
+  const pickTool = (t: Tool) => setTool(t);
+  const lockTool = (t: Tool) => {
+    setTool(t);
+    setToolLock(true);
+  };
   const [status, setStatus] = createSignal("Ready");
   const [projectName, setProjectName] = createSignal("Untitled");
   const [editingText, setEditingText] = createSignal<number | null>(null);
@@ -620,12 +627,18 @@ function App() {
       void deleteSelection();
     } else if (
       e.key === "Escape" &&
-      (selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null)
+      (selected() ||
+        selZoom() !== null ||
+        selSpeed() !== null ||
+        selCut() !== null ||
+        tool() !== "select")
     ) {
+      // One key clears everything: disarm the current drawing tool (back to Select) AND
+      // drop any selection. Whatever state the user is in, Escape returns them to neutral.
+      if (tool() !== "select") setTool("select");
       setSelected(null);
       setSelZoom(null);
       setSelSpeed(null);
-      setSelCut(null);
       setSelCut(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
@@ -916,7 +929,7 @@ function App() {
       }
     }
 
-    // select tool: handle → resize, body → move, empty → keep selection (closes on ✕/Esc)
+    // select tool: handle → resize, body → move, empty → deselect (see the fall-through below)
     const h = handleAt(p);
     if (h && selected()) {
       const s = selected()!;
@@ -965,9 +978,16 @@ function App() {
         });
       const g = geomOf(hit.kind, hit.id);
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice(), group });
+      return;
     }
-    // Clicking empty space keeps the current selection (and its inspector) open —
-    // it only closes on the inspector's ✕ or Esc, so the layout doesn't jump around.
+    // Clicking empty canvas deselects — the trivial "get me out of this" gesture users expect
+    // (Figma/Excalidraw). The inspector column stays reserved while a clip is loaded (it falls
+    // back to a hint), so clearing the selection never reflows the canvas.
+    setSelected(null);
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    clearExtra();
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -2386,10 +2406,8 @@ function App() {
   };
   const somethingSelected = () =>
     !!selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null;
-  // A drawing tool is armed (not Select). We reserve the inspector column for it so the
-  // canvas doesn't reflow the moment you place an element (which would jump the editor box).
+  // A drawing tool is armed (not Select). Used to swap the inspector into a tool-context card.
   const drawingToolActive = () => hasClip() && tool() !== "select";
-  const inspectorOpen = () => somethingSelected() || drawingToolActive();
 
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -2608,44 +2626,21 @@ function App() {
       <div
         class="workspace"
         style={{
-          // The tool rail only matters once there's a clip to annotate, so it (and its
-          // 76px column) drops out of the empty editor — keeping the focus on Record.
-          "grid-template-columns": hasClip()
-            ? inspectorOpen()
-              ? `76px 1fr ${inspectorW()}px`
-              : "76px 1fr"
-            : "1fr",
+          // The tool rail + inspector only matter once there's a clip to annotate, so both
+          // columns drop out of the empty editor — keeping the focus on Record. Once a clip is
+          // loaded the inspector column stays reserved (it falls back to a hint when nothing is
+          // selected) so deselecting or arming a tool never reflows the canvas.
+          "grid-template-columns": hasClip() ? `76px 1fr ${inspectorW()}px` : "1fr",
         }}
       >
         <Show when={hasClip()}>
-          <nav class="toolrail">
-            <For each={TOOLS}>
-              {(t) => (
-                <button
-                  classList={{ tool: true, active: tool() === t.id }}
-                  onClick={() => setTool(t.id)}
-                  title={t.hint}
-                >
-                  <ToolIcon tool={t.id} />
-                  <span>{t.label}</span>
-                  <kbd class="tool-key">{t.key}</kbd>
-                </button>
-              )}
-            </For>
-            <div class="toolrail-spacer" />
-            <button
-              classList={{ tool: true, "tool-lock": true, active: toolLock() }}
-              title={
-                toolLock()
-                  ? "Tool lock on — the drawing tool stays active so you can add several in a row"
-                  : "Tool lock off — switches back to Select after you add an element"
-              }
-              onClick={() => setToolLock(!toolLock())}
-            >
-              <LockIcon locked={toolLock()} />
-              <span>Lock</span>
-            </button>
-          </nav>
+          <ToolRail
+            tool={tool()}
+            locked={toolLock()}
+            onPick={pickTool}
+            onLock={lockTool}
+            onToggleLock={() => setToolLock(!toolLock())}
+          />
         </Show>
 
         <main class="canvas">
@@ -2703,7 +2698,10 @@ function App() {
             <Show when={hasClip()}>
               <svg
                 class="overlay"
-                classList={{ "tool-draw": tool() !== "select" }}
+                classList={{
+                  "tool-draw": tool() !== "select" && tool() !== "text",
+                  "tool-text": tool() === "text",
+                }}
                 onPointerDown={(e) => void onPointerDown(e)}
                 onPointerMove={onPointerMove}
                 onPointerUp={(e) => void onPointerUp(e)}
@@ -3496,8 +3494,8 @@ function App() {
           </InspectorPanel>
         </Show>
 
-        {/* Tool-context panel: holds the inspector column while a drawing tool is armed
-            (nothing selected yet) so placing an element never reflows the canvas. */}
+        {/* Tool-context card: fills the inspector column while a drawing tool is armed but
+            nothing is placed yet, so the canvas never reflows when you draw. */}
         <Show when={drawingToolActive() && !somethingSelected()}>
           <aside class="properties">
             <div class="inspector-head">
@@ -3505,9 +3503,23 @@ function App() {
             </div>
             <p class="muted small">{TOOLS.find((t) => t.id === tool())?.hint}</p>
             <p class="muted small">
-              Press <kbd>V</kbd> for Select, or pick another tool on the left. Its options appear
-              here once you place an element.
+              Double-click the tool to keep it active for several in a row. Press <kbd>Esc</kbd> or{" "}
+              <kbd>V</kbd> to go back to Select — options appear here once you place an element.
             </p>
+          </aside>
+        </Show>
+
+        {/* Empty state: nothing selected and the Select tool is active. A brief hint instead
+            of a wall of disabled controls — and it keeps the inspector column from collapsing. */}
+        <Show when={hasClip() && !somethingSelected() && !drawingToolActive()}>
+          <aside class="properties">
+            <div class="inspector-empty">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 3l6 15.5 2.3-6.2 6.2-2.3z" />
+              </svg>
+              <p class="empty-title">Nothing selected</p>
+              <p class="muted">Click an object on the video to edit it, or pick a tool on the left to draw.</p>
+            </div>
           </aside>
         </Show>
       </div>

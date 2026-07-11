@@ -547,8 +547,9 @@ kbd {
 .toolrail {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 10px;
+  align-items: stretch;
+  gap: var(--sp-4);
+  padding: var(--sp-10) var(--sp-8);
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
@@ -557,66 +558,68 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: var(--sp-4);
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  border-radius: var(--radius);
-  padding: 10px 4px 8px;
-  font-size: var(--fs-xs);
-  font-weight: 500;
+  border-radius: var(--radius-sm);
+  padding: var(--sp-8) var(--sp-4);
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease),
-    transform var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
+    border-color var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease);
 }
 .tool svg {
   pointer-events: none;
 }
+.tool-label {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
 .tool:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
 }
+/* Strong, unmistakable armed state — filled surface + accent ring so the active tool always
+   reads at a glance (the old subtle border was easy to miss). */
 .tool.active {
-  background: var(--hover);
+  background: var(--prominent);
   color: var(--text);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .tool:disabled {
   opacity: 0.32;
   cursor: default;
 }
-/* Single-key shortcut badge — appears on hover / for the active tool. */
-.tool-key {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  padding: 0 4px;
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  border: 1px solid var(--line);
-  border-bottom-width: 1px;
-  border-radius: 4px;
-  background: var(--panel-2);
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity 0.1s ease;
-  pointer-events: none;
+/* Locked (kept-active) drawing tool: full accent ring + a small lock badge in the corner. */
+.tool.locked {
+  border-color: var(--accent);
 }
-.tool:hover:not(:disabled) .tool-key,
-.tool.active .tool-key {
-  opacity: 0.85;
+.tool-lockbadge {
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-6);
+  color: var(--accent);
+}
+/* Hairline divider between tool groups. */
+.toolrail-sep {
+  height: 1px;
+  margin: var(--sp-4) var(--sp-6);
+  background: var(--line);
 }
 /* Pushes the lock toggle to the bottom of the rail. */
 .toolrail-spacer {
   flex: 1;
 }
 .tool-lock {
-  margin-top: 4px;
+  margin-top: var(--sp-4);
 }
 .tool-lock.active {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--prominent);
 }
 
 /* ---- Canvas ---- */
@@ -776,6 +779,32 @@ kbd {
   justify-content: space-between;
   margin-bottom: 16px;
 }
+/* Inspector empty state — shown when a clip is loaded but nothing is selected. A calm hint
+   in place of a wall of disabled controls, and it keeps the column from collapsing. */
+.inspector-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-8);
+  padding: 44px var(--sp-16) var(--sp-16);
+  color: var(--muted);
+}
+.inspector-empty > svg {
+  color: var(--muted);
+  opacity: 0.55;
+}
+.inspector-empty .empty-title {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.inspector-empty p.muted {
+  margin: 0;
+  max-width: 220px;
+  line-height: 1.5;
+}
 .icon-btn {
   width: 26px;
   height: 26px;
@@ -816,6 +845,10 @@ kbd {
 }
 .overlay.tool-draw {
   cursor: crosshair;
+}
+/* Text tool armed — a caret cursor signals "click to type here". */
+.overlay.tool-text {
+  cursor: text;
 }
 .overlay text {
   user-select: none;

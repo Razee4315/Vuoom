@@ -2,25 +2,7 @@
 // the inspector chrome (panel + sections + rows), and the canvas overlay SVG (handles +
 // arrow/line). None of these read editor state — everything comes in via props.
 import { For, Show, type JSX } from "solid-js";
-import type { Tool, Vec2 } from "./types";
-
-export function ToolIcon(props: { tool: Tool }): JSX.Element {
-  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round" as const, "stroke-linejoin": "round" as const };
-  switch (props.tool) {
-    case "select":
-      return <svg {...common}><path d="M5 3l6 16 2-6 6-2z" /></svg>;
-    case "text":
-      return <svg {...common}><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>;
-    case "arrow":
-      return <svg {...common}><path d="M5 19L19 5M11 5h8v8" /></svg>;
-    case "line":
-      return <svg {...common}><path d="M5 19L19 5" /></svg>;
-    case "shape":
-      return <svg {...common}><rect x="3.5" y="6.5" width="11" height="11" rx="1.5" /><ellipse cx="16.5" cy="14" rx="4.5" ry="4" /></svg>;
-    case "highlight":
-      return <svg {...common}><path d="M4 20h6M14.5 4.5l5 5L10 19l-5 1 1-5z" /></svg>;
-  }
-}
+import type { Vec2 } from "./types";
 
 /** Shared chrome for every right-hand inspector: resizer + titled header + a Done button. */
 export function InspectorPanel(props: {

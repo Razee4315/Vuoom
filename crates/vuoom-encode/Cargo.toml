@@ -13,7 +13,7 @@ serde.workspace = true
 png = "0.18"
 # Pure-Rust animated-GIF encoder (MIT/Apache), linked — this is the shipping GIF encoder.
 # See docs/06-Export.md.
-gif = "0.13"
+gif = "0.14"
 # NeuQuant quantizer (MIT/Apache, already a transitive dep of `gif`) — used directly to
 # build ONE global palette for the whole clip so frames can be delta-encoded.
 color_quant = "2.0"

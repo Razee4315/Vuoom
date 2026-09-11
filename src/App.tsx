@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
-import { invoke, save, open, ask, check, relaunch, type Update } from "./bridge";
+import { invoke, isMock, save, open, ask, check, relaunch, type Update } from "./bridge";
 import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
@@ -460,6 +460,28 @@ function App() {
     await connectEngine();
     loadRecents();
     void checkForUpdate();
+    // Browser-mock helpers for screenshots/tests: ?demo=1 loads the sample take,
+    // &export=1 opens the export card, &record=1 jumps into the region selector.
+    const mockParams = new URLSearchParams(window.location.search);
+    if (isMock && mockParams.has("demo")) {
+      try {
+        localStorage.setItem("vuoom-seen-welcome", "1");
+      } catch {
+        /* ignore */
+      }
+      void invoke("set_pref", { key: "seen_welcome", value: "1" }).catch(() => undefined);
+      setShowWelcome(false);
+      setCoachRecord(false);
+      try {
+        const summary = await invoke<RecordingSummary>("recover_session");
+        setRecoverable(null);
+        await loadFinishedClip(summary);
+      } catch {
+        /* screenshot nicety only */
+      }
+      if (mockParams.has("export")) setShowExport(true);
+      if (mockParams.has("record")) void startRecord();
+    }
   });
 
   // The engine (GPU compositor + preview server) boots on a background thread; retry
@@ -547,6 +569,15 @@ function App() {
   // restart on every machine); localStorage is only a same-session fast-path cache. The card
   // shows only when NEITHER store has recorded a dismissal, so once dismissed it never returns.
   const maybeShowWelcome = async () => {
+    // Screenshot/test mode: the mock can suppress the first-run card entirely.
+    if (isMock && new URLSearchParams(window.location.search).has("nowelcome")) {
+      try {
+        localStorage.setItem("vuoom-seen-welcome", "1");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     let seen = false;
     try {
       seen = !!localStorage.getItem("vuoom-seen-welcome");

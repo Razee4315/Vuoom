@@ -1212,6 +1212,24 @@ kbd {
   font-size: var(--fs-sm);
   color: var(--text-2);
 }
+.field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.field-value {
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.export-pct {
+  margin: 2px 0 8px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
 .field input[type="text"] {
   width: 100%;
   padding: 8px 10px;
@@ -1968,6 +1986,45 @@ kbd {
 .tl-ann.swallowed.selected,
 .tl-speedband.swallowed.selected {
   opacity: 0.7;
+}
+
+/* Light themes: glass needs more ink to stay readable. Zoom blocks go near-solid red
+   with white text; annotation blocks keep colored glass but switch to dark text. */
+:root[data-theme="mono-light"] .tl-seg,
+:root[data-theme="paper"] .tl-seg {
+  background: linear-gradient(180deg, #f05e62, #e5484d);
+  border-color: #d9383d;
+  color: #fff;
+}
+:root[data-theme="mono-light"] .tl-ann,
+:root[data-theme="paper"] .tl-ann {
+  color: var(--ink-text);
+  text-shadow: none;
+}
+:root[data-theme="mono-light"] .tl-ann.tl-text,
+:root[data-theme="paper"] .tl-ann.tl-text {
+  background: color-mix(in srgb, var(--note-text) 42%, white);
+  border-color: color-mix(in srgb, var(--note-text) 70%, white);
+}
+:root[data-theme="mono-light"] .tl-ann.tl-box,
+:root[data-theme="paper"] .tl-ann.tl-box {
+  background: color-mix(in srgb, var(--note-box) 48%, white);
+  border-color: color-mix(in srgb, var(--note-box) 75%, white);
+}
+:root[data-theme="mono-light"] .tl-ann.tl-arrow,
+:root[data-theme="paper"] .tl-ann.tl-arrow {
+  background: color-mix(in srgb, var(--record) 40%, white);
+  border-color: color-mix(in srgb, var(--record) 65%, white);
+}
+:root[data-theme="mono-light"] .tl-speedchip,
+:root[data-theme="paper"] .tl-speedchip {
+  color: #7a5a00;
+  background: color-mix(in srgb, #f0b429 32%, white);
+}
+:root[data-theme="mono-light"] .tl-handle::after,
+:root[data-theme="paper"] .tl-handle::after {
+  background: rgba(0, 0, 0, 0.65);
+  box-shadow: none;
 }
 
 /* Speed bands: amber hatched regions with a grabbable chip. */

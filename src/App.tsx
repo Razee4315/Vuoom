@@ -1,13 +1,10 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { save, open, ask } from "@tauri-apps/plugin-dialog";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke, save, open, ask, check, relaunch, type Update } from "./bridge";
 import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
-import { PreviewClient } from "./preview";
+import { createPreviewClient } from "./preview";
 import { LogoWordmark } from "./Logo";
 import ScrubField from "./ScrubField";
 import { ExportDialog } from "./ExportDialog";
@@ -241,7 +238,7 @@ function App() {
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
 
-  const preview = new PreviewClient();
+  const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let stageEl: HTMLDivElement | undefined;
 

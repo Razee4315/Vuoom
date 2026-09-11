@@ -1,8 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { save } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { invoke, listen, save, revealItemInDir } from "./bridge";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
@@ -92,8 +89,8 @@ export function ExportDialog(props: {
     setPhase("exporting");
     setProgress(0);
     props.onStatus(`Exporting ${f.toUpperCase()}…`);
-    const unlisten = await listen<{ done: number; total: number }>("export-progress", (ev) => {
-      setProgress(ev.payload.total > 0 ? ev.payload.done / ev.payload.total : 0);
+    const unlisten = await listen<{ done: number; total: number }>("export-progress", (p) => {
+      setProgress(p.total > 0 ? p.done / p.total : 0);
     });
     try {
       await invoke(f === "gif" ? "export_gif" : "export_mp4", {

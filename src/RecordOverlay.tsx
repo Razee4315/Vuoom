@@ -1,7 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { PreviewClient } from "./preview";
+import { invoke, listen } from "./bridge";
+import { createPreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -78,7 +77,7 @@ export default function RecordOverlay(props: {
   };
 
   // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
-  const preview = new PreviewClient();
+  const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let shotEl: HTMLImageElement | undefined;
 

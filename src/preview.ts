@@ -3,6 +3,9 @@
 //   [ RGBA pixels ][ stride u32 | height u32 | width u32 | frame# u32 | t_ns u64 ]
 // See docs/05-Compositing-and-Preview.md and crate vuoom-preview::protocol.
 
+import { isMock } from "./bridge";
+import { mockEngine, paintDesktop } from "./mock/engine";
+
 const META_LEN = 24;
 
 interface PreviewFrame {
@@ -134,4 +137,54 @@ export class PreviewClient {
       this.onAspect?.(aspect);
     }
   }
+}
+
+/** Browser-stand-in for PreviewClient: paints the synthetic desktop scene at ~12fps so the
+ *  editor and recording flows are fully visible without the native engine. */
+export class MockPreviewClient {
+  private canvas: HTMLCanvasElement | null = null;
+  private ctx: CanvasRenderingContext2D | null = null;
+  private aspect = 0;
+  private onAspect: ((aspect: number) => void) | null = null;
+  private timer: number | undefined;
+
+  attach(canvas: HTMLCanvasElement): void {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+  }
+  onAspectChange(cb: (aspect: number) => void): void {
+    this.onAspect = cb;
+  }
+  connect(_port: number, _token: string): void {
+    this.disconnect();
+    if (this.canvas) {
+      this.canvas.width = 960;
+      this.canvas.height = 540;
+    }
+    if (Math.abs(16 / 9 - this.aspect) > 1e-3) {
+      this.aspect = 16 / 9;
+      this.onAspect?.(16 / 9);
+    }
+    this.timer = window.setInterval(() => this.draw(), 80);
+    this.draw();
+  }
+  disconnect(): void {
+    if (this.timer !== undefined) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
+  }
+  private draw(): void {
+    if (!this.canvas || !this.ctx) return;
+    // Skip work entirely when the canvas is hidden (e.g. behind the empty state) or the
+    // page is backgrounded, so the mock costs nothing while idle.
+    if (document.hidden || this.canvas.offsetParent === null) return;
+    const t = mockEngine.live ? mockEngine.liveElapsed() : mockEngine.playhead;
+    paintDesktop(this.ctx, this.canvas.width, this.canvas.height, t, { live: mockEngine.live });
+  }
+}
+
+/** Preview client factory: the real WebSocket client in the app, the mock in a browser. */
+export function createPreviewClient(): PreviewClient | MockPreviewClient {
+  return isMock ? new MockPreviewClient() : new PreviewClient();
 }

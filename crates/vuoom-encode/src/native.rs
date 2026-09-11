@@ -139,7 +139,7 @@ impl GlobalQuantizer {
     /// Quantize a frame to global-palette indices (one byte per pixel).
     fn index_frame(&mut self, img: &RgbaImage) -> Vec<u8> {
         let mut out = Vec::with_capacity(img.pixels.len() / 4);
-        for px in img.pixels.chunks_exact(4) {
+        for px in img.pixels.as_chunks::<4>().0 {
             out.push(self.index(px[0], px[1], px[2]));
         }
         out

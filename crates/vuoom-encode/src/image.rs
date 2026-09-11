@@ -100,7 +100,7 @@ pub fn read_png(path: &Path) -> Result<RgbaImage, EncodeError> {
         png::ColorType::Rgba => buf,
         png::ColorType::Rgb => {
             let mut out = Vec::with_capacity(buf.len() / 3 * 4);
-            for px in buf.chunks_exact(3) {
+            for px in buf.as_chunks::<3>().0 {
                 out.extend_from_slice(&[px[0], px[1], px[2], 255]);
             }
             out
@@ -119,7 +119,7 @@ pub fn read_png(path: &Path) -> Result<RgbaImage, EncodeError> {
 #[must_use]
 pub fn swizzle_rb(src: &[u8]) -> Vec<u8> {
     let mut out = src.to_vec();
-    for px in out.chunks_exact_mut(4) {
+    for px in out.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     out

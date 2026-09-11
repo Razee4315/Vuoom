@@ -4,7 +4,8 @@
 import { createSignal, For, Show, type JSX } from "solid-js";
 
 /** Segmented control: a group of exclusive options rendered as one pill-shaped switcher.
- *  options: value/label pairs (label may be any JSX). Fully keyboard accessible. */
+ *  options: value/label pairs (label may be any JSX). Uses the toggle-button pattern
+ *  (aria-pressed) so it stays accessible without radio-input semantics. */
 export function Seg<T extends string>(props: {
   options: { value: T; label: JSX.Element; title?: string }[];
   value: T;
@@ -13,13 +14,12 @@ export function Seg<T extends string>(props: {
   disabled?: boolean;
 }): JSX.Element {
   return (
-    <div class={`seg ${props.class ?? ""}`} role="radiogroup" classList={{ disabled: !!props.disabled }}>
+    <div class={`seg ${props.class ?? ""}`} classList={{ disabled: !!props.disabled }}>
       <For each={props.options}>
         {(o) => (
           <button
             type="button"
-            role="radio"
-            aria-checked={props.value === o.value}
+            aria-pressed={props.value === o.value}
             title={o.title}
             disabled={props.disabled}
             classList={{ "seg-btn": true, on: props.value === o.value }}

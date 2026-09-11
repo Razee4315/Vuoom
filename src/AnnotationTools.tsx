@@ -1,6 +1,6 @@
 // The post-recording annotation tool rail: redesigned, grouped tool buttons with crisp
 // hand-drawn icons and a discoverable "keep tool active" (lock) affordance. Purely
-// presentational — every bit of state (which tool is active, whether lock is on) and every
+// presentational, every bit of state (which tool is active, whether lock is on) and every
 // action (pick a tool, lock a tool, toggle the global lock) comes in via props so App.tsx
 // keeps ownership of the editor's reactive signals.
 import { For, Show, type JSX } from "solid-js";
@@ -10,7 +10,7 @@ import type { Tool } from "./types";
 
 // Consistent icon system: 20px, 1.75px stroke, currentColor so each glyph inherits the
 // button's themed text color and reads correctly across every mono theme. Kept minimal and
-// evenly weighted (Figma/Linear grammar) — one visual idea per tool, no busy compound marks.
+// evenly weighted (Figma/Linear grammar), one visual idea per tool, no busy compound marks.
 function ToolGlyph(props: { tool: Tool }): JSX.Element {
   const common = {
     width: 20,
@@ -24,14 +24,14 @@ function ToolGlyph(props: { tool: Tool }): JSX.Element {
   };
   switch (props.tool) {
     case "select":
-      // Classic pointer/cursor arrow — the universal "select & move" mark.
+      // Classic pointer/cursor arrow, the universal "select & move" mark.
       return (
         <svg {...common}>
           <path d="M5 3l6 15.5 2.3-6.2 6.2-2.3z" />
         </svg>
       );
     case "text":
-      // Serifed capital T — reads as "type".
+      // Serifed capital T, reads as "type".
       return (
         <svg {...common}>
           <path d="M5 7V5h14v2M12 5v14M9 19h6" />
@@ -82,13 +82,13 @@ const metaOf = (id: Tool) => TOOLS.find((t) => t.id === id)!;
 
 export function ToolRail(props: {
   tool: Tool;
-  /** Global "keep the drawing tool active" state (one-shot when off — the default). */
+  /** Global "keep the drawing tool active" state (one-shot when off, the default). */
   locked: boolean;
   /** Single-click: switch to this tool. */
   onPick: (t: Tool) => void;
   /** Double-click a drawing tool: switch to it AND turn lock on (draw several in a row). */
   onLock: (t: Tool) => void;
-  /** The bottom lock affordance — toggles the global lock. */
+  /** The bottom lock affordance, toggles the global lock. */
   onToggleLock: () => void;
 }): JSX.Element {
   const isActive = (id: Tool) => props.tool === id;

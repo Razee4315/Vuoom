@@ -26,7 +26,7 @@ export default function WindowControls() {
       });
       onCleanup(unlisten);
     } catch {
-      // Not running inside a Tauri window (e.g. browser dev) — ignore.
+      // Not running inside a Tauri window (e.g. browser dev), ignore.
     }
   });
 

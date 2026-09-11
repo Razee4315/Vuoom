@@ -1,6 +1,6 @@
-# 12 — CI/CD & Working Rules
+# 12, CI/CD & Working Rules
 
-How Vuoom is built, tested, and released — and two standing workflow rules.
+How Vuoom is built, tested, and released, and two standing workflow rules.
 
 ---
 
@@ -17,9 +17,9 @@ These adapt the project's existing Tauri v2 CI/CD pipeline guide
 
 ## Pipelines
 
-### `.github/workflows/ci.yml` — Continuous Integration
+### `.github/workflows/ci.yml`, Continuous Integration
 - **Triggers:** push to `main`, PRs to `main`.
-- **Runner:** `windows-latest` (Vuoom is Windows-only — WGC capture, wgpu DX12).
+- **Runner:** `windows-latest` (Vuoom is Windows-only, WGC capture, wgpu DX12).
 - **Steps:** install Rust (rustfmt + clippy) → Rust cache → Node 22 + pnpm 10 →
   `pnpm install --frozen-lockfile` → `pnpm typecheck` (tsc) → `pnpm build` (vite → `dist/`) →
   `cargo fmt --all --check` → `cargo clippy --workspace --all-targets -D warnings` →
@@ -27,7 +27,7 @@ These adapt the project's existing Tauri v2 CI/CD pipeline guide
 - **Why build the frontend before cargo:** Tauri's `generate_context!` needs `dist/` to exist
   before the app crate will compile/check.
 
-### `.github/workflows/release.yml` — Release
+### `.github/workflows/release.yml`, Release
 - **Trigger:** **manual (`workflow_dispatch`) for now.** Vuoom is pre-implementation; we don't
   want to publish the empty scaffold on every push. **Flip to auto-release** by uncommenting the
   `push: branches: [main]` trigger once there's something worth shipping (target: **M4**).
@@ -38,7 +38,7 @@ These adapt the project's existing Tauri v2 CI/CD pipeline guide
   binary, bundles `.msi` + NSIS `.exe`, tags `v{version}`, and creates a **draft** GitHub Release
   (signed installers + `latest.json` attached). It is **not** yet public: drafts are excluded from
   `releases/latest`, the URL the auto-updater polls, so no user updates until a maintainer clicks
-  **Publish release** in GitHub → Releases. This is the manual ship gate — a single bad push to
+  **Publish release** in GitHub → Releases. This is the manual ship gate, a single bad push to
   `main` can't auto-update everyone.
 
 ## Version sync (workspace-specific)
@@ -65,7 +65,7 @@ The release job's bump edits exactly these three (the root `Cargo.toml`, not `sr
 ## TODO before the first real release (M4)
 
 - [ ] Bundle the **gifski** sidecar binary (out-of-process; see [`06`](./06-Export.md),
-      [`10`](./10-Licensing.md)) — GIF export depends on it.
+      [`10`](./10-Licensing.md)), GIF export depends on it.
 - [ ] Consider adding `cargo-deny` to CI to enforce the license policy (no AGPL/GPL **linked**).
 - [ ] Code signing (Azure Trusted Signing) wired into the release build (see [`02`](./02-Architecture.md)).
 - [ ] Flip `release.yml` to the `push: [main]` trigger.

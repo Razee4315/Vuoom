@@ -274,7 +274,7 @@
   backdrop-filter: blur(18px) saturate(140%);
 }
 
-/* Drag handle — moves the whole preview window out of the way. */
+/* Drag handle, moves the whole preview window out of the way. */
 .rec-drag {
   display: flex;
   align-items: center;
@@ -347,7 +347,7 @@
   }
 }
 
-/* Countdown overlay sits over the (still dark) screen — a ring with the count. */
+/* Countdown overlay sits over the (still dark) screen, a ring with the count. */
 .rec-countdown {
   position: absolute;
   inset: 0;

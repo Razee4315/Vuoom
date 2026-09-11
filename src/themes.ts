@@ -22,7 +22,7 @@ export function applyTheme(id: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, id);
   } catch {
-    // storage unavailable — ignore
+    // storage unavailable, ignore
   }
 }
 

@@ -19,16 +19,16 @@ export const fmt = (t: number) => {
 export const fmtT = (t: number) => `${fmt(t)}.${Math.floor((t % 1) * 10)}`;
 
 export const fmtBytes = (b: number) => {
-  if (b <= 0) return "—";
+  if (b <= 0) return "-";
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
   if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
   return `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-/// User-facing copy for a failed GPU compositor init — shared by the boot warning banner
+/// User-facing copy for a failed GPU compositor init, shared by the boot warning banner
 /// and the error mapper below so both surfaces tell the same story.
 export const GPU_FAILED_MSG =
-  "Graphics initialization failed — preview and export won't work (recording still saves " +
+  "Graphics initialization failed, preview and export won't work (recording still saves " +
   "to disk). Update your GPU drivers and restart Vuoom.";
 
 /// Map raw engine error strings to friendly, actionable copy before they hit a status

@@ -37,7 +37,7 @@ export class PreviewClient {
   private port = 0;
   private token = "";
   private reconnectTimer: number | undefined;
-  private closed = true; // true once disconnect() is called — suppresses reconnects
+  private closed = true; // true once disconnect() is called, suppresses reconnects
 
   /** Bind the canvas frames will be drawn into. */
   attach(canvas: HTMLCanvasElement): void {
@@ -45,7 +45,7 @@ export class PreviewClient {
     this.ctx = canvas.getContext("2d");
   }
 
-  /** Notified with the frame aspect ratio (width / height) when it first changes —
+  /** Notified with the frame aspect ratio (width / height) when it first changes,
    *  lets the UI size the preview frame so there is no letterbox to misalign overlays. */
   onAspectChange(cb: (aspect: number) => void): void {
     this.onAspect = cb;

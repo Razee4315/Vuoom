@@ -20,7 +20,7 @@ export const distToSeg = (p: Vec2, a: Vec2, b: Vec2) => {
 };
 
 /** Played duration after trim + speed regions + cuts (mirrors vuoom_project::output_duration).
- * A cut is a region with an infinite factor — it contributes zero output time. */
+ * A cut is a region with an infinite factor, it contributes zero output time. */
 export function outputDuration(
   duration: number,
   trim: Trim | null,

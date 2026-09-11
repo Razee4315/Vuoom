@@ -1,4 +1,4 @@
-# 07 — Competitive Landscape, OSS Reuse Map & Positioning
+# 07, Competitive Landscape, OSS Reuse Map & Positioning
 
 Where Vuoom fits, what to learn from existing tools, and exactly which open-source code is safe to
 reuse vs. study-only.
@@ -9,7 +9,7 @@ reuse vs. study-only.
 
 **"Screen Studio for Windows, free and native."** It's a real, under-served gap:
 
-- **Screen Studio** — the gold-standard auto-zoom recorder — is **macOS-only** and moved to
+- **Screen Studio**, the gold-standard auto-zoom recorder, is **macOS-only** and moved to
   subscription in 2025.
 - The strongest **Windows** auto-zoom tools are **closed/paid** (FocuSee, Rapidemo) or
   **browser-extension-limited** (Cursorful).
@@ -30,7 +30,7 @@ air.
 | **Cursorful** | Browser (+desktop) | Closed (free tier) | Yes (2+ clicks/3s heuristic) | Extension | Good zoom-trigger heuristic reference |
 | **Rapidemo** | Windows | Closed | Yes | Native | Direct Windows SS clone |
 | **Screenize** | macOS | **Apache-2.0** | Yes (spring physics + per-activity) | Swift | **Best UX/algorithm reference** (design only) |
-| **screen-demo** (njraladdin) | **Win** + Mac | **MIT** | Yes | **Tauri + Rust + React** | **Most reusable** — MIT + our exact stack |
+| **screen-demo** (njraladdin) | **Win** + Mac | **MIT** | Yes | **Tauri + Rust + React** | **Most reusable**, MIT + our exact stack |
 | **Recordly** | Win/Mac/Linux | **MIT** | Yes (suggests zoom regions) | Mixed | Zoom-region detection reference |
 | **Cursorfly** | Browser | **Open** | Yes (zoom/pan at click) | Extension | Client-side zoom/pan reference |
 | CleanShot X | macOS | Closed | No | Native | Click highlights only |
@@ -55,37 +55,37 @@ air.
 **Auto-zoom UX**
 - Don't zoom on every mouse move → "seizure-inducing." Trigger on click clusters (Cursorful: 2+
   clicks within ~3 s); hold while activity continues.
-- Plan zoom *level* by activity type (typing vs clicking vs scrolling). — Screenize
+- Plan zoom *level* by activity type (typing vs clicking vs scrolling)., Screenize
 - **Make every auto keyframe visible and editable on a timeline.** Users distrust a black box.
   This is also a concrete way to beat Screen Studio's imprecise long-timeline scrubbing.
 
 **Rust + wgpu pipeline** (from a dev who built an SS alternative in Rust/wgpu)
-- A wgpu pipeline is the right call — once the base works, zoom/cursor/background are *additive*.
+- A wgpu pipeline is the right call, once the base works, zoom/cursor/background are *additive*.
 - **Separate preview rendering from export** for UI responsiveness.
-- **Export is the perennial bottleneck** — budget real time; GPU-accelerated encode gives big wins.
+- **Export is the perennial bottleneck**, budget real time; GPU-accelerated encode gives big wins.
 
 **Tauri / Electron-migration** (HN: "rewrote Electron app in Rust")
 - Wins: ~83% smaller app, much faster, fewer background crashes.
 - Costs: Tauri uses the **system webview** → rendering varies by OS/webview version; needs far
   more cross-platform testing; sidecar bundling can be painful (esp. macOS).
 - **Vuoom's structural advantage: Windows-only.** We sidestep the worst of Tauri's cross-platform
-  webview tax that burned the migrators — a real edge over cross-platform Cap.
+  webview tax that burned the migrators, a real edge over cross-platform Cap.
 
 ## Positioning recommendation
 
 **Table-stakes (to be credible):** reliable WGC capture (multi-monitor); auto-zoom that "just
 works"; cursor smoothing + click ripples; backgrounds/padding; simple text labels; **small,
-high-quality GIF export** (Vuoom's single output — own this).
+high-quality GIF export** (Vuoom's single output, own this).
 
 **Differentiators (where Vuoom wins):**
-- **Free + permissive + native Windows** — no strong auto-zoom tool combines all three.
+- **Free + permissive + native Windows**, no strong auto-zoom tool combines all three.
 - **Auto-zoom on by default** with **editable keyframes on a visible timeline** (Screenize's
-  model) — beat the black-box feel.
-- **Lean, fast exports** — directly attack Screen Studio's pain (a 12-min 4K export ≈ 9 GB).
-- **No login, 100% local, no watermark** — privacy + zero friction.
+  model), beat the black-box feel.
+- **Lean, fast exports**, directly attack Screen Studio's pain (a 12-min 4K export ≈ 9 GB).
+- **No login, 100% local, no watermark**, privacy + zero friction.
 
 **One-line positioning:** *Vuoom is the free, native Windows screen recorder that automatically
-makes your demos look cinematic — auto-zoom on by default, exports tiny.*
+makes your demos look cinematic, auto-zoom on by default, exports tiny.*
 
 ## Sources
 

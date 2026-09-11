@@ -494,7 +494,7 @@ kbd {
 
 .topbar {
   display: flex;
-  flex-wrap: nowrap; /* single row, always — never spill controls onto a second line */
+  flex-wrap: nowrap; /* single row, always, never spill controls onto a second line */
   align-items: center;
   gap: 10px;
   padding-left: 14px;
@@ -579,7 +579,7 @@ kbd {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* window controls group — full titlebar height, never clipped */
+/* window controls group, full titlebar height, never clipped */
 .winctl {
   display: flex;
   align-items: stretch;
@@ -730,7 +730,7 @@ kbd {
   cursor: default;
 }
 
-/* GPU-init failure warning — persistent (dismissible) strip below the topbar. */
+/* GPU-init failure warning, persistent (dismissible) strip below the topbar. */
 .gpu-banner {
   position: absolute;
   top: 54px;
@@ -980,8 +980,11 @@ kbd {
   color: var(--faint);
   margin-bottom: 2px;
 }
-.recent-card {
+.recent-wrap {
   position: relative;
+  display: inline-flex;
+}
+.recent-card {
   display: flex;
   align-items: center;
   gap: var(--sp-10);
@@ -1365,7 +1368,7 @@ kbd {
   background: var(--accent-soft);
 }
 
-/* Toggles (bold / italic / BG, shape, ends, focus...) — segmented grammar. */
+/* Toggles (bold / italic / BG, shape, ends, focus...), segmented grammar. */
 .style-row {
   display: flex;
   gap: 2px;
@@ -1724,7 +1727,7 @@ kbd {
   min-width: 100%;
   min-height: 84px;
 }
-/* Zoom controls — pinned over the timeline's top-right corner. */
+/* Zoom controls, pinned over the timeline's top-right corner. */
 .tl-zoomctl {
   position: absolute;
   top: 3px;
@@ -2167,7 +2170,7 @@ kbd {
   background: var(--record-hover);
 }
 
-/* Magnetic-snap guide — flashes at the snapped time during a drag. */
+/* Magnetic-snap guide, flashes at the snapped time during a drag. */
 .tl-snapline {
   position: absolute;
   top: 0;
@@ -2582,7 +2585,7 @@ kbd {
 }
 
 /* ============================================================
-   Onboarding — first-run welcome card + Record coachmark
+   Onboarding, first-run welcome card + Record coachmark
    ============================================================ */
 
 .welcome-backdrop {
@@ -2714,7 +2717,7 @@ kbd {
 }
 
 /* ============================================================
-   Responsive — small laptops through large / 4K displays
+   Responsive, small laptops through large / 4K displays
    ============================================================ */
 
 @media (min-width: 1700px) {

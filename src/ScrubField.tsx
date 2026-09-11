@@ -2,12 +2,12 @@ import { createSignal, Show, type JSX } from "solid-js";
 
 /**
  * A numeric field you can **drag to scrub**, **click to type**, or **step with the
- * keyboard** — the core inspector ergonomic borrowed from pro editors. Horizontal drag
+ * keyboard**, the core inspector ergonomic borrowed from pro editors. Horizontal drag
  * changes the value; hold Shift for a coarse (×8) sweep or Ctrl/Cmd for fine (×0.15)
  * control. When focused it behaves as an ARIA spinbutton: Arrow keys step by `step`
  * (Shift ×10), Page keys step by ×10, Home/End jump to the bounds, and Enter or typing a
  * digit drops into the text-edit mode. `onInput` fires live during the gesture (for
- * preview); `onCommit` fires at each committed change (the undo boundary) — a keyboard
+ * preview); `onCommit` fires at each committed change (the undo boundary), a keyboard
  * step is treated as one discrete committed change. A `null` value renders an em-dash for
  * mixed/unknown selections.
  */
@@ -19,14 +19,14 @@ export interface ScrubFieldProps {
   step: number;
   /** Value change per pixel of drag. Default spreads the range over ~320px. */
   sensitivity?: number;
-  /** Multiplies the stored value for display (e.g. 100 shows a 0–1 value as a percent). */
+  /** Multiplies the stored value for display (e.g. 100 shows a 0-1 value as a percent). */
   displayScale?: number;
   suffix?: string;
   disabled?: boolean;
   title?: string;
-  /** Continuous, during scrub/type — use for a live preview. */
+  /** Continuous, during scrub/type, use for a live preview. */
   onInput?: (v: number) => void;
-  /** Once, when the gesture ends (release / Enter / blur) — the undo boundary. */
+  /** Once, when the gesture ends (release / Enter / blur), the undo boundary. */
   onCommit: (v: number) => void;
 }
 
@@ -221,7 +221,7 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
         onPointerUp={onPointerUp}
       >
         <span class="scrub-val">
-          <Show when={shown() !== null} fallback="—">
+          <Show when={shown() !== null} fallback="-">
             {fmt(shown()!)}
           </Show>
         </span>

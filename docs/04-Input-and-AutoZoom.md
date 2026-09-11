@@ -1,4 +1,4 @@
-# 04 — Global Input Capture & the Auto-Zoom Algorithm
+# 04, Global Input Capture & the Auto-Zoom Algorithm
 
 This is **the** document for Vuoom's signature feature. Part A captures global input with
 frame-accurate timestamps. Part B turns that event log into cinematic, Screen-Studio-quality
@@ -6,7 +6,7 @@ camera motion. If any part of Vuoom must be excellent, it is this.
 
 ---
 
-# PART A — Global Input Capture
+# PART A, Global Input Capture
 
 ## Decision
 
@@ -56,7 +56,7 @@ messages targeted for other threads more effectively than low-level hooks can."*
 
 - **Admin/elevated windows block hooks (UIPI):** a non-elevated Vuoom won't see input over
   higher-integrity windows. To capture over admin apps, run Vuoom elevated (or signed
-  uiAccess=true manifest). This is a Screen-Studio-class limitation — document it.
+  uiAccess=true manifest). This is a Screen-Studio-class limitation, document it.
 - **Code-sign the binary** to reduce AV friction from global input monitoring.
 
 ## Event log schema (drives auto-zoom)
@@ -74,7 +74,7 @@ enum InputEvent {
 
 ---
 
-# PART B — The Auto-Zoom Algorithm
+# PART B, The Auto-Zoom Algorithm
 
 Goal: a "click around a UI" recording auto-produces zooms a non-expert calls *"professional /
 like Screen Studio."* The approach is a hybrid of **Cap's** (read from source) and **Screen
@@ -84,7 +84,7 @@ Studio's** (reconstructed from teardowns), with conservative defaults.
 
 1. **Plan** discrete `ZoomKeyframe`s from the click/activity log (click-driven, debounced).
 2. **Animate** a virtual camera (center + zoom) toward those targets each output frame using
-   **critically-damped springs** — self-correcting, no overshoot, frame-rate independent.
+   **critically-damped springs**, self-correcting, no overshoot, frame-rate independent.
 3. **Clamp** the camera so the cursor stays in frame and the viewport never reveals off-screen
    empty area.
 4. Every auto keyframe is **editable** on the timeline (same data structure the editor mutates).
@@ -117,9 +117,9 @@ enforce a minimum re-zoom interval (frequency limit) to avoid motion sickness
 
 ## The camera (per-frame animation)
 
-Two critically-damped springs — one 2D (`center`, normalized) and one scalar (`zoom`). Use the
+Two critically-damped springs, one 2D (`center`, normalized) and one scalar (`zoom`). Use the
 **half-life-parameterized exact update** (frame-rate independent, no overshoot; from Orange
-Duck's "Spring-Roll-Call"). Half-life = time to close half the remaining distance — intuitive to
+Duck's "Spring-Roll-Call"). Half-life = time to close half the remaining distance, intuitive to
 tune.
 
 ```rust
@@ -162,13 +162,13 @@ fn clamp_camera(center: Vec2, zoom: f64) -> Vec2 {
 ```
 
 `snap_to_edges` nudges the focus toward a screen edge when the cursor is near it (governed by
-`edge_snap_ratio`) so corner UI isn't cropped, while keeping ~12–15% margin around the cursor.
+`edge_snap_ratio`) so corner UI isn't cropped, while keeping ~12-15% margin around the cursor.
 
 ### Jitter rejection (the "shaky → glide" pass)
 
 - **Pre-smooth** the raw cursor before it becomes the pan target (a short spring or a 1€ filter).
   This is Screen Studio's hallmark "turn shaky movement into a smooth glide."
-- **Dead-zone:** only move the pan target when the cursor leaves a box (~8–12% of frame) around
+- **Dead-zone:** only move the pan target when the cursor leaves a box (~8-12% of frame) around
   the current camera center → micro-movements don't drag the camera.
 
 ## Cap's actual spring constants (reference)
@@ -186,13 +186,13 @@ SCREEN_SPRING_MASS      = 2.25
 
 If you prefer the stiffness/damping/mass form over half-life, use these as a starting point. Both
 forms are equivalent; half-life is just easier to tune. **Verify against Cap's current `main`
-before hard-coding — they iterate fast.**
+before hard-coding, they iterate fast.**
 
 ## Default parameter set (Screen-Studio-quality starting point)
 
 | Param | Default | Rationale |
 |---|---|---|
-| Zoom amount (click) | **1.8×** (range 1.5–2.0) | Cap/Screen-Studio typical |
+| Zoom amount (click) | **1.8×** (range 1.5-2.0) | Cap/Screen-Studio typical |
 | `HL_ZOOM` (zoom spring half-life) | **0.30 s** | snappy but smooth zoom-in |
 | `HL_PAN` (pan spring half-life) | **0.22 s** | tracks cursor without rubber-banding |
 | Zoom transition feel | ζ≈0.94 in, ζ≈1.0+ out | matches Cap |
@@ -210,9 +210,9 @@ All of these are exposed in the editor with these as defaults (spec §5.1).
 
 - Every auto keyframe is a draggable timeline block: add / remove / move / resize / re-target.
 - Manual focus point is pixel-precise (`ZoomMode::Manual { x, y }`).
-- The editor mutates the **same** `ZoomKeyframe` list the planner produced — no separate path.
+- The editor mutates the **same** `ZoomKeyframe` list the planner produced, no separate path.
 
-## Acceptance criteria (from spec §5.1 — the M2 gate)
+## Acceptance criteria (from spec §5.1, the M2 gate)
 
 1. Camera renders smoothly at 60fps, no stutter/tearing.
 2. Default settings on a typical UI recording → "professional / like Screen Studio."
@@ -224,13 +224,13 @@ All of these are exposed in the editor with these as defaults (spec §5.1).
 
 - `vuoom-zoom` has **no GPU/OS dependencies** → unit-test the planner and springs against
   synthetic event logs (assert no off-screen reveal, no >N zooms/sec, debounce works).
-- The compositor consumes the camera's `(center, zoom)` per frame as a transform uniform — see
+- The compositor consumes the camera's `(center, zoom)` per frame as a transform uniform, see
   [`05-Compositing-and-Preview.md`](./05-Compositing-and-Preview.md).
 
 ## Confidence caveats
 
-- Cap is open but iterates fast; its `zoom.rs` constants/clamp were read via fetch — re-verify.
-- Screen Studio is closed/macOS; its specifics are reconstructed from reviews — directional, not exact.
+- Cap is open but iterates fast; its `zoom.rs` constants/clamp were read via fetch, re-verify.
+- Screen Studio is closed/macOS; its specifics are reconstructed from reviews, directional, not exact.
 
 ## Sources
 

@@ -1,4 +1,4 @@
-# 02 — System Architecture
+# 02, System Architecture
 
 How Vuoom is structured end to end: the crate layout, the master clock, the data flow from
 capture to export, the Tauri app boundary, and distribution.
@@ -29,7 +29,7 @@ vuoom/
 └─ crates/                      # The engine (pure Rust, unit-testable)
    ├─ vuoom-capture/            #   WGC/DXGI capture → GPU textures
    ├─ vuoom-input/              #   Raw Input hook → QPC-stamped event log
-   ├─ vuoom-zoom/               #   auto-zoom planner + spring camera (NO GPU deps — testable)
+   ├─ vuoom-zoom/               #   auto-zoom planner + spring camera (NO GPU deps, testable)
    ├─ vuoom-render/             #   wgpu compositor (shaders, render graph, text+annotations)
    ├─ vuoom-encode/             #   GIF export via gifski (out-of-process binary)
    ├─ vuoom-project/            #   .vuoom manifest (serde types) + timeline model
@@ -37,12 +37,12 @@ vuoom/
 ```
 
 **Why this split:** `vuoom-zoom` and `vuoom-project` have **no GPU or OS dependencies**, so the
-core auto-zoom math and the edit model are unit-testable in isolation — critical because
+core auto-zoom math and the edit model are unit-testable in isolation, critical because
 auto-zoom quality is the make-or-break milestone (M2).
 
 ---
 
-## 2. The master clock — QueryPerformanceCounter (QPC)
+## 2. The master clock, QueryPerformanceCounter (QPC)
 
 Everything time-related uses **one clock**: QPC.
 
@@ -53,7 +53,7 @@ Everything time-related uses **one clock**: QPC.
 - WGC capture frames carry `SystemRelativeTime` (a QPC-based `TimeSpan`, 100 ns units). DXGI
   frames carry `LastPresentTime` (also QPC).
 - Because input QPC and frame QPC share one axis, frame-relative event offsets are a direct
-  subtraction — no calibration, no drift. This is what makes auto-zoom frame-accurate.
+  subtraction, no calibration, no drift. This is what makes auto-zoom frame-accurate.
 
 QPC is monotonic, sub-microsecond, and survives sleep/standby.
 
@@ -111,7 +111,7 @@ Get this right once, centrally, or every downstream feature inherits bugs.
 
 **Key insight (proven by Cap): pixels never cross JSON IPC.** A scrub is just a tiny JSON
 command (`seekTo`) telling Rust which frame to render; the heavy RGBA flows over a localhost
-binary WebSocket. End-to-end ≈ 10–15 ms, sustained 60fps at 1080p. Full detail in
+binary WebSocket. End-to-end ≈ 10-15 ms, sustained 60fps at 1080p. Full detail in
 [`05-Compositing-and-Preview.md`](./05-Compositing-and-Preview.md).
 
 ## 6. Export-time data flow
@@ -126,7 +126,7 @@ binary WebSocket. End-to-end ≈ 10–15 ms, sustained 60fps at 1080p. Full deta
                  (optional gifsicle "shrink more" pass)
 ```
 
-**Preview and export share one wgpu device and one compositor** — only the sink differs
+**Preview and export share one wgpu device and one compositor**, only the sink differs
 (WebSocket vs encoder). This guarantees the preview is pixel-identical to the export.
 
 ---
@@ -136,16 +136,16 @@ binary WebSocket. End-to-end ≈ 10–15 ms, sustained 60fps at 1080p. Full deta
 | Need | Mechanism |
 |---|---|
 | Frontend → Rust action | `#[tauri::command]` + `invoke()` (request/response) |
-| Rust → Frontend **streaming** (encode progress, recording status, preview ready) | **`tauri::ipc::Channel`** — ordered, cheap; *not* events |
-| Large binary preview frames | **localhost WebSocket** (or async custom URI protocol) — never IPC |
+| Rust → Frontend **streaming** (encode progress, recording status, preview ready) | **`tauri::ipc::Channel`**, ordered, cheap; *not* events |
+| Large binary preview frames | **localhost WebSocket** (or async custom URI protocol), never IPC |
 | Long-lived recorder state | `app.manage(...)` + a task that owns the recorder, driven by channels |
 
 Tauri 2 specifics that matter:
-- **Capabilities/ACL** replace v1's allowlist — per-window permission files in `capabilities/`.
-- Core APIs (fs, shell, dialog…) are **separate plugins** now — opt in to only what's used.
+- **Capabilities/ACL** replace v1's allowlist, per-window permission files in `capabilities/`.
+- Core APIs (fs, shell, dialog…) are **separate plugins** now, opt in to only what's used.
 - JS import moved: `@tauri-apps/api/tauri` → `@tauri-apps/api/core`.
 - HWND access via `window.hwnd()` or `raw-window-handle` for wgpu/overlay windows. Beware the
-  known wgpu+transparency surface-contention flicker — prefer a separate child/overlay window
+  known wgpu+transparency surface-contention flicker, prefer a separate child/overlay window
   for any native rendering over the webview, rather than sharing its surface.
 
 ## 8. The overlay window (region selector + countdown)
@@ -161,7 +161,7 @@ A separate transparent, frameless, always-on-top, click-through window:
 - **Installer:** NSIS `-setup.exe` (per-user, no admin) is the primary artifact; the updater
   reuses it. MSI optional.
 - **App size:** the Tauri shell is single-digit MB (uses the OS WebView2 runtime). The gifski
-  binary is small; total download stays modest — a real advantage of GIF-only (no bulky ffmpeg).
+  binary is small; total download stays modest, a real advantage of GIF-only (no bulky ffmpeg).
 - **SmartScreen (critical for a free download):** unsigned apps get the "unknown publisher"
   block. Recommended path for an indie/free app is **Azure Trusted Signing** (cloud HSM, cheap
   monthly) wired via `bundle.windows.signCommand`. An OV cert works but the warning persists
@@ -183,10 +183,10 @@ A separate transparent, frameless, always-on-top, click-through window:
 | Encode (export) | spawn + feed the gifski binary; stream progress via a Channel |
 
 Inter-thread: lock-free/`mpsc` queues; never block the input hook callback (it sits on the
-system-wide input path — stamp QPC, enqueue, return).
+system-wide input path, stamp QPC, enqueue, return).
 
 ## Sources
 
-Cross-cutting; see [`03`](./03-Capture.md)–[`06`](./06-Export.md) for primary sources. Tauri
+Cross-cutting; see [`03`](./03-Capture.md)-[`06`](./06-Export.md) for primary sources. Tauri
 specifics: <https://v2.tauri.app/develop/calling-frontend/>,
 <https://v2.tauri.app/distribute/sign/windows/>, <https://v2.tauri.app/plugin/updater/>.

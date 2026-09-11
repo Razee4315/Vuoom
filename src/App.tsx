@@ -17,8 +17,9 @@ import {
 } from "./EditorPrimitives";
 import { ToolRail } from "./AnnotationTools";
 import { dialogA11y } from "./dialog";
+import { toast, ToastHost } from "./ui";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
-import { cssColor, fmt, fmtBytes, fmtT, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
+import { cssColor, fmt, fmtBytes, fmtT, friendlyError, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
 import type {
   AnnotationSet,
@@ -238,6 +239,99 @@ function App() {
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
 
+  // ── recent projects (local) ─────────────────────────────────────────────────
+  // A lightweight "pick up where you left off" grid for the empty state. Entries are
+  // {dir, name, ts} recorded on every successful save/open, kept newest-first.
+  interface Recent {
+    dir: string;
+    name: string;
+    ts: number;
+  }
+  const RECENTS_KEY = "vuoom-recents";
+  const [recents, setRecents] = createSignal<Recent[]>([]);
+  const loadRecents = () => {
+    try {
+      const raw = localStorage.getItem(RECENTS_KEY);
+      const list = raw ? (JSON.parse(raw) as Recent[]) : [];
+      setRecents(Array.isArray(list) ? list.filter((r) => r && r.dir).slice(0, 6) : []);
+    } catch {
+      setRecents([]);
+    }
+  };
+  const rememberRecent = (dir: string) => {
+    const name = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? dir;
+    const next = [
+      { dir, name, ts: Date.now() },
+      ...recents().filter((r) => r.dir !== dir),
+    ].slice(0, 6);
+    setRecents(next);
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const removeRecent = (dir: string) => {
+    const next = recents().filter((r) => r.dir !== dir);
+    setRecents(next);
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+  const openRecent = async (dir: string) => {
+    setStatus("Opening project…");
+    try {
+      const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
+      setProjectName(
+        dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.replace(/\.vuoom$/i, "") || "Untitled",
+      );
+      await loadFinishedClip(summary);
+      rememberRecent(dir);
+      setStatus("Project opened");
+      toast("Project opened", "success");
+    } catch (e) {
+      setStatus(`Open failed: ${String(e)}`);
+      toast(`Could not open project: ${friendlyError(e)}`, "error");
+    }
+  };
+  const fmtAgo = (ts: number) => {
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs} hr ago`;
+    return `${Math.round(hrs / 24)} days ago`;
+  };
+
+  // ── timeline hover affordances ───────────────────────────────────────────────
+  // A ghost playhead tracks the pointer across the whole track, and the zoom row shows a
+  // ghost block with a + under the cursor; a plain click (not a drag-scrub) adds the zoom.
+  // Click detection lives on the .tl pointer pair because pointer capture retargets
+  // pointerup to the capturing element, so a child's click handler would never fire.
+  const [hoverT, setHoverT] = createSignal<number | null>(null);
+  const [ghostT, setGhostT] = createSignal<number | null>(null);
+  let tlDownX = -1;
+  let tlDownY = -1;
+  let tlDownInZoomLane = false;
+  const onTlHoverMove = (e: PointerEvent) => {
+    if (tlDrag || zoomDrag() || speedDrag() || cutDrag() || !hasClip()) {
+      setHoverT(null);
+      setGhostT(null);
+      return;
+    }
+    setHoverT(tlTime(e));
+  };
+  const onTlHoverLeave = () => {
+    setHoverT(null);
+    setGhostT(null);
+  };
+  const onZoomLaneMove = (e: PointerEvent) => {
+    if (tlDrag || zoomDrag() || !hasClip()) return;
+    setGhostT(tlTime(e));
+  };
+
   const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let stageEl: HTMLDivElement | undefined;
@@ -364,6 +458,7 @@ function App() {
       onCleanup(() => tro.disconnect());
     }
     await connectEngine();
+    loadRecents();
     void checkForUpdate();
   });
 
@@ -689,7 +784,7 @@ function App() {
     ) {
       // Insert a segment at the playhead — Z/X/C mirror the Insert group (Zoom/Speed/Cut).
       e.preventDefault();
-      if (e.code === "KeyZ") void addZoomAtPlayhead();
+      if (e.code === "KeyZ") void addZoomAt();
       else if (e.code === "KeyX") void addSpeedAtPlayhead();
       else void addCutAtPlayhead();
     } else if (
@@ -1503,6 +1598,10 @@ function App() {
     setRecordPhase("idle");
     setBackdrop(null);
     await loadFinishedClip(summary);
+    toast(
+      `Recording loaded: ${summary.duration.toFixed(1)}s, ${summary.zooms} zoom${summary.zooms === 1 ? "" : "s"}`,
+      "success",
+    );
   };
   const onRecordCancel = () => {
     setRecordPhase("idle");
@@ -1539,13 +1638,13 @@ function App() {
     const i = selZoom();
     return i === null ? undefined : zooms()[i];
   };
-  const addZoomAtPlayhead = async () => {
+  const addZoomAt = async (t: number = playhead()) => {
     if (!hasClip()) return;
     try {
-      const list = await invoke<ZoomSeg[]>("add_zoom", { t: playhead() });
+      const list = await invoke<ZoomSeg[]>("add_zoom", { t });
       setZooms(list);
       setDirty(true);
-      const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
+      const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
       setSelected(null);
       setSelSpeed(null);
       setSelCut(null);
@@ -2465,9 +2564,12 @@ function App() {
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
+      rememberRecent(dir);
       setStatus(`Saved ${dir}`);
+      toast("Project saved", "success");
     } catch (e) {
       setStatus(`Save failed: ${String(e)}`);
+      toast(`Save failed: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2478,9 +2580,11 @@ function App() {
       setRecoverable(null);
       await loadFinishedClip(summary);
       setStatus(`Recovered ${summary.duration.toFixed(1)}s. Don't forget to export.`);
+      toast("Last session recovered", "success");
     } catch (e) {
       setRecoverable(null);
       setStatus(`Recovery failed: ${String(e)}`);
+      toast(`Recovery failed: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2527,9 +2631,12 @@ function App() {
       const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
       setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
+      rememberRecent(dir);
       setStatus("Project opened");
+      toast("Project opened", "success");
     } catch (e) {
       setStatus(`Open failed: ${String(e)}`);
+      toast(`Could not open project: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2545,18 +2652,23 @@ function App() {
         >
           <span class="dot" /> Record
         </button>
-        <input
-          class="project-name"
-          value={projectName()}
-          spellcheck={false}
-          aria-label="Project name"
-          title="Rename project"
-          onInput={(e) => setProjectName(e.currentTarget.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => {
-            if (!e.currentTarget.value.trim()) setProjectName("Untitled");
-          }}
-        />
+        <div class="project-name-wrap">
+          <input
+            class="project-name"
+            value={projectName()}
+            spellcheck={false}
+            aria-label="Project name"
+            title="Rename project"
+            onInput={(e) => setProjectName(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => {
+              if (!e.currentTarget.value.trim()) setProjectName("Untitled");
+            }}
+          />
+          <Show when={dirty() && hasClip()}>
+            <span class="dirty-dot" title="Unsaved changes (Ctrl+S to save)" />
+          </Show>
+        </div>
 
         {/* Flexible draggable gap — keeps the window movable and pins actions right. */}
         <div class="topbar-drag" data-tauri-drag-region="" />
@@ -2720,25 +2832,61 @@ function App() {
                   <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom ·{" "}
                   <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
-                <Show when={recoverable() !== null}>
-                  <div class="recents">
-                    <span class="recents-label">Pick up where you left off</span>
-                    <button
-                      class="recent-card"
-                      title="Recover your last recording and its edits"
-                      onClick={() => void onRecover()}
-                    >
-                      <div class="recent-thumb">
-                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                          <rect x="3" y="5" width="18" height="14" rx="2" />
-                          <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
-                        </svg>
-                      </div>
-                      <div class="recent-meta">
-                        <strong>Last session</strong>
-                        <small>{recoverable()!.toFixed(1)}s · recover</small>
-                      </div>
-                    </button>
+                <Show when={recoverable() !== null || recents().length > 0}>
+                  <div class="home-cards">
+                    <Show when={recoverable() !== null}>
+                      <button
+                        class="recent-card recover"
+                        title="Recover your last recording and its edits"
+                        onClick={() => void onRecover()}
+                      >
+                        <div class="recent-thumb">
+                          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4" />
+                            <path d="M12 7v5l3.5 2" />
+                          </svg>
+                        </div>
+                        <div class="recent-meta">
+                          <strong>Last session</strong>
+                          <small>{recoverable()!.toFixed(1)}s · click to recover</small>
+                        </div>
+                      </button>
+                    </Show>
+                    <For each={recents()}>
+                      {(r) => (
+                        <div class="recent-card" role="button" tabindex="0"
+                          title={`Open ${r.name}`}
+                          onClick={() => void openRecent(r.dir)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") void openRecent(r.dir);
+                          }}
+                        >
+                          <div class="recent-thumb">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                              <rect x="3" y="5" width="18" height="14" rx="2" />
+                              <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
+                            </svg>
+                          </div>
+                          <div class="recent-meta">
+                            <strong>{r.name}</strong>
+                            <small>{fmtAgo(r.ts)}</small>
+                          </div>
+                          <button
+                            class="recent-remove"
+                            title="Remove from recents"
+                            aria-label={`Remove ${r.name} from recents`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeRecent(r.dir);
+                            }}
+                          >
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                              <path d="M6 6l12 12M18 6L6 18" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </For>
                   </div>
                 </Show>
               </div>
@@ -3633,7 +3781,7 @@ function App() {
               class="tbtn wide"
               title="Add a zoom segment at the playhead"
               disabled={!hasClip()}
-              onClick={() => void addZoomAtPlayhead()}
+              onClick={() => void addZoomAt()}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
                 <circle cx="10.5" cy="10.5" r="6.5" />
@@ -3735,12 +3883,33 @@ function App() {
             if (!hasClip()) return;
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
             tlDrag = true;
+            tlDownX = e.clientX;
+            tlDownY = e.clientY;
+            const target = e.target as Element;
+            tlDownInZoomLane =
+              !!target.closest(".tl-track") && !target.closest(".tl-seg, .tl-handle");
+            setHoverT(null);
+            setGhostT(null);
             tlSeekFromEvent(e);
           }}
           onPointerMove={(e) => {
+            onTlHoverMove(e);
             if (tlDrag) tlSeekFromEvent(e);
           }}
-          onPointerUp={() => (tlDrag = false)}
+          onPointerUp={(e) => {
+            // A plain click (not a drag-scrub) on the empty zoom lane adds a zoom there.
+            if (
+              tlDrag &&
+              tlDownInZoomLane &&
+              Math.abs(e.clientX - tlDownX) <= 5 &&
+              Math.abs(e.clientY - tlDownY) <= 5
+            ) {
+              void addZoomAt(timeFromClientX(e.clientX));
+            }
+            tlDownInZoomLane = false;
+            tlDrag = false;
+          }}
+          onPointerLeave={onTlHoverLeave}
         >
           <Show
             when={hasClip()}
@@ -3762,8 +3931,27 @@ function App() {
                 )}
               </For>
             </div>
-            <div class="tl-track">
+            <div class="tl-track" onPointerMove={onZoomLaneMove} onPointerLeave={() => setGhostT(null)}>
               <span class="tl-tracklabel">Zoom</span>
+              <Show when={ghostT() !== null && !zoomDrag() && !speedDrag() && !cutDrag()}>
+                {(() => {
+                  const w = () => (duration() > 0 ? Math.min(100, (1.6 / duration()) * 100) : 10);
+                  const left = () =>
+                    Math.max(0, Math.min(100 - w(), pct(ghostT()!) - w() / 2));
+                  return (
+                    <div
+                      class="tl-ghost"
+                      style={{ left: `${left()}%`, width: `${w()}%` }}
+                      title="Click to add a zoom here"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      Zoom
+                    </div>
+                  );
+                })()}
+              </Show>
               <For each={zooms()}>
                 {(z, i) => {
                   const g = () => zoomGeom(i(), z);
@@ -3917,6 +4105,13 @@ function App() {
             {/* Snap guide — flashes at the snapped time while a segment/trim drag is engaged. */}
             <Show when={snapLine() !== null}>
               <div class="tl-snapline" style={{ left: `${pct(snapLine()!)}%` }} />
+            </Show>
+
+            {/* Ghost playhead: follows the pointer when idle, with a time chip. */}
+            <Show when={hoverT() !== null}>
+              <div class="tl-hoverline" style={{ left: `${pct(hoverT()!)}%` }}>
+                <span class="tl-hoverchip">{fmt(hoverT()!)}</span>
+              </div>
             </Show>
 
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
@@ -4087,6 +4282,8 @@ function App() {
           </button>
         </div>
       </Show>
+
+      <ToastHost />
     </div>
   );
 }

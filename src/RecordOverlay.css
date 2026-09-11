@@ -1,19 +1,21 @@
 /* The record overlay lives INSIDE the main window (no separate webview window). It sits
-   above the editor and paints its own opaque surface, so the editor never shows through. */
+   above the editor and paints its own opaque surface, so the editor never shows through.
+   The overlay is intentionally always-dark (it paints over the frozen desktop), so it
+   keeps its own surface colors; the record accent matches App.css's --record. */
 
 .sel-root,
 .rec-panel-root {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #0b0b0c;
+  background: #0a0a0c;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: #fff;
   user-select: none;
-  /* The overlay is intentionally always-dark (it paints over the frozen desktop), so it
-     keeps its own surface colors — but the record accent is one token, same value as
-     App.css's --record. */
   --record: #e5484d;
+  --record-hover: #f05e62;
+  --glass: rgba(16, 16, 19, 0.86);
+  --glass-line: rgba(255, 255, 255, 0.12);
 }
 
 .sel-root kbd,
@@ -31,9 +33,14 @@
 .sel-root {
   cursor: crosshair;
   overflow: hidden;
+  animation: sel-fade-in 0.18s ease;
 }
 .sel-root.full {
   cursor: default;
+}
+@keyframes sel-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Frozen desktop screenshot the user draws on. */
@@ -50,9 +57,11 @@
 
 .sel-rect {
   position: absolute;
-  border: 2px solid #fff;
-  border-radius: 3px;
-  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
+  border: 2px solid var(--record);
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 100vmax rgba(5, 5, 6, 0.55),
+    0 0 24px rgba(229, 72, 77, 0.25);
   pointer-events: none;
 }
 
@@ -64,8 +73,8 @@
   height: 10px;
   margin: -5px 0 0 -5px;
   background: #fff;
-  border: 1px solid #0b0b0c;
-  border-radius: 2px;
+  border: 1px solid #0a0a0c;
+  border-radius: 3px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
   pointer-events: none;
   z-index: 2;
@@ -76,9 +85,9 @@
   position: absolute;
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(11, 11, 12, 0.85);
+  background: rgba(10, 10, 12, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.18);
-  font-size: var(--fs-xs);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
@@ -95,12 +104,13 @@
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: var(--fs-md);
+  font-size: 13px;
   pointer-events: none;
   white-space: nowrap;
+  backdrop-filter: blur(6px);
 }
 
-/* Floating preset/action bar */
+/* ── Floating preset/action bar (glass) ───────────────────────────────────────── */
 .sel-bar {
   position: absolute;
   left: 50%;
@@ -108,14 +118,25 @@
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(17, 17, 19, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  gap: 13px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   cursor: default;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(18px) saturate(140%);
+  animation: bar-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes bar-rise {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 .sel-presets {
   display: flex;
@@ -126,27 +147,32 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  min-width: 82px;
+  min-width: 84px;
   padding: 9px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
   color: #fff;
   cursor: pointer;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
 }
 .sel-chip:hover {
   background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 .sel-chip.active {
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.16);
+  border-color: var(--record);
+  background: rgba(229, 72, 77, 0.16);
 }
 .sel-chip strong {
-  font-size: var(--fs-md);
+  font-size: 13px;
+  font-weight: 650;
 }
 .sel-chip small {
-  font-size: var(--fs-xs);
+  font-size: 11px;
   opacity: 0.6;
 }
 .sel-actions {
@@ -162,46 +188,55 @@
   gap: 10px;
 }
 .sel-zoomlabel {
-  font-size: var(--fs-sm);
+  font-size: 12px;
   opacity: 0.7;
 }
 .sel-zooms {
   display: flex;
-  gap: 6px;
+  gap: 5px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 .sel-zoom {
-  min-width: 44px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #fff;
-  font-size: var(--fs-sm);
+  min-width: 42px;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  font-weight: 550;
   cursor: pointer;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .sel-zoom:hover {
-  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 .sel-zoom.active {
-  border-color: #fff;
   background: rgba(255, 255, 255, 0.16);
-  font-weight: 600;
+  color: #fff;
+  font-weight: 650;
 }
 .sel-dims {
   flex: 1;
-  font-size: var(--fs-sm);
+  font-size: 12px;
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }
 .sel-btn {
   padding: 9px 18px;
-  border-radius: var(--radius);
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: transparent;
   color: #fff;
-  font-size: var(--fs-md);
+  font-size: 13px;
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+.sel-btn:active {
+  transform: scale(0.97);
 }
 .sel-btn.ghost:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -209,15 +244,16 @@
 .sel-btn.primary {
   background: var(--record);
   color: #fff;
-  border-color: var(--record);
-  font-weight: 600;
+  border-color: transparent;
+  font-weight: 650;
   padding: 9px 22px;
 }
 .sel-btn.primary:hover {
-  filter: brightness(1.08);
+  background: var(--record-hover);
+  box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
 }
 
-/* ── Recording panel: live zoom preview + Stop (panel-window phase) ─────────────── */
+/* ── Recording panel: live zoom preview + controls ────────────────────────────── */
 .rec-panel-root {
   display: grid;
   place-items: center;
@@ -226,9 +262,16 @@
 .rec-panel {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
   gap: 8px;
+  /* Compact "director's monitor" card. In the real flow the host window shrinks to fit
+     the bar, so this also fills that small window; in the browser mock it stays a card. */
+  width: min(460px, calc(100vw - 24px));
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(18px) saturate(140%);
 }
 
 /* Drag handle — moves the whole preview window out of the way. */
@@ -236,22 +279,22 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 22px;
+  height: 20px;
   padding: 0 4px;
-  font-size: var(--fs-xs);
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
   cursor: move;
   user-select: none;
 }
 .rec-grip {
-  font-size: var(--fs-md);
+  font-size: 13px;
   color: rgba(255, 255, 255, 0.35);
 }
 
 /* The live preview "screen". */
 .rec-screen {
   position: relative;
-  flex: 1;
+  aspect-ratio: 16 / 9;
   border-radius: 12px;
   overflow: hidden;
   background: #000;
@@ -277,7 +320,7 @@
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(229, 72, 77, 0.5);
-  font-size: var(--fs-xs);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -288,7 +331,7 @@
   padding: 3px 9px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
-  font-size: var(--fs-xs);
+  font-size: 11px;
   opacity: 0.8;
 }
 .rec-dot {
@@ -304,7 +347,7 @@
   }
 }
 
-/* Countdown overlay sits over the (still dark) screen — a small ring with the count. */
+/* Countdown overlay sits over the (still dark) screen — a ring with the count. */
 .rec-countdown {
   position: absolute;
   inset: 0;
@@ -316,20 +359,21 @@
   background: rgba(0, 0, 0, 0.35);
 }
 .rec-ring {
-  width: 74px;
-  height: 74px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(229, 72, 77, 0.55);
+  background: rgba(229, 72, 77, 0.08);
+  box-shadow: 0 0 24px rgba(229, 72, 77, 0.25);
 }
 .rec-num {
   font-size: 34px;
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  animation: rec-pop 1s ease-out infinite;
+  animation: rec-pop 1s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 @keyframes rec-pop {
   0% {
@@ -342,7 +386,7 @@
   }
 }
 .rec-sub {
-  font-size: var(--fs-sm);
+  font-size: 12px;
   opacity: 0.65;
   letter-spacing: 0.02em;
 }
@@ -355,14 +399,14 @@
   height: 36px;
 }
 .rec-time {
-  font-weight: 600;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   min-width: 42px;
-  font-size: var(--fs-lg);
+  font-size: 15px;
 }
 .rec-hint {
   flex: 1;
-  font-size: var(--fs-xs);
+  font-size: 11px;
   opacity: 0.7;
   line-height: 1.3;
 }
@@ -372,12 +416,13 @@
   gap: 7px;
   padding: 8px 18px;
   border: none;
-  border-radius: 9px;
+  border-radius: 999px;
   background: var(--record);
   color: #fff;
-  font-weight: 600;
-  font-size: var(--fs-md);
+  font-weight: 650;
+  font-size: 13px;
   cursor: pointer;
+  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
 }
 .rec-stop::before {
   content: "";
@@ -387,7 +432,11 @@
   background: #fff;
 }
 .rec-stop:hover {
-  filter: brightness(1.08);
+  background: var(--record-hover);
+  box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
+}
+.rec-stop:active {
+  transform: scale(0.97);
 }
 .rec-live.paused {
   border-color: rgba(255, 210, 63, 0.6);
@@ -396,12 +445,13 @@
 .rec-pause {
   padding: 8px 14px;
   border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 9px;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
   font-weight: 600;
-  font-size: var(--fs-md);
+  font-size: 13px;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 .rec-pause:hover {
   background: rgba(255, 255, 255, 0.15);
@@ -410,11 +460,12 @@
   margin-left: auto;
   padding: 8px 16px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
   color: #fff;
-  font-size: var(--fs-sm);
+  font-size: 12px;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 .rec-cancel:hover {
   background: rgba(255, 255, 255, 0.1);

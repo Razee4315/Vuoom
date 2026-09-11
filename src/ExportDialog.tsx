@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { invoke, listen, save, revealItemInDir } from "./bridge";
+import { toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
@@ -103,6 +104,7 @@ export function ExportDialog(props: {
       setPhase("done");
       props.onExported();
       props.onStatus(`Exported ${path}`);
+      toast(`${f.toUpperCase()} exported`, "success");
     } catch (e) {
       setPhase("configure");
       // The backend uses the bare "export cancelled" sentinel for a user-initiated abort
@@ -111,6 +113,7 @@ export function ExportDialog(props: {
       props.onStatus(
         msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${friendlyError(e)}`,
       );
+      if (!msg.includes("export cancelled")) toast(`Export failed: ${friendlyError(e)}`, "error");
     } finally {
       unlisten();
     }
@@ -130,8 +133,10 @@ export function ExportDialog(props: {
           ? "Copied! Paste it into Slack, Discord, or a GitHub comment."
           : "Copied as a file. If pasting doesn't work, drag it in from Show in folder.",
       );
+      toast("Copied to clipboard", "success");
     } catch (e) {
       setCopied(`Copy failed: ${String(e)}`);
+      toast(`Copy failed: ${String(e)}`, "error");
     }
   };
   const copyPath = async () => {

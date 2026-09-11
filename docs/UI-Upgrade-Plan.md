@@ -1,5 +1,9 @@
 # UI Upgrade Plan, learning from palmier-pro
 
+> **Note (2026-09-12):** phases 0 to 3 of this plan shipped and the interface has since
+> been redesigned on a new token system. See `docs/AUDIT-AND-REDESIGN.md` for the audit
+> and what changed.
+
 Status: **proposal** (no code changed yet). Author pass: 2026-06-19.
 
 A plan to raise Vuoom's editor UI from "clean and functional" to "feels like a paid

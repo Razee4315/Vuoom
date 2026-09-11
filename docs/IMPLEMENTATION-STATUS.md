@@ -1,5 +1,9 @@
 # Implementation Status
 
+> **Note (2026-09-12):** this document predates the interface redesign and had drifted
+> from the code. For the current picture, read `docs/AUDIT-AND-REDESIGN.md` first; this
+> file remains as background.
+
 Living snapshot of what's built. Updated as work lands. See `08-Roadmap.md` for the plan.
 
 Legend: ✅ implemented + **CI-verified** (compiles, clippy-clean, unit tests pass) ·

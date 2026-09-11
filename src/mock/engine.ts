@@ -123,10 +123,10 @@ class MockEngine {
   private snap(): Snapshot {
     return JSON.stringify({
       anns: this.anns,
-      zooms: this.zooms,
+      zooms: [...this.zooms],
       trim: this.trim,
       speed: this.speed,
-      cuts: this.cuts,
+      cuts: [...this.cuts],
       showClicks: this.showClicks,
       showKeys: this.showKeys,
       framePreset: this.framePreset,
@@ -195,9 +195,9 @@ class MockEngine {
     return {
       duration: this.duration,
       trim: this.trim,
-      speed_regions: this.speed,
-      cuts: this.cuts,
-      zooms: this.zooms,
+      speed_regions: [...this.speed],
+      cuts: [...this.cuts],
+      zooms: [...this.zooms],
       show_clicks: this.showClicks,
       show_keys: this.showKeys,
       frame_preset: this.framePreset,
@@ -490,7 +490,7 @@ class MockEngine {
       this.zooms.push({ start, end, amount: this.zoomAmount, mode: "Auto", style: "Smooth" });
       this.zooms.sort((a, b) => a.start - b.start);
     });
-    return this.zooms;
+    return [...this.zooms];
   }
   updateZoom(index: number, start: number, end: number, amount: number): ZoomSeg[] {
     this.mutate(`zoom:${index}`, () => {
@@ -502,34 +502,34 @@ class MockEngine {
       }
       this.zooms.sort((a, b) => a.start - b.start);
     });
-    return this.zooms;
+    return [...this.zooms];
   }
   setZoomFocus(index: number, focus?: { x: number; y: number }): ZoomSeg[] {
     this.mutate(`zfoc:${index}`, () => {
       const z = this.zooms[index];
       if (z) z.mode = focus ? { Manual: { pos: [focus.x, focus.y] } } : "Auto";
     });
-    return this.zooms;
+    return [...this.zooms];
   }
   setZoomStyle(index: number, style: ZoomStyle): ZoomSeg[] {
     this.mutate(`zsty:${index}`, () => {
       const z = this.zooms[index];
       if (z) z.style = style;
     });
-    return this.zooms;
+    return [...this.zooms];
   }
   deleteZoom(index: number): ZoomSeg[] {
     this.mutate(undefined, () => {
       this.zooms.splice(index, 1);
     });
-    return this.zooms;
+    return [...this.zooms];
   }
   addSpeed(start: number, end: number, factor: number): SpeedRegion[] {
     this.mutate(undefined, () => {
       this.speed.push({ start, end, factor });
       this.speed.sort((a, b) => a.start - b.start);
     });
-    return this.speed;
+    return [...this.speed];
   }
   updateSpeed(index: number, start: number, end: number, factor: number): SpeedRegion[] {
     this.mutate(`speed:${index}`, () => {
@@ -541,13 +541,13 @@ class MockEngine {
       }
       this.speed.sort((a, b) => a.start - b.start);
     });
-    return this.speed;
+    return [...this.speed];
   }
   deleteSpeed(index: number): SpeedRegion[] {
     this.mutate(undefined, () => {
       this.speed.splice(index, 1);
     });
-    return this.speed;
+    return [...this.speed];
   }
   autoSpeed(factor: number): SpeedRegion[] {
     this.mutate(undefined, () => {
@@ -556,7 +556,7 @@ class MockEngine {
         { start: 11.4, end: Math.max(11.8, this.duration - 0.4), factor },
       ].filter((r) => r.end > r.start && r.start < this.duration);
     });
-    return this.speed;
+    return [...this.speed];
   }
   clearSpeed() {
     this.mutate(undefined, () => {
@@ -568,7 +568,7 @@ class MockEngine {
       this.cuts.push({ start, end });
       this.cuts.sort((a, b) => a.start - b.start);
     });
-    return this.cuts;
+    return [...this.cuts];
   }
   updateCut(index: number, start: number, end: number): Trim[] {
     this.mutate(`cut:${index}`, () => {
@@ -579,13 +579,13 @@ class MockEngine {
       }
       this.cuts.sort((a, b) => a.start - b.start);
     });
-    return this.cuts;
+    return [...this.cuts];
   }
   deleteCut(index: number): Trim[] {
     this.mutate(undefined, () => {
       this.cuts.splice(index, 1);
     });
-    return this.cuts;
+    return [...this.cuts];
   }
   setTrim(start: number, end: number) {
     this.mutate(`trim`, () => {

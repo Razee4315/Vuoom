@@ -105,7 +105,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "clip_state":
       return m.clipState();
     case "list_annotations":
-      return m.anns as AnnotationSet;
+      // Deep clone: Solid signals skip same-reference updates, and the mock mutates
+      // its arrays in place (the real backend always serializes fresh objects).
+      return structuredClone(m.anns) as AnnotationSet;
     case "add_text":
       return m.addText(a as unknown as { text: string; x: number; y: number; t: number });
     case "add_arrow":

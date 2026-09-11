@@ -1,7 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { PreviewClient } from "./preview";
+import { invoke, listen } from "./bridge";
+import { createPreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -52,7 +51,7 @@ export default function RecordOverlay(props: {
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
-  /** A real failure (capture never started, finish errored) — surfaces the backend reason. */
+  /** A real failure (capture never started, finish errored), surfaces the backend reason. */
   onFailed: (message: string) => void;
 }) {
   const [phase, setPhase] = createSignal<"select" | "countdown" | "recording">("select");
@@ -61,7 +60,7 @@ export default function RecordOverlay(props: {
   const [count, setCount] = createSignal(3);
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
-  // Cursor over the selection surface — reflects what a press-drag would do (draw / move /
+  // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
   // resize a given edge). Applied inline so it overrides the base crosshair.
   const [cursor, setCursor] = createSignal("crosshair");
   // The active pointer gesture on the selection surface. `null` when idle (hover only).
@@ -78,7 +77,7 @@ export default function RecordOverlay(props: {
   };
 
   // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
-  const preview = new PreviewClient();
+  const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let shotEl: HTMLImageElement | undefined;
 
@@ -122,12 +121,12 @@ export default function RecordOverlay(props: {
     await invoke("enter_stopbar"); // shrink the host window to the bar
     // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
     // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
-    // Best-effort: the command may not exist on older backends — the frame still appears when
+    // Best-effort: the command may not exist on older backends, the frame still appears when
     // recording starts. Cancel/Esc runs cancel_record_flow → drop_border, which clears it.
     try {
       await invoke("show_region_border");
     } catch {
-      /* backend without show_region_border — border still shows at record start */
+      /* backend without show_region_border, border still shows at record start */
     }
     setPhase("countdown");
     runCountdown();
@@ -166,7 +165,7 @@ export default function RecordOverlay(props: {
       startMs = Date.now();
       elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
     } catch (e) {
-      // Capture never started — clean up the backend flow, then surface the real reason
+      // Capture never started, clean up the backend flow, then surface the real reason
       // (e.g. "No frames were captured…") instead of a bland "cancelled".
       clearCountdown();
       stopTimer();
@@ -174,7 +173,7 @@ export default function RecordOverlay(props: {
     }
   };
 
-  let stopping = false; // the Stop button and the global hotkey can race — stop once
+  let stopping = false; // the Stop button and the global hotkey can race, stop once
   const stop = async () => {
     if (stopping) return;
     stopping = true;
@@ -183,7 +182,7 @@ export default function RecordOverlay(props: {
       const summary = await invoke<Summary>("finish_recording");
       props.onFinished(summary);
     } catch (e) {
-      // Stop failed — the take may still be recoverable, so leave the flow intact and
+      // Stop failed, the take may still be recoverable, so leave the flow intact and
       // surface the real error rather than pretending the user cancelled.
       props.onFailed(String(e));
     }
@@ -196,7 +195,7 @@ export default function RecordOverlay(props: {
     try {
       await invoke("set_record_paused", { paused: next });
     } catch {
-      return; // not recording (race with stop) — leave the UI as is
+      return; // not recording (race with stop), leave the UI as is
     }
     setPaused(next);
     if (next) {
@@ -256,7 +255,7 @@ export default function RecordOverlay(props: {
   };
 
   // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Preserves
-  // size, sliding the rect back in bounds — used when moving and after a resize.
+  // size, sliding the rect back in bounds, used when moving and after a resize.
   const clampToView = (r: Rect): Rect => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -472,7 +471,7 @@ export default function RecordOverlay(props: {
                 </span>
                 <button
                   class="rec-pause"
-                  title={paused() ? "Resume recording" : "Pause — the gap is cut from the GIF"}
+                  title={paused() ? "Resume recording" : "Pause, the gap is cut from the GIF"}
                   onClick={() => void togglePause()}
                 >
                   {paused() ? "Resume" : "Pause"}

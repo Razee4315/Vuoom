@@ -42,7 +42,7 @@ pub enum ArrowStyle {
     /// A single head at `to` (the classic pointer).
     #[default]
     Arrow,
-    /// No heads — a plain line.
+    /// No heads, a plain line.
     Line,
     /// Heads at both ends.
     DoubleArrow,

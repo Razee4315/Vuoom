@@ -1,5 +1,5 @@
 // Tool definitions + the keyboard cheat-sheet. The single source of truth for the "?"
-// modal — every chord here is wired in onKey / onGlobalKey / RecordOverlay.
+// modal, every chord here is wired in onKey / onGlobalKey / RecordOverlay.
 import type { Tool } from "./types";
 
 export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
@@ -14,7 +14,7 @@ export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: 
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));
 
 // The one source of truth for the "?" cheat-sheet. Kept next to the handlers above so it
-// can't drift — every chord here is wired in onKey / onGlobalKey / RecordOverlay.
+// can't drift, every chord here is wired in onKey / onGlobalKey / RecordOverlay.
 export const SHORTCUTS: { group: string; items: { keys: string[]; label: string }[] }[] = [
   {
     group: "Recording",

@@ -1,7 +1,7 @@
 //! Timeline editing operations for zoom keyframes.
 //!
 //! The editor mutates the *same* `ZoomKeyframe` list the planner produced (spec §5.1:
-//! auto-placed zooms are fully editable). These helpers keep the list valid — sorted by
+//! auto-placed zooms are fully editable). These helpers keep the list valid, sorted by
 //! start, clamped to the clip, and never shorter than [`MIN_LEN`]. Pure logic, unit-tested.
 
 use crate::keyframe::ZoomKeyframe;
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn resize_right_edge_stops_at_next() {
         let mut z = vec![kf(0.0, 2.0), kf(3.0, 5.0)];
-        // Grow the first segment's right edge across the second — it stops at 3.0.
+        // Grow the first segment's right edge across the second, it stops at 3.0.
         assert!(resize(&mut z, 0, 0.0, 4.0, 10.0));
         assert!((z[0].end - 3.0).abs() < 1e-9);
         assert_no_overlap(&z);

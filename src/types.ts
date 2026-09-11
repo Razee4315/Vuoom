@@ -45,7 +45,7 @@ export interface ArrowAnn {
   to: SerVec;
   color: Color;
   thickness: number;
-  /// Mirrors vuoom_project::ArrowStyle — externally tagged unit variants serialize as the name.
+  /// Mirrors vuoom_project::ArrowStyle, externally tagged unit variants serialize as the name.
   style?: "Arrow" | "Line" | "DoubleArrow";
   range: TimeRange;
 }
@@ -64,9 +64,9 @@ export interface AnnotationSet {
   highlights: BoxAnn[];
 }
 
-/** How a zoom picks its focus — mirrors vuoom_zoom::ZoomMode's serde shape. */
+/** How a zoom picks its focus, mirrors vuoom_zoom::ZoomMode's serde shape. */
 export type ZoomMode = "Auto" | { Manual: { pos: SerVec } };
-/** Easing preset for a zoom — mirrors vuoom_zoom::ZoomStyle (externally tagged unit variants). */
+/** Easing preset for a zoom, mirrors vuoom_zoom::ZoomStyle (externally tagged unit variants). */
 export type ZoomStyle = "Smooth" | "Snappy" | "Slow";
 /** Mirrors vuoom_zoom::ZoomKeyframe. */
 export interface ZoomSeg {

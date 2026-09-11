@@ -1,13 +1,10 @@
 import { createSignal, createEffect, onMount, onCleanup, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { save, open, ask } from "@tauri-apps/plugin-dialog";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke, isMock, save, open, ask, check, relaunch, type Update } from "./bridge";
 import RecordOverlay from "./RecordOverlay";
 import WindowControls from "./WindowControls";
 import ThemeMenu from "./ThemeMenu";
 import { applyTheme, initialTheme } from "./themes";
-import { PreviewClient } from "./preview";
+import { createPreviewClient } from "./preview";
 import { LogoWordmark } from "./Logo";
 import ScrubField from "./ScrubField";
 import { ExportDialog } from "./ExportDialog";
@@ -20,8 +17,9 @@ import {
 } from "./EditorPrimitives";
 import { ToolRail } from "./AnnotationTools";
 import { dialogA11y } from "./dialog";
+import { toast, ToastHost } from "./ui";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
-import { cssColor, fmt, fmtBytes, fmtT, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
+import { cssColor, fmt, fmtBytes, fmtT, friendlyError, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
 import type {
   AnnotationSet,
@@ -50,7 +48,7 @@ import "./App.css";
 // that reads it into Topbar / Toolrail / CanvasStage / Timeline / Inspector / RecordController
 // / Onboarding components wired to that store. This pass only moved self-contained,
 // closure-free pieces (types, pure helpers, dialog a11y, tool/shortcut config, and the
-// stateless presentational components + ExportDialog) — see src/types.ts, geometry.ts,
+// stateless presentational components + ExportDialog), see src/types.ts, geometry.ts,
 // format.ts, shortcuts.ts, dialog.ts, EditorPrimitives.tsx, ExportDialog.tsx.
 
 /// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
@@ -74,13 +72,13 @@ const TEXT_FONTS: { id: string; label: string; css: string }[] = [
 const fontCss = (name: string) => TEXT_FONTS.find((f) => f.id === name)?.css ?? "Inter, sans-serif";
 
 /// True when a timeline segment [start,end] never survives to the export because its visible
-/// (trimmed) span is entirely swallowed — either it falls fully outside the trim window, or the
+/// (trimmed) span is entirely swallowed, either it falls fully outside the trim window, or the
 /// portion inside the trim window is completely covered by cut regions. Pure; recomputes freely
 /// in JSX from the current cuts()/trim() signals. `trim` null means "no trim" (full clip).
 /// Cuts count as covering even when they only blanket the visible part of the segment, since the
 /// out-of-trim remainder is dropped anyway.
 function isSwallowed(start: number, end: number, cuts: Trim[], trim: Trim | null): boolean {
-  if (end <= start) return true; // degenerate span — nothing to render
+  if (end <= start) return true; // degenerate span, nothing to render
   const t0 = trim ? trim.start : 0;
   const t1 = trim ? trim.end : Infinity;
   // Clamp the segment to the trim window; if nothing is left, it's outside the export entirely.
@@ -113,7 +111,7 @@ function App() {
   const [toolLock, setToolLock] = createSignal(false);
   // Tool-rail gestures. Single-click just arms a tool (one-shot by default); double-clicking a
   // drawing tool also turns lock on, the discoverable "draw several" gesture. Lock is a sticky
-  // user preference — a single click never silently clears it.
+  // user preference, a single click never silently clears it.
   const pickTool = (t: Tool) => setTool(t);
   const lockTool = (t: Tool) => {
     setTool(t);
@@ -169,7 +167,7 @@ function App() {
     return out;
   };
   const selCount = () => selectionAll().length;
-  // Whenever the primary clears, drop the extras too — this single effect covers every
+  // Whenever the primary clears, drop the extras too, this single effect covers every
   // setSelected(null) site (Escape, inspector ✕, undo/redo resync, new recording, delete…).
   createEffect(() => {
     if (selected() === null) clearExtra();
@@ -208,11 +206,11 @@ function App() {
   const [drag, setDrag] = createSignal<Drag>(null);
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
-  // Pixel width of the timeline *viewport* (the outer .tl box) — drives the fit-to-width
+  // Pixel width of the timeline *viewport* (the outer .tl box), drives the fit-to-width
   // scale and the adaptive ruler ticks (kept in sync via a ResizeObserver in onMount).
   const [tlWidth, setTlWidth] = createSignal(800);
   // Timeline horizontal scale. null = fit-to-width (the default: the track exactly fills
-  // the viewport, every position resolves in % of duration — identical to the old layout).
+  // the viewport, every position resolves in % of duration, identical to the old layout).
   // A number is a fixed px-per-second scale; the inner track grows wider than the viewport
   // and the wrapper scrolls. Ctrl+wheel / the +/−/Fit cluster drive it.
   const [tlScale, setTlScale] = createSignal<number | null>(null);
@@ -241,7 +239,100 @@ function App() {
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
 
-  const preview = new PreviewClient();
+  // ── recent projects (local) ─────────────────────────────────────────────────
+  // A lightweight "pick up where you left off" grid for the empty state. Entries are
+  // {dir, name, ts} recorded on every successful save/open, kept newest-first.
+  interface Recent {
+    dir: string;
+    name: string;
+    ts: number;
+  }
+  const RECENTS_KEY = "vuoom-recents";
+  const [recents, setRecents] = createSignal<Recent[]>([]);
+  const loadRecents = () => {
+    try {
+      const raw = localStorage.getItem(RECENTS_KEY);
+      const list = raw ? (JSON.parse(raw) as Recent[]) : [];
+      setRecents(Array.isArray(list) ? list.filter((r) => r?.dir).slice(0, 6) : []);
+    } catch {
+      setRecents([]);
+    }
+  };
+  const rememberRecent = (dir: string) => {
+    const name = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? dir;
+    const next = [
+      { dir, name, ts: Date.now() },
+      ...recents().filter((r) => r.dir !== dir),
+    ].slice(0, 6);
+    setRecents(next);
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const removeRecent = (dir: string) => {
+    const next = recents().filter((r) => r.dir !== dir);
+    setRecents(next);
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
+  const openRecent = async (dir: string) => {
+    setStatus("Opening project…");
+    try {
+      const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
+      setProjectName(
+        dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.replace(/\.vuoom$/i, "") || "Untitled",
+      );
+      await loadFinishedClip(summary);
+      rememberRecent(dir);
+      setStatus("Project opened");
+      toast("Project opened", "success");
+    } catch (e) {
+      setStatus(`Open failed: ${String(e)}`);
+      toast(`Could not open project: ${friendlyError(e)}`, "error");
+    }
+  };
+  const fmtAgo = (ts: number) => {
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs} hr ago`;
+    return `${Math.round(hrs / 24)} days ago`;
+  };
+
+  // ── timeline hover affordances ───────────────────────────────────────────────
+  // A ghost playhead tracks the pointer across the whole track, and the zoom row shows a
+  // ghost block with a + under the cursor; a plain click (not a drag-scrub) adds the zoom.
+  // Click detection lives on the .tl pointer pair because pointer capture retargets
+  // pointerup to the capturing element, so a child's click handler would never fire.
+  const [hoverT, setHoverT] = createSignal<number | null>(null);
+  const [ghostT, setGhostT] = createSignal<number | null>(null);
+  let tlDownX = -1;
+  let tlDownY = -1;
+  let tlDownInZoomLane = false;
+  const onTlHoverMove = (e: PointerEvent) => {
+    if (tlDrag || zoomDrag() || speedDrag() || cutDrag() || !hasClip()) {
+      setHoverT(null);
+      setGhostT(null);
+      return;
+    }
+    setHoverT(tlTime(e));
+  };
+  const onTlHoverLeave = () => {
+    setHoverT(null);
+    setGhostT(null);
+  };
+  const onZoomLaneMove = (e: PointerEvent) => {
+    if (tlDrag || zoomDrag() || !hasClip()) return;
+    setGhostT(tlTime(e));
+  };
+
+  const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
   let stageEl: HTMLDivElement | undefined;
 
@@ -260,9 +351,9 @@ function App() {
   const onGlobalKey = (e: KeyboardEvent) => {
     const inField = (e.target as HTMLElement).closest("input, textarea");
     // While a modal owns the screen, skip the editor accelerators (undo/save/export/…) so
-    // they can't mutate the clip behind it — but still swallow browser chords further down.
+    // they can't mutate the clip behind it, but still swallow browser chords further down.
     const modalOpen = showExport() || showWelcome() || showShortcuts();
-    // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y) — inputs keep their native undo.
+    // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), inputs keep their native undo.
     if (!modalOpen && e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
       e.preventDefault();
       void (e.shiftKey ? doRedo() : doUndo());
@@ -295,7 +386,7 @@ function App() {
         if (hasClip() && selected()) void duplicateSelected();
         return;
       }
-      // Ctrl+C / Ctrl+V — copy the annotation selection, paste at the playhead. Both no-op
+      // Ctrl+C / Ctrl+V, copy the annotation selection, paste at the playhead. Both no-op
       // silently when there's nothing to act on: Ctrl+C with no annotation selected (a
       // zoom/speed/cut selection leaves selected() null) and Ctrl+V with an empty clipboard
       // both fall through WITHOUT preventDefault, so they never steal native copy/paste in a
@@ -339,7 +430,7 @@ function App() {
     }
   };
   const onWheelGuard = (e: WheelEvent) => {
-    // Ctrl+wheel is browser page-zoom — meaningless in a desktop editor.
+    // Ctrl+wheel is browser page-zoom, meaningless in a desktop editor.
     if (e.ctrlKey) e.preventDefault();
   };
 
@@ -367,7 +458,30 @@ function App() {
       onCleanup(() => tro.disconnect());
     }
     await connectEngine();
+    loadRecents();
     void checkForUpdate();
+    // Browser-mock helpers for screenshots/tests: ?demo=1 loads the sample take,
+    // &export=1 opens the export card, &record=1 jumps into the region selector.
+    const mockParams = new URLSearchParams(window.location.search);
+    if (isMock && mockParams.has("demo")) {
+      try {
+        localStorage.setItem("vuoom-seen-welcome", "1");
+      } catch {
+        /* ignore */
+      }
+      void invoke("set_pref", { key: "seen_welcome", value: "1" }).catch(() => undefined);
+      setShowWelcome(false);
+      setCoachRecord(false);
+      try {
+        const summary = await invoke<RecordingSummary>("recover_session");
+        setRecoverable(null);
+        await loadFinishedClip(summary);
+      } catch {
+        /* screenshot nicety only */
+      }
+      if (mockParams.has("export")) setShowExport(true);
+      if (mockParams.has("record")) void startRecord();
+    }
   });
 
   // The engine (GPU compositor + preview server) boots on a background thread; retry
@@ -388,7 +502,7 @@ function App() {
         hideSplash();
         void maybeShowWelcome();
         // One-shot health probe: a failed GPU compositor still "boots", but preview and
-        // export are dead — warn up front instead of every operation failing cryptically.
+        // export are dead, warn up front instead of every operation failing cryptically.
         invoke<{ gpu: boolean }>("engine_health")
           .then((h) => setGpuLost(!h.gpu))
           .catch(() => setGpuLost(false));
@@ -418,7 +532,7 @@ function App() {
       const u = await check();
       if (u) setUpdate(u);
     } catch {
-      /* updater not configured (dev) or offline — silently ignore */
+      /* updater not configured (dev) or offline, silently ignore */
     }
   };
   const runUpdate = async () => {
@@ -455,6 +569,15 @@ function App() {
   // restart on every machine); localStorage is only a same-session fast-path cache. The card
   // shows only when NEITHER store has recorded a dismissal, so once dismissed it never returns.
   const maybeShowWelcome = async () => {
+    // Screenshot/test mode: the mock can suppress the first-run card entirely.
+    if (isMock && new URLSearchParams(window.location.search).has("nowelcome")) {
+      try {
+        localStorage.setItem("vuoom-seen-welcome", "1");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     let seen = false;
     try {
       seen = !!localStorage.getItem("vuoom-seen-welcome");
@@ -465,7 +588,7 @@ function App() {
       const pref = await invoke<string | null>("get_pref", { key: "seen_welcome" });
       seen = seen || !!pref;
     } catch {
-      /* pref store unavailable — fall back to the cache result */
+      /* pref store unavailable, fall back to the cache result */
     }
     if (!seen) setShowWelcome(true);
   };
@@ -478,7 +601,7 @@ function App() {
       /* ignore */
     }
     void invoke("set_pref", { key: "seen_welcome", value: "1" }).catch(() => {
-      /* pref store unavailable — localStorage cache still covers this session */
+      /* pref store unavailable, localStorage cache still covers this session */
     });
     setShowWelcome(false);
     if (hint && recordBtnEl) {
@@ -563,11 +686,11 @@ function App() {
     if (!playing()) return;
     if (lastTs) {
       let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead());
-      // Cut sections are removed from the output — playback jumps over them.
+      // Cut sections are removed from the output, playback jumps over them.
       const cut = cuts().find((c) => t >= c.start && t < c.end);
       if (cut) t = cut.end;
       if (t >= tEnd()) {
-        // GIFs loop — with Loop on, the preview does too.
+        // GIFs loop, with Loop on, the preview does too.
         if (looping()) {
           t = tStart();
         } else {
@@ -621,13 +744,13 @@ function App() {
   const onKey = (e: KeyboardEvent) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea")) return;
-    // "?" toggles the keyboard cheat-sheet (Shift+/) — available any time except behind another modal.
+    // "?" toggles the keyboard cheat-sheet (Shift+/), available any time except behind another modal.
     if (e.key === "?" && !showExport() && !showWelcome()) {
       e.preventDefault();
       setShowShortcuts((v) => !v);
       return;
     }
-    // A modal owns the screen — its own handler deals with Esc/Tab; don't drive the editor behind it.
+    // A modal owns the screen, its own handler deals with Esc/Tab; don't drive the editor behind it.
     if (showExport() || showWelcome() || showShortcuts()) return;
     if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
       e.preventDefault();
@@ -690,9 +813,9 @@ function App() {
       editingText() === null &&
       (e.code === "KeyZ" || e.code === "KeyX" || e.code === "KeyC")
     ) {
-      // Insert a segment at the playhead — Z/X/C mirror the Insert group (Zoom/Speed/Cut).
+      // Insert a segment at the playhead, Z/X/C mirror the Insert group (Zoom/Speed/Cut).
       e.preventDefault();
-      if (e.code === "KeyZ") void addZoomAtPlayhead();
+      if (e.code === "KeyZ") void addZoomAt();
       else if (e.code === "KeyX") void addSpeedAtPlayhead();
       else void addCutAtPlayhead();
     } else if (
@@ -704,7 +827,7 @@ function App() {
       TOOL_KEYS[e.code] &&
       editingText() === null
     ) {
-      // Single-key tool switching (V/T/A/L/S/H) — matches the badges on the tool rail.
+      // Single-key tool switching (V/T/A/L/S/H), matches the badges on the tool rail.
       e.preventDefault();
       setTool(TOOL_KEYS[e.code]);
     }
@@ -718,7 +841,7 @@ function App() {
   const px = (n: Vec2) => ({ x: n.x * stage().w, y: n.y * stage().h });
 
   // Visible at the current playhead. A selected element also shows while PAUSED (so it
-  // stays editable when scrubbed past its window) — but never during playback, which
+  // stays editable when scrubbed past its window), but never during playback, which
   // must match the exported GIF exactly.
   const inWindow = (r: TimeRange) => playhead() >= r.start && playhead() < r.end;
   const inView = (r: TimeRange, sel: boolean) => inWindow(r) || (sel && !playing());
@@ -956,7 +1079,7 @@ function App() {
         // regression: the second click dispatches `pointerdown` → (microtask checkpoint) →
         // `mousedown` → `pointerup` → `mouseup` → `click` → `dblclick`. If we `setEditingText`
         // here, Solid mounts the <input> and the ref focuses it in the microtask that runs
-        // immediately after THIS pointerdown listener — i.e. BEFORE the compatibility
+        // immediately after THIS pointerdown listener, i.e. BEFORE the compatibility
         // `mousedown`. `mousedown`'s (uncancelled) default action then runs the HTML focusing
         // steps on the non-focusable overlay, pulling focus off the freshly-focused input; its
         // onBlur fires, `finishTextEdit()` commits + unmounts it, and the editor vanishes in the
@@ -1026,7 +1149,7 @@ function App() {
       setDrag({ mode: "move", kind: hit.kind, id: hit.id, grab: p, orig: g, geom: g.slice(), group });
       return;
     }
-    // Clicking empty canvas deselects — the trivial "get me out of this" gesture users expect
+    // Clicking empty canvas deselects, the trivial "get me out of this" gesture users expect
     // (Figma/Excalidraw). The inspector column stays reserved while a clip is loaded (it falls
     // back to a hint), so clearing the selection never reflows the canvas.
     setSelected(null);
@@ -1070,7 +1193,7 @@ function App() {
       // Translate the rest of the multi-selection by the SAME net delta the primary took
       // (post-snap), so the group moves rigidly and snapping keys off the primary alone.
       let group = d.group;
-      if (group && group.length) {
+      if (group?.length) {
         const ndx = g[0] - og[0];
         const ndy = g[1] - og[1];
         group = group.map((m) => {
@@ -1196,8 +1319,8 @@ function App() {
     if (el && t && document.activeElement !== el) el.value = t.text;
   });
   // Scrub-driven inspector edits (thickness / opacity / colour / font size / text) fire on
-  // every pointer-move or keystroke, so they run through pushEdit — the same edit throttle
-  // the inline text editor uses — to bound the invoke→refresh→seek round-trips. pushEdit
+  // every pointer-move or keystroke, so they run through pushEdit, the same edit throttle
+  // the inline text editor uses, to bound the invoke→refresh→seek round-trips. pushEdit
   // appends the seek and always lets the trailing value land, so the drag-end value sticks.
   const editStyle = (patch: { thickness?: number; filled?: boolean }) =>
     pushEdit(async () => {
@@ -1312,7 +1435,7 @@ function App() {
   };
   // ── undo / redo ────────────────────────────────────────────────────────────────
   const refreshAll = async () => {
-    // An undo can change anything — clear selections that may now dangle, resync all.
+    // An undo can change anything, clear selections that may now dangle, resync all.
     setSelected(null);
     setSelZoom(null);
     setSelSpeed(null);
@@ -1389,7 +1512,7 @@ function App() {
 
   // ── copy / paste ─────────────────────────────────────────────────────────────────
   // A frontend-only clipboard of deep-copied annotation snapshots (geometry + style + their
-  // absolute time windows). It never touches the OS clipboard, and — being self-contained —
+  // absolute time windows). It never touches the OS clipboard, and, being self-contained,
   // survives the originals being moved or deleted, and can be pasted repeatedly.
   type ClipItem =
     | ({ kind: "text" } & TextAnn)
@@ -1474,7 +1597,7 @@ function App() {
 
   // ── recording / export ───────────────────────────────────────────────────────────
   // The record flow (region selector → countdown → stop bar) runs as an overlay INSIDE
-  // this window — the window is excluded from the capture and grown/shrunk by the backend,
+  // this window, the window is excluded from the capture and grown/shrunk by the backend,
   // so the overlay never lands in the recording and we avoid fragile extra webviews.
   const startRecord = async () => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
@@ -1506,6 +1629,10 @@ function App() {
     setRecordPhase("idle");
     setBackdrop(null);
     await loadFinishedClip(summary);
+    toast(
+      `Recording loaded: ${summary.duration.toFixed(1)}s, ${summary.zooms} zoom${summary.zooms === 1 ? "" : "s"}`,
+      "success",
+    );
   };
   const onRecordCancel = () => {
     setRecordPhase("idle");
@@ -1532,7 +1659,7 @@ function App() {
     await refresh();
     await refreshClip();
     scrub(trim()?.start ?? 0);
-    // A freshly loaded clip (new recording / recover / open project) starts clean —
+    // A freshly loaded clip (new recording / recover / open project) starts clean,
     // reset after the syncs above, which optimistically flag dirty.
     setDirty(false);
   };
@@ -1542,13 +1669,13 @@ function App() {
     const i = selZoom();
     return i === null ? undefined : zooms()[i];
   };
-  const addZoomAtPlayhead = async () => {
+  const addZoomAt = async (t: number = playhead()) => {
     if (!hasClip()) return;
     try {
-      const list = await invoke<ZoomSeg[]>("add_zoom", { t: playhead() });
+      const list = await invoke<ZoomSeg[]>("add_zoom", { t });
       setZooms(list);
       setDirty(true);
-      const idx = list.findIndex((z) => playhead() >= z.start - 1e-6 && playhead() <= z.end + 1e-6);
+      const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
       setSelected(null);
       setSelSpeed(null);
       setSelCut(null);
@@ -1838,11 +1965,11 @@ function App() {
   // ── timeline (ruler + tracks + drag-to-scrub) ─────────────────────────────────────
   let tlEl: HTMLDivElement | undefined; // outer viewport box (.tl)
   let tlScrollEl: HTMLDivElement | undefined; // horizontal-scroll wrapper (.tl-scroll)
-  let tlTrackEl: HTMLDivElement | undefined; // inner track (.tl-track-inner) — the scaled surface
+  let tlTrackEl: HTMLDivElement | undefined; // inner track (.tl-track-inner), the scaled surface
   let tlDrag = false;
   // Single source of truth for clientX → time. It measures the *inner track*, whose
   // getBoundingClientRect already reflects scrollLeft (its left edge slides negative as the
-  // wrapper scrolls) and whose width is the scaled track width — so this one formula works
+  // wrapper scrolls) and whose width is the scaled track width, so this one formula works
   // in both fit mode and zoomed-and-scrolled mode with no scroll math of its own.
   const timeFromClientX = (clientX: number) => {
     const r = (tlTrackEl ?? tlEl)!.getBoundingClientRect();
@@ -1951,7 +2078,7 @@ function App() {
 
   // ── magnetic snapping ─────────────────────────────────────────────────────────────
   // Ported from palmier's SnapEngine: an 8px catch radius, the playhead gets a 1.5× radius
-  // and wins ties, and a snap is "sticky" — once engaged it takes 1.5× the radius to break
+  // and wins ties, and a snap is "sticky", once engaged it takes 1.5× the radius to break
   // away. Alt bypasses. `snapHold` is the per-drag sticky target (seconds); `snapLine`
   // drives the guide that flashes across the timeline while a snap is engaged.
   const SNAP_PX = 8;
@@ -2030,7 +2157,7 @@ function App() {
     const ph = playhead();
     const grid = snapGrid();
     // Collect every in-reach (probe, target) pair, then take the closest. Playhead is pushed
-    // first (and compared with strict-less below) so it wins ties — its priority.
+    // first (and compared with strict-less below) so it wins ties, its priority.
     const cands: { off: number; line: number; dist: number }[] = [];
     const consider = (p: number, target: number, thr: number) => {
       const d = Math.abs(p - target);
@@ -2227,7 +2354,7 @@ function App() {
   // Fit scale = the px-per-second at which the track exactly fills the viewport.
   const fitPps = () => (duration() > 0 ? tlWidth() / duration() : 0);
   // Effective px-per-second: the current zoom scale, or the fit scale in fit mode. EVERYTHING
-  // downstream (ruler ticks, and — crucially — the snap catch radius which is SNAP_PX/pxPerSec)
+  // downstream (ruler ticks, and, crucially, the snap catch radius which is SNAP_PX/pxPerSec)
   // reads this, so snap tolerances and grid stay constant in *screen pixels* at any zoom.
   const pxPerSec = () => tlScale() ?? fitPps();
   const TL_MAX_PPS = 200; // ~200 px/s ceiling; fitPps() is the floor
@@ -2468,9 +2595,12 @@ function App() {
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
+      rememberRecent(dir);
       setStatus(`Saved ${dir}`);
+      toast("Project saved", "success");
     } catch (e) {
       setStatus(`Save failed: ${String(e)}`);
+      toast(`Save failed: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2481,9 +2611,11 @@ function App() {
       setRecoverable(null);
       await loadFinishedClip(summary);
       setStatus(`Recovered ${summary.duration.toFixed(1)}s. Don't forget to export.`);
+      toast("Last session recovered", "success");
     } catch (e) {
       setRecoverable(null);
       setStatus(`Recovery failed: ${String(e)}`);
+      toast(`Recovery failed: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2501,7 +2633,7 @@ function App() {
     if (showShortcuts()) void refreshStorage();
   });
 
-  // Delete recovery data from previous sessions. Destructive — confirm first — and the
+  // Delete recovery data from previous sessions. Destructive, confirm first, and the
   // currently-loaded clip's store is always kept by the backend.
   const clearStorage = async () => {
     const ok = await ask(
@@ -2530,9 +2662,12 @@ function App() {
       const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
       setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
+      rememberRecent(dir);
       setStatus("Project opened");
+      toast("Project opened", "success");
     } catch (e) {
       setStatus(`Open failed: ${String(e)}`);
+      toast(`Could not open project: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2548,20 +2683,25 @@ function App() {
         >
           <span class="dot" /> Record
         </button>
-        <input
-          class="project-name"
-          value={projectName()}
-          spellcheck={false}
-          aria-label="Project name"
-          title="Rename project"
-          onInput={(e) => setProjectName(e.currentTarget.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => {
-            if (!e.currentTarget.value.trim()) setProjectName("Untitled");
-          }}
-        />
+        <div class="project-name-wrap">
+          <input
+            class="project-name"
+            value={projectName()}
+            spellcheck={false}
+            aria-label="Project name"
+            title="Rename project"
+            onInput={(e) => setProjectName(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => {
+              if (!e.currentTarget.value.trim()) setProjectName("Untitled");
+            }}
+          />
+          <Show when={dirty() && hasClip()}>
+            <span class="dirty-dot" title="Unsaved changes (Ctrl+S to save)" />
+          </Show>
+        </div>
 
-        {/* Flexible draggable gap — keeps the window movable and pins actions right. */}
+        {/* Flexible draggable gap, keeps the window movable and pins actions right. */}
         <div class="topbar-drag" data-tauri-drag-region="" />
 
         <button class="btn ghost" disabled={!hasClip()} title="Undo (Ctrl+Z)" onClick={() => void doUndo()}>
@@ -2674,7 +2814,7 @@ function App() {
         class="workspace"
         style={{
           // The tool rail + inspector only matter once there's a clip to annotate, so both
-          // columns drop out of the empty editor — keeping the focus on Record. Once a clip is
+          // columns drop out of the empty editor, keeping the focus on Record. Once a clip is
           // loaded the inspector column stays reserved (it falls back to a hint when nothing is
           // selected) so deselecting or arming a tool never reflows the canvas.
           // The canvas column is minmax(0, 1fr) so it can shrink below its content instead of
@@ -2723,25 +2863,61 @@ function App() {
                   <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom ·{" "}
                   <kbd>Ctrl+Shift+X</kbd> stop
                 </span>
-                <Show when={recoverable() !== null}>
-                  <div class="recents">
-                    <span class="recents-label">Pick up where you left off</span>
-                    <button
-                      class="recent-card"
-                      title="Recover your last recording and its edits"
-                      onClick={() => void onRecover()}
-                    >
-                      <div class="recent-thumb">
-                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                          <rect x="3" y="5" width="18" height="14" rx="2" />
-                          <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
-                        </svg>
-                      </div>
-                      <div class="recent-meta">
-                        <strong>Last session</strong>
-                        <small>{recoverable()!.toFixed(1)}s · recover</small>
-                      </div>
-                    </button>
+                <Show when={recoverable() !== null || recents().length > 0}>
+                  <div class="home-cards">
+                    <Show when={recoverable() !== null}>
+                      <button
+                        class="recent-card recover"
+                        title="Recover your last recording and its edits"
+                        onClick={() => void onRecover()}
+                      >
+                        <div class="recent-thumb">
+                          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4" />
+                            <path d="M12 7v5l3.5 2" />
+                          </svg>
+                        </div>
+                        <div class="recent-meta">
+                          <strong>Last session</strong>
+                          <small>{recoverable()!.toFixed(1)}s · click to recover</small>
+                        </div>
+                      </button>
+                    </Show>
+                    <For each={recents()}>
+                      {(r) => (
+                        <div class="recent-wrap">
+                          <button
+                            class="recent-card"
+                            title={`Open ${r.name}`}
+                            onClick={() => void openRecent(r.dir)}
+                          >
+                            <div class="recent-thumb">
+                              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="5" width="18" height="14" rx="2" />
+                                <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
+                              </svg>
+                            </div>
+                            <div class="recent-meta">
+                              <strong>{r.name}</strong>
+                              <small>{fmtAgo(r.ts)}</small>
+                            </div>
+                          </button>
+                          <button
+                            class="recent-remove"
+                            title="Remove from recents"
+                            aria-label={`Remove ${r.name} from recents`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeRecent(r.dir);
+                            }}
+                          >
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                              <path d="M6 6l12 12M18 6L6 18" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </For>
                   </div>
                 </Show>
               </div>
@@ -2962,7 +3138,7 @@ function App() {
                   })()}
                 </Show>
 
-                {/* Zoom focus crosshair — drag to aim the selected zoom segment. */}
+                {/* Zoom focus crosshair, drag to aim the selected zoom segment. */}
                 <Show when={selZoomFocus()}>
                   {(() => {
                     const f = () => focusDrag() ?? selZoomFocus()!;
@@ -2985,7 +3161,7 @@ function App() {
                   })()}
                 </Show>
 
-                {/* Canvas alignment guides — flash when a dragged element snaps. */}
+                {/* Canvas alignment guides, flash when a dragged element snaps. */}
                 <Show when={snapX() !== null}>
                   <line
                     class="canvas-snap"
@@ -3057,7 +3233,7 @@ function App() {
             onResizeMove={onInspMove}
             onResizeUp={onInspUp}
           >
-            {/* Multiple annotations selected — minimal group actions only (no mixed-value editing). */}
+            {/* Multiple annotations selected, minimal group actions only (no mixed-value editing). */}
             <Show when={selCount() > 1}>
               <InspSection title="Selection">
                 <p class="muted small">{selCount()} annotations selected.</p>
@@ -3566,7 +3742,7 @@ function App() {
         </Show>
 
         {/* Empty state: nothing selected and the Select tool is active. A brief hint instead
-            of a wall of disabled controls — and it keeps the inspector column from collapsing. */}
+            of a wall of disabled controls, and it keeps the inspector column from collapsing. */}
         <Show when={hasClip() && !somethingSelected() && !drawingToolActive()}>
           <aside class="properties">
             <div class="inspector-empty">
@@ -3629,14 +3805,14 @@ function App() {
             </span>
           </div>
 
-          {/* Insert a segment at the playhead — each becomes a draggable band on the timeline */}
+          {/* Insert a segment at the playhead, each becomes a draggable band on the timeline */}
           <div class="tgroup labeled">
             <span class="tgroup-label">Insert</span>
             <button
               class="tbtn wide"
               title="Add a zoom segment at the playhead"
               disabled={!hasClip()}
-              onClick={() => void addZoomAtPlayhead()}
+              onClick={() => void addZoomAt()}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
                 <circle cx="10.5" cy="10.5" r="6.5" />
@@ -3738,12 +3914,33 @@ function App() {
             if (!hasClip()) return;
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
             tlDrag = true;
+            tlDownX = e.clientX;
+            tlDownY = e.clientY;
+            const target = e.target as Element;
+            tlDownInZoomLane =
+              !!target.closest(".tl-track") && !target.closest(".tl-seg, .tl-handle");
+            setHoverT(null);
+            setGhostT(null);
             tlSeekFromEvent(e);
           }}
           onPointerMove={(e) => {
+            onTlHoverMove(e);
             if (tlDrag) tlSeekFromEvent(e);
           }}
-          onPointerUp={() => (tlDrag = false)}
+          onPointerUp={(e) => {
+            // A plain click (not a drag-scrub) on the empty zoom lane adds a zoom there.
+            if (
+              tlDrag &&
+              tlDownInZoomLane &&
+              Math.abs(e.clientX - tlDownX) <= 5 &&
+              Math.abs(e.clientY - tlDownY) <= 5
+            ) {
+              void addZoomAt(timeFromClientX(e.clientX));
+            }
+            tlDownInZoomLane = false;
+            tlDrag = false;
+          }}
+          onPointerLeave={onTlHoverLeave}
         >
           <Show
             when={hasClip()}
@@ -3765,8 +3962,27 @@ function App() {
                 )}
               </For>
             </div>
-            <div class="tl-track">
+            <div class="tl-track" onPointerMove={onZoomLaneMove} onPointerLeave={() => setGhostT(null)}>
               <span class="tl-tracklabel">Zoom</span>
+              <Show when={ghostT() !== null && !zoomDrag() && !speedDrag() && !cutDrag()}>
+                {(() => {
+                  const w = () => (duration() > 0 ? Math.min(100, (1.6 / duration()) * 100) : 10);
+                  const left = () =>
+                    Math.max(0, Math.min(100 - w(), pct(ghostT()!) - w() / 2));
+                  return (
+                    <div
+                      class="tl-ghost"
+                      style={{ left: `${left()}%`, width: `${w()}%` }}
+                      title="Click to add a zoom here"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      Zoom
+                    </div>
+                  );
+                })()}
+              </Show>
               <For each={zooms()}>
                 {(z, i) => {
                   const g = () => zoomGeom(i(), z);
@@ -3795,7 +4011,7 @@ function App() {
                 }}
               </For>
             </div>
-            {/* One lane per annotation — its own layer, individually visible and draggable. */}
+            {/* One lane per annotation, its own layer, individually visible and draggable. */}
             <div class="tl-lanes">
               <span class="tl-tracklabel">Notes</span>
               <Show when={annBars().length === 0}>
@@ -3836,7 +4052,7 @@ function App() {
                 }}
               </For>
             </div>
-            {/* Speed-up bands — click the chip to select, drag to move, drag an edge to resize. */}
+            {/* Speed-up bands, click the chip to select, drag to move, drag an edge to resize. */}
             <For each={speed()}>
               {(r, i) => {
                 const g = () => speedGeom(i(), r);
@@ -3869,7 +4085,7 @@ function App() {
               }}
             </For>
 
-            {/* Cut bands — sections removed from the output. Click the chip to select. */}
+            {/* Cut bands, sections removed from the output. Click the chip to select. */}
             <For each={cuts()}>
               {(c, i) => {
                 const g = () => cutGeom(i(), c);
@@ -3917,9 +4133,16 @@ function App() {
               onPointerUp={() => void onTrimUp()}
             />
 
-            {/* Snap guide — flashes at the snapped time while a segment/trim drag is engaged. */}
+            {/* Snap guide, flashes at the snapped time while a segment/trim drag is engaged. */}
             <Show when={snapLine() !== null}>
               <div class="tl-snapline" style={{ left: `${pct(snapLine()!)}%` }} />
+            </Show>
+
+            {/* Ghost playhead: follows the pointer when idle, with a time chip. */}
+            <Show when={hoverT() !== null}>
+              <div class="tl-hoverline" style={{ left: `${pct(hoverT()!)}%` }}>
+                <span class="tl-hoverchip">{fmt(hoverT()!)}</span>
+              </div>
             </Show>
 
             <div class="tl-playhead" style={{ left: `${pct(playhead())}%` }}>
@@ -3927,7 +4150,7 @@ function App() {
             </div>
             </div>
             </div>
-            {/* Zoom cluster — floats over the timeline's top-right, never scrolls with it. */}
+            {/* Zoom cluster, floats over the timeline's top-right, never scrolls with it. */}
             <div class="tl-zoomctl" onPointerDown={(e) => e.stopPropagation()}>
               <button
                 class="tl-zbtn"
@@ -3977,7 +4200,7 @@ function App() {
         />
       </Show>
 
-      {/* Keyboard cheat-sheet — data-driven from SHORTCUTS so it can't drift. */}
+      {/* Keyboard cheat-sheet, data-driven from SHORTCUTS so it can't drift. */}
       <Show when={showShortcuts()}>
         <div class="modal-backdrop">
           <div
@@ -4090,6 +4313,8 @@ function App() {
           </button>
         </div>
       </Show>
+
+      <ToastHost />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-//! Timestamped input events — the raw material the auto-zoom planner consumes.
+//! Timestamped input events, the raw material the auto-zoom planner consumes.
 //!
 //! Produced by `vuoom-input` (Raw Input + cursor polling). Times are seconds,
 //! frame-relative (derived from QPC). Positions are normalized `0.0..=1.0` within

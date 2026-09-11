@@ -1,21 +1,21 @@
-# 08 — Build Roadmap & Milestones
+# 08, Build Roadmap & Milestones
 
 The build order, with explicit acceptance gates. **M2 (auto-zoom) is the make-or-break
-milestone** — its quality decides whether Vuoom is a real product or just another recorder. Ship
-M1–M4 as the first public release.
+milestone**, its quality decides whether Vuoom is a real product or just another recorder. Ship
+M1-M4 as the first public release.
 
 ---
 
-## M0 — Scaffold & spikes (de-risk before building)
+## M0, Scaffold & spikes (de-risk before building)
 
 Goal: prove the two scariest unknowns work on real hardware before committing to the full app.
 
 - [ ] `npm create tauri-app` (SolidJS + Vite + TS) → workspace with `crates/` per
       [`02-Architecture.md`](./02-Architecture.md).
 - [ ] Tailwind v4 wired into Vite. Tauri 2 capabilities baseline.
-- [ ] **Spike 1 — capture→GPU:** `windows-capture` session → `as_raw_texture()` → shared-handle
+- [ ] **Spike 1, capture→GPU:** `windows-capture` session → `as_raw_texture()` → shared-handle
       bridge → wgpu DX12 → render passthrough to disk. *Prove 60fps at 1080p.*
-- [ ] **Spike 2 — preview bridge:** offscreen wgpu render → readback → localhost WebSocket →
+- [ ] **Spike 2, preview bridge:** offscreen wgpu render → readback → localhost WebSocket →
       Web Worker → WebGPU `<canvas>`. *Prove a moving test pattern at 60fps in the webview.*
 - [ ] Decide the open questions in [`09`](./09-Decisions-and-Open-Questions.md) that block M1
       (min Windows version, license).
@@ -23,7 +23,7 @@ Goal: prove the two scariest unknowns work on real hardware before committing to
 **Gate:** both spikes hit 60fps on a mid-range machine. If the preview bridge can't, fall back to
 the async custom-URI-protocol variant before proceeding.
 
-## M1 — Capture core
+## M1, Capture core
 
 Goal: rock-solid capture of display / window / region.
 
@@ -37,7 +37,7 @@ Goal: rock-solid capture of display / window / region.
 **Gate:** sustained 60fps at 1080p; graceful 4K (30fps acceptable initially); correct on
 mixed-DPI multi-monitor; recording start ≤ ~2 s.
 
-## M2 — Input log + auto-zoom planner ⭐ (make-or-break)
+## M2, Input log + auto-zoom planner ⭐ (make-or-break)
 
 Goal: the signature cinematic auto-zoom, looking "like Screen Studio."
 
@@ -54,7 +54,7 @@ Goal: the signature cinematic auto-zoom, looking "like Screen Studio."
 like Screen Studio"; (3) never shows off-screen empty area; (4) zooms editable; (5) micro-moves /
 accidental clicks cause no jumps.
 
-## M3 — Editor + preview bridge + text/annotations
+## M3, Editor + preview bridge + text/annotations
 
 Goal: a responsive, clean editor with frame-accurate scrubbing and simple annotations.
 
@@ -71,7 +71,7 @@ Goal: a responsive, clean editor with frame-accurate scrubbing and simple annota
 **Gate:** smooth scrubbing without dropped frames on a mid-range machine; a text label can be added
 and edited in under ~10 s by a first-time user; edits round-trip through save/reopen.
 
-## M4 — Framing & GIF export (→ first public release)
+## M4, Framing & GIF export (→ first public release)
 
 Goal: make it look designed, and get a small, crisp GIF out.
 
@@ -86,7 +86,7 @@ Goal: make it look designed, and get a small, crisp GIF out.
 real-time on a typical GPU; the one-click flow (record → auto-zoom → export) produces a postable
 GIF **with zero manual editing**.
 
-## M5 — Polish
+## M5, Polish
 
 - [ ] Sensible zero-config defaults tuned for first-run delight.
 - [ ] Global hotkeys (start/stop/pause), system tray, countdown + region-selector overlay window.
@@ -95,7 +95,7 @@ GIF **with zero manual editing**.
 
 ## Later (post-v1, architecture already supports)
 
-**MP4 export** (Media Foundation HW encoder — research preserved in git history); audio tracks;
+**MP4 export** (Media Foundation HW encoder, research preserved in git history); audio tracks;
 webcam PiP; macOS/Linux builds; cloud/sharing; AI features. Hold the
 [spec §7 + v1.1 amendments](./Vuoom-Spec.md) out-of-scope line for v1.
 
@@ -109,7 +109,7 @@ webcam PiP; macOS/Linux builds; cloud/sharing; AI features. Hold the
 | Preview bridge perf | M0/M3 | Decided up front (WebSocket); spike before the editor; URI-protocol fallback |
 | Mixed-DPI / multi-monitor coord bugs | M1 | Test mixed-DPI from M1; everything in physical px |
 | GIF too large | M4 | gifski + presets + sample-extrapolate size estimate |
-| gifski AGPL | M4 | ✅ Resolved — ship gifski as an **out-of-process binary** (Vuoom stays Apache-2.0); bundle AGPL text. [`10`](./10-Licensing.md) |
+| gifski AGPL | M4 | ✅ Resolved, ship gifski as an **out-of-process binary** (Vuoom stays Apache-2.0); bundle AGPL text. [`10`](./10-Licensing.md) |
 | Text/annotation rendering quality | M3 | glyphon (proven) + lyon; rasterize text at export resolution |
 | gifski/gifsicle distribution | M4/M5 | Ship as sidecars; bundle license texts |
 | SmartScreen on free download | M5 | Azure Trusted Signing |

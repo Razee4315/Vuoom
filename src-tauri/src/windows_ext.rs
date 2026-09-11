@@ -24,7 +24,7 @@ pub fn exclude_from_capture(_window: &tauri::WebviewWindow) -> Result<(), String
 
 /// Put a file on the clipboard as `CF_HDROP`, so pasting into Slack / Discord / a GitHub
 /// comment uploads the actual (animated) file. Windows has no animated-GIF clipboard
-/// format — copying the *file* is what every real tool does. See `docs/06-Export.md`.
+/// format, copying the *file* is what every real tool does. See `docs/06-Export.md`.
 ///
 /// `clipboard-win` builds the `DROPFILES` payload and manages the clipboard open/close +
 /// global-memory ownership, so this stays safe instead of hand-rolled `unsafe`.
@@ -33,7 +33,7 @@ pub fn copy_file_to_clipboard(path: &str) -> Result<(), String> {
     use clipboard_win::{options, raw, Clipboard};
 
     // `Setter<[T]>` is only implemented for the unsized slice, which the generic
-    // `set_clipboard` can't take by value — so open the clipboard explicitly and use the
+    // `set_clipboard` can't take by value, so open the clipboard explicitly and use the
     // raw file-list writer. `DoClear` empties the clipboard first, matching the old
     // EmptyClipboard behavior.
     let _clip = Clipboard::new_attempts(10).map_err(|e| e.to_string())?;

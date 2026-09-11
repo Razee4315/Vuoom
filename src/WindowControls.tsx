@@ -1,9 +1,21 @@
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isMock } from "./bridge";
+
+/** Browser no-op stand-in so the controls render (and do nothing) outside the app shell. */
+function mockWindow() {
+  return {
+    isMaximized: async () => false,
+    onResized: async () => () => undefined,
+    minimize: async () => undefined,
+    toggleMaximize: async () => undefined,
+    close: async () => undefined,
+  };
+}
 
 /** Custom minimize / maximize / close controls for the frameless window. */
 export default function WindowControls() {
-  const appWindow = getCurrentWindow();
+  const appWindow = isMock ? mockWindow() : getCurrentWindow();
   const [maximized, setMaximized] = createSignal(false);
 
   onMount(async () => {
@@ -14,7 +26,7 @@ export default function WindowControls() {
       });
       onCleanup(unlisten);
     } catch {
-      // Not running inside a Tauri window (e.g. browser dev) — ignore.
+      // Not running inside a Tauri window (e.g. browser dev), ignore.
     }
   });
 

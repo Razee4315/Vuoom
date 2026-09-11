@@ -40,7 +40,7 @@ struct TextState {
 /// `dir` is the gradient axis as a unit vector in output UV space (0..1, y down); the
 /// compositor projects each pixel onto it and normalizes across the frame, so the two stops
 /// land on opposite corners for a diagonal `dir`. Colors are straight RGBA, interpolated in
-/// the same (non-linearized) space the target texture is written in — matching the existing
+/// the same (non-linearized) space the target texture is written in, matching the existing
 /// solid-fill and source `mix` handling.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BgFill {
@@ -586,8 +586,8 @@ impl Compositor {
 
         // Reuse the size-keyed GPU resources when the dimensions haven't changed (the common
         // case for an export loop); rebuild them only when a dimension differs. The guard is
-        // held for the whole call, serializing composites — matching the pre-existing text
-        // Mutex — so the single cached source/target/readback are never used concurrently.
+        // held for the whole call, serializing composites, matching the pre-existing text
+        // Mutex, so the single cached source/target/readback are never used concurrently.
         let mut cache_guard = self.cache.lock().expect("composite cache poisoned");
         if !cache_guard
             .as_ref()
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn clear_renders_and_reads_back() {
         let Some(compositor) = Compositor::new() else {
-            eprintln!("no GPU adapter (CI without a GPU) — skipping");
+            eprintln!("no GPU adapter (CI without a GPU), skipping");
             return;
         };
         let px = compositor.clear_to_rgba(2, 2, [1.0, 0.0, 0.0, 1.0]);
@@ -786,7 +786,7 @@ mod tests {
     #[test]
     fn composite_produces_full_frame() {
         let Some(compositor) = Compositor::new() else {
-            eprintln!("no GPU adapter (CI without a GPU) — skipping");
+            eprintln!("no GPU adapter (CI without a GPU), skipping");
             return;
         };
         let source = vec![255u8; 4 * 4 * 4]; // 4x4 white BGRA

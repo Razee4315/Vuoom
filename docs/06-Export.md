@@ -1,8 +1,8 @@
-# 06 — Export: GIF
+# 06, Export: GIF
 
-**v1.1 scope:** Vuoom exports **GIF only**. MP4/H.264/H.265 are dropped from v1 (owner decision —
+**v1.1 scope:** Vuoom exports **GIF only**. MP4/H.264/H.265 are dropped from v1 (owner decision,
 see [spec amendments](./Vuoom-Spec.md) and [`09`](./09-Decisions-and-Open-Questions.md)). This is
-a big simplification: **the entire video codec patent/licensing minefield disappears** — no Media
+a big simplification: **the entire video codec patent/licensing minefield disappears**, no Media
 Foundation, no ffmpeg H.264, no x264/x265. The pipeline is just: composited RGBA frames → gifski →
 optimized GIF.
 
@@ -16,22 +16,22 @@ optimized GIF.
 
 | Concern | Choice |
 |---|---|
-| GIF encoder | **gifski** — best-in-class quality (libimagequant per-frame palettes + temporal dithering) |
-| How it's integrated | **Separate bundled binary, invoked out-of-process** (keeps Vuoom Apache-2.0 — see below) |
+| GIF encoder | **gifski**, best-in-class quality (libimagequant per-frame palettes + temporal dithering) |
+| How it's integrated | **Separate bundled binary, invoked out-of-process** (keeps Vuoom Apache-2.0, see below) |
 | Optional size optimizer | `gifsicle` (also out-of-process) |
 | "Smaller, modern" alt | animated **WebP** (opt-in, later) |
-| Pure-Rust fallback | `gif` + `color_quant` — **this is the shipping v1 encoder** (gifski sidecar not yet bundled) |
+| Pure-Rust fallback | `gif` + `color_quant`, **this is the shipping v1 encoder** (gifski sidecar not yet bundled) |
 
 ### The shipping pure-Rust encoder (`vuoom-encode/src/native.rs`)
 
-The fallback is not a naive frame dumper — it is built for screen recordings:
+The fallback is not a naive frame dumper, it is built for screen recordings:
 
 - **One global NeuQuant palette** for the whole clip (trained on pixels sampled evenly
   across all frames). No per-frame palette overhead, no palette flicker, and identical
-  colors always quantize to identical indices — which makes exact frame diffing possible.
+  colors always quantize to identical indices, which makes exact frame diffing possible.
 - **Delta rectangles**: every frame after the first stores only the bounding box of
   changed pixels; unchanged pixels inside the box are the transparent index, with
-  disposal `Keep`. On a mostly-static product/UI clip this is typically **5–20× smaller**
+  disposal `Keep`. On a mostly-static product/UI clip this is typically **5-20× smaller**
   than full-frame encoding at identical visual quality.
 - **Duplicate-frame collapsing**: identical consecutive frames are dropped and their
   delay is added to the previous frame, so idle screen time is nearly free.
@@ -40,13 +40,13 @@ The fallback is not a naive frame dumper — it is built for screen recordings:
 
 gifski is **AGPL-3.0-or-later**. Vuoom is **Apache-2.0**. To keep Vuoom's own source permissive,
 **do not statically link gifski.** Ship the **gifski binary** (unmodified) and invoke it as a
-separate process (mere aggregation) — the same separation pattern used widely for AGPL/GPL tools.
+separate process (mere aggregation), the same separation pattern used widely for AGPL/GPL tools.
 Get legal sign-off, but this is the standard, clean path. Full rationale:
 [`10-Licensing.md`](./10-Licensing.md).
 
 Practically: feed RGBA frames to the gifski **CLI** via a temp directory of PNGs or stdin (see
 its `--help`), or pin a specific gifski release and document it. The in-process `gifski` *crate*
-exists and is ergonomic, but linking it would impose AGPL on Vuoom — **don't**, given Apache-2.0.
+exists and is ergonomic, but linking it would impose AGPL on Vuoom, **don't**, given Apache-2.0.
 
 ## The pipeline
 
@@ -65,10 +65,10 @@ wgpu compositor → offscreen RGBA frame  (already producing these for preview/e
 
 ### gifski knobs (whether via CLI flags or the crate's `Settings`)
 
-- `quality` (1–100) — overall.
+- `quality` (1-100), overall.
 - `--lossy-quality` (lower = grainier/smaller), `--motion-quality` (lower = more smearing/smaller).
-- `--width` / target width — the biggest deterministic size lever.
-- `--fps` (CLI) or, in the lib, the **per-frame `pts` in seconds** — feed every Nth frame and
+- `--width` / target width, the biggest deterministic size lever.
+- `--fps` (CLI) or, in the lib, the **per-frame `pts` in seconds**, feed every Nth frame and
   compute `pts` from the emitted timeline.
 - loop: infinite by default.
 
@@ -77,7 +77,7 @@ predictable size and slightly better results.
 
 ## File-size estimation (there is no formula)
 
-gifski builds a unique cross-frame palette and diffs temporally — **no closed-form size formula
+gifski builds a unique cross-frame palette and diffs temporally, **no closed-form size formula
 exists** (the maintainer confirms; even gifski's own running estimate is "very imprecise"). The
 honest method, which the editor's live size readout uses:
 
@@ -85,33 +85,33 @@ honest method, which the editor's live size readout uses:
    the chosen settings. Windows must be *contiguous*, not strided: the encoder
    delta-compresses consecutive frames, so a strided sample would see artificially large
    frame-to-frame changes and wildly overestimate.
-2. **Isolate keyframe cost from delta cost** — also encode a 1-frame GIF of each window's
+2. **Isolate keyframe cost from delta cost**, also encode a 1-frame GIF of each window's
    first frame, then extrapolate as `keyframe + per-delta × (total − 1)` (see
    `estimate_delta_total_bytes` in `vuoom-encode/src/plan.rs`), nudged up by a motion fudge.
 3. Expose the deterministic levers (**width**, **fps**, **quality**, **lossy**) and **re-estimate
-   live** as the user drags them — exactly how gifski's author recommends converging on a target.
+   live** as the user drags them, exactly how gifski's author recommends converging on a target.
 
-## "Copy GIF to clipboard" — what actually works on Windows
+## "Copy GIF to clipboard", what actually works on Windows
 
 Windows has **no animated-GIF clipboard format** (`CF_DIB`/`CF_BITMAP` are static; animation is
 lost). The reliable behavior every real tool uses:
 
 1. **Copy the file (`CF_HDROP`)** → the user pastes the actual `.gif` into Slack / Discord /
    email / a GitHub comment, which uploads the animated file. **This is the recommended default.**
-2. Optionally also register a custom `"GIF"`/`"image/gif"` clipboard format with raw bytes — some
+2. Optionally also register a custom `"GIF"`/`"image/gif"` clipboard format with raw bytes, some
    apps honor it, most don't.
-3. **Don't** put it on as a bitmap expecting animation — it won't animate anywhere.
+3. **Don't** put it on as a bitmap expecting animation, it won't animate anywhere.
 
 → **"Copy GIF" = copy the file (CF_HDROP).** Also offer **"Copy file path"** and **"Reveal in
-Explorer."** This single action is the most-used step for posting — make it one click.
+Explorer."** This single action is the most-used step for posting, make it one click.
 
 ## Default export presets
 
-**README-GIF (default — small + good):** fps **15**, width cap **≤1000px**, gifski `quality 80`,
-infinite loop; optional `gifsicle -O3 --lossy=80 --colors 256` second pass. A 10–15 s UI clip lands
-in the low-MB range. This is the headline preset — programmers want a small README GIF.
+**README-GIF (default, small + good):** fps **15**, width cap **≤1000px**, gifski `quality 80`,
+infinite loop; optional `gifsicle -O3 --lossy=80 --colors 256` second pass. A 10-15 s UI clip lands
+in the low-MB range. This is the headline preset, programmers want a small README GIF.
 
-**HQ-GIF:** fps **20–24**, width up to **1280px**, gifski `quality 95`, no lossy pass.
+**HQ-GIF:** fps **20-24**, width up to **1280px**, gifski `quality 95`, no lossy pass.
 
 **Social presets:** pair the GIF settings with the 9:16 / 1:1 crop from the editor.
 
@@ -119,7 +119,7 @@ Every preset shows an **estimated output size** (sample-and-extrapolate) before 
 
 ## WebP (opt-in, later)
 
-Animated **WebP** is ~70–80% smaller than GIF at similar quality with ~97% browser support — a
+Animated **WebP** is ~70-80% smaller than GIF at similar quality with ~97% browser support, a
 nice **opt-in "smaller, modern" export** for places that accept it (it is *not* a drop-in for
 GitHub README inline rendering the way GIF is, so GIF stays the default). Encode via a small
 permissively-licensed path (the `webp`/`image` crates, or an LGPL ffmpeg `libwebp_anim` sidecar).

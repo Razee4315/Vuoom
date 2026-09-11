@@ -26,7 +26,7 @@ pub struct CapturedFrame {
     pub qpc: i64,
 }
 
-/// A sub-rectangle (physical px) of the captured monitor to keep — the rest is discarded.
+/// A sub-rectangle (physical px) of the captured monitor to keep, the rest is discarded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CropRegion {
     pub x: u32,
@@ -69,7 +69,7 @@ pub struct CaptureHandle {
     stop: Arc<AtomicBool>,
     /// Shared with the capture handler: total frames dropped because the bounded channel was
     /// full (the drain couldn't keep up). Read by the caller at stop time to warn the user
-    /// that the take is choppy — see [`CaptureHandle::dropped`].
+    /// that the take is choppy, see [`CaptureHandle::dropped`].
     dropped: Arc<AtomicU64>,
 }
 
@@ -134,7 +134,7 @@ impl GraphicsCaptureApiHandler for Handler {
         // ticks: qpc = ticks * freq / 10_000_000 (i128 avoids overflow on long uptimes).
         //
         // Defensive: if the timestamp is missing or lands implausibly far from `now` (i.e. it is
-        // NOT on the QPC axis we assume — a wrong-epoch conversion would poison every frame
+        // NOT on the QPC axis we assume, a wrong-epoch conversion would poison every frame
         // time), fall back to the callback time. `now` here is the capture instant to within the
         // WGC→callback latency, so a sane frame time is at most ~1 s away.
         let now = self.clock.now();
@@ -170,7 +170,7 @@ impl GraphicsCaptureApiHandler for Handler {
             Err(TrySendError::Full(_)) => {
                 let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                 if n == 1 || n.is_multiple_of(60) {
-                    tracing::warn!("frame drain can't keep up — dropped {n} frame(s) so far");
+                    tracing::warn!("frame drain can't keep up, dropped {n} frame(s) so far");
                 }
             }
             Err(TrySendError::Disconnected(_)) => control.stop(),
@@ -212,7 +212,7 @@ pub fn run_display(
     let monitor = pick_monitor(monitor)?;
     // Capture without the OS "being captured" highlight where the platform allows it
     // (Windows 11+, via the `IsBorderRequired` API). On Windows 10 that API is absent and the
-    // border can't be removed, so we fall back to Default — requesting a specific value there
+    // border can't be removed, so we fall back to Default, requesting a specific value there
     // makes the capture session fail to start.
     let border = if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
         DrawBorderSettings::WithoutBorder
@@ -248,7 +248,7 @@ pub fn spawn_region(
     monitor: Option<String>,
 ) -> (Receiver<CapturedFrame>, CaptureHandle) {
     // Bounded so a stalled/dead drain applies backpressure (drop-newest, see the handler)
-    // instead of growing RAM without limit — each buffered frame is a full BGRA screen.
+    // instead of growing RAM without limit, each buffered frame is a full BGRA screen.
     let (tx, rx) = sync_channel(CHANNEL_CAP);
     let stop = Arc::new(AtomicBool::new(false));
     // Shared drop counter: the handler increments it whenever the bounded channel is full and

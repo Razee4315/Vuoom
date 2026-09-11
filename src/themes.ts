@@ -22,12 +22,18 @@ export function applyTheme(id: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, id);
   } catch {
-    // storage unavailable — ignore
+    // storage unavailable, ignore
   }
 }
 
-/** The persisted theme, or the default. */
+/** The persisted theme, the ?theme= override, or the default. */
 export function initialTheme(): string {
+  try {
+    const override = new URLSearchParams(window.location.search).get("theme");
+    if (override && THEMES.some((t) => t.id === override)) return override;
+  } catch {
+    /* no location.search */
+  }
   try {
     return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_THEME;
   } catch {

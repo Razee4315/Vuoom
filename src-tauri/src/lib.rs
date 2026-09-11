@@ -29,7 +29,7 @@ static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 /// Wire up `tracing` before anything interesting happens.
 ///
 /// Two sinks: stderr (visible under `cargo run` / a console build) and a rotating
-/// daily file under `log_dir` — the latter matters because release builds set
+/// daily file under `log_dir`, the latter matters because release builds set
 /// `windows_subsystem = "windows"` and have no console, so every engine
 /// `tracing::warn!` would otherwise vanish. Level honors `RUST_LOG`; the default
 /// is info for the Vuoom crates and warn for everything else. Uses `try_init`, so
@@ -126,7 +126,7 @@ pub fn run() {
     // and cursor coordinates are in true physical pixels on scaled displays.
     let _ = vuoom_input::set_per_monitor_aware_v2();
 
-    // Route worker-thread panics to the log — release builds set `windows_subsystem =
+    // Route worker-thread panics to the log, release builds set `windows_subsystem =
     // "windows"` and have no console, so an un-hooked panic on the capture/drain/preview
     // threads would vanish silently. Chain to the previous hook so the default stderr
     // message still prints. Events emitted before the subscriber is installed (inside
@@ -149,8 +149,8 @@ pub fn run() {
 
     tauri::Builder::default()
         // Single-instance must be registered first (documented requirement). A second
-        // launch fires this callback in the running instance — instead of spinning up a
-        // rival that would race on the shared %TEMP%/vuoom-recovery store — then exits.
+        // launch fires this callback in the running instance, instead of spinning up a
+        // rival that would race on the shared %TEMP%/vuoom-recovery store, then exits.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
@@ -164,10 +164,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             // If the window is closed mid-export, the process is about to tear down the export
-            // thread — which would leave a truncated .gif/.mp4 at the user's chosen path. Signal
+            // thread, which would leave a truncated .gif/.mp4 at the user's chosen path. Signal
             // the export to abort so its own loop deletes the partial file first. Fire-and-forget:
             // we don't prevent the close, so this is best-effort (see the residual-risk note in
-            // the audit) — the abort races the process exit, but on a normal close the export
+            // the audit), the abort races the process exit, but on a normal close the export
             // typically bails and cleans up before teardown completes.
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Ok(session) = window.state::<Engine>().session() {

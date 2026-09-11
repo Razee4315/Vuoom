@@ -1,6 +1,6 @@
 // Stateless presentational primitives shared across the editor: toolbar/lock icons,
 // the inspector chrome (panel + sections + rows), and the canvas overlay SVG (handles +
-// arrow/line). None of these read editor state — everything comes in via props.
+// arrow/line). None of these read editor state, everything comes in via props.
 import { For, Show, type JSX } from "solid-js";
 import type { Vec2 } from "./types";
 
@@ -33,7 +33,7 @@ export function InspectorPanel(props: {
   );
 }
 
-/** A titled inspector group — a tiny uppercase header over its rows. */
+/** A titled inspector group, a tiny uppercase header over its rows. */
 export function InspSection(props: { title: string; children: JSX.Element }): JSX.Element {
   return (
     <div class="insp-section">

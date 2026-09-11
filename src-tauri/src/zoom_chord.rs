@@ -1,6 +1,6 @@
 //! Poll-based recorder for the manual zoom chord (Ctrl+Shift+Z).
 //!
-//! The recording pipeline's low-level keyboard hook can miss keystrokes — most notably
+//! The recording pipeline's low-level keyboard hook can miss keystrokes, most notably
 //! when an elevated (admin) window has focus, where Windows withholds hook callbacks but
 //! `GetAsyncKeyState` still reports key state. The live preview already detects the chord
 //! by polling, which is why a zoom can show live yet be missing from the final edit. This

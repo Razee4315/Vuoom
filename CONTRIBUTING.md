@@ -1,6 +1,6 @@
 # Contributing to Vuoom
 
-Thanks for wanting to make Vuoom better! This is a small, focused project — the
+Thanks for wanting to make Vuoom better! This is a small, focused project, the
 goal is the **easiest way for developers to make a demo GIF on Windows**, and every
 contribution should serve that.
 
@@ -25,7 +25,7 @@ pnpm tauri dev
 
 You'll need: **Windows 10/11**, [Rust stable](https://rustup.rs),
 [Node 22+](https://nodejs.org), and [pnpm](https://pnpm.io). The GPU compositor
-(wgpu/DX12) and screen capture need a real display — runtime testing happens on
+(wgpu/DX12) and screen capture need a real display, runtime testing happens on
 your machine, while CI verifies compilation, lints, and the pure-logic test suite.
 
 ## Project layout
@@ -39,14 +39,14 @@ your machine, while CI verifies compilation, lints, and the pure-logic test suit
 | `crates/vuoom-capture` / `vuoom-input` | Windows Graphics Capture + global input log |
 | `crates/vuoom-encode` | GIF encoding, frame planning, size estimation |
 | `crates/vuoom-project` | The `.vuoom` project model (single source of truth for edits) |
-| `docs/` | Design docs — read these before touching a subsystem |
+| `docs/` | Design docs, read these before touching a subsystem |
 
 ## Making a change
 
-1. Open an issue first for anything non-trivial — saves everyone time.
+1. Open an issue first for anything non-trivial, saves everyone time.
 2. Branch from `main`, keep commits small and descriptive
    (`fix(zoom): …`, `feat(editor): …`, `docs: …`).
-3. Pure logic (planner, camera, timing, encoding math) needs unit tests —
+3. Pure logic (planner, camera, timing, encoding math) needs unit tests,
    that's what makes this codebase safe to change.
 4. Open a PR; CI must be green. Note anything that needs a manual runtime check
    (capture, GPU, input) so it can be verified on a real machine.

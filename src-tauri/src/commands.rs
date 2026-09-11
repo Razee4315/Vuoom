@@ -1,4 +1,4 @@
-//! Tauri command surface — the thin bridge from the SolidJS editor to the Rust engine.
+//! Tauri command surface, the thin bridge from the SolidJS editor to the Rust engine.
 //!
 //! Commands that need the engine go through [`crate::Engine`], which boots on a background
 //! thread at launch; until it's ready they fail with the `"engine-starting"` sentinel and
@@ -32,7 +32,7 @@ pub struct BorderState {
 // ── Recording flow ───────────────────────────────────────────────────────────────
 //
 // The whole flow (region selector → countdown → stop bar) runs as overlays INSIDE the
-// single main window — no extra WebView2 windows. Spawning a second webview and navigating
+// single main window, no extra WebView2 windows. Spawning a second webview and navigating
 // it to the bundled app proved unreliable (a blank-white window that never loaded the page
 // on some machines), so we drive the proven main webview instead: go fullscreen for the
 // region picker, shrink to a small bar for recording, then restore. The window is excluded
@@ -57,18 +57,18 @@ fn restore_editor(app: &AppHandle) {
     }
 }
 
-/// Step 1 — the user clicked Record: capture the desktop for the selector backdrop, then
+/// Step 1, the user clicked Record: capture the desktop for the selector backdrop, then
 /// blow the editor up to fullscreen (excluded from capture) so the in-window region
 /// selector covers the display. Returns the backdrop as a `data:image/png;base64,…` URL
-/// (empty string if the grab failed — the selector then just shows a dark canvas).
+/// (empty string if the grab failed, the selector then just shows a dark canvas).
 ///
-/// The recording targets the monitor the editor is on right now — fullscreen lands there,
+/// The recording targets the monitor the editor is on right now, fullscreen lands there,
 /// so drag Vuoom to another monitor to record that one.
 ///
 /// Why the screenshot is taken while the window is **hidden** rather than relying on
 /// `WDA_EXCLUDEFROMCAPTURE`: on Windows 11 a *fullscreen* excluded window is composited
 /// through the direct-flip path and Windows Graphics Capture records its area as solid
-/// black (the desktop behind it is never sampled) — that produced the blank selector
+/// black (the desktop behind it is never sampled), that produced the blank selector
 /// backdrop. Windows 10 happens to composite the desktop behind the excluded window, so it
 /// worked there. Hiding the window for the single grab is correct on both.
 #[tauri::command]
@@ -101,7 +101,7 @@ pub fn enter_overlay(
     let _ = main.hide();
     std::thread::sleep(std::time::Duration::from_millis(120));
     // A failed grab yields an empty backdrop (the selector still works, just without the
-    // still). Only worth a line once the engine is actually up — an "engine-starting" retry
+    // still). Only worth a line once the engine is actually up, an "engine-starting" retry
     // here isn't a failure. A blank selector was previously silent, so log the real cause.
     let backdrop = match engine.session() {
         Ok(session) => session.screenshot().unwrap_or_else(|e| {
@@ -112,7 +112,7 @@ pub fn enter_overlay(
     };
 
     // Best-effort from here on: the window is currently hidden, so `show()` MUST run on
-    // every path — bailing early with `?` would strand an invisible window.
+    // every path, bailing early with `?` would strand an invisible window.
     let _ = exclude_from_capture(&main);
     // The editor sits maximized, and an undecorated maximized window only covers the WORK
     // area (screen minus taskbar). Entering fullscreen straight from that state can leave
@@ -132,7 +132,7 @@ pub fn enter_overlay(
     Ok(backdrop)
 }
 
-/// Width/height (logical px) of the recording panel — a live zoom preview + Stop controls.
+/// Width/height (logical px) of the recording panel, a live zoom preview + Stop controls.
 const PANEL_W: f64 = 384.0;
 const PANEL_H: f64 = 300.0;
 
@@ -200,13 +200,13 @@ fn pick_panel_spot(
         .find(|&(px, py)| !rects_overlap((px, py, pw, ph), r))
 }
 
-/// Step 2 — a region (or full screen) was confirmed: drop out of fullscreen and shrink the
+/// Step 2, a region (or full screen) was confirmed: drop out of fullscreen and shrink the
 /// window to the always-on-top recording panel (live preview + Stop).
 ///
 /// The panel is parked on a monitor corner that clears the recorded region (bottom-right
 /// first). Capture exclusion alone is NOT enough on Windows 10: an excluded window that
 /// overlaps the captured area is recorded as a solid BLACK rectangle, so the panel must
-/// physically stay outside the region — here (initial park) and while dragging (the WM_MOVING
+/// physically stay outside the region, here (initial park) and while dragging (the WM_MOVING
 /// drag wall installed by `start_recording`, see `drag_wall.rs`). When the region crowds out
 /// every corner we park bottom-right regardless; `start_recording` minimizes the panel for
 /// the duration in that case. The min size is dropped to the panel size so the shrink isn't
@@ -236,7 +236,7 @@ pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> R
     Ok(())
 }
 
-/// Step 3 — the user stopped: finish capture, restore the editor, and return the clip
+/// Step 3, the user stopped: finish capture, restore the editor, and return the clip
 /// summary so the editor can load it.
 #[tauri::command]
 pub async fn finish_recording(
@@ -317,8 +317,8 @@ pub fn set_region(
     let region = match (x, y, w, h) {
         (None, None, None, None) => None, // no fields → full screen
         (Some(x), Some(y), Some(w), Some(h)) => Some(CropRegion { x, y, w, h }),
-        // A partial spec is a caller bug — don't silently fall back to full screen.
-        _ => return Err("set_region: provide all of x, y, w, h — or none for full screen".into()),
+        // A partial spec is a caller bug, don't silently fall back to full screen.
+        _ => return Err("set_region: provide all of x, y, w, h, or none for full screen".into()),
     };
     // Validate against the target monitor first; only mirror an accepted region into the
     // border state, so a rejected rect can't leave a stale frame behind.
@@ -440,10 +440,10 @@ pub async fn start_recording(
 ) -> Result<(), String> {
     engine.session()?.start_recording()?;
     // Frame the recorded region so the user always sees what's being captured. The strips
-    // sit outside the crop (that is why they never land in the recording — NOT because
+    // sit outside the crop (that is why they never land in the recording, NOT because
     // exclusion reveals what's behind them). Idempotent with `show_region_border`, which the
-    // countdown may already have raised — only create the strips if they aren't up yet.
-    // Full-screen recordings skip the frame — the screen edge is the region.
+    // countdown may already have raised, only create the strips if they aren't up yet.
+    // Full-screen recordings skip the frame, the screen edge is the region.
     let region = border.region.lock().ok().and_then(|r| *r);
     let (mx, my) = border.origin.lock().map_or((0, 0), |o| *o);
     if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
@@ -453,13 +453,13 @@ pub async fn start_recording(
     }
     // Keep the panel out of the captured area. Ground truth (verified on hardware): on
     // Windows 10 a capture-excluded window that overlaps the recorded region is recorded as
-    // a solid BLACK rectangle — Win10 does not re-composite the desktop behind an excluded
+    // a solid BLACK rectangle, Win10 does not re-composite the desktop behind an excluded
     // window the way Win11 does, so `WDA_EXCLUDEFROMCAPTURE` alone is not enough here. Two
-    // defenses: (1) if the panel currently sits inside the region — always true for a
-    // full-screen recording — minimize it for the duration (Ctrl+Shift+X still stops and
+    // defenses: (1) if the panel currently sits inside the region, always true for a
+    // full-screen recording, minimize it for the duration (Ctrl+Shift+X still stops and
     // `restore_editor` un-minimizes); (2) otherwise arm the WM_MOVING drag wall so the user
     // cannot drag the panel into the region (it slides along the edge). The window keeps its
-    // `WDA_EXCLUDEFROMCAPTURE` affinity too — harmless on Win10, a real second line of
+    // `WDA_EXCLUDEFROMCAPTURE` affinity too, harmless on Win10, a real second line of
     // defense on Win11.
     if let Some(main) = app.get_webview_window("main") {
         let covered = match region {
@@ -794,13 +794,13 @@ pub fn clip_state(engine: tauri::State<'_, Engine>) -> Result<ClipState, String>
     engine.session()?.clip_state()
 }
 
-/// Toggle click ripples — expanding rings at every recorded mouse click.
+/// Toggle click ripples, expanding rings at every recorded mouse click.
 #[tauri::command]
 pub fn set_show_clicks(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
     engine.session()?.set_show_clicks(on)
 }
 
-/// Toggle the keystroke overlay — shortcut chips (Ctrl+C…) at the bottom of the frame.
+/// Toggle the keystroke overlay, shortcut chips (Ctrl+C…) at the bottom of the frame.
 #[tauri::command]
 pub fn set_show_keys(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
     engine.session()?.set_show_keys(on)
@@ -812,7 +812,7 @@ pub fn set_frame_preset(engine: tauri::State<'_, Engine>, preset: String) -> Res
     engine.session()?.set_frame_preset(&preset)
 }
 
-/// Set the backdrop behind a framed recording to a named preset (gradient or solid) — the
+/// Set the backdrop behind a framed recording to a named preset (gradient or solid), the
 /// compositor renders it into both the preview and the export.
 #[tauri::command]
 pub fn set_background_preset(engine: tauri::State<'_, Engine>, name: String) -> Result<(), String> {

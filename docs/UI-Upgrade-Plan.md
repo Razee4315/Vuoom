@@ -1,4 +1,8 @@
-# UI Upgrade Plan — learning from palmier-pro
+# UI Upgrade Plan, learning from palmier-pro
+
+> **Note (2026-09-12):** phases 0 to 3 of this plan shipped and the interface has since
+> been redesigned on a new token system. See `docs/AUDIT-AND-REDESIGN.md` for the audit
+> and what changed.
 
 Status: **proposal** (no code changed yet). Author pass: 2026-06-19.
 
@@ -13,25 +17,25 @@ vs Vuoom's Tauri + SolidJS). We copy **patterns and ergonomics, not code or scop
 
 Respect Vuoom's settled identity (`vuoom-design-language`): mono-first themes, **no purple**,
 record-red `#e5484d` as the only accent, the V+record-dot logo. Everything below stays inside
-that language — we add *structure and motion*, not new brand colors.
+that language, we add *structure and motion*, not new brand colors.
 
 **Explicitly out of scope** (would bloat the record→GIF focus): multi-track timeline, audio
 tracks/waveforms, linked clips, razor/ripple tools, AI generation catalog, in-app agent chat
-(the MCP **AI Demo Director** is the better moat). Keep the record-overlay flow — it already
+(the MCP **AI Demo Director** is the better moat). Keep the record-overlay flow, it already
 beats palmier's import-first flow.
 
 ## Workflow
 
 Per `vuoom-workflow-rules`: builds/tests run on **CI only**; **commit + push after every
-change**. Each numbered item below lands as its own commit. Items are ordered by dependency —
+change**. Each numbered item below lands as its own commit. Items are ordered by dependency,
 the token layer (Phase 0) underpins the rest.
 
 ---
 
-## Phase 0 — Design-token layer (foundation)
+## Phase 0, Design-token layer (foundation)
 
 **Why:** Today `src/App.css` defines only `--bg/--panel/--line/--text/--muted/--accent`, one
-radius pair, and a font scale (`App.css:6–82`). palmier's polish comes from one disciplined
+radius pair, and a font scale (`App.css:6-82`). palmier's polish comes from one disciplined
 token system (`AppTheme.swift`): a spacing scale, a 4-step elevation ramp, 3 shadow tiers, and
 exactly 2 motion durations. Consistency *is* the premium feel.
 
@@ -50,22 +54,22 @@ themes still pass a visual sanity check; zero behavior change.
 
 ---
 
-## Phase 1 — Inspector ergonomics (highest impact)
+## Phase 1, Inspector ergonomics (highest impact)
 
-The inspector is the surface that most reads as "settings form" today (`App.tsx:2156–2472`).
+The inspector is the surface that most reads as "settings form" today (`App.tsx:2156-2472`).
 Three changes turn it pro.
 
-### 1a. `ScrubField` component — drag-or-type number control
+### 1a. `ScrubField` component, drag-or-type number control
 palmier's single best idea: every numeric value is **drag horizontally to scrub OR click to
 type**, with **Shift = ×10 coarse, Ctrl = ×0.1 fine**, live preview during drag, one coalesced
-undo on release, and `—` for mixed/empty.
+undo on release, and `-` for mixed/empty.
 
 - New `src/ScrubField.tsx`: a `<div>` capturing `pointermove` deltas → value; swaps to an
   `<input>` on click (drag < 3px). Props: `value, min, max, step, sensitivity, suffix,
   onInput (live), onCommit (undo boundary)`.
 - Replace in the inspector: zoom **Strength** (`App.tsx:2376`), box **Opacity** (`2242`),
   **Thickness** (`2286`), text **Size** (`2196`), speed **factor** (`2432`), and the
-  **Timing** number inputs (`2324–2346`).
+  **Timing** number inputs (`2324-2346`).
 - Reuse the existing throttled `pushEdit`/`refresh` path for live vs commit (`App.tsx:611`).
 
 **Acceptance:** dragging any field scrubs with modifier precision and previews live; one undo
@@ -95,14 +99,14 @@ shows a subtle focus ring when it holds the selection.
 
 ---
 
-## Phase 2 — Text annotations
+## Phase 2, Text annotations
 
 The text surface is the weakest vs palmier and the one called out directly. Today: Inter-only
 (`App.tsx:2027`), bold/italic + size slider, **move-only** on canvas (no resize handles),
 no background plate.
 
 ### 2a. Bundled font set + in-typeface picker
-palmier ships Anton, Bebas Neue, Space Grotesk, Playfair, Permanent Marker, etc. — that variety
+palmier ships Anton, Bebas Neue, Space Grotesk, Playfair, Permanent Marker, etc., that variety
 is *why* their text looks designed.
 
 - Bundle ~6 display fonts via `@font-face` (woff2 in `src/assets/fonts/`), OFL-licensed.
@@ -120,7 +124,7 @@ inspector.
 
 ### 2c. On-canvas text resize handles → font size
 palmier resizes text by `fontScale` (never stretches). Vuoom's selected text draws only an
-outline (`App.tsx:2034–2042`). Add corner handles that map drag → `font_size`, plus the same
+outline (`App.tsx:2034-2042`). Add corner handles that map drag → `font_size`, plus the same
 move behavior. Reuse the box/arrow handle machinery (`handleAt`, `App.tsx:658`).
 
 ### 2d. Canvas snap guides
@@ -133,9 +137,9 @@ snaps to canvas center with a visible guide.
 
 ---
 
-## Phase 3 — Timeline feel
+## Phase 3, Timeline feel
 
-The timeline drags are free-floating today (zoom/speed/cut/note bars, `App.tsx:2651–2785`),
+The timeline drags are free-floating today (zoom/speed/cut/note bars, `App.tsx:2651-2785`),
 so alignment is fiddly. palmier's timeline *snaps*.
 
 ### 3a. Snapping with a visual guide
@@ -144,7 +148,7 @@ so alignment is fiddly. palmier's timeline *snaps*.
   zoom-independent; **sticky** break-away (must move ~2.5× to unstick), like palmier's
   `SnapEngine`.
 - Flash a 1px vertical snap-line at the catch point; small scale-pop on the band. (No trackpad
-  haptics on web — the visual sells precision instead.)
+  haptics on web, the visual sells precision instead.)
 - Hook into the existing `onZoomMove/onSpeedMove/onCutMove/onAnnMove/onTrimMove` handlers.
 
 ### 3b. Adaptive ruler ticks
@@ -156,9 +160,9 @@ sticky feel; the ruler shows sensible, evenly-spaced labels at short and long du
 
 ---
 
-## Phase 4 — Starting UI / onboarding
+## Phase 4, Starting UI / onboarding
 
-The empty editor is a missed opportunity (`App.tsx:1887`). Keep it single-window — do **not**
+The empty editor is a missed opportunity (`App.tsx:1887`). Keep it single-window, do **not**
 build palmier's full sidebar home.
 
 ### 4a. Recents strip on the empty canvas
@@ -185,5 +189,5 @@ Multi-track, audio waveforms, linked clips, razor/ripple, keyframe animation lan
 generation, in-app chat. These belong to palmier's NLE scope, not Vuoom's record→GIF job.
 
 ## Rough sequence
-Phase 0 → 1 (1a is the big win) → 2 → 3 → 4. Phases 0–1 alone make the app *feel* two tiers
+Phase 0 → 1 (1a is the big win) → 2 → 3 → 4. Phases 0-1 alone make the app *feel* two tiers
 higher with no change to what it does.

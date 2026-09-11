@@ -3,12 +3,12 @@
 ## Supported versions
 
 Only the [latest release](https://github.com/Razee4315/Vuoom/releases/latest)
-receives fixes — Vuoom auto-publishes from `main`, so updating is the patch.
+receives fixes, Vuoom auto-publishes from `main`, so updating is the patch.
 
 ## Reporting a vulnerability
 
 Vuoom is a desktop app that records the screen and logs global input **locally,
-on your machine, only while you record** — so bugs in that boundary matter.
+on your machine, only while you record**, so bugs in that boundary matter.
 Examples worth reporting: recordings or input logs leaving the machine, capture
 continuing after Stop, the input hook outliving a recording, or arbitrary file
 write/read via crafted `.vuoom` project bundles.

@@ -1,4 +1,4 @@
-# 01 — Tech Stack & Library Selection
+# 01, Tech Stack & Library Selection
 
 The definitive, research-validated list of crates and tools for Vuoom, with versions, licenses,
 and the one-line reason each was chosen. Deep rationale lives in the per-area docs.
@@ -21,7 +21,7 @@ and the one-line reason each was chosen. Deep rationale lives in the per-area do
 | Color/pixels | `imgref`, `rgb` | latest | MIT/Apache-2.0 | RGBA frame interface for the GIF encoder |
 | **Text rendering** | **`glyphon`** (+ `cosmic-text`) | 0.9.x | Apache-2.0/MIT/zlib | Text labels drawn directly into the wgpu pass; multi-line, color emoji, per-span color |
 | **Vector shapes** | **`lyon`** (`lyon_tessellation`) | latest | MIT/Apache-2.0 | Arrows / highlight boxes / spotlight outlines → triangles for a wgpu pipeline |
-| GIF encoder | **`gifski`** | 1.34.x | **AGPL-3.0** ⚠️ | Best-in-class GIF palettes. **Invoked as an out-of-process binary, NOT linked**, to keep Vuoom Apache-2.0 — see [10](./10-Licensing.md) |
+| GIF encoder | **`gifski`** | 1.34.x | **AGPL-3.0** ⚠️ | Best-in-class GIF palettes. **Invoked as an out-of-process binary, NOT linked**, to keep Vuoom Apache-2.0, see [10](./10-Licensing.md) |
 | CPU 2D fallback | `tiny-skia` | latest | BSD-3 | Optional CPU annotation rasterization fallback |
 | Async runtime | `tokio` | latest | MIT | Tauri async tasks, channels, WebSocket server |
 | WebSocket (preview) | `tokio-tungstenite` | latest | MIT | Localhost binary frame transport to the webview |
@@ -37,7 +37,7 @@ and the one-line reason each was chosen. Deep rationale lives in the per-area do
   RGBA frames in → optimized `.gif` out). This keeps Vuoom's code Apache-2.0 despite gifski being
   AGPL. Optional `gifsicle` second pass (also out-of-process) for extra size savings.
 - **No MP4 / H.264 / H.265 / audio in v1.** This removes Media Foundation, ffmpeg, x264/x265, and
-  the entire codec patent/licensing problem. (MP4 is a clean future add — the compositor already
+  the entire codec patent/licensing problem. (MP4 is a clean future add, the compositor already
   emits RGBA frames; the prior Media-Foundation research is preserved in git history.)
 
 ## Tauri plugins
@@ -47,19 +47,19 @@ and the one-line reason each was chosen. Deep rationale lives in the per-area do
 | `tauri-plugin-shell` | Spawn the gifski (+ optional gifsicle) **sidecars** with piped stdin/stdout |
 | `tauri-plugin-global-shortcut` | Start/stop/pause hotkeys |
 | `tauri-plugin-positioner` | Tray-relative window placement |
-| `tauri-plugin-single-instance` | **Register first** — prevent two capture engines |
+| `tauri-plugin-single-instance` | **Register first**, prevent two capture engines |
 | `tauri-plugin-autostart` | Launch on login (optional) |
 | `tauri-plugin-updater` + `tauri-plugin-process` | Auto-update + relaunch |
 | `tauri-plugin-dialog` / `tauri-plugin-fs` | Save dialogs, project files |
 | `tauri-plugin-opener` | Reveal-in-Explorer |
 
-System tray is built into Tauri 2 core (`tray-icon` feature) — no separate plugin.
+System tray is built into Tauri 2 core (`tray-icon` feature), no separate plugin.
 
 ## Frontend (`src/`)
 
 | Concern | Choice | Why |
 |---|---|---|
-| Framework | **SolidJS** | Fine-grained reactivity, no VDOM diff — ideal for a 60fps scrubbing timeline. (Svelte 5 is the close second.) |
+| Framework | **SolidJS** | Fine-grained reactivity, no VDOM diff, ideal for a 60fps scrubbing timeline. (Svelte 5 is the close second.) |
 | Build | **Vite** | Tauri's default dev server integration |
 | Styling | **Tailwind CSS v4** (`@tailwindcss/vite`) | Fast, consistent editor UI |
 | Preview render | **WebGPU** (primary) + Canvas2D `putImageData` (fallback) | Upload streamed RGBA frames to a `<canvas>` texture in a Web Worker |
@@ -69,8 +69,8 @@ System tray is built into Tauri 2 core (`tray-icon` feature) — no separate plu
 
 | Binary | Use | License note |
 |---|---|---|
-| **`gifski`** (required) | **GIF encoding** | AGPL — shipped **unmodified** and invoked **out-of-process** so Vuoom stays Apache-2.0 |
-| `gifsicle.exe` (optional) | Second-pass GIF size optimization | GPL — fine as a separately invoked process |
+| **`gifski`** (required) | **GIF encoding** | AGPL, shipped **unmodified** and invoked **out-of-process** so Vuoom stays Apache-2.0 |
+| `gifsicle.exe` (optional) | Second-pass GIF size optimization | GPL, fine as a separately invoked process |
 | `ffmpeg.exe` (only if WebP added later) | Animated WebP export | Ship **LGPL** build (BtbN `lgpl-shared`); never GPL/x264 |
 
 Naming: Tauri requires a target-triple suffix, e.g.
@@ -82,7 +82,7 @@ fetch via a setup script.
 - **Rust** stable (MSRV pin once scaffolded), `cargo`, `clippy`, `rustfmt`.
 - **Node** LTS, `pnpm` (or `npm`).
 - **Tauri CLI** (`@tauri-apps/cli` 2.x).
-- **Windows SDK** (for Media Foundation / D3D / DXGI headers via windows-rs — usually no manual
+- **Windows SDK** (for Media Foundation / D3D / DXGI headers via windows-rs, usually no manual
   install needed; windows-rs ships the bindings).
 
 ---
@@ -100,4 +100,4 @@ fetch via a setup script.
 
 ## Sources
 
-See the per-area docs (`03`–`06`, `02`) for the full sourced rationale behind each row.
+See the per-area docs (`03`-`06`, `02`) for the full sourced rationale behind each row.

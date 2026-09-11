@@ -58,7 +58,7 @@ pub fn estimate_total_bytes(
 /// Estimate the total size of a **delta-encoded** GIF from contiguous sample windows.
 ///
 /// The encoder writes one full keyframe and then per-frame delta rectangles, so size is
-/// `keyframe + per-delta × (frames − 1)` — extrapolating raw window bytes linearly would
+/// `keyframe + per-delta × (frames − 1)`, extrapolating raw window bytes linearly would
 /// count the window's keyframe once per window-length and badly overestimate. Each
 /// window is `(encoded_bytes, keyframe_bytes, frame_count)`, where `keyframe_bytes` is a
 /// 1-frame encode of the window's first frame; subtracting it isolates the delta cost.

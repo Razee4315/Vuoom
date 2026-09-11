@@ -1,4 +1,4 @@
-# 00 — Research Index & Executive Summary
+# 00, Research Index & Executive Summary
 
 **Status:** Research complete · **Date:** 2026-06-08 · **Platform:** Windows 10/11 first
 
@@ -15,7 +15,7 @@ product). Source URLs live in each detailed doc.
 [**Cap**](https://github.com/CapSoftware/Cap) is an open-source **Tauri 2 + Rust + wgpu**
 cross-platform screen recorder that shipped Screen-Studio-style auto-zoom in **Feb 2026**. It is
 almost exactly Vuoom's stack and goals. Across every research area, Cap's source code validated
-the architecture we'd independently arrived at. **We study Cap heavily** — its crate layout,
+the architecture we'd independently arrived at. **We study Cap heavily**, its crate layout,
 its `zoom.rs` spring constants, its `frame_ws.rs` preview transport, its `enc-mediafoundation`
 encoder selection.
 
@@ -33,21 +33,21 @@ encoder selection.
 | **Screen capture** | Native WGC, keep frames on GPU | **`windows-capture` 2.0.0** (MIT) | DXGI Desktop Duplication (in same crate) → raw `windows-rs` WGC | [03](./03-Capture.md) |
 | **GPU bridge** | Capture (D3D11) → compositor (DX12) | **NT shared-handle texture + keyed mutex** | Same-device D3D11 | [03](./03-Capture.md) |
 | **Input capture** | Global, background, frame-aligned | **Raw Input via `windows-rs`** (`RIDEV_INPUTSINK`) + `GetPhysicalCursorPos` polling | `rdev` (prototype only) | [04](./04-Input-and-AutoZoom.md) |
-| **Master clock** | One clock for input + frames | **QueryPerformanceCounter (QPC)** | — | [02](./02-Architecture.md) |
+| **Master clock** | One clock for input + frames | **QueryPerformanceCounter (QPC)** |, | [02](./02-Architecture.md) |
 | **Auto-zoom motion** | Cinematic, self-correcting | **Critically-damped springs** (half-life parameterized) | Catmull-Rom for baked manual keyframes | [04](./04-Input-and-AutoZoom.md) |
 | **Compositor** | GPU, one device, two sinks | **wgpu on DX12 backend**, offscreen render | Vulkan backend | [05](./05-Compositing-and-Preview.md) |
 | **Live preview bridge** | 60fps without JSON IPC | **Offscreen RGBA → localhost binary WebSocket → Web Worker → WebGPU canvas** (Cap's design) | Async custom URI protocol | [05](./05-Compositing-and-Preview.md) |
-| **Rounded corners + shadow** | Resolution-independent | **SDF (signed distance field) shader** | — | [05](./05-Compositing-and-Preview.md) |
-| **Output format (v1)** | GIF only — no MP4, no audio | **GIF** (programmer demo GIFs) | MP4 deferred to a later version | [06](./06-Export.md) |
+| **Rounded corners + shadow** | Resolution-independent | **SDF (signed distance field) shader** |, | [05](./05-Compositing-and-Preview.md) |
+| **Output format (v1)** | GIF only, no MP4, no audio | **GIF** (programmer demo GIFs) | MP4 deferred to a later version | [06](./06-Export.md) |
 | **GIF encoding** | High quality, small | **`gifski`** as an **out-of-process binary** (keeps Vuoom Apache-2.0) | `gif` + `color_quant` (lower quality) | [06](./06-Export.md), [10](./10-Licensing.md) |
 | **Text + annotations** | Simple, permissive, in-pipeline | **glyphon** (text) + **lyon** (arrows/boxes) | tiny-skia + cosmic-text (CPU) | [11](./11-Editor-and-Annotations.md) |
 | **"Copy GIF"** | Actually works in chat apps | **Copy the file (CF_HDROP)** to clipboard | Custom `image/gif` clipboard format | [06](./06-Export.md) |
-| **Shell / UI** | Lightweight native | **Tauri 2.x** | — | [08-app section in 02](./02-Architecture.md) |
+| **Shell / UI** | Lightweight native | **Tauri 2.x** |, | [08-app section in 02](./02-Architecture.md) |
 | **Frontend framework** | Fast 60fps scrub timeline | **SolidJS + Vite + Tailwind** | Svelte 5 | [02](./02-Architecture.md) |
 | **Rust→JS streaming** | Ordered, cheap progress/signals | **`tauri::ipc::Channel`** | events (small only) | [02](./02-Architecture.md) |
-| **Sidecars** | gifski (+ optional gifsicle) | **Tauri `externalBin` + shell plugin**, out-of-process | — | [06](./06-Export.md) |
+| **Sidecars** | gifski (+ optional gifsicle) | **Tauri `externalBin` + shell plugin**, out-of-process |, | [06](./06-Export.md) |
 | **Distribution** | Avoid SmartScreen on a free app | **NSIS installer + Azure Trusted Signing** (cloud HSM) | OV cert (reputation builds over time) | [02](./02-Architecture.md) |
-| **Vuoom's own license** | Free + permissive + patent grant | **Apache-2.0** ✅ | — | [10](./10-Licensing.md) |
+| **Vuoom's own license** | Free + permissive + patent grant | **Apache-2.0** ✅ |, | [10](./10-Licensing.md) |
 
 ---
 
@@ -59,13 +59,13 @@ encoder selection.
 
 2. **Getting 60fps preview frames to the webview** without choking JSON IPC → offscreen wgpu
    render → RGBA readback → **localhost binary WebSocket** → Web Worker → WebGPU canvas. Proven by
-   Cap at sustained 60fps, ~10–15ms end-to-end. → [`05`](./05-Compositing-and-Preview.md)
+   Cap at sustained 60fps, ~10-15ms end-to-end. → [`05`](./05-Compositing-and-Preview.md)
 
 3. **Zero-copy capture→GPU→compositor** → keep frames as D3D11 textures; bridge to the wgpu DX12
    compositor via an NT shared handle + keyed mutex; everything stays **RGBA** end-to-end (GIF-only
    needs no YUV conversion). → [`03`](./03-Capture.md), [`05`](./05-Compositing-and-Preview.md)
 
-4. **Small, high-quality GIF export — license-clean** → GIF-only v1 erases the video-codec patent
+4. **Small, high-quality GIF export, license-clean** → GIF-only v1 erases the video-codec patent
    minefield entirely. Use **gifski** for quality, shipped as an **out-of-process binary** so
    Vuoom's code stays **Apache-2.0** despite gifski being AGPL. → [`06`](./06-Export.md), [`10`](./10-Licensing.md)
 
@@ -80,13 +80,13 @@ encoder selection.
 dropped from v1) · ✅ **No audio** · ✅ gifski isolated as an out-of-process binary · ✅ **Text +
 basic annotations are core v1 features** with a clean, simple editor.
 
-Still open — tracked with full context in [`09-Decisions-and-Open-Questions.md`](./09-Decisions-and-Open-Questions.md):
+Still open, tracked with full context in [`09-Decisions-and-Open-Questions.md`](./09-Decisions-and-Open-Questions.md):
 
-1. **Minimum Windows version** — Win10 1809+ vs Win11-only. Borderless capture (no yellow
+1. **Minimum Windows version**, Win10 1809+ vs Win11-only. Borderless capture (no yellow
    border) and dirty-region APIs need Win11; decide whether those are launch features.
-2. **Preview at 4K** — raw RGBA over WebSocket is heavy at 4K60; drop to half-res or switch that
+2. **Preview at 4K**, raw RGBA over WebSocket is heavy at 4K60; drop to half-res or switch that
    path to WebCodecs. Decide the threshold.
-3. **Reserve naming/handles** — `github.com/vuoom`, a `vuoom.app`/`vuoom.dev` domain, social
+3. **Reserve naming/handles**, `github.com/vuoom`, a `vuoom.app`/`vuoom.dev` domain, social
    handles (launch blocker, not technical).
 
 ---
@@ -94,7 +94,7 @@ Still open — tracked with full context in [`09-Decisions-and-Open-Questions.md
 ## How to use this knowledge base (for the implementing agent)
 
 - Read this index, then [`01-Tech-Stack.md`](./01-Tech-Stack.md) and [`02-Architecture.md`](./02-Architecture.md) for the lay of the land.
-- Before writing the make-or-break milestone, internalize [`04-Input-and-AutoZoom.md`](./04-Input-and-AutoZoom.md) — it contains the actual algorithm and default parameters.
+- Before writing the make-or-break milestone, internalize [`04-Input-and-AutoZoom.md`](./04-Input-and-AutoZoom.md), it contains the actual algorithm and default parameters.
 - Every doc ends with a **Sources** section. Claims are cited; verify anything load-bearing
-  against the live source before hard-coding (especially Cap's constants — they iterate fast).
+  against the live source before hard-coding (especially Cap's constants, they iterate fast).
 - The build order and acceptance gates are in [`08-Roadmap.md`](./08-Roadmap.md).

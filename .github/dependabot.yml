@@ -1,4 +1,4 @@
-# Dependabot — weekly dependency updates across Vuoom's three ecosystems.
+# Dependabot, weekly dependency updates across Vuoom's three ecosystems.
 # Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
 version: 2
 updates:
@@ -14,7 +14,7 @@ updates:
           - minor
           - patch
 
-  # Frontend npm dependencies (pnpm — Dependabot reads package.json).
+  # Frontend npm dependencies (pnpm, Dependabot reads package.json).
   - package-ecosystem: npm
     directory: "/"
     schedule:

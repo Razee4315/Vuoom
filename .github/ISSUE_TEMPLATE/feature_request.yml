@@ -19,6 +19,6 @@ body:
   - type: markdown
     attributes:
       value: |
-        > **Heads up — v1 scope:** GIF-only, no audio, no webcam, no cloud/accounts
+        > **Heads up, v1 scope:** GIF-only, no audio, no webcam, no cloud/accounts
         > ([why](https://github.com/Razee4315/Vuoom/blob/main/docs/Vuoom-Spec.md)).
         > Ideas outside that line are welcome but will be parked for later.

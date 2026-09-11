@@ -3,7 +3,7 @@
 //! When parts of a clip are sped up (to skim dead time) or cut out entirely, the *played*
 //! (output) timeline is shorter than the *source* timeline. These pure functions convert
 //! between the two so scrubbing and export sample the right source frame. A cut is simply
-//! a region with an infinite speed factor — its output length is exactly zero. See
+//! a region with an infinite speed factor, its output length is exactly zero. See
 //! `docs/11-Editor-and-Annotations.md`.
 
 use crate::{SpeedRegion, Trim};
@@ -11,11 +11,11 @@ use crate::{SpeedRegion, Trim};
 /// Build a gap-filled, sorted list of `(src_start, src_end, factor)` covering
 /// `[0, source_duration]`.
 ///
-/// Semantics — **cuts always win**. Any source instant inside a cut is removed
+/// Semantics, **cuts always win**. Any source instant inside a cut is removed
 /// (emitted as an infinite-factor, zero-output segment) regardless of whether a
 /// speed region also covers it, so a cut nested in a sped span never plays. Cuts
 /// are clamped and merged first (overlapping/adjacent cuts fuse). The surviving
-/// (un-cut) time then takes the factor of the first — earliest-starting — speed
+/// (un-cut) time then takes the factor of the first, earliest-starting, speed
 /// region covering it; where two speed regions overlap, the earlier one wins the
 /// overlap (deterministic and simplest correct rule). Uncovered gaps play at 1.0×.
 fn segments(source_duration: f64, regions: &[SpeedRegion], cuts: &[Trim]) -> Vec<(f64, f64, f64)> {

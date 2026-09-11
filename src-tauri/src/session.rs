@@ -1,8 +1,8 @@
-//! Recording → project → preview/export orchestration — the engine glue.
+//! Recording → project → preview/export orchestration, the engine glue.
 //!
 //! Ties the pieces together: capture + global input → auto-zoom plan + camera track →
 //! composite → preview stream / GIF export. Frames stream to a disk-backed
-//! [`FrameStore`] while recording, so clip length is bounded by disk, not RAM — and a
+//! [`FrameStore`] while recording, so clip length is bounded by disk, not RAM, and a
 //! crashed session can be recovered on the next launch. See `docs/02-Architecture.md`.
 //!
 //! Runtime behaviour (capture/GPU/input) is verified by running on a real Windows machine;
@@ -71,7 +71,7 @@ pub struct AnnotationSet {
 
 /// One item in a paste payload: a full annotation snapshot from the frontend clipboard,
 /// internally tagged by `kind` (`"text"`/`"arrow"`/`"box"`) so all three shapes ride one
-/// ordered list — the order is preserved so the first item pasted becomes the primary
+/// ordered list, the order is preserved so the first item pasted becomes the primary
 /// selection. The clipboard is self-contained (deep copies), so a paste does not depend on
 /// the originals still existing.
 #[derive(Debug, Clone, Deserialize)]
@@ -110,7 +110,7 @@ pub struct ClipState {
 /// What the drain thread hands back at stop: the disk store, an optional warning describing
 /// a mid-recording disk-write truncation (frames written before the failure are kept), and a
 /// flag set when the capture channel disconnected before stop was requested (capture ended
-/// on its own — e.g. the monitor was unplugged).
+/// on its own, e.g. the monitor was unplugged).
 type DrainOutcome = Result<(FrameStore, Option<String>, bool), String>;
 
 struct Active {
@@ -125,26 +125,26 @@ struct Active {
     region: Option<CropRegion>,
     /// Virtual-desktop origin (physical px) of the captured monitor.
     mon_origin: (i32, i32),
-    /// Poll-based Ctrl+Shift+Z recorder — catches chord presses the keyboard hook misses
+    /// Poll-based Ctrl+Shift+Z recorder, catches chord presses the keyboard hook misses
     /// (e.g. while an elevated window has focus). Merged with hook marks at stop time.
     zoom_poll: ZoomChordPoller,
     /// The rotated recovery subdir this take streams into. The final manifest is written here
     /// at stop time (not the shared root), so each take is independently recoverable.
     recovery_dir: PathBuf,
-    /// Pause spans `(start_qpc, end_qpc)` — an open span means "currently paused".
+    /// Pause spans `(start_qpc, end_qpc)`, an open span means "currently paused".
     /// Converted to cuts at stop time, so pauses stay editable in the timeline.
     pauses: Vec<(i64, Option<i64>)>,
     /// Set at record start when free disk space was low (but above the hard floor): surfaced
     /// as the stop-time warning so the user knows the take started on a nearly-full disk.
     space_warning: Option<String>,
-    /// Decoupled live "director's monitor" — dropped (and stopped) when recording ends.
+    /// Decoupled live "director's monitor", dropped (and stopped) when recording ends.
     _preview: LivePreview,
 }
 
 #[derive(Default)]
 struct Edited {
     /// `Arc` so an export can clone a handle under a short lock and then composite/encode
-    /// (minutes of work) without holding the `edited` mutex — keeping scrub/edit/record
+    /// (minutes of work) without holding the `edited` mutex, keeping scrub/edit/record
     /// responsive during export. The store reads frames from disk on demand.
     frames: Option<Arc<FrameStore>>,
     project: Option<Project>,
@@ -156,7 +156,7 @@ struct Edited {
     redo: Vec<Project>,
 }
 
-/// Undo history depth (project snapshots are small — frames are not copied).
+/// Undo history depth (project snapshots are small, frames are not copied).
 const UNDO_CAP: usize = 100;
 
 /// Record the current project state before a mutation. Consecutive snapshots carrying the
@@ -207,7 +207,7 @@ pub struct Session {
     /// Set by `cancel_export` (Cancel button / window-close) to abort an in-flight export.
     /// The GIF/MP4 loops poll it every frame and bail early, deleting the partial file. Reset
     /// to `false` at the start of each export. Only one export runs at a time from the UI, so a
-    /// single flag is enough — no per-export token needed.
+    /// single flag is enough, no per-export token needed.
     export_cancel: AtomicBool,
 }
 
@@ -222,15 +222,15 @@ impl Session {
             tracing::error!("engine boot failed: {msg}");
             msg
         })?;
-        // Clear any scratch store left by a previous run's bundle open — its gigabytes would
+        // Clear any scratch store left by a previous run's bundle open, its gigabytes would
         // otherwise linger. Recorded sessions are pruned per-take (see `new_session_dir`).
         let _ = std::fs::remove_dir_all(frame_store::scratch_dir());
         // The GPU compositor backs both preview and export. If it can't be created (no adapter,
-        // driver failure) every seek/export downstream returns "no GPU compositor" — log it
+        // driver failure) every seek/export downstream returns "no GPU compositor", log it
         // once here at the source instead of leaving those failures unexplained.
         let compositor = Compositor::new();
         if compositor.is_none() {
-            tracing::error!("no GPU compositor available — preview and export will not work");
+            tracing::error!("no GPU compositor available, preview and export will not work");
         }
         Ok(Self {
             preview,
@@ -265,7 +265,7 @@ impl Session {
             // outside (or barely inside) the monitor is what `clamp_region` collapses to a 1px
             // sliver, whereas a rect that merely overhangs the far edge by a pixel (rounding at
             // the selector) still clamps to a sensible crop and is fine. The monitor may be
-            // unset (e.g. a full-primary target that never went through the selector) — then we
+            // unset (e.g. a full-primary target that never went through the selector), then we
             // can only reject a degenerate rect, not an out-of-bounds one.
             if let Some(m) = self
                 .pending_monitor
@@ -307,7 +307,7 @@ impl Session {
         Ok(())
     }
 
-    /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL —
+    /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL,
     /// the still backdrop the region selector draws on (no transparent window needed).
     pub fn screenshot(&self) -> Result<String, String> {
         let monitor = self
@@ -318,7 +318,7 @@ impl Session {
             .map(|m| m.name.clone());
         let (rx, handle) = spawn_region(None, monitor);
         let frame = rx.recv_timeout(std::time::Duration::from_secs(3));
-        // Stop the capture thread on every path — including a timeout — so a slow or failed
+        // Stop the capture thread on every path, including a timeout, so a slow or failed
         // grab can't leak a live capture session and its GPU/duplication resources.
         handle.stop();
         let frame = frame.map_err(|e| format!("screenshot capture failed: {e}"))?;
@@ -342,7 +342,7 @@ impl Session {
     }
 
     /// Whether the GPU compositor initialized. When `false`, seek/preview/export cannot
-    /// work — but recording still does: capture, the live monitor, input hooks and the
+    /// work, but recording still does: capture, the live monitor, input hooks and the
     /// disk-backed frame store never touch the compositor. The frontend queries this once
     /// at boot to warn up front instead of failing every operation with a cryptic string.
     #[must_use]
@@ -380,7 +380,7 @@ impl Session {
             .unwrap_or((1920, 1080));
         let _ = std::fs::create_dir_all(frame_store::recovery_root());
         let space_warning = match frame_store::free_space_bytes(&frame_store::recovery_root()) {
-            // A probe failure means "unknown" — don't block the user on it.
+            // A probe failure means "unknown", don't block the user on it.
             None => None,
             Some(free) => check_free_space(free, est_w, est_h).map_err(|e| {
                 tracing::error!("refusing to start recording: {e}");
@@ -405,7 +405,7 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner()) = Some(recovery_dir.clone());
 
         // Persist a minimal manifest up front so a hard crash mid-recording leaves a
-        // *detectable* session — recovery keys off `project.json` existing. The real
+        // *detectable* session, recovery keys off `project.json` existing. The real
         // dimensions/fps/duration are rebuilt from the incrementally-written frame index at
         // recover time (see `recover_session`); this placeholder just has to parse. Without
         // it, a crash before stop would strand the on-disk frames with nothing to open them.
@@ -428,7 +428,7 @@ impl Session {
         let start_qpc = self.clock.now();
         let (frames_rx, capture) = spawn_region(region, mon_name.clone());
         let (recorder, events_rx) = InputRecorder::start();
-        // Independent live preview — its own capture, so it can never disturb the recording.
+        // Independent live preview, its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, mon_name, mon_origin, amount, self.preview.sink());
 
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
@@ -438,16 +438,16 @@ impl Session {
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
             // If a disk write fails mid-recording, stop writing but keep draining the
-            // channel (so capture never blocks and RAM stays bounded) and remember why —
+            // channel (so capture never blocks and RAM stays bounded) and remember why,
             // at stop we finalize with the frames already on disk instead of erroring the
             // whole take out.
             let mut write_err: Option<String> = None;
-            // Set if the capture channel disconnects before a stop was requested — i.e. the
+            // Set if the capture channel disconnects before a stop was requested, i.e. the
             // capture ended on its own (monitor unplugged, WGC session died). We keep the
             // frames already on disk and surface a warning instead of ending silently.
             let mut ended_early = false;
             // Proactive low-disk guard: re-probe free space every `DISK_CHECK_EVERY` frames
-            // (cheap — a few times a second at most, never per frame) and stop writing before
+            // (cheap, a few times a second at most, never per frame) and stop writing before
             // the volume actually fills. Reuses the salvage + warning path, so we keep the
             // frames already on disk instead of hard-filling the user's disk.
             let mut since_disk_check: u32 = 0;
@@ -557,16 +557,16 @@ impl Session {
                 "frame drain thread panicked"
             })??;
         // Capture has wound down by now (its sender is dropped and the drain has joined), so the
-        // shared drop counter is settled. A non-zero count means the bounded channel overflowed —
-        // frames the drain couldn't keep up with — which we may surface as a warning below.
+        // shared drop counter is settled. A non-zero count means the bounded channel overflowed,
+        // frames the drain couldn't keep up with, which we may surface as a warning below.
         let dropped = session.capture.dropped();
         let raw_events: Vec<RawEvent> = session.events_rx.try_iter().collect();
 
-        // No frames means the screen capture never started (or was stopped instantly) — fail
+        // No frames means the screen capture never started (or was stopped instantly), fail
         // loudly so the editor shows a clear message instead of a silent, empty player.
         if store.is_empty() {
-            tracing::error!("recording stopped with no frames — screen capture never produced any");
-            return Err("No frames were captured — screen capture failed to start.".into());
+            tracing::error!("recording stopped with no frames, screen capture never produced any");
+            return Err("No frames were captured, screen capture failed to start.".into());
         }
 
         let (width, height) = store.recs().first().map_or((1920, 1080), |r| (r.w, r.h));
@@ -586,7 +586,7 @@ impl Session {
         events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
 
         // Merge in poll-detected chord presses the hook missed (e.g. elevated-window
-        // focus) — without this, the live preview can show a zoom that the final edit
+        // focus), without this, the live preview can show a zoom that the final edit
         // silently drops. Hook marks within 0.3s win to avoid duplicates.
         let hook_mark_times: Vec<f64> = events
             .iter()
@@ -631,7 +631,7 @@ impl Session {
         project.events = events; // persisted so a reopened project can re-simulate panning
 
         // Shortcut/special key taps for the optional keystroke overlay. Plain typing is
-        // deliberately never labeled (privacy + noise) — see vuoom_input::keys.
+        // deliberately never labeled (privacy + noise), see vuoom_input::keys.
         project.key_taps = extract_key_taps(&raw_events, self.clock, session.start_qpc, duration);
 
         // Paused spans become ordinary cuts: skipped by playback/export, but visible and
@@ -671,7 +671,7 @@ impl Session {
         let warning = if let Some(e) = write_warning {
             tracing::warn!("recording truncated mid-capture to protect the disk ({e}); kept {frame_count} frames");
             Some(format!(
-                "Recording was cut short to protect your disk — {e}. Kept the {frame_count} frames captured before that."
+                "Recording was cut short to protect your disk, {e}. Kept the {frame_count} frames captured before that."
             ))
         } else if capture_ended_early {
             tracing::warn!("capture ended before stop was requested (monitor disconnected?); kept {frame_count} frames");
@@ -715,7 +715,7 @@ impl Session {
         let (out_w, out_h) = project.output_dims();
         let mut scene = build_scene(&project, &track, out_w, out_h, t);
         // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
-        // the preview — a baked copy would lag the overlay during a drag and look glitchy.
+        // the preview, a baked copy would lag the overlay during a drag and look glitchy.
         // They ARE baked into the final GIF at export time.
         scene.texts.clear();
         scene.arrows.clear();
@@ -741,7 +741,7 @@ impl Session {
     }
 
     /// Request that any in-flight GIF/MP4 export abort at the next frame boundary. Idempotent
-    /// and safe to call when no export is running — the flag is reset at the start of each
+    /// and safe to call when no export is running, the flag is reset at the start of each
     /// export. The aborting loop deletes its partial output file (see `export_gif_impl` /
     /// `export_mp4_impl`).
     pub fn cancel_export(&self) {
@@ -762,7 +762,7 @@ impl Session {
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
-        // disk-full mid-write) — the frontend only sees the string, so without this the cause
+        // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
         self.export_gif_impl(out_path, fps, width, quality, progress)
             .map_err(|e| {
@@ -784,7 +784,7 @@ impl Session {
         self.export_cancel.store(false, Ordering::SeqCst);
         // Snapshot the minimal state under a short lock, then release it so the (minutes-long)
         // encode never blocks scrubbing/editing/starting a new recording. The frame store is
-        // shared via `Arc` and reads from disk on demand — frames are never all resident, so
+        // shared via `Arc` and reads from disk on demand, frames are never all resident, so
         // even an hour-long 1080p export stays within a bounded memory budget.
         let (project, track, store, start_qpc) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -813,7 +813,7 @@ impl Session {
             ..GifSettings::readme()
         };
 
-        // Composite one output frame on demand — the streaming encoder pulls these and keeps
+        // Composite one output frame on demand, the streaming encoder pulls these and keeps
         // only the current + previous frame resident. Checked once per frame so a cancel
         // request (Cancel button / window-close) aborts within one composite instead of
         // running the full multi-minute encode to completion.
@@ -986,7 +986,7 @@ impl Session {
     }
 
     /// Estimate the export size (bytes) by encoding contiguous sample windows of the
-    /// output frames at the chosen settings and extrapolating (see `docs/06-Export.md` —
+    /// output frames at the chosen settings and extrapolating (see `docs/06-Export.md`,
     /// GIF has no closed-form size formula).
     ///
     /// Windows must be contiguous: the encoder delta-compresses consecutive frames, so a
@@ -999,7 +999,7 @@ impl Session {
 
         // Detach the state the sampling needs under a short lock, then drop the real lock so the
         // GPU compositing + throwaway GIF encodes below run unlocked (they only read, never
-        // mutate `edited`). `undo`/`redo` stay empty — the helpers read only project/track/
+        // mutate `edited`). `undo`/`redo` stay empty, the helpers read only project/track/
         // frames/start_qpc. The Arc-shared frame store reads from disk on demand.
         let edited = {
             let guard = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -1240,7 +1240,7 @@ impl Session {
         self.with_project("", |p| {
             // The frame preset owns padding/corners/shadow; the backdrop is chosen separately
             // (`set_background_preset`). Preserve whatever backdrop the user picked across frame
-            // switches — but when they first enable a frame on a still-default black backdrop,
+            // switches, but when they first enable a frame on a still-default black backdrop,
             // seed a tasteful graphite gradient so the padded area doesn't read as a black void.
             let keep_bg = p.frame.background.clone();
             let default_bg =
@@ -1281,7 +1281,7 @@ impl Session {
     }
 
     /// Set the backdrop behind/around a framed recording to a named preset (see
-    /// [`Background::preset`] — gradients like `graphite`/`slate`/`teal`, plus `solid`). The
+    /// [`Background::preset`], gradients like `graphite`/`slate`/`teal`, plus `solid`). The
     /// compositor renders it into both the preview and the export; one undo step per pick.
     pub fn set_background_preset(&self, name: &str) -> Result<(), String> {
         let bg = Background::preset(name).ok_or("unknown background preset")?;
@@ -1293,7 +1293,7 @@ impl Session {
 
     /// Set the trim range (seconds). A range covering the whole clip clears the trim.
     pub fn set_trim(&self, start: f64, end: f64) -> Result<(), String> {
-        // Handle drags stream this per pointer event — coalesce a run into one undo step.
+        // Handle drags stream this per pointer event, coalesce a run into one undo step.
         self.with_project("trim", |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, d);
@@ -1388,7 +1388,7 @@ impl Session {
         factor: f64,
     ) -> Result<Vec<SpeedRegion>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        // Drags/scrubs can stream this per pointer event, coalesce a run into one undo step.
         snapshot(&mut edited, &format!("speed:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1435,7 +1435,7 @@ impl Session {
     /// Retime the cut at `index`. Returns the updated, sorted list.
     pub fn update_cut(&self, index: usize, start: f64, end: f64) -> Result<Vec<Trim>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        // Drags/scrubs can stream this per pointer event, coalesce a run into one undo step.
         snapshot(&mut edited, &format!("cut:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1504,7 +1504,7 @@ impl Session {
         amount: f64,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Drags/scrubs can stream this per pointer event — coalesce a run into one undo step.
+        // Drags/scrubs can stream this per pointer event, coalesce a run into one undo step.
         snapshot(&mut edited, &format!("zoom:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let d = project.source.duration;
@@ -1528,7 +1528,7 @@ impl Session {
         focus: Option<(f64, f64)>,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Focus dragging streams per pointer event — coalesce a run into one undo step.
+        // Focus dragging streams per pointer event, coalesce a run into one undo step.
         snapshot(&mut edited, &format!("focus:{index}"));
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
@@ -1551,7 +1551,7 @@ impl Session {
         style: ZoomStyle,
     ) -> Result<Vec<ZoomKeyframe>, String> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // A preset click is a single deliberate change — one undo step, never coalesced.
+        // A preset click is a single deliberate change, one undo step, never coalesced.
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
         let kf = project.zooms.get_mut(index).ok_or("no such zoom segment")?;
@@ -1600,7 +1600,7 @@ impl Session {
         font: Option<String>,
     ) -> Result<(), String> {
         // Typing, the size slider, and position drags all fire per keystroke / per pointer
-        // event — coalesce each run into one undo step. Style toggles stay discrete.
+        // event, coalesce each run into one undo step. Style toggles stay discrete.
         let tag = if text.is_some() {
             format!("text:{id}")
         } else if font_size.is_some() {
@@ -1646,7 +1646,7 @@ impl Session {
 
     /// Move an arrow's endpoints.
     pub fn update_arrow(&self, id: u32, fx: f64, fy: f64, tx: f64, ty: f64) -> Result<(), String> {
-        // Geometry edits can stream during a drag — coalesce a run into one undo step.
+        // Geometry edits can stream during a drag, coalesce a run into one undo step.
         self.with_project(&format!("geo:arrow:{id}"), |p| {
             let a = p
                 .arrows
@@ -1661,7 +1661,7 @@ impl Session {
 
     /// Move/resize a highlight box.
     pub fn update_box(&self, id: u32, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-        // Geometry edits can stream during a drag — coalesce a run into one undo step.
+        // Geometry edits can stream during a drag, coalesce a run into one undo step.
         self.with_project(&format!("geo:box:{id}"), |p| {
             let b = p
                 .highlights
@@ -1676,7 +1676,7 @@ impl Session {
     /// Tint any annotation (text, arrow, or box) by id.
     pub fn set_annotation_color(&self, id: u32, r: f64, g: f64, b: f64) -> Result<(), String> {
         let (r, g, b) = (r as f32, g as f32, b as f32);
-        // The color picker streams values while dragging — coalesce into one undo step.
+        // The color picker streams values while dragging, coalesce into one undo step.
         // Preserve each element's current alpha so recoloring a highlighter keeps its opacity.
         self.with_project(&format!("color:{id}"), |p| {
             if let Some(a) = p.texts.iter_mut().find(|a| a.id == id) {
@@ -1692,7 +1692,7 @@ impl Session {
         })
     }
 
-    /// Set the alpha (0..1) of any annotation's color — backs the opacity slider.
+    /// Set the alpha (0..1) of any annotation's color, backs the opacity slider.
     pub fn set_annotation_opacity(&self, id: u32, a: f64) -> Result<(), String> {
         let alpha = (a as f32).clamp(0.0, 1.0);
         self.with_project(&format!("opacity:{id}"), |p| {
@@ -1751,7 +1751,7 @@ impl Session {
         thickness: Option<f64>,
         filled: Option<bool>,
     ) -> Result<(), String> {
-        // The thickness slider streams values while dragging — coalesce per element.
+        // The thickness slider streams values while dragging, coalesce per element.
         self.with_project(&format!("style:{id}"), |p| {
             let th = thickness.map(|t| (t as f32).clamp(0.001, 0.05));
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
@@ -1775,7 +1775,7 @@ impl Session {
 
     /// Retime any annotation (text, arrow, or box): set when it appears/disappears.
     pub fn update_annotation_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
-        // Timeline band drags stream this per pointer event — coalesce into one undo step.
+        // Timeline band drags stream this per pointer event, coalesce into one undo step.
         self.with_project(&format!("range:{id}"), |p| {
             let d = p.source.duration;
             let s = start.clamp(0.0, (d - 0.1).max(0.0));
@@ -1922,7 +1922,7 @@ impl Session {
     /// of `"forward"` / `"backward"` / `"front"` / `"back"`.
     ///
     /// Stacking is per-type in BOTH renderers (highlights below arrows below texts, fixed), so
-    /// this only reorders an item relative to its own kind — the order the canvas overlay and
+    /// this only reorders an item relative to its own kind, the order the canvas overlay and
     /// the export compositor both honour by iterating each Vec front-to-back (later = on top).
     /// A no-op at a boundary (already front/back) succeeds without recording an undo step.
     pub fn reorder_annotation(&self, id: u32, dir: &str) -> Result<(), String> {
@@ -1956,7 +1956,7 @@ impl Session {
                 return Err("no such annotation".into());
             };
         let Some((kind, i, j)) = plan else {
-            return Ok(()); // already at the boundary — nothing to do
+            return Ok(()); // already at the boundary, nothing to do
         };
         snapshot(&mut edited, "");
         let project = edited.project.as_mut().ok_or("no recording")?;
@@ -2004,7 +2004,7 @@ impl Session {
         // Snapshot the project + frame-store handle under a short lock, then release it so the
         // per-frame disk read + PNG encode below (minutes for a long clip) never freezes
         // scrubbing/editing/recording. An edit that lands mid-save just means the bundle captures
-        // the pre-edit project — an acceptable, self-consistent snapshot of that instant.
+        // the pre-edit project, an acceptable, self-consistent snapshot of that instant.
         let (project, store, start_qpc) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
             (
@@ -2065,7 +2065,7 @@ impl Session {
         let freq = self.clock.freq();
         let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
 
-        // Decode into the dedicated scratch store — NOT a rotated recording session — so
+        // Decode into the dedicated scratch store, NOT a rotated recording session, so
         // opening a bundle never buries the last recording's recoverable take. One frame in
         // memory at a time. Drop the current clip first: its store handles may point at the
         // scratch files we're about to truncate.
@@ -2171,7 +2171,7 @@ impl Session {
         // (within the first frame's capture latency).
         let start_qpc = first.qpc;
 
-        // A take recovered from a hard crash carries only the startup placeholder manifest —
+        // A take recovered from a hard crash carries only the startup placeholder manifest,
         // no real dimensions/fps/duration (and no post-processed events/zooms). Rebuild the
         // source metadata from the frames that survived so the clip is actually openable. A
         // cleanly stopped session already has these filled in, so leave those untouched.
@@ -2217,14 +2217,14 @@ impl Session {
         Ok(summary)
     }
 
-    /// Bytes held under the recovery root and how many recording sessions those bytes back —
+    /// Bytes held under the recovery root and how many recording sessions those bytes back,
     /// for the storage readout. Cheap (walks the two-or-three recovery dirs).
     pub fn recovery_storage(&self) -> (u64, usize) {
         frame_store::recovery_usage()
     }
 
     /// Delete all stored recovery data except the store backing the currently-loaded clip.
-    /// Returns the bytes freed. Rejected while a recording is running — the active take streams
+    /// Returns the bytes freed. Rejected while a recording is running, the active take streams
     /// into its recovery dir, so deleting anything mid-record risks corrupting it.
     pub fn clear_recovery_storage(&self) -> Result<u64, String> {
         if self
@@ -2246,7 +2246,7 @@ impl Session {
     }
 
     /// Run `f` against the editable project, recording an undo snapshot first.
-    /// `tag` controls undo coalescing — see [`snapshot`].
+    /// `tag` controls undo coalescing, see [`snapshot`].
     fn with_project<F>(&self, tag: &str, f: F) -> Result<(), String>
     where
         F: FnOnce(&mut Project) -> Result<(), String>,
@@ -2284,7 +2284,7 @@ impl Session {
     }
 }
 
-/// Encode `frames` to a throwaway GIF in the temp dir and return its byte size — the
+/// Encode `frames` to a throwaway GIF in the temp dir and return its byte size, the
 /// measurement step of the sample-and-extrapolate size estimate.
 fn encode_sample_bytes(
     frames: &[RgbaImage],
@@ -2308,10 +2308,10 @@ fn store_duration(store: &FrameStore, clock: Clock) -> f64 {
     }
 }
 
-/// Index of the stored frame whose timestamp is closest to `t` (metadata only — no disk).
+/// Index of the stored frame whose timestamp is closest to `t` (metadata only, no disk).
 /// Index of the stored frame whose capture time is nearest `t` seconds from `start_qpc`.
 ///
-/// Frames are stored in capture order — ascending QPC — and time is linear in QPC, so this
+/// Frames are stored in capture order, ascending QPC, and time is linear in QPC, so this
 /// binary-searches instead of scanning every frame. That matters during export, which calls
 /// it once per output frame: the old linear scan made export O(frames × output_frames).
 fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Option<usize> {
@@ -2332,11 +2332,11 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
     Some(if d_hi < d_prev { hi } else { prev })
 }
 
-/// Vuoom's own control chords — these drive the app, not the demo, so they must never render
+/// Vuoom's own control chords, these drive the app, not the demo, so they must never render
 /// as keystroke-overlay chips. Kept here next to `extract_key_taps` (the layer that builds
 /// chips) and cross-referenced to their definitions so a future chord change updates both:
-///   - `Ctrl+Shift+X` — the stop-recording hotkey (`hotkey.rs`).
-///   - `Ctrl+Shift+Z` — the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+///   - `Ctrl+Shift+X`, the stop-recording hotkey (`hotkey.rs`).
+///   - `Ctrl+Shift+Z`, the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
 ///
 /// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
 /// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
@@ -2349,7 +2349,7 @@ fn is_app_control_chord(ctrl: bool, shift: bool, vk: u16) -> bool {
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
 /// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced. Vuoom's
-/// own control chords (see `is_app_control_chord`) are dropped — they're app control, not
+/// own control chords (see `is_app_control_chord`) are dropped, they're app control, not
 /// demo content.
 fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f64) -> Vec<KeyTap> {
     use vuoom_input::{is_standalone, key_name, modifier, Modifier, RawEventKind};
@@ -2384,11 +2384,11 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
         }
         let Some(name) = key_name(vk) else { continue };
         if is_app_control_chord(ctrl, shift, vk) {
-            continue; // Vuoom's own stop / zoom chord — not demo content
+            continue; // Vuoom's own stop / zoom chord, not demo content
         }
         let chord = ctrl || alt || win;
         if !chord && !is_standalone(vk) {
-            continue; // plain typing — never labeled
+            continue; // plain typing, never labeled
         }
         let mut label = String::new();
         if win {
@@ -2609,9 +2609,9 @@ fn default_end(t: f64, duration: f64) -> f64 {
 // recording (see `frame_store::free_space_bytes`).
 
 /// Conservative capture rate (fps) used to size the raw-BGRA write estimate. Real capture is
-/// usually 30–60 fps; picking the low end keeps the estimate from over-reserving space.
+/// usually 30-60 fps; picking the low end keeps the estimate from over-reserving space.
 const ESTIMATE_FPS: u64 = 30;
-/// Absolute minimum free space to start any recording, regardless of dimensions — leaves
+/// Absolute minimum free space to start any recording, regardless of dimensions, leaves
 /// headroom so even a tiny capture can't creep a nearly-full disk to zero.
 const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Also require at least this many seconds of capture to fit, so a large/4K take that would
@@ -2619,14 +2619,14 @@ const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MIN_FREE_SECONDS: u64 = 30;
 /// Above the floor but below this many seconds of capture: start, but warn the user.
 const LOW_FREE_SECONDS: u64 = 5 * 60;
-/// How often (in frames) the drain re-checks free space — ~2 s at 30 fps, far from per-frame.
+/// How often (in frames) the drain re-checks free space, ~2 s at 30 fps, far from per-frame.
 const DISK_CHECK_EVERY: u32 = 60;
 /// The drain stops writing (salvaging the take) once free space drops below this, so a runaway
 /// raw stream can't fully fill the volume before an actual write error would hit.
 const DRAIN_STOP_FLOOR_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Bytes per second the raw-BGRA store grows at for a `w`×`h` capture (`w*h*4` × a
-/// conservative fps). Enormous by design — ~250 MB/s at 1080p, ~1 GB/s at 4K — which is
+/// conservative fps). Enormous by design, ~250 MB/s at 1080p, ~1 GB/s at 4K, which is
 /// exactly why free space is guarded before and during recording.
 fn raw_write_rate_bps(w: u32, h: u32) -> u64 {
     u64::from(w) * u64::from(h) * 4 * ESTIMATE_FPS
@@ -2654,7 +2654,7 @@ fn dropped_frames_warning(dropped: u64, kept: usize) -> Option<String> {
     };
     if dropped > DROP_WARN_MIN_FRAMES || pct > DROP_WARN_FRACTION * 100.0 {
         Some(format!(
-            "Capture couldn't keep up — dropped {dropped} frames ({pct:.1}%). \
+            "Capture couldn't keep up, dropped {dropped} frames ({pct:.1}%). \
              Try a smaller region or a less busy disk."
         ))
     } else {
@@ -2674,13 +2674,13 @@ fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, S
         let mbps = rate / (1024 * 1024);
         return Err(format!(
             "Not enough disk space to record: only {free_gb:.1} GB free, need at least {need_gb:.1} GB. \
-             Vuoom records raw video (~{mbps} MB/s at this size) — free up space and try again."
+             Vuoom records raw video (~{mbps} MB/s at this size), free up space and try again."
         ));
     }
     if free_bytes < rate.saturating_mul(LOW_FREE_SECONDS) {
         let minutes = free_bytes / rate / 60;
         return Ok(Some(format!(
-            "Heads up: your disk was low on space when recording started — about {minutes} min fits \
+            "Heads up: your disk was low on space when recording started, about {minutes} min fits \
              ({free_gb:.1} GB free). Vuoom stops automatically before the disk fills."
         )));
     }
@@ -2821,7 +2821,7 @@ mod tests {
         let duration = 10.0;
         let pauses = [
             (q(6.0), Some(q(7.0))),  // closed 6..7
-            (q(2.0), Some(q(3.0))),  // closed 2..3 (earlier — must sort first among closed)
+            (q(2.0), Some(q(3.0))),  // closed 2..3 (earlier, must sort first among closed)
             (q(8.0), None),          // open at stop -> runs to the duration
             (q(4.0), Some(q(4.01))), // ~10ms span -> below the 0.05s floor, dropped
             (q(-1.0), Some(q(0.5))), // starts before the epoch -> start clamps to 0.0
@@ -2908,14 +2908,14 @@ mod tests {
         let q = |t: f64| (t * f as f64) as i64;
 
         let raw = [
-            // Ctrl+Shift+X — the stop hotkey — must not appear.
+            // Ctrl+Shift+X, the stop hotkey, must not appear.
             rawk(q(1.0), KeyDown(0x11)),
             rawk(q(1.01), KeyDown(0x10)),
             rawk(q(1.02), KeyDown(0x58)), // X
             rawk(q(1.03), KeyUp(0x58)),
             rawk(q(1.04), KeyUp(0x10)),
             rawk(q(1.05), KeyUp(0x11)),
-            // Ctrl+Shift+Z — the zoom chord — must not appear either.
+            // Ctrl+Shift+Z, the zoom chord, must not appear either.
             rawk(q(2.0), KeyDown(0x11)),
             rawk(q(2.01), KeyDown(0x10)),
             rawk(q(2.02), KeyDown(0x5A)), // Z
@@ -2971,7 +2971,7 @@ mod tests {
 
     #[test]
     fn free_space_ok_when_plenty() {
-        // 500 GB at 1080p clears even the 5 min warn line — no warning.
+        // 500 GB at 1080p clears even the 5 min warn line, no warning.
         assert_eq!(check_free_space(500 * GB, 1920, 1080), Ok(None));
     }
 }

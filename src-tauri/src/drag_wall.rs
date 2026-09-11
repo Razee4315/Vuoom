@@ -2,7 +2,7 @@
 //!
 //! Ground truth (verified on real hardware): on Windows 10 a capture-excluded window
 //! (`WDA_EXCLUDEFROMCAPTURE`) that overlaps the captured area is recorded as a solid BLACK
-//! rectangle — Win10 does not re-composite the desktop behind the excluded window the way
+//! rectangle, Win10 does not re-composite the desktop behind the excluded window the way
 //! Win11 does. So exclusion alone is NOT enough on Win10: the panel must physically stay
 //! outside the recorded region. (The region-border strips are safe only because they sit
 //! just OUTSIDE the crop, not because exclusion reveals what's behind them.)
@@ -13,7 +13,7 @@
 //! window rect during its own modal move loop (the frontend's drag region initiates it via
 //! `WM_NCLBUTTONDOWN`/HTCAPTION), we push that rect out of the forbidden zone along the axis
 //! of least penetration and write it back, returning TRUE. The panel slides along the region
-//! edge like it hit a wall — flicker-free and native-feeling.
+//! edge like it hit a wall, flicker-free and native-feeling.
 //!
 //! The subclass proc is a raw C callback, so it reads a process-global snapshot of the
 //! forbidden rect (set at install time). The region is fixed for the recording's duration,
@@ -92,7 +92,7 @@ mod imp {
             // SAFETY: for WM_MOVING, lParam is a valid `*mut RECT` owned by the move loop.
             let rect = unsafe { &mut *(lparam.0 as *mut RECT) };
             clamp(rect);
-            return LRESULT(1); // TRUE — we adjusted the rect
+            return LRESULT(1); // TRUE, we adjusted the rect
         }
         unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
     }

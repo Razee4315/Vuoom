@@ -1,6 +1,6 @@
 //! Virtual-key → human label mapping for the keystroke overlay.
 //!
-//! Only shortcuts (modifier chords) and "special" keys are ever labeled — plain character
+//! Only shortcuts (modifier chords) and "special" keys are ever labeled, plain character
 //! typing is deliberately not, both to keep the overlay readable and because echoing typed
 //! text into a shared GIF is a privacy hazard.
 
@@ -67,7 +67,7 @@ pub fn key_name(vk: u16) -> Option<&'static str> {
 }
 
 /// Whether this key is worth showing without any modifier held (Enter, Esc, F-keys, …).
-/// Letters/digits never qualify alone — that would echo typed text.
+/// Letters/digits never qualify alone, that would echo typed text.
 #[must_use]
 pub fn is_standalone(vk: u16) -> bool {
     matches!(vk, 0x09 | 0x0D | 0x1B | 0x2E | 0x25..=0x28 | 0x70..=0x7B)

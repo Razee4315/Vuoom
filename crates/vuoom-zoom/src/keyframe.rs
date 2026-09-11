@@ -19,16 +19,16 @@ pub enum ZoomMode {
 /// Per-segment easing "feel": scales the zoom and pan spring half-lives so an
 /// individual zoom can settle faster or gentler than the global defaults.
 ///
-/// `Smooth` is the identity — it reproduces the original behaviour exactly, so it is the
+/// `Smooth` is the identity, it reproduces the original behaviour exactly, so it is the
 /// serde default and older bundles (which lack the field) load unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ZoomStyle {
-    /// Default cinematic glide — no change to the configured half-lives.
+    /// Default cinematic glide, no change to the configured half-lives.
     #[default]
     Smooth,
-    /// Faster settle — shorter half-lives, a punchier zoom.
+    /// Faster settle, shorter half-lives, a punchier zoom.
     Snappy,
-    /// Gentler, more cinematic — longer half-lives, a slower drift.
+    /// Gentler, more cinematic, longer half-lives, a slower drift.
     Slow,
 }
 
@@ -46,7 +46,7 @@ impl ZoomStyle {
         }
     }
 
-    /// Parse a case-insensitive label (`"smooth"`, `"snappy"`, `"slow"`) — used by the
+    /// Parse a case-insensitive label (`"smooth"`, `"snappy"`, `"slow"`), used by the
     /// Tauri/MCP control surface, which passes the style as a plain string.
     #[must_use]
     pub fn from_label(s: &str) -> Option<ZoomStyle> {

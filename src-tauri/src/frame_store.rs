@@ -1,10 +1,10 @@
-//! Disk-backed frame storage — recordings are no longer capped by RAM.
+//! Disk-backed frame storage, recordings are no longer capped by RAM.
 //!
 //! During recording a drain thread streams every captured frame straight to
 //! `%TEMP%/vuoom-recovery/<session-id>/frames.raw` (raw BGRA), appending one fixed-size record per
 //! frame to `index.bin` as it goes; the editor then reads frames back one at a time (with
 //! a one-slot cache for scrubbing). Because both the bytes and their index land on disk
-//! incrementally — together with a manifest written at the start of recording — a hard
+//! incrementally, together with a manifest written at the start of recording, a hard
 //! crash mid-take is recoverable: the next launch reconstructs the frames that survived.
 
 use std::fs::{self, File};
@@ -33,7 +33,7 @@ const REC_SIZE: usize = 28;
 
 /// How often (in frames) the index buffer is pushed to the OS. At typical capture rates
 /// this is a few times a second, so a hard crash leaves at most a fraction of a second of
-/// frames un-indexed — without an fsync on the per-frame hot path.
+/// frames un-indexed, without an fsync on the per-frame hot path.
 const INDEX_FLUSH_EVERY: u32 = 15;
 
 fn encode_rec(r: &FrameRec) -> [u8; REC_SIZE] {
@@ -65,7 +65,7 @@ pub fn recovery_root() -> PathBuf {
 }
 
 /// Free bytes available to the caller on the volume backing `path`. `None` if the query
-/// fails or the volume can't be resolved — callers treat that as "unknown, don't block".
+/// fails or the volume can't be resolved, callers treat that as "unknown, don't block".
 ///
 /// Recordings stream raw uncompressed BGRA here (~250 MB/s at 1080p, ~1 GB/s at 4K), so
 /// without a guard a take can fill a system disk in minutes; this backs the record-start
@@ -77,7 +77,7 @@ pub fn free_space_bytes(path: &Path) -> Option<u64> {
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
     // `GetDiskFreeSpaceExW` needs an existing directory on the target volume, but the recovery
-    // root may not be created yet — walk up to the first ancestor that exists.
+    // root may not be created yet, walk up to the first ancestor that exists.
     let mut dir = path;
     while !dir.exists() {
         dir = dir.parent()?;
@@ -100,14 +100,14 @@ pub fn free_space_bytes(_path: &Path) -> Option<u64> {
 }
 
 /// Fixed scratch subdir backing an opened `.vuoom` bundle. Named non-numerically so recovery
-/// scanning skips it — opening a bundle must never bury the last recording's recoverable
+/// scanning skips it, opening a bundle must never bury the last recording's recoverable
 /// session. Truncated (not rotated) on each reuse, so it holds at most one bundle's frames.
 pub fn scratch_dir() -> PathBuf {
     recovery_root().join("scratch")
 }
 
 /// How many recorded sessions to retain: the current one plus the immediately previous, so a
-/// crash at the very start of a new take can't lose the last good session. Bounds disk use —
+/// crash at the very start of a new take can't lose the last good session. Bounds disk use,
 /// these dirs each hold gigabytes of raw BGRA.
 const KEEP_SESSIONS: usize = 2;
 
@@ -151,8 +151,8 @@ fn next_session_id() -> u128 {
 }
 
 /// Create a fresh session subdir under the recovery root, pruning old ones first so at most
-/// [`KEEP_SESSIONS`] remain (counting the one being created). The newest existing session —
-/// the last recording's recoverable store — is always kept, so starting a new take never
+/// [`KEEP_SESSIONS`] remain (counting the one being created). The newest existing session,
+/// the last recording's recoverable store, is always kept, so starting a new take never
 /// destroys it. Returns the new dir.
 pub fn new_session_dir() -> PathBuf {
     let root = recovery_root();
@@ -177,8 +177,8 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// The newest session subdir that holds a non-empty, openable store and isn't `exclude` (the
-/// currently-loaded session). Skips empty/torn stores — a take that crashed at the very start
-/// leaves only a placeholder manifest — so recovery lands on the most recent real content.
+/// currently-loaded session). Skips empty/torn stores, a take that crashed at the very start
+/// leaves only a placeholder manifest, so recovery lands on the most recent real content.
 pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
     for dir in session_dirs() {
         if exclude.is_some_and(|e| same_dir(e, &dir)) {
@@ -195,7 +195,7 @@ pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// Recursively sum the byte size of every file under `dir`. Best-effort: an entry that can't
-/// be read is skipped rather than failing the whole walk. Cheap here — the recovery root only
+/// be read is skipped rather than failing the whole walk. Cheap here, the recovery root only
 /// ever holds a couple of session dirs plus scratch.
 fn dir_size(dir: &Path) -> u64 {
     let mut total = 0;
@@ -218,7 +218,7 @@ pub fn recovery_usage() -> (u64, usize) {
     (dir_size(&recovery_root()), session_dirs().len())
 }
 
-/// Delete every stored recovery dir — rotated sessions and the scratch store — except `keep`
+/// Delete every stored recovery dir, rotated sessions and the scratch store, except `keep`
 /// (the store backing the currently-loaded clip). Returns the bytes freed. Best-effort per
 /// dir: one that fails to delete is left in place and not counted.
 pub fn clear_recovery(keep: Option<&Path>) -> u64 {
@@ -257,7 +257,7 @@ pub fn project_path(dir: &Path) -> PathBuf {
     dir.join("project.json")
 }
 
-/// The previously written *distinct* frame, kept in RAM (one frame — already bounded) so an
+/// The previously written *distinct* frame, kept in RAM (one frame, already bounded) so an
 /// identical follow-up is stored as a back-reference to its pixels instead of a second full
 /// copy. `bgra` is the exact byte slice living on disk at `offset`; `w`/`h` guard the compare
 /// so a dimension change is never mistaken for a duplicate.
@@ -304,11 +304,11 @@ impl FrameWriter {
         })
     }
 
-    /// Append one frame: either its raw BGRA bytes plus a fresh index record, or — when the
-    /// frame is byte-for-byte identical to the previously written one (same dimensions) — just
+    /// Append one frame: either its raw BGRA bytes plus a fresh index record, or, when the
+    /// frame is byte-for-byte identical to the previously written one (same dimensions), just
     /// a 28-byte index record pointing back at the existing pixels. A mostly-static screencast
     /// thus collapses to near-zero pixel growth instead of storing tens of GB of duplicates.
-    /// Takes the frame by value so a distinct frame's buffer MOVES into the dedup slot —
+    /// Takes the frame by value so a distinct frame's buffer MOVES into the dedup slot,
     /// cloning it would add a multi-MB memcpy per frame to the drain's hot path.
     pub fn push(&mut self, f: CapturedFrame) -> Result<(), String> {
         // A duplicate reuses the previous record's `offset`/`len` (bytes already on disk) with
@@ -340,7 +340,7 @@ impl FrameWriter {
             };
             self.offset += f.bgra.len() as u64;
             // Remember this frame (its bytes live at `rec.offset`) so the next identical one
-            // can back-reference it. A differing frame — including any dimension change —
+            // can back-reference it. A differing frame, including any dimension change,
             // takes this branch and overwrites `prev`, so the compare is always sound.
             self.prev = Some(PrevFrame {
                 bgra: f.bgra,
@@ -356,7 +356,7 @@ impl FrameWriter {
             .map_err(|e| format!("frame index: {e}"))?;
         // Cheap periodic flush (buffered, no fsync) so a crash strands at most a fraction of
         // a second of frames. If the index runs ahead of what actually reached frames.raw,
-        // `open` trims the excess — so this interleaving is always safe.
+        // `open` trims the excess, so this interleaving is always safe.
         self.since_flush += 1;
         if self.since_flush >= INDEX_FLUSH_EVERY {
             let _ = self.idx.flush();
@@ -375,12 +375,12 @@ impl FrameWriter {
     }
 
     /// Finalize after a mid-recording write failure (e.g. a full disk): keep the frames that
-    /// were already written instead of losing the whole take. Best-effort — further I/O
+    /// were already written instead of losing the whole take. Best-effort, further I/O
     /// errors are tolerated. When the disk filled, the newest frame's tail may still be in the
     /// buffer and never reach disk; `open` drops any frame whose bytes aren't wholly on disk,
     /// so every frame the returned store exposes reads back cleanly.
     pub fn finish_salvage(mut self) -> Result<FrameStore, String> {
-        tracing::warn!("finalizing a truncated recording after a mid-write failure — salvaging frames already on disk");
+        tracing::warn!("finalizing a truncated recording after a mid-write failure, salvaging frames already on disk");
         // These may fail on a full disk; open()'s trim covers the gap. Log a flush failure so
         // the salvage attempt leaves a trace even when the writes themselves went silent.
         if let Err(e) = self.out.flush() {
@@ -410,7 +410,7 @@ impl FrameStore {
     ///
     /// Robust against a crash mid-recording: fixed-size records mean a torn trailing record
     /// is simply ignored (`chunks_exact`), and any frame whose bytes didn't fully reach
-    /// `frames.raw` is dropped — so the store only exposes frames that read back cleanly.
+    /// `frames.raw` is dropped, so the store only exposes frames that read back cleanly.
     pub fn open(dir: &Path) -> Result<Self, String> {
         let bytes = fs::read(index_path(dir)).map_err(|e| format!("frame index: {e}"))?;
         let file = File::open(raw_path(dir)).map_err(|e| format!("frame file: {e}"))?;
@@ -419,10 +419,10 @@ impl FrameStore {
         // higher offset than any before it; a deduplicated frame back-references earlier bytes
         // (a smaller offset already known to be on disk). So the *first* record whose bytes run
         // past what's on disk is always a forward-writing one and marks the end of the
-        // recoverable prefix — everything after it is untrustworthy, hence `break`. A dup
+        // recoverable prefix, everything after it is untrustworthy, hence `break`. A dup
         // record points backward and always passes the check, so it's never the trip wire.
         let mut index = Vec::with_capacity(bytes.len() / REC_SIZE);
-        for chunk in bytes.chunks_exact(REC_SIZE) {
+        for chunk in bytes.as_chunks::<REC_SIZE>().0 {
             let rec = decode_rec(chunk);
             if rec.offset + u64::from(rec.len) > raw_len {
                 break;
@@ -520,7 +520,7 @@ mod tests {
         w.push(frame(0xBB, 30)).unwrap(); // B
         let store = w.finish().unwrap();
 
-        // Only A's and B's pixels hit frames.raw — the duplicate wrote no pixels.
+        // Only A's and B's pixels hit frames.raw, the duplicate wrote no pixels.
         let raw_len = fs::metadata(raw_path(&dir)).unwrap().len();
         assert_eq!(raw_len, 32, "raw file holds A(16)+B(16), not the duplicate");
 

@@ -1,6 +1,6 @@
 //! Annotation timing: when an element is visible, and its fade in/out.
 //!
-//! Drives the per-frame opacity that the compositor feeds into glyph/shape alpha — the
+//! Drives the per-frame opacity that the compositor feeds into glyph/shape alpha, the
 //! CPU-side animation model from `docs/11-Editor-and-Annotations.md`.
 
 use serde::{Deserialize, Serialize};

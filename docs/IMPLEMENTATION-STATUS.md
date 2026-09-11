@@ -1,10 +1,14 @@
 # Implementation Status
 
+> **Note (2026-09-12):** this document predates the interface redesign and had drifted
+> from the code. For the current picture, read `docs/AUDIT-AND-REDESIGN.md` first; this
+> file remains as background.
+
 Living snapshot of what's built. Updated as work lands. See `08-Roadmap.md` for the plan.
 
 Legend: ✅ implemented + **CI-verified** (compiles, clippy-clean, unit tests pass) ·
 🟡 implemented + **compile-verified only** (needs a real run on a Windows machine to confirm
-runtime behaviour — CI has no GPU/display and the project rule is CI-only builds) · ⬜ not started.
+runtime behaviour, CI has no GPU/display and the project rule is CI-only builds) · ⬜ not started.
 
 ---
 
@@ -44,17 +48,17 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 
 ### Deliberately not built (overrides the older docs)
 
-- **Framing/background/padding controls** — feature removed by owner decision (borderless exports).
-- **Editor aspect-ratio reframe** — covered by the record-time 16:9 / 9:16 / 1:1 / 4:5 region
+- **Framing/background/padding controls**, feature removed by owner decision (borderless exports).
+- **Editor aspect-ratio reframe**, covered by the record-time 16:9 / 9:16 / 1:1 / 4:5 region
   presets; a post-hoc reframe without framing would distort or crop.
-- **MP4 / audio / WebP / webcam / click-ripple / pause** — out of v1 per the spec amendments
+- **MP4 / audio / WebP / webcam / click-ripple / pause**, out of v1 per the spec amendments
   (cursor is excluded from capture by design, so a ripple has nothing to anchor to).
-- **Code signing / auto-updater** — infrastructure, pre-public-launch task.
+- **Code signing / auto-updater**, infrastructure, pre-public-launch task.
 | **Black & white + neutral themes** (Mono Dark/Light, Graphite, Paper, Midnight; no purple) | ✅ |
 | **Custom frameless titlebar** + min/max/close window controls | ✅ |
 | Tauri UI hardening (drag region, context-menu, anti-flash startup, window permissions) | ✅ |
 | CI/CD pipeline (lint+test+build) + Release pipeline (installers) | ✅ |
-| Published installer | ✅ **`v0.1.1`** — redesigned black/white UI + custom titlebar (install this one) |
+| Published installer | ✅ **`v0.1.1`**, redesigned black/white UI + custom titlebar (install this one) |
 
 ## Integration (compile-verified; runtime needs your machine)
 
@@ -63,8 +67,8 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | Global input recorder (low-level hooks + pump thread) | `vuoom-input` | 🟡 |
 | Localhost WebSocket preview server ("latest wins") | `vuoom-preview` | 🟡 |
 | WGC screen capture (windows-capture) | `vuoom-capture` | 🟡 |
-| wgpu compositor — headless device + offscreen render + readback | `vuoom-render` | 🟡 |
-| wgpu compositor — composite pipeline (bg + zoom/pan crop + rounded-corner SDF) | `vuoom-render` | 🟡 |
+| wgpu compositor, headless device + offscreen render + readback | `vuoom-render` | 🟡 |
+| wgpu compositor, composite pipeline (bg + zoom/pan crop + rounded-corner SDF) | `vuoom-render` | 🟡 |
 | Compositor shape annotations (highlight boxes + arrows) | `vuoom-render` | 🟡 |
 | Compositor **text** annotations (glyphon) | `vuoom-render` | 🟡 |
 | End-to-end wiring (record → capture+input → project → preview → export GIF) | `src-tauri` | 🟡 |
@@ -72,7 +76,7 @@ runtime behaviour — CI has no GPU/display and the project rule is CI-only buil
 | Frontend annotation editing (text/arrow/box on canvas → re-render) | `src/` | 🟡 |
 
 **Every planned feature is now implemented.** What remains is purely *runtime verification on a
-real Windows machine* (the 🟡 layers) — capture, GPU rendering, and input can't be exercised on
+real Windows machine* (the 🟡 layers), capture, GPU rendering, and input can't be exercised on
 a GPU-less CI runner, so they're compile-verified here and confirmed by running the app.
 
 ---
@@ -82,7 +86,7 @@ a GPU-less CI runner, so they're compile-verified here and confirmed by running 
 The capture, GPU compositor, and live preview need a **real GPU + display** to verify (does it
 capture at 60fps? does the zoom render correctly?). CI runners have neither, and the project rule
 is *no local builds*. So those layers are written to **compile cleanly on CI** but their runtime
-correctness is confirmed by **running the app on the Windows machine** — the same loop as
+correctness is confirmed by **running the app on the Windows machine**, the same loop as
 installing the release. As these land, expect a short "install this build and tell me what you
 see" step.
 

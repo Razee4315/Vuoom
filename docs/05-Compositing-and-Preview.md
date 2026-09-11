@@ -1,4 +1,4 @@
-# 05 — GPU Compositing & the Live-Preview Bridge
+# 05, GPU Compositing & the Live-Preview Bridge
 
 The wgpu compositor that turns raw frames + camera keyframes + styling into the final look, and
 the solution to the hardest architectural problem in the app: getting a smooth 60fps preview into
@@ -9,12 +9,12 @@ the Tauri webview without choking on IPC.
 ## The preview-bridge problem (decide this first)
 
 Raw frames are huge: 1080p BGRA ≈ 8 MB; 60fps ≈ 500 MB/s. **You cannot send raw frames over
-Tauri's JSON command IPC** — it serializes them and chokes. Three options were evaluated:
+Tauri's JSON command IPC**, it serializes them and chokes. Three options were evaluated:
 
 | Option | What | Verdict |
 |---|---|---|
 | **A** Native child/overlay wgpu window layered into the Tauri window | Highest theoretical perf (no readback) | **High-risk on Windows.** wgpu + WebView2 fight over the surface → flicker; overlay z-order/click/DPI/resize sync is fragile. Only if profiling demands it. |
-| **B** Stream frames to the webview (custom protocol **or WebSocket**) | Render offscreen, send pixels to a `<canvas>` | **✅ RECOMMENDED — WebSocket variant.** Proven by Cap at sustained 60fps. |
+| **B** Stream frames to the webview (custom protocol **or WebSocket**) | Render offscreen, send pixels to a `<canvas>` | **✅ RECOMMENDED, WebSocket variant.** Proven by Cap at sustained 60fps. |
 | **C** Shared GPU texture into WebView2 | Zero-copy into the webview's GPU | **Not achievable.** WebView2 exposes no API to import an external D3D shared texture or to do offscreen/shared-memory rendering. |
 
 ### The chosen design (Cap's, validated by their source)
@@ -31,29 +31,29 @@ Tauri's JSON command IPC** — it serializes them and chokes. Three options were
  send as a BINARY message over  ws://127.0.0.1:<random-port>   ("latest frame wins")
                                                      │
  frame-worker.ts (Web Worker): parse trailing metadata → WebGPU writeTexture → draw <canvas>
-                                  (Canvas2D putImageData fallback) — rAF loop, OffscreenCanvas
+                                  (Canvas2D putImageData fallback), rAF loop, OffscreenCanvas
 ```
 
 **Why this wins:** pixels never touch JSON IPC; a scrub is just a tiny `seekTo` command. Cap
-measures ~430 MB/s for full-res preview over loopback, WebSocket send ~0.5–1.3 ms, WebGPU upload
-~2.1 ms, **end-to-end ≈ 10–15 ms, sustained 60fps with zero renderer drops.**
+measures ~430 MB/s for full-res preview over loopback, WebSocket send ~0.5-1.3 ms, WebGPU upload
+~2.1 ms, **end-to-end ≈ 10-15 ms, sustained 60fps with zero renderer drops.**
 
 ### Critical implementation details (learned from Cap)
 
 - **Send RAW RGBA, not compressed**, for local preview. Cap originally did RGBA→NV12 on the CPU
-  (~15–25 ms/frame) which capped preview at 40–50fps; switching to raw RGBA (≈2.7× bandwidth,
+  (~15-25 ms/frame) which capped preview at 40-50fps; switching to raw RGBA (≈2.7× bandwidth,
   trivial over loopback) unlocked stable 60fps. Don't repeat their mistake.
-- **Carry `stride` in the metadata** — `copy_texture_to_buffer` pads rows to 256 bytes; the
+- **Carry `stride` in the metadata**, `copy_texture_to_buffer` pads rows to 256 bytes; the
   worker must un-pad.
 - **Bind to `127.0.0.1` only**, random port returned to the frontend; consider a per-session
   token in the WS path. (Tauri's own localhost guidance warns about exposure.)
-- **Do all upload/draw in a Web Worker on an OffscreenCanvas** — never block the main thread.
+- **Do all upload/draw in a Web Worker on an OffscreenCanvas**, never block the main thread.
 - **Pre-create renderer layers and preload assets** (cursor textures, backgrounds) at init, not
-  lazily mid-playback, to avoid frame-time spikes. Cap pools readback buffers — scrub p95 dropped
+  lazily mid-playback, to avoid frame-time spikes. Cap pools readback buffers, scrub p95 dropped
   231 ms → 47 ms.
 - **4K preview:** raw RGBA at 4K60 is heavy; drop to half-res preview (Cap's "half" ≈ 183 MB/s)
   or switch that case to H.264 + WebCodecs `VideoDecoder` in the webview. (Only worth it when
-  transport bandwidth — not local loopback — is the constraint.)
+  transport bandwidth, not local loopback, is the constraint.)
 
 **Fallback (Option B2):** a Tauri **async custom URI scheme protocol**
 (`register_asynchronous_uri_scheme_protocol`) serving `Vec<u8>` works for a pull-per-frame model
@@ -67,7 +67,7 @@ higher per-frame overhead than a persistent WebSocket; keep as the backup.
 
 ### Backend & device
 
-- **Default to the DX12 backend on Windows** (`Backends::DX12`) — DXGI swapchains are more stable
+- **Default to the DX12 backend on Windows** (`Backends::DX12`), DXGI swapchains are more stable
   and faster than Vulkan WSI on Windows; wgpu is moving toward DX12-as-default there. Cap
   explicitly prefers DX12. Vulkan is the fallback.
 - **One device, one compositor, two sinks.** Build a single `wgpu::Device`/`Queue` + `Compositor`
@@ -108,7 +108,7 @@ buffer updated per frame.
 
 ## SDF shader: rounded corners + drop shadow
 
-Use a **signed distance field** rounded box — resolution-independent corners, anti-aliased edges,
+Use a **signed distance field** rounded box, resolution-independent corners, anti-aliased edges,
 and a free soft shadow.
 
 ```wgsl
@@ -144,7 +144,7 @@ Cap implements corners+shadow inside `composite-video-frame.wgsl`; color convert
 
 - Cap preview pipeline: `crates/editor/PLAYBACK-FINDINGS.md`, `apps/desktop/src-tauri/src/frame_ws.rs`,
   `apps/desktop/src/utils/frame-worker.ts`, `apps/desktop/src/routes/editor/Player.tsx`,
-  `crates/rendering/src/lib.rs` — all at <https://github.com/CapSoftware/Cap> ·
+  `crates/rendering/src/lib.rs`, all at <https://github.com/CapSoftware/Cap> ·
   breakdown: <https://memo.d.foundation/breakdown/cap>
 - Tauri wgpu-overlay (Option A) risk: <https://github.com/tauri-apps/tauri/discussions/11944> ·
   flicker: <https://github.com/tauri-apps/tauri/issues/9220>

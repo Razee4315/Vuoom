@@ -26,7 +26,7 @@ impl Default for CameraState {
     }
 }
 
-/// Critically-damped spring, exact integration — frame-rate independent, no overshoot.
+/// Critically-damped spring, exact integration, frame-rate independent, no overshoot.
 ///
 /// `hl` is the half-life in seconds (time to close half the remaining distance).
 pub fn spring_update(x: &mut f64, v: &mut f64, goal: f64, hl: f64, dt: f64) {
@@ -78,7 +78,7 @@ fn snap_axis(v: f64, ratio: f64) -> f64 {
 /// What the camera should aim for on a single frame, before smoothing and clamping.
 ///
 /// This is the one place the offline planner (keyframe-driven) and the live preview
-/// (hotkey-toggle-driven) differ — they resolve *what* to look at from different inputs,
+/// (hotkey-toggle-driven) differ, they resolve *what* to look at from different inputs,
 /// then hand it to the same [`CameraFilter::step`] so the motion stays identical.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CameraTarget {

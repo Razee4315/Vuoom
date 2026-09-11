@@ -1,8 +1,6 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { save } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { invoke, listen, save, revealItemInDir } from "./bridge";
+import { toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
@@ -92,8 +90,8 @@ export function ExportDialog(props: {
     setPhase("exporting");
     setProgress(0);
     props.onStatus(`Exporting ${f.toUpperCase()}…`);
-    const unlisten = await listen<{ done: number; total: number }>("export-progress", (ev) => {
-      setProgress(ev.payload.total > 0 ? ev.payload.done / ev.payload.total : 0);
+    const unlisten = await listen<{ done: number; total: number }>("export-progress", (p) => {
+      setProgress(p.total > 0 ? p.done / p.total : 0);
     });
     try {
       await invoke(f === "gif" ? "export_gif" : "export_mp4", {
@@ -106,6 +104,7 @@ export function ExportDialog(props: {
       setPhase("done");
       props.onExported();
       props.onStatus(`Exported ${path}`);
+      toast(`${f.toUpperCase()} exported`, "success");
     } catch (e) {
       setPhase("configure");
       // The backend uses the bare "export cancelled" sentinel for a user-initiated abort
@@ -114,6 +113,7 @@ export function ExportDialog(props: {
       props.onStatus(
         msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${friendlyError(e)}`,
       );
+      if (!msg.includes("export cancelled")) toast(`Export failed: ${friendlyError(e)}`, "error");
     } finally {
       unlisten();
     }
@@ -133,8 +133,10 @@ export function ExportDialog(props: {
           ? "Copied! Paste it into Slack, Discord, or a GitHub comment."
           : "Copied as a file. If pasting doesn't work, drag it in from Show in folder.",
       );
+      toast("Copied to clipboard", "success");
     } catch (e) {
       setCopied(`Copy failed: ${String(e)}`);
+      toast(`Copy failed: ${String(e)}`, "error");
     }
   };
   const copyPath = async () => {
@@ -192,15 +194,21 @@ export function ExportDialog(props: {
           </div>
 
           <label class="field">
-            <span>Frame rate · {fps()} fps</span>
+            <span class="field-label">
+              Frame rate <span class="field-value">{fps()} fps</span>
+            </span>
             <input type="range" min="8" max={format() === "mp4" ? 60 : 30} step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
           </label>
           <label class="field">
-            <span>Max width · {width()} px</span>
+            <span class="field-label">
+              Max width <span class="field-value">{width()} px</span>
+            </span>
             <input type="range" min="400" max="1920" step="20" value={width()} onInput={(e) => { setWidth(Number(e.currentTarget.value)); setPreset("custom"); }} />
           </label>
           <label class="field">
-            <span>Quality · {quality()}</span>
+            <span class="field-label">
+              Quality <span class="field-value">{quality()}</span>
+            </span>
             <input type="range" min="40" max="100" step="1" value={quality()} onInput={(e) => { setQuality(Number(e.currentTarget.value)); setPreset("custom"); }} />
           </label>
 
@@ -214,7 +222,7 @@ export function ExportDialog(props: {
           </div>
 
           <div class="modal-actions">
-            <button class="btn" onClick={props.onClose}>
+            <button class="btn ghost" onClick={props.onClose}>
               Cancel
             </button>
             <button class="btn export" onClick={() => void doExport()}>
@@ -224,13 +232,14 @@ export function ExportDialog(props: {
         </Show>
 
         <Show when={phase() === "exporting"}>
-          <h2>Exporting…</h2>
+          <h2>Exporting {format().toUpperCase()}</h2>
+          <p class="export-pct">{Math.round(progress() * 100)}%</p>
           <div class="progress">
             <div class="progress-fill" style={{ width: `${Math.round(progress() * 100)}%` }} />
           </div>
           <p class="muted small">
-            Compositing {Math.round(progress() * 100)}% — annotations, zoom, speed-up and cuts
-            are baked into the final {format().toUpperCase()}.
+            Annotations, zooms, speed-up and cuts are baked into the final file. This takes a
+            moment.
           </p>
           <div class="modal-actions">
             <button class="btn ghost" onClick={cancelExport}>
@@ -259,7 +268,7 @@ export function ExportDialog(props: {
             {copied() ||
               (format() === "gif"
                 ? "Paste the copied GIF anywhere that accepts files."
-                : "Copy puts the MP4 on the clipboard as a file — drag from the folder if an app won't paste it.")}
+                : "Copy puts the MP4 on the clipboard as a file, so drag it in from the folder if an app won't paste it.")}
           </p>
           <div class="modal-actions">
             <button class="btn" onClick={props.onClose}>

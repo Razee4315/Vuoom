@@ -1,4 +1,4 @@
-//! Per-frame compositor layout math — pure, GPU-free, and unit-tested.
+//! Per-frame compositor layout math, pure, GPU-free, and unit-tested.
 //!
 //! Turns the camera pose + framing settings into the rectangles the wgpu shaders need:
 //! which region of the source frame to sample (the zoom/pan crop) and where to draw the

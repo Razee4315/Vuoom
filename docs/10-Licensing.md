@@ -1,4 +1,4 @@
-# 10 — Licensing & Legal
+# 10, Licensing & Legal
 
 The licensing picture got much simpler after two owner decisions: **Vuoom is Apache-2.0**, and
 **v1 exports GIF only** (no MP4). GIF-only **erases the entire video-codec patent/licensing
@@ -10,21 +10,21 @@ process boundary.
 
 ---
 
-## 1. Vuoom's own license — Apache-2.0 ✅ (decided)
+## 1. Vuoom's own license, Apache-2.0 ✅ (decided)
 
 - **Apache License 2.0** for all of Vuoom's own code. See [`/LICENSE`](../LICENSE) and
   [`/NOTICE`](../NOTICE).
 - Why Apache over MIT: an **explicit patent grant** and a clear contribution/patent-retaliation
-  framework — worth having for a media tool, even GIF-only. Still fully permissive and "free."
+  framework, worth having for a media tool, even GIF-only. Still fully permissive and "free."
 - Add Apache headers to source files (or rely on the repo-level LICENSE; headers recommended for
   files likely to be copied out).
 
-## 2. gifski is AGPL — isolate it (the one real constraint)
+## 2. gifski is AGPL, isolate it (the one real constraint)
 
 - `gifski` is **AGPL-3.0-or-later**. Static-linking it into Apache-2.0 Vuoom would impose AGPL on
-  the whole app — **not acceptable**.
+  the whole app, **not acceptable**.
 - **Resolution: ship gifski as a separate, unmodified binary and invoke it out-of-process** (pipe
-  frames in, get a `.gif` out). This is "mere aggregation" — Vuoom's source stays Apache-2.0; the
+  frames in, get a `.gif` out). This is "mere aggregation", Vuoom's source stays Apache-2.0; the
   AGPL binary travels alongside under its own license. This is the same separation pattern used
   for bundling GPL CLI tools.
 - **Do NOT** use the in-process `gifski` *crate* (that's linking → AGPL).
@@ -33,17 +33,17 @@ process boundary.
 - **Fallback** if out-of-process is ever ruled insufficient: pure-Rust `gif` + `color_quant` +
   `image` (permissive, lower quality), or buy gifski's commercial license from the author.
 
-## 3. Video codec licensing — N/A in v1 (GIF-only)
+## 3. Video codec licensing, N/A in v1 (GIF-only)
 
 Because v1 has **no MP4/H.264/H.265**, the two-layer codec problem (GPL x264 + MPEG-LA/Via LA
 patents) **does not apply**. There is no x264/x265 anywhere; no Media Foundation/ffmpeg codec
 shipped; no patent exposure. This is a major benefit of the GIF-only decision.
 
-*(Preserved for the future, if MP4 ever returns to scope: prefer the OS/GPU hardware encoder —
-Media Foundation — so codec patent royalties are the vendor's responsibility and no GPL codec
+*(Preserved for the future, if MP4 ever returns to scope: prefer the OS/GPU hardware encoder,
+Media Foundation, so codec patent royalties are the vendor's responsibility and no GPL codec
 ships. Never bundle x264/x265. The full analysis lives in git history.)*
 
-## 4. The AGPL line (Cap) — study-only
+## 4. The AGPL line (Cap), study-only
 
 - **Cap's application code is AGPLv3** with a network clause. Compatibility is one-directional:
   you may pull MIT/Apache code *into* AGPL, **never** AGPL into permissive Vuoom.
@@ -52,7 +52,7 @@ ships. Never bundle x264/x265. The full analysis lives in git history.)*
 - **Safe to reuse:** Cap's MIT subcrates (`scap`, `cap-camera*`); MIT/Apache projects (screen-demo,
   Recordly, Kap). screenize is Apache-2.0 but Swift → design reference only.
 
-## 5. Annotation/text stack — all permissive ✅
+## 5. Annotation/text stack, all permissive ✅
 
 The text/annotation crates are clean: **glyphon** (Apache-2.0 / MIT / zlib), **cosmic-text** (MIT
 / Apache-2.0), **lyon** (MIT / Apache-2.0), **tiny-skia** (BSD-3, fallback). No copyleft. See
@@ -62,8 +62,8 @@ The text/annotation crates are clean: **glyphon** (Apache-2.0 / MIT / zlib), **c
 
 | Binary | License posture | How to ship |
 |---|---|---|
-| `gifski` | AGPL — OK as a **separately-invoked process** | Tauri `externalBin`; pipe frames; bundle AGPL text |
-| `gifsicle` (optional) | GPL — OK as a **separately-invoked process** | Tauri `externalBin`; invoke out-of-process |
+| `gifski` | AGPL, OK as a **separately-invoked process** | Tauri `externalBin`; pipe frames; bundle AGPL text |
+| `gifsicle` (optional) | GPL, OK as a **separately-invoked process** | Tauri `externalBin`; invoke out-of-process |
 | `ffmpeg` (only if WebP added later) | **LGPL build only** (BtbN `lgpl-shared`) | Tauri `externalBin`; dynamically linked |
 
 Maintain a generated `THIRD-PARTY-NOTICES` (via `cargo about` / `cargo deny`) and bundle it in the

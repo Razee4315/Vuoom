@@ -1,10 +1,10 @@
 //! A visible frame around the area being recorded.
 //!
-//! Four thin native strip windows (no webviews — spawning extra WebView2 windows proved
+//! Four thin native strip windows (no webviews, spawning extra WebView2 windows proved
 //! unreliable, see `commands.rs`) drawn just OUTSIDE the capture region so the user always
 //! sees what is being recorded. They are click-through, never take focus, and are excluded
 //! from capture via `WDA_EXCLUDEFROMCAPTURE`, so the frame itself can never land in the
-//! recording — belt and suspenders on top of sitting outside the crop rect.
+//! recording, belt and suspenders on top of sitting outside the crop rect.
 
 #[cfg(windows)]
 mod imp {
@@ -27,7 +27,7 @@ mod imp {
     const THICKNESS: i32 = 3;
     /// `--record` red (#e5484d) as a COLORREF (0x00BBGGRR).
     const COLOR: u32 = 0x004D48E5;
-    /// Strip opacity (0–255) — present but not shouting.
+    /// Strip opacity (0-255), present but not shouting.
     const ALPHA: u8 = 190;
 
     unsafe extern "system" fn wndproc(

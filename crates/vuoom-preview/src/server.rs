@@ -1,7 +1,7 @@
 //! Localhost WebSocket server that streams composited preview frames ("latest wins").
 //!
 //! Binds an ephemeral `127.0.0.1` port (returned to the webview), and pushes the most
-//! recent packed frame to each connected client via a `watch` channel — so a slow client
+//! recent packed frame to each connected client via a `watch` channel, so a slow client
 //! never backs up the compositor. See `docs/05-Compositing-and-Preview.md`.
 
 use futures_util::SinkExt;
@@ -83,7 +83,7 @@ impl PreviewServer {
         Ok(Self { port, token, sink })
     }
 
-    /// The bound port — pass it to the webview so it can connect.
+    /// The bound port, pass it to the webview so it can connect.
     #[must_use]
     pub fn port(&self) -> u16 {
         self.port
@@ -106,7 +106,7 @@ async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token
     let expected_path = format!("/ws/{token}");
     // Validate the token during the WS upgrade: on mismatch we return 403 and the handshake
     // is rejected before it ever upgrades, so an unauthorized peer never receives a frame.
-    // The Result<Response, ErrorResponse> shape is tungstenite's `Callback` contract — the
+    // The Result<Response, ErrorResponse> shape is tungstenite's `Callback` contract, the
     // large Err variant is not ours to box.
     #[allow(clippy::result_large_err)]
     let check_token = move |req: &Request, resp: Response| -> Result<Response, ErrorResponse> {
@@ -132,7 +132,7 @@ async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token
         }
         // tungstenite 0.29: Message::Binary now holds `bytes::Bytes`, not `Vec<u8>`. The
         // `binary()` constructor takes any `Into<Bytes>`, so the Vec converts here (a cheap
-        // move into a Bytes — no reallocation).
+        // move into a Bytes, no reallocation).
         if ws.send(Message::binary(frame)).await.is_err() {
             break;
         }

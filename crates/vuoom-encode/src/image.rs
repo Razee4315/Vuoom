@@ -114,7 +114,7 @@ pub fn read_png(path: &Path) -> Result<RgbaImage, EncodeError> {
     Ok(RgbaImage::new(info.width, info.height, pixels))
 }
 
-/// Swap the red and blue channels of a 4-byte-per-pixel buffer (BGRA↔RGBA — the op is its
+/// Swap the red and blue channels of a 4-byte-per-pixel buffer (BGRA↔RGBA, the op is its
 /// own inverse). Panics-free: a trailing partial pixel is left untouched.
 #[must_use]
 pub fn swizzle_rb(src: &[u8]) -> Vec<u8> {

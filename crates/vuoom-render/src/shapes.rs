@@ -64,7 +64,7 @@ fn highlight(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
     }
 }
 
-/// Segments used to approximate an ellipse — plenty for screen-sized highlights.
+/// Segments used to approximate an ellipse, plenty for screen-sized highlights.
 const ELLIPSE_SEGS: u32 = 48;
 
 fn ellipse(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {

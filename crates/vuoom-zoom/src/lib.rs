@@ -1,4 +1,4 @@
-//! Vuoom auto-zoom — the heart of the product.
+//! Vuoom auto-zoom, the heart of the product.
 //!
 //! Turns a timestamped input log into editable zoom segments ([`plan_zooms`]) and a
 //! deterministic per-frame camera path ([`simulate`]). Critically-damped springs give
@@ -85,7 +85,7 @@ mod gate_tests {
         e
     }
 
-    /// §5.1 #3 — no zoom ever shows empty space outside the captured content.
+    /// §5.1 #3, no zoom ever shows empty space outside the captured content.
     #[test]
     fn never_reveals_offscreen_area() {
         let cfg = cfg();
@@ -103,7 +103,7 @@ mod gate_tests {
         }
     }
 
-    /// §5.1 #5 — tiny cursor movements / no clicks must not cause camera jumps.
+    /// §5.1 #5, tiny cursor movements / no clicks must not cause camera jumps.
     #[test]
     fn jitter_without_clicks_does_not_zoom() {
         let cfg = cfg();
@@ -139,7 +139,7 @@ mod gate_tests {
         assert!(end < 1.2, "camera never zoomed back out (end {end})");
     }
 
-    /// The track is deterministic — identical inputs give identical output.
+    /// The track is deterministic, identical inputs give identical output.
     #[test]
     fn simulation_is_deterministic() {
         let cfg = cfg();

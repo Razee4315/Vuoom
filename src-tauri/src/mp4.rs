@@ -25,8 +25,8 @@ mod imp {
         (u64::from(hi) << 32) | u64::from(lo)
     }
 
-    /// Map the 40–100 quality slider to an H.264 average bitrate for this size/rate.
-    /// Roughly 0.04–0.2 bits per pixel per frame — README-screencast territory.
+    /// Map the 40-100 quality slider to an H.264 average bitrate for this size/rate.
+    /// Roughly 0.04-0.2 bits per pixel per frame, README-screencast territory.
     fn bitrate(w: u32, h: u32, fps: u32, quality: u8) -> u32 {
         let q = f64::from(quality.clamp(40, 100));
         let bpp = 0.04 + (q - 40.0) / 60.0 * 0.16;

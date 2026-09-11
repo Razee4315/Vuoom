@@ -62,7 +62,7 @@ Three changes turn it pro.
 ### 1a. `ScrubField` component, drag-or-type number control
 palmier's single best idea: every numeric value is **drag horizontally to scrub OR click to
 type**, with **Shift = ×10 coarse, Ctrl = ×0.1 fine**, live preview during drag, one coalesced
-undo on release, and `—` for mixed/empty.
+undo on release, and `-` for mixed/empty.
 
 - New `src/ScrubField.tsx`: a `<div>` capturing `pointermove` deltas → value; swaps to an
   `<input>` on click (drag < 3px). Props: `value, min, max, step, sensitivity, suffix,

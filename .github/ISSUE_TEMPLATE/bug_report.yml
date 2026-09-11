@@ -1,5 +1,5 @@
 name: 🐛 Bug report
-description: Something broke — recording, editing, exporting, or the app itself.
+description: Something broke, recording, editing, exporting, or the app itself.
 labels: ["bug"]
 body:
   - type: input

@@ -1,4 +1,4 @@
-//! The `.vuoom` project model — the single, serializable source of truth for every
+//! The `.vuoom` project model, the single, serializable source of truth for every
 //! non-destructive edit.
 //!
 //! Rendering at any time `t` (scrubbing AND deterministic GIF export) reads this model;
@@ -50,7 +50,7 @@ pub struct SpeedRegion {
 }
 
 /// A labeled key press (e.g. `"Ctrl+Shift+P"`) for the optional keystroke overlay.
-/// Only shortcuts and special keys are recorded — never plain typed text.
+/// Only shortcuts and special keys are recorded, never plain typed text.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyTap {
     /// Press time in seconds from the start of the recording.
@@ -68,7 +68,7 @@ pub struct Project {
     pub zoom_config: ZoomConfig,
     pub zooms: Vec<ZoomKeyframe>,
     /// The normalized input log, persisted so a reopened project can re-simulate the
-    /// camera — panning needs the cursor samples, not just the zoom keyframes.
+    /// camera, panning needs the cursor samples, not just the zoom keyframes.
     #[serde(default)]
     pub events: Vec<InputEvent>,
     pub texts: Vec<TextAnnotation>,
@@ -201,10 +201,10 @@ impl Project {
 /// # Migration steps
 /// - `1 => 2`: schema 2 added the persisted `events` log alongside `cuts`,
 ///   `show_clicks`, `key_taps`, and `show_keys`. Every one of those is
-///   `#[serde(default)]`, so a v1 document deserializes unchanged — this step is an
+///   `#[serde(default)]`, so a v1 document deserializes unchanged, this step is an
 ///   intentional no-op, kept to document the transition and anchor the loop above.
 fn migrate(from: u32, value: &mut serde_json::Value) {
-    // 1 -> 2: purely additive, all new fields covered by serde defaults — no
+    // 1 -> 2: purely additive, all new fields covered by serde defaults, no
     // transform needed. When a step does need one, match on `from` here and
     // rewrite `value`; the typed deserialization in `from_json` remains the
     // final gate on validity.

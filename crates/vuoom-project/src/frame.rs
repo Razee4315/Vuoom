@@ -67,7 +67,7 @@ impl Background {
         })
     }
 
-    /// The preset name matching `self` exactly, if any — lets the UI round-trip the current
+    /// The preset name matching `self` exactly, if any, lets the UI round-trip the current
     /// backdrop back to a selected swatch.
     #[must_use]
     pub fn preset_name(&self) -> Option<&'static str> {
@@ -115,7 +115,7 @@ pub struct FrameStyle {
 impl Default for FrameStyle {
     fn default() -> Self {
         // No framing by default: the export is exactly the recording, edge to edge.
-        // (The border/padding feature was removed from the product — a non-zero default
+        // (The border/padding feature was removed from the product, a non-zero default
         // here would silently bake a border into every export.)
         Self {
             background: Background::Solid(Color::BLACK),

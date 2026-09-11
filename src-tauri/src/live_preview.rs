@@ -1,4 +1,4 @@
-//! Live recording preview — a "director's monitor" that shows the cinematic zoom in real
+//! Live recording preview, a "director's monitor" that shows the cinematic zoom in real
 //! time while recording, without ever touching the actual recording pipeline.
 //!
 //! It runs its OWN lightweight screen capture and polls the cursor + the Ctrl+Shift+Z
@@ -24,9 +24,9 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-/// Downscaled preview width (px) — small enough to be cheap, big enough to read.
+/// Downscaled preview width (px), small enough to be cheap, big enough to read.
 const PREVIEW_WIDTH: u32 = 480;
-/// Preview cadence (~20 fps) — independent of the capture rate so it never steals throughput.
+/// Preview cadence (~20 fps), independent of the capture rate so it never steals throughput.
 const EMIT_INTERVAL: f64 = 0.05;
 
 // Virtual-key codes for the manual-zoom chord (Ctrl+Shift+Z).
@@ -101,8 +101,8 @@ fn run(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 // The preview's own capture ended (device lost, session died). This never
                 // touches the recording, but log it so a blank director's monitor isn't a
-                // total mystery — the preview simply stops emitting until the next take.
-                tracing::warn!("live preview capture disconnected — preview stopped");
+                // total mystery, the preview simply stops emitting until the next take.
+                tracing::warn!("live preview capture disconnected, preview stopped");
                 break;
             }
         };
@@ -203,8 +203,8 @@ fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32)
 }
 
 /// The live-preview camera: the real recorder's [`CameraFilter`] driven online instead of
-/// from a precomputed keyframe track. Ctrl+Shift+Z is an explicit toggle — zoom in (and
-/// follow the cursor) on one press, zoom back out on the next — matching the final render.
+/// from a precomputed keyframe track. Ctrl+Shift+Z is an explicit toggle, zoom in (and
+/// follow the cursor) on one press, zoom back out on the next, matching the final render.
 /// The per-frame spring math lives in `vuoom_zoom` so the two paths stay in lock-step.
 struct LiveCamera {
     cfg: ZoomConfig,

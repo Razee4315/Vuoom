@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct ZoomConfig {
     /// Zoom multiplier applied at a click (1.0 = no zoom).
     pub amount: f64,
-    /// Half-life (s) of the zoom spring — how snappily zoom level changes.
+    /// Half-life (s) of the zoom spring, how snappily zoom level changes.
     pub hl_zoom: f64,
-    /// Half-life (s) of the pan spring — how snappily the camera follows the cursor.
+    /// Half-life (s) of the pan spring, how snappily the camera follows the cursor.
     pub hl_pan: f64,
     /// Half-life (s) of the pre-smoothing applied to the raw cursor ("shaky -> glide").
     pub hl_cursor: f64,

@@ -1,7 +1,7 @@
 //! Durable key/value preferences, stored as a flat JSON object in the app data dir.
 //!
 //! The frontend's first-run flags (e.g. "seen the welcome tour") lived in `localStorage`,
-//! which does not survive reliably on every machine — the tour kept reappearing every
+//! which does not survive reliably on every machine, the tour kept reappearing every
 //! launch. These commands persist a small `prefs.json` on disk instead. Best-effort by
 //! design: any IO/parse error is logged and treated as "no value" / a silent no-op rather
 //! than surfaced to the user.
@@ -26,7 +26,7 @@ fn load(app: &AppHandle) -> BTreeMap<String, String> {
             tracing::warn!("prefs.json parse failed, ignoring: {e}");
             BTreeMap::new()
         }),
-        Err(_) => BTreeMap::new(), // not written yet — normal first run
+        Err(_) => BTreeMap::new(), // not written yet, normal first run
     }
 }
 

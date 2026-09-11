@@ -1,6 +1,6 @@
 //! The auto-zoom planner: turns a timestamped input log into editable zoom segments.
 //!
-//! Click-driven, debounced, hold-extended, and frequency-limited — the algorithm from
+//! Click-driven, debounced, hold-extended, and frequency-limited, the algorithm from
 //! `docs/04-Input-and-AutoZoom.md` Part B. Pure logic, no GPU/OS, fully unit-tested.
 //!
 //! Input events are assumed chronological (a capture log always is).
@@ -27,10 +27,10 @@ impl Cluster {
 /// Plan zoom segments from an input event log over a clip of `duration` seconds.
 ///
 /// Returns editable [`ZoomKeyframe`]s in start order. An empty log (or one with no
-/// clicks/drags) yields no zooms — the clip stays at 1.0.
+/// clicks/drags) yields no zooms, the clip stays at 1.0.
 ///
 /// The manual hotkey (Ctrl+Shift+Z) is an explicit **toggle**: the first press zooms in
-/// (and the camera follows the cursor), the next press zooms back out, and so on — so you
+/// (and the camera follows the cursor), the next press zooms back out, and so on, so you
 /// control exactly when a product demo is zoomed. Click-to-zoom (opt-in) keeps the
 /// debounced auto-clustering instead.
 #[must_use]

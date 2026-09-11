@@ -1,4 +1,4 @@
-//! Pure-Rust animated-GIF encoding — the zero-dependency fallback when no gifski binary
+//! Pure-Rust animated-GIF encoding, the zero-dependency fallback when no gifski binary
 //! is available.
 //!
 //! Optimized for screen recordings: ONE global NeuQuant palette for the whole clip
@@ -6,7 +6,7 @@
 //! **delta rectangle** (only the changed region is stored; unchanged pixels inside it are
 //! transparent, disposal `Keep`), and identical consecutive frames collapse into a longer
 //! delay on the previous frame. On mostly-static product/UI clips this is typically
-//! 5–10× smaller than full-frame encoding at identical visual quality.
+//! 5-10× smaller than full-frame encoding at identical visual quality.
 //!
 //! `gif`/`color_quant` are MIT/Apache, so unlike gifski they are safely *linked*.
 //! See `docs/06-Export.md`.
@@ -26,7 +26,7 @@ const PALETTE_COLORS: usize = 255;
 /// Pixel budget for training the global palette (~1 MB of RGBA samples, spread evenly
 /// across the whole clip so late scenes get palette slots too).
 const PALETTE_SAMPLE_PIXELS: usize = 1 << 18;
-/// Frames the streaming encoder composites to train the global palette — enough spread for
+/// Frames the streaming encoder composites to train the global palette, enough spread for
 /// a representative palette without holding the whole clip in RAM.
 const PALETTE_SAMPLE_FRAMES: usize = 48;
 
@@ -71,7 +71,7 @@ pub fn downscale_rgba(src: &RgbaImage, target_w: u32) -> RgbaImage {
     RgbaImage::new(dw as u32, dh as u32, out)
 }
 
-/// Map a gifski-style `quality` (0–100) to a NeuQuant sample factor (1 = best/slowest,
+/// Map a gifski-style `quality` (0-100) to a NeuQuant sample factor (1 = best/slowest,
 /// 30 = worst/fastest).
 #[must_use]
 pub fn quality_to_speed(quality: u8) -> i32 {
@@ -172,7 +172,7 @@ fn diff_bbox(prev: &[u8], cur: &[u8], w: usize, h: usize) -> Option<(usize, usiz
     (y1 > 0).then_some((x0, y0, x1, y1))
 }
 
-/// A frame waiting to be written — held back one step so duplicate successors can extend
+/// A frame waiting to be written, held back one step so duplicate successors can extend
 /// its delay instead of being emitted.
 struct PendingFrame {
     left: u16,
@@ -295,7 +295,7 @@ pub fn export_gif_native(
 }
 
 /// Streaming variant of [`export_gif_native`] for long clips. Instead of taking every
-/// composited frame up front (each is `out_w*out_h*4` bytes — gigabytes for a long 1080p
+/// composited frame up front (each is `out_w*out_h*4` bytes, gigabytes for a long 1080p
 /// export, which OOMs), it pulls frames one at a time from `frame(i)` and keeps only the
 /// current and previous indexed frames resident.
 ///

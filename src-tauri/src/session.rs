@@ -21,7 +21,9 @@ use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use vuoom_capture::{spawn_capture, CaptureHandle, CaptureSource, CapturedFrame, CropRegion};
+use vuoom_capture::{
+    spawn_capture, spawn_region, CaptureHandle, CaptureSource, CapturedFrame, CropRegion,
+};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -257,6 +259,7 @@ impl Session {
             edited: Mutex::new(Edited::default()),
             pending_region: Mutex::new(None),
             pending_monitor: Mutex::new(None),
+            pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
@@ -3133,7 +3136,7 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
         ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PWF_RENDERFULL_CONTENT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULL_CONTENT};
 
     let hwnd = HWND(hwnd as _);
     let mut rc = windows::Win32::Foundation::RECT::default();
@@ -3152,11 +3155,8 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
 
         // PrintWindow with PW_CLIENTONLY | PW_RENDERFULL_CONTENT: client area only, and
         // DirectComposition content (Chrome, Electron) actually renders.
-        let drawn = windows::Win32::UI::WindowsAndMessaging::PrintWindow(
-            hwnd,
-            hdc_mem,
-            PWF_RENDERFULL_CONTENT,
-        );
+        // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
+        let drawn = windows::Win32::Storage::Xps::PrintWindow(hwnd, hdc_mem, PW_RENDERFULL_CONTENT);
         let _ = drawn; // a partial grab still yields a usable backdrop
 
         let mut bi = BITMAPINFO::default();

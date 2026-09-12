@@ -39,7 +39,7 @@ pub fn window_monitor(hwnd: isize) -> crate::session::MonitorInfo {
     let hmon: HMONITOR = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     let mut info = MONITORINFO::default();
     info.cbSize = u32::try_from(std::mem::size_of::<MONITORINFO>()).unwrap_or(0);
-    if unsafe { GetMonitorInfoW(hmon, &info) }.as_bool() {
+    if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
         return crate::session::MonitorInfo {
             // The device name is the capture-path key; the EXW variant would carry it,
             // but the plain MONITORINFO has none, so reuse the primary naming scheme.
@@ -71,7 +71,8 @@ pub fn client_screen_rect(hwnd: isize) -> Result<(i32, i32, u32, u32), String> {
         x: rc.left,
         y: rc.top,
     };
-    unsafe { windows::Win32::UI::WindowsAndMessaging::ClientToScreen(hwnd, &mut pt) };
+    // windows-rs 0.62 files ClientToScreen under Graphics::Gdi (metadata quirk).
+    unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut pt) };
     Ok((
         pt.x,
         pt.y,
@@ -87,14 +88,17 @@ pub fn enumerate() -> Vec<WindowInfo> {
     unsafe {
         let _ = EnumWindows(
             Some(enum_callback),
-            &mut out as *mut Vec<WindowInfo> as isize,
+            windows::Win32::Foundation::LPARAM(&mut out as *mut Vec<WindowInfo> as isize),
         );
     }
     out
 }
 
-unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: isize) -> windows::core::BOOL {
-    let list = unsafe { &mut *(lparam as *mut Vec<WindowInfo>) };
+unsafe extern "system" fn enum_callback(
+    hwnd: HWND,
+    lparam: windows::Win32::Foundation::LPARAM,
+) -> windows::core::BOOL {
+    let list = unsafe { &mut *(lparam.0 as *mut Vec<WindowInfo>) };
     if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
         return true.into();
     }

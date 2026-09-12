@@ -1154,7 +1154,7 @@ function App() {
   // ── pointer interaction on the overlay ───────────────────────────────────────────
   const onPointerDown = async (e: PointerEvent) => {
     if (!hasClip()) return;
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     const p = norm(e);
     const t = tool();
 
@@ -2107,7 +2107,7 @@ function App() {
   const [focusDrag, setFocusDrag] = createSignal<Vec2 | null>(null);
   const onFocusDown = (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     setFocusDrag(norm(e));
   };
   const onFocusMove = (e: PointerEvent) => {
@@ -2450,7 +2450,7 @@ function App() {
   let trimDrag: "start" | "end" | null = null;
   const onTrimDown = (which: "start" | "end") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     trimDrag = which;
     beginSnapGesture(which === "start" ? "tS" : "tE");
     refreshTlRect();
@@ -2508,7 +2508,7 @@ function App() {
   // l/r counts as moved immediately so a small edge drag resizes instead of scrubbing.
   const onZoomDown = (idx: number, z: ZoomSeg, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`z${idx}`);
     refreshTlRect();
     setZoomDrag({
@@ -2739,7 +2739,7 @@ function App() {
   };
   const onSpeedDown = (idx: number, r: SpeedRegion, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`s${idx}`);
     refreshTlRect();
     setSpeedDrag({
@@ -2799,7 +2799,7 @@ function App() {
   };
   const onCutDown = (idx: number, c: Trim, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`c${idx}`);
     refreshTlRect();
     setCutDrag({
@@ -2982,7 +2982,7 @@ function App() {
     (b: { kind: Kind; id: number; start: number; end: number }, force: "l" | "r" | "move") =>
     (e: PointerEvent) => {
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
       beginSnapGesture(`a${b.kind}${b.id}`);
       refreshTlRect();
       setAnnDrag({
@@ -3046,6 +3046,7 @@ function App() {
   let barsCacheSrc: AnnotationSet | null = null;
   let barsCache: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
   const annBars = () => {
+
     const a = anns();
     if (a !== barsCacheSrc) {
       const prev = new Map(barsCache.map((b) => [`${b.kind}:${b.id}`, b]));
@@ -3089,7 +3090,7 @@ function App() {
   let inspectorDrag = false;
   const onInspDown = (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     inspectorDrag = true;
   };
   const onInspMove = (e: PointerEvent) => {
@@ -4581,7 +4582,7 @@ function App() {
           }}
           onPointerDown={(e) => {
             if (!hasClip()) return;
-            (e.currentTarget as Element).setPointerCapture(e.pointerId);
+            try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
             tlDrag = true;
             refreshTlRect();
             tlDownX = e.clientX;

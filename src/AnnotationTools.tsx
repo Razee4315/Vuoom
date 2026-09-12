@@ -81,7 +81,7 @@ function ToolGlyph(props: { tool: Tool }): JSX.Element {
 // Connectors · Text. The order here is display-only; ids still map back to TOOLS metadata.
 const GROUPS: Tool[][] = [
   ["select"],
-  ["shape", "highlight"],
+  ["shape", "highlight", "mask"],
   ["arrow", "line"],
   ["text"],
 ];

@@ -354,7 +354,7 @@ export default function RecordOverlay(props: {
 
   const onDown = (e: PointerEvent) => {
     if (phase() !== "select" || preset().ratio === "full" || props.target?.kind === "window") return;
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.mode === "new") {
       drag = { mode: "new", hx: 0, hy: 0, px0: e.clientX, py0: e.clientY, rect0: { x: e.clientX, y: e.clientY, w: 0, h: 0 } };

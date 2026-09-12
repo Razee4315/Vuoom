@@ -236,10 +236,12 @@ class MockEngine {
       const spans: ZoomSeg[] = [];
       for (const ct of CLICK_TIMES) {
         const start = Math.max(0, ct - 0.35);
-        const end = Math.min(this.duration, ct + 2.2);
+        const end = Math.min(this.duration, ct + 1.4);
         if (end - start < 0.6) continue;
         const last = spans[spans.length - 1];
-        if (last && start < last.end + 0.4) {
+        // Merge only genuine click bursts (overlapping spans), never chain distant
+        // clusters, so the demo plans several distinct zooms like the Rust planner.
+        if (last && start < last.end) {
           last.end = Math.max(last.end, end);
           continue;
         }
@@ -387,7 +389,7 @@ class MockEngine {
         color: mask ? color("#0a0a0d") : a.highlight ? color("#ffd23f", 0.4) : color("#ffd23f"),
         thickness: 0.0,
         filled: mask || !!a.highlight,
-        shape: a.ellipse ? "Ellipse" : "Rect",
+        shape: mask ? "Mask" : a.ellipse ? "Ellipse" : "Rect",
         range: mask
           ? {
               start: Math.max(0, a.t - 0.2),

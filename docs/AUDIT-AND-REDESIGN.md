@@ -100,3 +100,28 @@ launching Windows capture.
   push to `main` via GitHub Actions and land as drafts.
 - All user-facing copy avoids em dashes entirely (per project owner preference); use
   commas, colons, or parentheses instead.
+
+
+## Part 6: Native feature roadmap (from the 2026-09-12 external audit)
+
+An independent audit confirmed the interaction layer and set the feature priorities
+below. These all require new Rust engine work and land separately from the interface
+redesign, in this order:
+
+1. **Window and display selection**: name and confirm the capture source before
+   recording. Highest setup-friction win.
+2. **Post-capture crop and timed redaction**: opaque masking first, blur later; both
+   must render identically in preview and export (wgpu compositor change).
+3. **Size-oriented export presets**: optimize output toward an explicit byte budget
+   with visible resolution/framerate tradeoffs (the frontend Fit-to-size probe ships
+   first; deep encoder control follows).
+4. **Local project library**: larger, searchable history with missing-file relocation.
+5. **Editable automatic zoom suggestions**: expose the existing click-planner with
+   regenerate and sensitivity while preserving manual edits.
+6. **Microphone audio**: designed so cuts and speed changes stay synchronized.
+7. **System audio**: independent capture and mixing after mic sync is proven.
+8. **Webcam, captions, image annotations, shortcut customization**: deferred until the
+   core silent-demo workflow is dependable and demand justifies them.
+
+Explicitly out of scope for v1: cloud hosting, collaboration, a marketplace, a music
+library, or a general multitrack editor.

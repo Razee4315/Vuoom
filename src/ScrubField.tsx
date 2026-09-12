@@ -1,4 +1,4 @@
-import { createSignal, Show, type JSX } from "solid-js";
+import { createSignal, createEffect, Show, type JSX } from "solid-js";
 
 /**
  * A numeric field you can **drag to scrub**, **click to type**, or **step with the
@@ -42,6 +42,14 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
   // Overrides props.value while a drag is in flight, so the readout tracks the cursor
   // even before the parent round-trips the committed value back through props.
   const [live, setLive] = createSignal<number | null>(null);
+  // After a commit, `live` STAYS until the parent's model actually catches up (the engine
+  // acknowledged and the optimistic patch landed in props.value). The old behavior cleared
+  // it immediately, so the readout flashed back to the stale value for the round-trip.
+  createEffect(() => {
+    const v = props.value;
+    const l = live();
+    if (l !== null && v !== null && Math.abs(v - l) <= Math.abs(props.step) / 2) setLive(null);
+  });
   // When true, the edit input seeds the caret at the end (typed-to-edit) instead of
   // selecting all (clicked/Enter-to-edit).
   const [seedAtEnd, setSeedAtEnd] = createSignal(false);
@@ -81,17 +89,30 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
     setLive(v);
     props.onInput?.(v);
   };
-  const onPointerUp = (e: PointerEvent) => {
-    if (activePointer !== e.pointerId) return;
-    activePointer = -1;
-    if (moved) {
+  const endDrag = (commit: boolean) => {
+    if (moved && commit) {
       const v = live();
       if (v !== null) props.onCommit(v);
+      // Keep `live` so the readout holds until props.value catches up (see effect above).
+    } else if (!commit) {
       setLive(null);
+    }
+    activePointer = -1;
+    moved = false;
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    if (activePointer !== e.pointerId) return;
+    if (moved) {
+      endDrag(true);
     } else {
+      activePointer = -1;
       // A plain click (no drag) → switch to type mode with the whole value selected.
       beginEdit(props.value === null ? "" : fmt(props.value), false);
     }
+  };
+  const onLostPointerCapture = () => {
+    // Canceled gesture: settle on the currently shown value (honest to what the user saw).
+    if (activePointer !== -1) endDrag(true);
   };
 
   // Enter text-edit mode. `atEnd` places the caret after the seed text (typed-to-edit);
@@ -219,6 +240,7 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onLostPointerCapture={onLostPointerCapture}
       >
         <span class="scrub-val">
           <Show when={shown() !== null} fallback="-">

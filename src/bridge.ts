@@ -101,6 +101,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "seek":
       m.playhead = Math.max(0, Math.min(m.duration || 0, a.t as number));
+      m.sceneVersion++; // playhead moved: preview clients repaint
       return null;
     case "clip_state":
       return m.clipState();

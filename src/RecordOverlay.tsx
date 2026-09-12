@@ -1,5 +1,6 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
+import { toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
@@ -54,7 +55,9 @@ export default function RecordOverlay(props: {
   /** A real failure (capture never started, finish errored), surfaces the backend reason. */
   onFailed: (message: string) => void;
 }) {
-  const [phase, setPhase] = createSignal<"select" | "countdown" | "recording">("select");
+  const [phase, setPhase] = createSignal<
+    "select" | "preparing" | "countdown" | "recording" | "finalizing"
+  >("select");
   const [preset, setPreset] = createSignal<Preset>(PRESETS[1]);
   const [sel, setSel] = createSignal<Rect | null>(null);
   const [count, setCount] = createSignal(3);
@@ -178,13 +181,19 @@ export default function RecordOverlay(props: {
     if (stopping) return;
     stopping = true;
     stopTimer();
+    setPhase("finalizing"); // synchronous "Finishing recording..." so the panel never
+    // looks like it is still capturing while the take is being written.
     try {
       const summary = await invoke<Summary>("finish_recording");
       props.onFinished(summary);
     } catch (e) {
-      // Stop failed, the take may still be recoverable, so leave the flow intact and
-      // surface the real error rather than pretending the user cancelled.
-      props.onFailed(String(e));
+      // Stop failed: the take is still live, so return to the recording state with the
+      // real error surfaced instead of pretending the user cancelled.
+      stopping = false;
+      setPhase("recording");
+      startMs = Date.now() - elapsed() * 1000;
+      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
+      toast(`Stop failed, still recording: ${String(e)}`, "error");
     }
   };
 
@@ -409,7 +418,8 @@ export default function RecordOverlay(props: {
   };
   const dims = () => {
     const r = sel();
-    if (preset().ratio === "full" || !r) return "Full screen";
+    if (preset().ratio === "full") return "Full screen";
+    if (!r) return "Drag to mark the area";
     const { sx, sy } = toPhysical();
     return `${Math.round(r.w * sx)} × ${Math.round(r.h * sy)} px`;
   };
@@ -460,9 +470,16 @@ export default function RecordOverlay(props: {
               <Show
                 when={phase() === "recording"}
                 fallback={
-                  <button class="rec-cancel" onClick={cancel}>
-                    Cancel
-                  </button>
+                  <Show
+                    when={phase() === "finalizing"}
+                    fallback={
+                      <button class="rec-cancel" disabled={phase() === "preparing"} onClick={cancel}>
+                        {phase() === "preparing" ? "Preparing..." : "Cancel"}
+                      </button>
+                    }
+                  >
+                    <span class="rec-hint">Writing the take and opening the editor...</span>
+                  </Show>
                 }
               >
                 <span class="rec-time">{fmt(elapsed())}</span>
@@ -471,7 +488,7 @@ export default function RecordOverlay(props: {
                 </span>
                 <button
                   class="rec-pause"
-                  title={paused() ? "Resume recording" : "Pause, the gap is cut from the GIF"}
+                  title={paused() ? "Resume recording" : "Pause — the gap is cut from the GIF"}
                   onClick={() => void togglePause()}
                 >
                   {paused() ? "Resume" : "Pause"}
@@ -492,6 +509,9 @@ export default function RecordOverlay(props: {
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
+        onPointerCancel={() => {
+          drag = null;
+        }}
       >
         <Show when={props.backdrop}>
           <img
@@ -559,6 +579,7 @@ export default function RecordOverlay(props: {
                 {(z) => (
                   <button
                     classList={{ "sel-zoom": true, active: Math.abs(props.zoom - z.v) < 0.001 }}
+                    aria-pressed={Math.abs(props.zoom - z.v) < 0.001}
                     title={z.v === 1 ? "No zoom" : `Zoom to ${z.label} on Ctrl+Shift+Z`}
                     onClick={() => props.onZoomChange(z.v)}
                   >
@@ -570,11 +591,23 @@ export default function RecordOverlay(props: {
           </div>
           <div class="sel-actions">
             <span class="sel-dims">{dims()}</span>
-            <button class="sel-btn ghost" onClick={cancel}>
+            <button class="sel-btn ghost" disabled={phase() === "preparing"} onClick={cancel}>
               Cancel
             </button>
-            <button class="sel-btn primary" onClick={() => void beginCountdown()}>
-              Start →
+            <button
+              class="sel-btn primary"
+              disabled={
+                phase() === "preparing" ||
+                (preset().ratio !== "full" && preset().ratio !== null && !sel())
+              }
+              title={
+                preset().ratio !== "full" && preset().ratio !== null && !sel()
+                  ? "Drag on the screen to mark the area first"
+                  : undefined
+              }
+              onClick={() => void beginCountdown()}
+            >
+              {phase() === "preparing" ? "Preparing..." : "Start →"}
             </button>
           </div>
         </div>

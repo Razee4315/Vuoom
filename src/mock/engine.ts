@@ -118,6 +118,18 @@ class MockEngine {
   private cancelRequested = false;
   private progressCbs = new Set<(p: { done: number; total: number }) => void>();
   private backdropDataUrl: string | null = null;
+  /** Bumped on every state change so preview clients can repaint only when needed. */
+  sceneVersion = 0;
+  private dirtyCbs = new Set<() => void>();
+
+  onDirty(cb: () => void): () => void {
+    this.dirtyCbs.add(cb);
+    return () => this.dirtyCbs.delete(cb);
+  }
+  private markDirty() {
+    this.sceneVersion++;
+    for (const cb of this.dirtyCbs) cb();
+  }
 
   // ── state helpers ────────────────────────────────────────────────────────────
   private snap(): Snapshot {
@@ -145,8 +157,10 @@ class MockEngine {
       this.redoStack = [];
     }
     fn?.();
+    this.markDirty();
   }
   private restore(s: Snapshot) {
+    this.sceneVersion++;
     const st = JSON.parse(s);
     this.anns = st.anns;
     this.zooms = st.zooms;

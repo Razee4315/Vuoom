@@ -66,6 +66,14 @@ function ToolGlyph(props: { tool: Tool }): JSX.Element {
           <path d="M4 22h10" />
         </svg>
       );
+    case "mask":
+      // An opaque block with a slash: redaction.
+      return (
+        <svg {...common}>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M5 19L19 5" stroke-dasharray="2.5 2.5" />
+        </svg>
+      );
   }
 }
 

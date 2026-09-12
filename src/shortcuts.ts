@@ -9,6 +9,7 @@ export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: 
   { id: "line", label: "Line", key: "L", code: "KeyL", hint: "Drag to draw a line. (L)" },
   { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to draw a box. (S)" },
   { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag to highlight an area. (H)" },
+  { id: "mask", label: "Mask", key: "M", code: "KeyM", hint: "Drag to cover an area with an opaque redaction block. (M)" },
 ];
 // e.code → tool, for single-key tool switching (only while a clip is loaded).
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));

@@ -125,6 +125,31 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
         ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }),
         highlight: true,
       });
+    case "add_mask":
+      return m.addBox({
+        ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }),
+        mask: true,
+      });
+    case "set_crop":
+      m.setCrop(
+        a.x !== undefined
+          ? { x: a.x as number, y: a.y as number, w: a.w as number, h: a.h as number }
+          : null,
+      );
+      return m.clipState();
+    case "plan_zoom_auto":
+      return m.planZoomAuto(a.amount as number);
+    case "list_displays":
+      return [
+        { name: "\\.DISPLAY1", index: 1, x: 0, y: 0, w: 1920, h: 1080, primary: true },
+        { name: "\\.DISPLAY2", index: 2, x: 1920, y: 0, w: 2560, h: 1440, primary: false },
+      ];
+    case "list_windows":
+      return [
+        { hwnd: 1001, title: "Demo Editor - Visual Studio Code", w: 1280, h: 800 },
+        { hwnd: 1002, title: "Vuoom Docs - Google Chrome", w: 1440, h: 900 },
+        { hwnd: 1003, title: "Terminal - pwsh", w: 1100, h: 700 },
+      ];
     case "update_text":
       return mockUpdateText(m, a);
     case "update_box":

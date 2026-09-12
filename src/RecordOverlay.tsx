@@ -46,9 +46,16 @@ const ZOOM_LEVELS = [
   { v: 3.0, label: "3×" },
 ];
 
+export type RecordTarget =
+  | { kind: "display"; name: string; label: string }
+  | { kind: "window"; hwnd: number; label: string }
+  | null;
+
 export default function RecordOverlay(props: {
   backdrop: string | null;
   zoom: number;
+  /** What the take records: a display (region-selectable) or a whole app window. */
+  target: RecordTarget;
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
@@ -110,29 +117,40 @@ export default function RecordOverlay(props: {
   const beginCountdown = async () => {
     const p = preset();
     const r = sel();
-    if (p.ratio === "full" || !r || r.w < 8 || r.h < 8) {
-      await invoke("set_region", {}); // no fields → full screen
-    } else {
-      const { sx, sy } = toPhysical();
-      await invoke("set_region", {
-        x: Math.round(r.x * sx),
-        y: Math.round(r.y * sy),
-        w: Math.round(r.w * sx),
-        h: Math.round(r.h * sy),
-      });
-    }
-    await invoke("enter_stopbar"); // shrink the host window to the bar
-    // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
-    // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
-    // Best-effort: the command may not exist on older backends, the frame still appears when
-    // recording starts. Cancel/Esc runs cancel_record_flow → drop_border, which clears it.
+    const windowMode = props.target?.kind === "window";
+    // A non-full preset without a drawn region must never silently record full screen.
+    if (!windowMode && p.ratio !== "full" && p.ratio !== null && (!r || r.w < 8 || r.h < 8)) return;
+    setPhase("preparing"); // instant acknowledgment: no dead click while the engine sets up
     try {
-      await invoke("show_region_border");
-    } catch {
-      /* backend without show_region_border, border still shows at record start */
+      if (windowMode) {
+        // Window capture records the whole client area; no region call at all.
+      } else if (p.ratio === "full" || !r) {
+        await invoke("set_region", {}); // no fields → full screen
+      } else {
+        const { sx, sy } = toPhysical();
+        await invoke("set_region", {
+          x: Math.round(r.x * sx),
+          y: Math.round(r.y * sy),
+          w: Math.round(r.w * sx),
+          h: Math.round(r.h * sy),
+        });
+      }
+      await invoke("enter_stopbar"); // shrink the host window to the bar
+      // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
+      // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
+      // Best-effort: the command may not exist on older backends, the frame still appears
+      // when recording starts. Cancel/Esc runs cancel_record_flow, which clears it.
+      try {
+        await invoke("show_region_border");
+      } catch {
+        /* backend without show_region_border, border still shows at record start */
+      }
+      setPhase("countdown");
+      runCountdown();
+    } catch (e) {
+      setPhase("select");
+      toast(`Could not start recording: ${String(e)}`, "error");
     }
-    setPhase("countdown");
-    runCountdown();
   };
 
   const runCountdown = () => {
@@ -335,7 +353,7 @@ export default function RecordOverlay(props: {
   };
 
   const onDown = (e: PointerEvent) => {
-    if (phase() !== "select" || preset().ratio === "full") return;
+    if (phase() !== "select" || preset().ratio === "full" || props.target?.kind === "window") return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.mode === "new") {
@@ -386,13 +404,24 @@ export default function RecordOverlay(props: {
   };
 
   const onKey = (e: KeyboardEvent) => {
-    // Esc aborts both while picking a region and during the 3-2-1 countdown.
-    if (e.key === "Escape" && (phase() === "select" || phase() === "countdown")) {
+    // Esc aborts while picking, preparing, and during the 3-2-1 countdown.
+    if (
+      e.key === "Escape" &&
+      (phase() === "select" || phase() === "countdown" || phase() === "preparing")
+    ) {
       cancel();
       return;
     }
     if (phase() !== "select") return;
-    if (e.key === "Enter") void beginCountdown();
+    if (e.key === "Enter") {
+      const p = preset();
+      const r = sel();
+      if (props.target?.kind === "window") {
+        void beginCountdown();
+      } else if (p.ratio === "full" || p.ratio === null || (r && r.w >= 8 && r.h >= 8)) {
+        void beginCountdown();
+      }
+    }
   };
   onMount(() => {
     window.addEventListener("keydown", onKey);
@@ -412,9 +441,23 @@ export default function RecordOverlay(props: {
 
   const pickPreset = (p: Preset) => {
     setPreset(p);
-    setSel(null);
     drag = null;
-    setCursor(p.ratio === "full" ? "default" : "crosshair");
+    if (p.ratio === "full" || p.ratio === null || props.target?.kind === "window") {
+      // Full screen and window targets need no rectangle; Custom starts empty (Start
+      // stays disabled until the user draws), so the highlighted chip ALWAYS matches
+      // what will actually record.
+      setSel(null);
+      setCursor(p.ratio === "full" || props.target?.kind === "window" ? "default" : "crosshair");
+      return;
+    }
+    // Seed a centered 2/3-width rectangle in the chosen aspect so the highlight on the
+    // chip matches a real, visible region from the first frame.
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = Math.round(vw * 0.66);
+    const h = Math.round(w / p.ratio);
+    setSel(clampToView({ x: Math.round((vw - w) / 2), y: Math.round(Math.max(0, (vh - h) / 2 - 40)), w, h }));
+    setCursor("move");
   };
   const dims = () => {
     const r = sel();
@@ -558,7 +601,16 @@ export default function RecordOverlay(props: {
         </Show>
 
         <div class="sel-bar" onPointerDown={(e) => e.stopPropagation()}>
-          <div class="sel-presets">
+          <Show when={props.target?.kind === "window"}>
+            <div class="sel-windowtag">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M3 9h18" />
+              </svg>
+              Recording window: {props.target?.kind === "window" ? props.target.label : ""}
+            </div>
+          </Show>
+          <div class="sel-presets" classList={{ hidden: props.target?.kind === "window" }}>
             <For each={PRESETS}>
               {(p) => (
                 <button
@@ -572,7 +624,7 @@ export default function RecordOverlay(props: {
               )}
             </For>
           </div>
-          <div class="sel-zoomrow">
+          <div class="sel-zoomrow" classList={{ hidden: props.target?.kind === "window" }}>
             <span class="sel-zoomlabel">Zoom level</span>
             <div class="sel-zooms">
               <For each={ZOOM_LEVELS}>
@@ -612,7 +664,7 @@ export default function RecordOverlay(props: {
           </div>
         </div>
 
-        <Show when={preset().ratio !== "full" && !sel()}>
+        <Show when={props.target?.kind !== "window" && preset().ratio !== "full" && !sel()}>
           <div class="sel-drawhint">Drag to mark the area · Esc to cancel</div>
         </Show>
       </div>

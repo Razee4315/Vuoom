@@ -3038,3 +3038,168 @@ button.tl-seg:focus-visible {
     animation: none !important;
   }
 }
+
+/* ============================================================
+   Engine v1: source chooser, crop presets, recents search, mask
+   ============================================================ */
+
+/* Source chooser (displays + windows) */
+.source-modal {
+  width: min(480px, 92vw);
+}
+.source-tabs-label {
+  margin: 4px 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.source-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 60ms linear,
+    border-color 60ms linear;
+}
+.source-item:hover:not(:disabled) {
+  background: var(--surface-4);
+  border-color: var(--line-strong);
+}
+.source-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.source-icon {
+  flex: none;
+  width: 38px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.source-meta {
+  min-width: 0;
+}
+.source-meta strong {
+  display: block;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-meta small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.source-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  color: var(--record);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+/* Crop presets in the Appearance popover */
+.crop-presets {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.chip-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 60ms linear,
+    border-color 60ms linear,
+    color 60ms linear;
+}
+.chip-btn:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.chip-btn[aria-pressed="true"] {
+  border-color: var(--record);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.appear-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Recents search */
+.recent-search {
+  flex-basis: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color 60ms linear;
+}
+.recent-search:focus {
+  border-color: var(--record);
+}
+.recent-search::placeholder {
+  color: var(--muted);
+}
+
+/* Record overlay: window-target banner */
+.sel-windowtag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(229, 72, 77, 0.14);
+  border: 1px solid rgba(229, 72, 77, 0.4);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sel-chip.hidden,
+.sel-zoomrow.hidden {
+  display: none;
+}
+
+/* Mask timeline chip: dashed dark so it reads as a hole, not a highlight */
+.tl-ann.tl-box {
+  /* unchanged; masks keep the box lane color */
+}

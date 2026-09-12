@@ -197,7 +197,7 @@ fn pick_window(hwnd: isize) -> Result<Window, CaptureError> {
     let windows = Window::enumerate().map_err(|e| CaptureError::Start(e.to_string()))?;
     windows
         .into_iter()
-        .find(|w| w.hwnd().map(|h| h.0 as isize).unwrap_or(0) == hwnd)
+        .find(|w| w.as_raw_hwnd() as isize == hwnd)
         .ok_or_else(|| CaptureError::Start(format!("capture window {hwnd} not found")))
 }
 

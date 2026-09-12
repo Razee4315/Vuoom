@@ -18,6 +18,7 @@ import {
 import { ToolRail } from "./AnnotationTools";
 import { dialogA11y } from "./dialog";
 import { toast, ToastHost } from "./ui";
+import { createSyncSlot, createPointerFrame } from "./sync";
 import { arrowHeads, clamp01, distToSeg, outputDuration, v2 } from "./geometry";
 import { cssColor, fmt, fmtBytes, fmtT, friendlyError, GPU_FAILED_MSG, hexRgb, rgbHex } from "./format";
 import { SHORTCUTS, TOOL_KEYS, TOOLS } from "./shortcuts";
@@ -204,6 +205,15 @@ function App() {
     setSelected({ kind, id });
   };
   const [drag, setDrag] = createSignal<Drag>(null);
+  // Temp ids (negative) for optimistic creations map to their in-flight engine promise;
+  // anything that must act on a REAL engine id (empty-text delete, duplicate, copy)
+  // awaits this first.
+  const pendingTemp = new Map<number, Promise<number>>();
+  const ensureRealId = async (id: number): Promise<number> => {
+    if (id >= 0) return id;
+    const p = pendingTemp.get(id);
+    return p ? await p.catch(() => id) : id;
+  };
   const [stage, setStage] = createSignal({ w: 1, h: 1 });
   const [frameAspect, setFrameAspect] = createSignal(16 / 9);
   // Pixel width of the timeline *viewport* (the outer .tl box), drives the fit-to-width
@@ -238,6 +248,17 @@ function App() {
   const [coachRecord, setCoachRecord] = createSignal(false);
   const [coachPos, setCoachPos] = createSignal({ x: 0, y: 0 });
   let recordBtnEl: HTMLButtonElement | undefined;
+  // Appearance popover (frame + backdrop) in the top bar.
+  const [appearOpen, setAppearOpen] = createSignal(false);
+  let appearEl: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!appearOpen()) return;
+    const onDoc = (e: MouseEvent) => {
+      if (appearEl && !appearEl.contains(e.target as Node)) setAppearOpen(false);
+    };
+    document.addEventListener("click", onDoc);
+    onCleanup(() => document.removeEventListener("click", onDoc));
+  });
 
   // ── recent projects (local) ─────────────────────────────────────────────────
   // A lightweight "pick up where you left off" grid for the empty state. Entries are
@@ -246,6 +267,8 @@ function App() {
     dir: string;
     name: string;
     ts: number;
+    /** Small JPEG snapshot of the project frame, captured at save time. */
+    thumb?: string;
   }
   const RECENTS_KEY = "vuoom-recents";
   const [recents, setRecents] = createSignal<Recent[]>([]);
@@ -258,10 +281,27 @@ function App() {
       setRecents([]);
     }
   };
-  const rememberRecent = (dir: string) => {
+  // Small preview of the current clip for the recents grid; best-effort (the canvas may
+  // be hidden or tainted in odd states, in which case the grid falls back to the icon).
+  const captureThumb = (): string | undefined => {
+    try {
+      if (!canvasEl || canvasEl.classList.contains("hidden")) return undefined;
+      const off = document.createElement("canvas");
+      off.width = 168;
+      off.height = 94;
+      const ctx = off.getContext("2d");
+      if (!ctx) return undefined;
+      ctx.drawImage(canvasEl, 0, 0, off.width, off.height);
+      return off.toDataURL("image/jpeg", 0.6);
+    } catch {
+      return undefined;
+    }
+  };
+  const rememberRecent = (dir: string, thumb?: string) => {
     const name = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? dir;
+    const prev = recents().find((r) => r.dir === dir);
     const next = [
-      { dir, name, ts: Date.now() },
+      { dir, name, ts: Date.now(), thumb: thumb ?? prev?.thumb },
       ...recents().filter((r) => r.dir !== dir),
     ].slice(0, 6);
     setRecents(next);
@@ -310,6 +350,8 @@ function App() {
   // ghost block with a + under the cursor; a plain click (not a drag-scrub) adds the zoom.
   // Click detection lives on the .tl pointer pair because pointer capture retargets
   // pointerup to the capturing element, so a child's click handler would never fire.
+  // ALL pointermove work runs once per animation frame (createPointerFrame) and reads a
+  // cached track rect: hovering used to hit-test + sort on every single pointer event.
   const [hoverT, setHoverT] = createSignal<number | null>(null);
   const [ghostT, setGhostT] = createSignal<number | null>(null);
   let tlDownX = -1;
@@ -321,16 +363,26 @@ function App() {
       setGhostT(null);
       return;
     }
-    setHoverT(tlTime(e));
+    const t = tlTime(e);
+    setHoverT(t);
+    setGhostT((e.target as Element).closest(".tl-track") ? t : null);
   };
   const onTlHoverLeave = () => {
     setHoverT(null);
     setGhostT(null);
   };
-  const onZoomLaneMove = (e: PointerEvent) => {
-    if (tlDrag || zoomDrag() || !hasClip()) return;
-    setGhostT(tlTime(e));
+  const onTlPointerMove = (e: PointerEvent) => {
+    onTlHoverMove(e);
+    if (tlDrag) tlSeekFromEvent(e);
   };
+  // One frame-runner per gesture owner: events within a frame coalesce to the latest.
+  const frameTl = createPointerFrame();
+  const frameZoom = createPointerFrame();
+  const frameSpeed = createPointerFrame();
+  const frameCut = createPointerFrame();
+  const frameAnn = createPointerFrame();
+  const frameTrim = createPointerFrame();
+  const frameCanvas = createPointerFrame();
 
   const preview = createPreviewClient();
   let canvasEl: HTMLCanvasElement | undefined;
@@ -645,9 +697,26 @@ function App() {
     void pushSeek(t);
   };
 
+  // Reconcile a fresh engine snapshot into the model: an item whose snapshot is UNCHANGED
+  // keeps its object reference (Solid <For> keeps that DOM row), a CHANGED item takes the
+  // fresh object (so its row re-renders), new ids append, missing ids drop. Result is
+  // ordered like the engine's list.
+  const reconcileAnns = (next: AnnotationSet) => {
+    const cur = anns();
+    const merge = <T extends { id: number }>(curList: T[], nextList: T[]): T[] =>
+      nextList.map((nu) => {
+        const old = curList.find((x) => x.id === nu.id);
+        return old && JSON.stringify(old) === JSON.stringify(nu) ? old : nu;
+      });
+    setAnns({
+      texts: merge(cur.texts, next.texts),
+      arrows: merge(cur.arrows, next.arrows),
+      highlights: merge(cur.highlights, next.highlights),
+    });
+  };
   const refresh = async () => {
     try {
-      setAnns(await invoke<AnnotationSet>("list_annotations"));
+      reconcileAnns(await invoke<AnnotationSet>("list_annotations"));
       // Every annotation edit re-syncs through here; refresh() is never called on a
       // pristine load without loadFinishedClip() clearing the flag straight after.
       setDirty(true);
@@ -736,9 +805,24 @@ function App() {
       g[0] = clamp01(g[0] + dx);
       g[1] = clamp01(g[1] + dy);
     }
-    await applyGeom(s.kind, s.id, g);
-    await refresh();
-    await pushSeek(playhead());
+    patchAnn(s.kind, s.id, (a) => {
+      if (s.kind === "arrow") {
+        (a as ArrowAnn).from = [g[0], g[1]];
+        (a as ArrowAnn).to = [g[2], g[3]];
+      } else if (s.kind === "box") {
+        (a as BoxAnn).rect = { x: g[0], y: g[1], w: g[2], h: g[3] };
+      } else {
+        (a as TextAnn).pos = [g[0], g[1]];
+      }
+    });
+    try {
+      await applyGeom(s.kind, s.id, g);
+      await refresh();
+      await pushSeek(playhead());
+    } catch (e) {
+      await refresh();
+      toast(`Move failed: ${friendlyError(e)}`, "error");
+    }
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -849,28 +933,61 @@ function App() {
   // visible at this moment (it's only on screen to stay editable).
   const isGhost = (r: TimeRange, sel: boolean) => sel && !playing() && !inWindow(r);
 
-  // ── live edit (update + re-composite), throttled ─────────────────────────────────
-  let editBusy = false;
-  let editPending: (() => Promise<void>) | null = null;
-  const pushEdit = async (op: () => Promise<void>) => {
-    if (editBusy) {
-      editPending = op;
-      return;
-    }
-    editBusy = true;
-    try {
-      await op();
-      setDirty(true); // live property / geometry / text edits flow through here
-      await invoke("seek", { t: playhead() });
-    } catch {
-      /* ignore */
-    }
-    editBusy = false;
-    if (editPending) {
-      const n = editPending;
-      editPending = null;
-      void pushEdit(n);
-    }
+  // ── live edit queue (optimistic + keyed coalescing) ───────────────────────────
+  // pushEdit(key, patch, command):
+  //   1. patch() runs SYNCHRONOUSLY against the local model, so the UI reacts this frame.
+  //   2. command() is queued under `key`. A newer push for the same key replaces the
+  //      queued command (latest value wins); pushes for OTHER keys are never dropped.
+  //   3. The loop drains everything queued, then re-composites ONCE via the shared seek
+  //      scheduler, so scrubbing stays smooth under a storm of slider/scrub input.
+  //   4. A failed command re-syncs from the engine (which still holds the old value) and
+  //      surfaces a toast; later commands for other keys proceed untouched.
+  const editQueues = new Map<string, () => Promise<void>>();
+  let editsBusy = false;
+  const pushEdit = (key: string, patch: () => void, command: () => Promise<void>) => {
+    patch();
+    setDirty(true); // live property / geometry / text edits flow through here
+    editQueues.set(key, command);
+    if (editsBusy) return;
+    editsBusy = true;
+    void (async () => {
+      while (editQueues.size > 0) {
+        const entries = [...editQueues.values()];
+        editQueues.clear();
+        for (const cmd of entries) {
+          try {
+            await cmd();
+          } catch (e) {
+            await refresh(); // engine truth undoes the optimistic patch
+            toast(`Edit failed: ${friendlyError(e)}`, "error");
+          }
+        }
+        await pushSeek(playhead());
+      }
+      editsBusy = false;
+    })();
+  };
+
+  // Optimistic local model patch. The patched annotation is REPLACED with a new object
+  // (clone + mutate): Solid's <For> diffs by reference and plain object properties are not
+  // reactive, so an in-place mutation would never re-render the canvas label. Untouched
+  // annotations keep their references, so their timeline rows stay put.
+  const patchAnn = (kind: Kind, id: number, mut: (a: TextAnn | ArrowAnn | BoxAnn) => void) => {
+    const cur = anns();
+    const swap = <T extends { id: number }>(list: T[]): T[] =>
+      list.map((x) => {
+        if (x.id !== id) return x;
+        const clone = structuredClone(x);
+        mut(clone as unknown as TextAnn | ArrowAnn | BoxAnn);
+        return clone;
+      });
+    setAnns(
+      kind === "text"
+        ? { texts: swap(cur.texts), arrows: cur.arrows, highlights: cur.highlights }
+        : kind === "arrow"
+          ? { texts: cur.texts, arrows: swap(cur.arrows), highlights: cur.highlights }
+          : { texts: cur.texts, arrows: cur.arrows, highlights: swap(cur.highlights) },
+    );
   };
 
   // Geometry of an annotation as a flat number[] (for the drag override + live updates).
@@ -1030,16 +1147,80 @@ function App() {
     const t = tool();
 
     if (t === "text") {
-      const id = await invoke<number>("add_text", { text: "Text", x: p.x, y: p.y, t: playhead() });
-      await refresh();
-      await pushSeek(playhead());
+      // Optimistic creation: the label appears, is selected, and its inline editor opens
+      // THIS frame under a negative temp id. The engine call runs in the background and
+      // the temp id is remapped to the real one when it resolves. Any action that needs
+      // the real id (empty-text delete, duplicate, copy) awaits `ensureRealId` first.
+      const tempId = -Date.now() - Math.floor(Math.random() * 1e6);
+      const t0 = playhead();
+      const cur = anns();
+      const temp: TextAnn = {
+        id: tempId,
+        text: "Text",
+        pos: [p.x, p.y],
+        font_size: 0.05,
+        color: { r: 255, g: 255, b: 255, a: 1 },
+        bold: false,
+        italic: false,
+        background: false,
+        font: "",
+        range: {
+          start: Math.max(0, t0 - 0.2),
+          end: Math.min(duration(), t0 + 2.8),
+          fade_in: 0.15,
+          fade_out: 0.25,
+        },
+      };
+      setAnns({ ...cur, texts: [...cur.texts, temp] });
+      setDirty(true);
       setSelZoom(null);
       setSelSpeed(null);
       setSelCut(null);
       clearExtra();
-      setSelected({ kind: "text", id });
-      setEditingText(id);
+      setSelected({ kind: "text", id: tempId });
+      // The inline editor must NOT open during pointerdown: the compatibility mousedown
+      // that fires right after this listener would pull focus (its default action) and
+      // blur the freshly mounted input, closing it instantly. This is the same focus race
+      // documented for double-click inline editing; mounting on pointerup sidesteps it.
+      // `resolvedId` tracks the temp-to-real remap so a fast engine response (which
+      // re-points the selection BEFORE the user releases the button) still opens.
+      let resolvedId = tempId;
+      window.addEventListener(
+        "pointerup",
+        () => {
+          const sid = selected()?.id;
+          if (sid === tempId || sid === resolvedId) setEditingText(sid);
+        },
+        { once: true },
+      );
       if (!toolLock()) setTool("select");
+      const creation = (async () => {
+        const realId = await invoke<number>("add_text", { text: "Text", x: p.x, y: p.y, t: t0 });
+        resolvedId = realId;
+        const cs = anns();
+        const t = cs.texts.find((x) => x.id === tempId);
+        if (t) t.id = realId;
+        setAnns({ texts: [...cs.texts], arrows: [...cs.arrows], highlights: [...cs.highlights] });
+        if (selected()?.id === tempId) setSelected({ kind: "text", id: realId });
+        if (editingText() === tempId) setEditingText(realId);
+        return realId;
+      })();
+      pendingTemp.set(tempId, creation);
+      void creation
+        .then(async (realId) => {
+          pendingTemp.delete(tempId);
+          await refresh();
+          await pushSeek(playhead());
+          if (selected()?.id === realId) setEditingText(realId);
+        })
+        .catch(async (e) => {
+          pendingTemp.delete(tempId);
+          const cs = anns();
+          setAnns({ ...cs, texts: cs.texts.filter((x) => x.id !== tempId) });
+          if (selected()?.id === tempId) setSelected(null);
+          if (editingText() === tempId) setEditingText(null);
+          toast(`Could not add text: ${friendlyError(e)}`, "error");
+        });
       return;
     }
     if (t === "arrow") {
@@ -1322,34 +1503,74 @@ function App() {
   // every pointer-move or keystroke, so they run through pushEdit, the same edit throttle
   // the inline text editor uses, to bound the invoke→refresh→seek round-trips. pushEdit
   // appends the seek and always lets the trailing value land, so the drag-end value sticks.
-  const editStyle = (patch: { thickness?: number; filled?: boolean }) =>
-    pushEdit(async () => {
-      const s = selected();
-      if (!s) return;
-      await invoke("set_annotation_style", { id: s.id, ...patch });
-      await refresh();
-    });
-  const setShape = async (ellipse: boolean) => {
+  const editStyle = (patch: { thickness?: number; filled?: boolean }) => {
+    const s = selected();
+    if (!s) return;
+    const { id, kind } = s;
+    pushEdit(
+      `sty:${id}`,
+      () =>
+        patchAnn(kind, id, (a) => {
+          if (patch.thickness !== undefined) (a as ArrowAnn).thickness = patch.thickness;
+          if (patch.filled !== undefined && kind === "box") (a as BoxAnn).filled = patch.filled;
+        }),
+      async () => {
+        await invoke("set_annotation_style", { id, ...patch });
+        await refresh();
+      },
+    );
+  };
+  const setShape = (ellipse: boolean) => {
     const s = selected();
     if (s?.kind !== "box") return;
-    await invoke("set_highlight_shape", { id: s.id, ellipse });
-    await refresh();
-    await pushSeek(playhead());
+    const { id } = s;
+    patchAnn("box", id, (a) => (a as BoxAnn).shape = ellipse ? "Ellipse" : "Rect");
+    void (async () => {
+      try {
+        await invoke("set_highlight_shape", { id, ellipse });
+        await refresh();
+        await pushSeek(playhead());
+      } catch (e) {
+        await refresh();
+        toast(`Shape failed: ${friendlyError(e)}`, "error");
+      }
+    })();
   };
-  const setArrowStyle = async (style: "arrow" | "line" | "double") => {
+  const setArrowStyle = (style: "arrow" | "line" | "double") => {
     const s = selected();
     if (s?.kind !== "arrow") return;
-    await invoke("set_arrow_style", { id: s.id, style });
-    await refresh();
-    await pushSeek(playhead());
-  };
-  const setOpacity = (a: number) =>
-    pushEdit(async () => {
-      const s = selected();
-      if (!s) return;
-      await invoke("set_annotation_opacity", { id: s.id, a });
-      await refresh();
+    const { id } = s;
+    patchAnn("arrow", id, (a) => {
+      (a as ArrowAnn).style = style === "arrow" ? "Arrow" : style === "line" ? "Line" : "DoubleArrow";
     });
+    void (async () => {
+      try {
+        await invoke("set_arrow_style", { id, style });
+        await refresh();
+        await pushSeek(playhead());
+      } catch (e) {
+        await refresh();
+        toast(`Style failed: ${friendlyError(e)}`, "error");
+      }
+    })();
+  };
+  const setOpacity = (a: number) => {
+    const s = selected();
+    if (!s) return;
+    const { id, kind } = s;
+    pushEdit(
+      `opa:${id}`,
+      () =>
+        patchAnn(kind, id, (ann) => {
+          const c = (ann as TextAnn).color;
+          (ann as TextAnn).color = { ...c, a };
+        }),
+      async () => {
+        await invoke("set_annotation_opacity", { id, a });
+        await refresh();
+      },
+    );
+  };
   const inspTitle = () => {
     const s = selected()!;
     if (s.kind === "box") {
@@ -1368,29 +1589,50 @@ function App() {
     if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.color;
     return anns().highlights.find((b) => b.id === s.id)?.color;
   };
-  const setColor = (hex: string) =>
-    pushEdit(async () => {
-      const s = selected();
-      if (!s) return;
-      const c = hexRgb(hex);
-      await invoke("set_annotation_color", { id: s.id, r: c.r, g: c.g, b: c.b });
-      await refresh();
-    });
-  const editText = (text: string) =>
-    pushEdit(async () => {
-      const s = selected();
-      if (s?.kind !== "text") return;
-      await invoke("update_text", { id: s.id, text });
-      await refresh();
-    });
-  const editFontSize = (size: number) =>
-    pushEdit(async () => {
-      const s = selected();
-      if (s?.kind !== "text") return;
-      await invoke("update_text", { id: s.id, fontSize: size });
-      await refresh();
-    });
-  const editTextStyle = async (patch: {
+  const setColor = (hex: string) => {
+    const s = selected();
+    if (!s) return;
+    const { id, kind } = s;
+    const c = hexRgb(hex);
+    pushEdit(
+      `col:${id}`,
+      () =>
+        patchAnn(kind, id, (ann) => {
+          (ann as TextAnn).color = { ...(ann as TextAnn).color, ...c };
+        }),
+      async () => {
+        await invoke("set_annotation_color", { id, r: c.r, g: c.g, b: c.b });
+        await refresh();
+      },
+    );
+  };
+  const editText = (text: string) => {
+    const s = selected();
+    if (s?.kind !== "text") return;
+    const { id } = s;
+    pushEdit(
+      `text:${id}`,
+      () => patchAnn("text", id, (a) => (a as TextAnn).text = text),
+      async () => {
+        await invoke("update_text", { id, text });
+        await refresh();
+      },
+    );
+  };
+  const editFontSize = (size: number) => {
+    const s = selected();
+    if (s?.kind !== "text") return;
+    const { id } = s;
+    pushEdit(
+      `fs:${id}`,
+      () => patchAnn("text", id, (a) => (a as TextAnn).font_size = size),
+      async () => {
+        await invoke("update_text", { id, fontSize: size });
+        await refresh();
+      },
+    );
+  };
+  const editTextStyle = (patch: {
     bold?: boolean;
     italic?: boolean;
     background?: boolean;
@@ -1398,9 +1640,17 @@ function App() {
   }) => {
     const s = selected();
     if (s?.kind !== "text") return;
-    await invoke("update_text", { id: s.id, ...patch });
-    await refresh();
-    await pushSeek(playhead());
+    const { id } = s;
+    const field = Object.keys(patch)[0] ?? "style";
+    pushEdit(
+      `tstyle:${id}:${field}`,
+      () => patchAnn("text", id, (a) => Object.assign(a, patch)),
+      async () => {
+        await invoke("update_text", { id, ...patch });
+        await refresh();
+        await pushSeek(playhead());
+      },
+    );
   };
   const selectedRange = (): TimeRange | undefined => {
     const s = selected();
@@ -1409,12 +1659,23 @@ function App() {
     if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.range;
     return anns().highlights.find((b) => b.id === s.id)?.range;
   };
-  const editRange = async (start: number, end: number) => {
+  const editRange = (start: number, end: number) => {
     const s = selected();
     if (!s || Number.isNaN(start) || Number.isNaN(end)) return;
-    await invoke("update_annotation_range", { id: s.id, start, end });
-    await refresh();
-    await pushSeek(playhead());
+    const { id, kind } = s;
+    pushEdit(
+      `range:${id}`,
+      () =>
+        patchAnn(kind, id, (a) => {
+          const r = (a as TextAnn).range;
+          (a as TextAnn).range = { ...r, start, end };
+        }),
+      async () => {
+        await invoke("update_annotation_range", { id, start, end });
+        await refresh();
+        await pushSeek(playhead());
+      },
+    );
   };
   // Delete the whole selection (primary + extras). A lone delete keeps today's behaviour
   // (empty, non-coalescing undo tag). A group delete passes ONE shared non-empty tag for the
@@ -1423,11 +1684,14 @@ function App() {
   const deleteSelection = async () => {
     const all = selectionAll();
     if (all.length === 0) return;
-    if (all.length === 1) {
-      await invoke("delete_annotation", { id: all[0].id });
+    // Temp (optimistic) ids must become real before the engine can delete them.
+    const resolved: Selection[] = [];
+    for (const it of all) resolved.push({ kind: it.kind, id: await ensureRealId(it.id) });
+    if (resolved.length === 1) {
+      await invoke("delete_annotation", { id: resolved[0].id });
     } else {
       const tag = `multidel:${++delGesture}`;
-      for (const it of all) await invoke("delete_annotation", { id: it.id, tag });
+      for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
     }
     setSelected(null);
     await refresh();
@@ -1475,6 +1739,8 @@ function App() {
   const duplicateSelected = async () => {
     const s = selected();
     if (!s) return;
+    const realId = await ensureRealId(s.id);
+    if (realId !== s.id) setSelected({ kind: s.kind, id: realId });
     try {
       const id = await invoke<number>("duplicate_annotation", { id: s.id });
       await refresh();
@@ -1523,7 +1789,7 @@ function App() {
   // captured so the caller only swallows Ctrl+C when there was a selection to copy.
   const copySelected = (): boolean => {
     const all = selectionAll();
-    if (all.length === 0) return false;
+    if (all.length === 0 || all.some((x) => x.id < 0)) return false;
     const items: ClipItem[] = [];
     for (const sel of all) {
       if (sel.kind === "text") {
@@ -1579,12 +1845,19 @@ function App() {
   const editTextLive = (text: string) => {
     const id = editingText();
     if (id === null) return;
-    void pushEdit(() => invoke("update_text", { id, text }));
+    pushEdit(
+      `text:${id}`,
+      () => patchAnn("text", id, (a) => (a as TextAnn).text = text),
+      async () => {
+        await invoke("update_text", { id, text });
+      },
+    );
   };
   const finishTextEdit = async () => {
-    const id = editingText();
+    const picked = editingText();
     setEditingText(null);
-    if (id === null) return;
+    if (picked === null) return;
+    const id = await ensureRealId(picked);
     await refresh(); // sync the live-typed value before deciding
     const ann = anns().texts.find((t) => t.id === id);
     if (ann && ann.text.trim() === "") {
@@ -1671,19 +1944,38 @@ function App() {
   };
   const addZoomAt = async (t: number = playhead()) => {
     if (!hasClip()) return;
+    // Optimistic: the block appears and is selected THIS frame; the engine call follows
+    // and its result replaces the local insert. On failure the insert is rolled back.
+    const start = Math.max(0, Math.min(t, duration() - 0.5));
+    const end = Math.min(duration(), start + 1.6);
+    const inserted: ZoomSeg = { start, end, amount: zoomAmount(), mode: "Auto", style: "Smooth" };
+    const local = [...zooms(), inserted].sort((a, b) => a.start - b.start);
+    const localIdx = local.indexOf(inserted);
+    setZooms(local);
+    setDirty(true);
+    setSelected(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    setSelZoom(localIdx >= 0 ? localIdx : null);
+    setStatus("Zoom added. Drag its edges to retime.");
+    try {
+      if (!localStorage.getItem("vuoom-hint-zoom-undo")) {
+        localStorage.setItem("vuoom-hint-zoom-undo", "1");
+        toast("Zoom added. Ctrl+Z undoes it.", "info");
+      }
+    } catch {
+      /* hint is best-effort */
+    }
     try {
       const list = await invoke<ZoomSeg[]>("add_zoom", { t });
       setZooms(list);
-      setDirty(true);
       const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
-      setSelected(null);
-      setSelSpeed(null);
-      setSelCut(null);
       setSelZoom(idx >= 0 ? idx : null);
       await pushSeek(playhead());
-      setStatus("Zoom added. Drag its edges to retime.");
     } catch (e) {
-      setStatus(`Could not add zoom: ${String(e)}`);
+      setZooms(zooms().filter((z) => z !== inserted));
+      setSelZoom(null);
+      toast(`Could not add zoom: ${friendlyError(e)}`, "error");
     }
   };
   const applyZoomEdit = async (index: number, start: number, end: number, amount: number) => {
@@ -1696,7 +1988,8 @@ function App() {
       if (idx >= 0) setSelZoom(idx);
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Zoom edit failed: ${String(e)}`);
+      await refreshClip(); // the drag already moved the local block; restore engine truth
+      toast(`Zoom edit failed: ${friendlyError(e)}`, "error");
     }
   };
   const deleteSelectedZoom = async () => {
@@ -1761,31 +2054,42 @@ function App() {
   };
 
   // ── speed-up dead time ─────────────────────────────────────────────────────────
-  const toggleSkim = async () => {
+  const skimSync = createSyncSlot<{ clear: boolean; factor: number; prev: SpeedRegion[] }>();
+  const toggleSkim = () => {
     if (!hasClip()) return;
-    try {
-      if (speed().length > 0) {
-        await invoke("clear_speed");
-        setSpeed([]);
-        setDirty(true);
-        setSelSpeed(null);
-        setStatus("Idle stretches back to normal speed");
-      } else {
-        const f = skimFactor();
-        const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: f });
-        setSpeed(regions);
-        setDirty(true);
-        setStatus(
-          regions.length > 0
-            ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at ${f}×`
-            : "No idle stretches longer than ~2.5s found",
-        );
-      }
-    } catch (e) {
-      setStatus(`Speed-up failed: ${String(e)}`);
+    const clearing = speed().length > 0;
+    const prev = speed();
+    if (clearing) {
+      setSpeed([]);
+      setSelSpeed(null);
     }
+    setDirty(true);
+    skimSync.push({ clear: clearing, factor: skimFactor(), prev }, async (val, superseded) => {
+      try {
+        if (val.clear) {
+          await invoke("clear_speed");
+          if (!superseded()) setStatus("Idle stretches back to normal speed");
+        } else {
+          const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: val.factor });
+          setSpeed(regions);
+          if (!superseded()) {
+            setStatus(
+              regions.length > 0
+                ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at ${val.factor}×`
+                : "No idle stretches longer than ~2.5s found",
+            );
+          }
+        }
+      } catch (e) {
+        if (!superseded()) {
+          setSpeed(val.prev);
+          toast(`Skim idle failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
   };
 
+  // ── click ripples ──────────────────────────────────────────────────────────────
   // ── manual speed regions ───────────────────────────────────────────────────────
   const selectedSpeed = () => {
     const i = selSpeed();
@@ -1822,7 +2126,8 @@ function App() {
       const idx = list.findIndex((r) => Math.abs(r.start - Math.min(start, end)) < 0.25);
       if (idx >= 0) setSelSpeed(idx);
     } catch (e) {
-      setStatus(`Speed edit failed: ${String(e)}`);
+      await refreshClip(); // the drag already moved the local band; restore engine truth
+      toast(`Speed edit failed: ${friendlyError(e)}`, "error");
     }
   };
   const deleteSelectedSpeed = async () => {
@@ -1853,7 +2158,6 @@ function App() {
       const idx = list.findIndex((c) => Math.abs(c.start - start) < 0.01);
       setSelected(null);
       setSelZoom(null);
-      setSelSpeed(null);
       setSelCut(idx >= 0 ? idx : null);
       setStatus("Section cut. Drag the band to adjust.");
     } catch (e) {
@@ -1869,7 +2173,8 @@ function App() {
       const idx = list.findIndex((c) => Math.abs(c.start - Math.min(start, end)) < 0.25);
       if (idx >= 0) setSelCut(idx);
     } catch (e) {
-      setStatus(`Cut edit failed: ${String(e)}`);
+      await refreshClip(); // the drag already moved the local band; restore engine truth
+      toast(`Cut edit failed: ${friendlyError(e)}`, "error");
     }
   };
   const deleteSelectedCut = async () => {
@@ -1886,26 +2191,37 @@ function App() {
   };
 
   // ── frame preset (padding + rounded corners + shadow around the recording) ──────
-  const applyFramePreset = async (preset: string) => {
+  // Latest-wins optimistic sync: the UI flips immediately, the newest desired value is
+  // what persists, and an older failure rolls back only when no newer click superseded it.
+  const frameSync = createSyncSlot<{ preset: string; prevBg: string }>();
+  const applyFramePreset = (preset: string) => {
     if (!hasClip()) return;
-    try {
-      await invoke("set_frame_preset", { preset });
-      setFramePreset(preset);
-      // The backend seeds a graphite backdrop the first time a frame is enabled on the
-      // still-default black one; mirror that so the swatch picker reflects it immediately.
-      if (preset !== "none" && !bgPreset()) setBgPreset("graphite");
-      setDirty(true);
-      await pushSeek(playhead());
-      setStatus(
-        preset === "none" ? "Frame removed. Edge to edge export." : `Frame: ${preset}`,
-      );
-    } catch (e) {
-      setStatus(`Frame failed: ${String(e)}`);
-    }
+    const prev = framePreset();
+    const prevBg = bgPreset();
+    setFramePreset(preset);
+    // The backend seeds a graphite backdrop the first time a frame is enabled on the
+    // still-default black one; mirror that so the swatch picker reflects it immediately.
+    if (preset !== "none" && !bgPreset()) setBgPreset("graphite");
+    setDirty(true);
+    frameSync.push({ preset, prevBg }, async (val, superseded) => {
+      try {
+        await invoke("set_frame_preset", { preset: val.preset });
+        await pushSeek(playhead());
+        setStatus(
+          val.preset === "none" ? "Frame removed. Edge to edge export." : `Frame: ${val.preset}`,
+        );
+      } catch (e) {
+        if (!superseded()) {
+          setFramePreset(prev);
+          setBgPreset(val.prevBg);
+          toast(`Frame failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
   };
 
   // ── background backdrop (gradient/solid behind a framed recording) ───────────────
-  // Swatch CSS mirrors the Rust presets in vuoom-project/frame.rs (135° = top-left light).
+  // Swatch CSS mirrors the Rust presets in vuoom-project/frame.rs (135 = top-left light).
   const BG_SWATCHES: { name: string; label: string; css: string }[] = [
     { name: "graphite", label: "Graphite", css: "linear-gradient(135deg,#29292b,#0a0a0d)" },
     { name: "slate", label: "Slate", css: "linear-gradient(135deg,#333d4d,#12171f)" },
@@ -1915,51 +2231,69 @@ function App() {
     { name: "midnight", label: "Midnight", css: "linear-gradient(135deg,#0f121a,#030305)" },
     { name: "solid", label: "Solid", css: "#17171a" },
   ];
-  const applyBackground = async (name: string) => {
+  const bgSync = createSyncSlot<string>();
+  const applyBackground = (name: string) => {
     if (!hasClip()) return;
-    try {
-      await invoke("set_background_preset", { name });
-      setBgPreset(name);
-      setDirty(true);
-      await pushSeek(playhead());
-      setStatus(`Backdrop: ${name}`);
-    } catch (e) {
-      setStatus(`Backdrop failed: ${String(e)}`);
-    }
+    const prev = bgPreset();
+    setBgPreset(name);
+    setDirty(true);
+    bgSync.push(name, async (val, superseded) => {
+      try {
+        await invoke("set_background_preset", { name: val });
+        await pushSeek(playhead());
+        setStatus(`Backdrop: ${val}`);
+      } catch (e) {
+        if (!superseded()) {
+          setBgPreset(prev);
+          toast(`Backdrop failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
   };
 
-  // ── click ripples ──────────────────────────────────────────────────────────────
-  const toggleClicks = async () => {
+  const clicksSync = createSyncSlot<boolean>();
+  const toggleClicks = () => {
     if (!hasClip()) return;
-    try {
-      const on = !showClicks();
-      await invoke("set_show_clicks", { on });
-      setShowClicks(on);
-      setDirty(true);
-      await pushSeek(playhead());
-      setStatus(on ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
-    } catch (e) {
-      setStatus(`Click ripples failed: ${String(e)}`);
-    }
+    const on = !showClicks();
+    setShowClicks(on);
+    setDirty(true);
+    clicksSync.push(on, async (val, superseded) => {
+      try {
+        await invoke("set_show_clicks", { on: val });
+        await pushSeek(playhead());
+        setStatus(val ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
+      } catch (e) {
+        if (!superseded()) {
+          setShowClicks(!val);
+          toast(`Click ripples failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
   };
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
-  const toggleKeys = async () => {
+  const keysSync = createSyncSlot<boolean>();
+  const toggleKeys = () => {
     if (!hasClip()) return;
-    try {
-      const on = !showKeys();
-      await invoke("set_show_keys", { on });
-      setShowKeys(on);
-      setDirty(true);
-      await pushSeek(playhead());
-      setStatus(
-        on
-          ? "Shortcuts you pressed will show as chips (plain typing never does)"
-          : "Keystroke overlay off",
-      );
-    } catch (e) {
-      setStatus(`Keystroke overlay failed: ${String(e)}`);
-    }
+    const on = !showKeys();
+    setShowKeys(on);
+    setDirty(true);
+    keysSync.push(on, async (val, superseded) => {
+      try {
+        await invoke("set_show_keys", { on: val });
+        await pushSeek(playhead());
+        setStatus(
+          val
+            ? "Shortcuts you pressed will show as chips (plain typing never does)"
+            : "Keystroke overlay off",
+        );
+      } catch (e) {
+        if (!superseded()) {
+          setShowKeys(!val);
+          toast(`Keystroke overlay failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
   };
 
   // ── timeline (ruler + tracks + drag-to-scrub) ─────────────────────────────────────
@@ -1971,8 +2305,19 @@ function App() {
   // getBoundingClientRect already reflects scrollLeft (its left edge slides negative as the
   // wrapper scrolls) and whose width is the scaled track width, so this one formula works
   // in both fit mode and zoomed-and-scrolled mode with no scroll math of its own.
+  // The track's client rect, cached per gesture and invalidated on scroll/resize/scale.
+  // getBoundingClientRect on every pointermove is the single hottest timeline cost.
+  let tlRect: DOMRect | null = null;
+  const refreshTlRect = () => {
+    tlRect = (tlTrackEl ?? tlEl)?.getBoundingClientRect() ?? null;
+  };
+  const invalidateTlRect = () => {
+    tlRect = null;
+  };
   const timeFromClientX = (clientX: number) => {
-    const r = (tlTrackEl ?? tlEl)!.getBoundingClientRect();
+    if (!tlRect) refreshTlRect();
+    const r = tlRect;
+    if (!r || r.width === 0) return 0;
     return clamp01((clientX - r.left) / r.width) * duration();
   };
   const tlTime = (e: PointerEvent) => timeFromClientX(e.clientX);
@@ -1987,7 +2332,8 @@ function App() {
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     trimDrag = which;
-    snapHold = null;
+    beginSnapGesture(which === "start" ? "tS" : "tE");
+    refreshTlRect();
   };
   const onTrimMove = (e: PointerEvent) => {
     if (!trimDrag || !tlEl) return;
@@ -2012,7 +2358,7 @@ function App() {
     if (!trimDrag) return;
     trimDrag = null;
     setSnapLine(null);
-    snapHold = null;
+    endSnapGesture();
     const t = trim();
     if (!t) return;
     try {
@@ -2020,7 +2366,8 @@ function App() {
       await refreshClip(); // backend may normalize a full-range trim to null
       if (playhead() < tStart() || playhead() > tEnd()) scrub(tStart());
     } catch (e) {
-      setStatus(`Trim failed: ${String(e)}`);
+      await refreshClip(); // the handle already moved locally; restore engine truth
+      toast(`Trim failed: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -2042,7 +2389,8 @@ function App() {
   const onZoomDown = (idx: number, z: ZoomSeg, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    snapHold = null;
+    beginSnapGesture(`z${idx}`);
+    refreshTlRect();
     setZoomDrag({
       idx,
       mode: force,
@@ -2128,9 +2476,21 @@ function App() {
   // every probe (so a two-edge segment move shifts as one unit) plus the guide position, or
   // null when nothing is in reach. Playhead considered first + strict-less keeps its tie
   // priority; while a snap is held it takes 1.5× the radius for any probe to break away.
+  // Fixed targets for the ACTIVE gesture, snapshotted once at pointer-down (snapTargets
+  // sorts every edge on every track; rebuilding that on every pointermove is waste).
+  // The playhead stays dynamic inside snapProbes.
+  let activeSnapBase: number[] | null = null;
+  const beginSnapGesture = (excludeTag: string) => {
+    activeSnapBase = snapTargets(excludeTag);
+    snapHold = null;
+  };
+  const endSnapGesture = () => {
+    activeSnapBase = null;
+    snapHold = null;
+  };
   const snapProbes = (
     probes: number[],
-    excludeTag: string | undefined,
+    _excludeTag: string | undefined,
     alt: boolean,
   ): { off: number; line: number } | null => {
     const pps = pxPerSec();
@@ -2153,7 +2513,7 @@ function App() {
       if (bp !== null) return { off: snapHold - bp, line: snapHold };
       snapHold = null;
     }
-    const targets = snapTargets(excludeTag);
+    const targets = activeSnapBase ?? snapTargets(_excludeTag);
     const ph = playhead();
     const grid = snapGrid();
     // Collect every in-reach (probe, target) pair, then take the closest. Playhead is pushed
@@ -2224,15 +2584,21 @@ function App() {
   const onZoomUp = async () => {
     const d = zoomDrag();
     if (!d) return;
-    setZoomDrag(null);
     setSnapLine(null);
-    snapHold = null;
+    endSnapGesture();
     setSelected(null);
     setSelSpeed(null);
     setSelCut(null);
     if (d.moved) {
+      // Commit the dragged geometry into the LOCAL model before clearing the drag
+      // override, so the block never flashes back to its pre-drag position during the
+      // engine round-trip. A rejected commit re-syncs from the engine (applyZoomEdit).
+      setZooms(zooms().map((z, i) => (i === d.idx ? { ...z, start: d.cur.start, end: d.cur.end } : z)));
+      setDirty(true);
+      setZoomDrag(null);
       await applyZoomEdit(d.idx, d.cur.start, d.cur.end, zooms()[d.idx]?.amount ?? 1.8);
     } else {
+      setZoomDrag(null);
       // A plain click: select the block and jump to it.
       setSelZoom(d.idx);
       scrub(d.orig.start);
@@ -2254,7 +2620,8 @@ function App() {
   const onSpeedDown = (idx: number, r: SpeedRegion, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    snapHold = null;
+    beginSnapGesture(`s${idx}`);
+    refreshTlRect();
     setSpeedDrag({
       idx,
       mode: force,
@@ -2277,15 +2644,20 @@ function App() {
   const onSpeedUp = async () => {
     const d = speedDrag();
     if (!d) return;
-    setSpeedDrag(null);
     setSnapLine(null);
-    snapHold = null;
+    endSnapGesture();
     setSelected(null);
     setSelZoom(null);
     setSelCut(null);
     if (d.moved) {
+      // Local-first commit (see onZoomUp): the band holds its dragged span until the
+      // engine acknowledges, and refreshClip() reverts it if the commit is rejected.
+      setSpeed(speed().map((r, i) => (i === d.idx ? { ...r, start: d.cur.start, end: d.cur.end } : r)));
+      setDirty(true);
+      setSpeedDrag(null);
       await applySpeedEdit(d.idx, d.cur.start, d.cur.end, speed()[d.idx]?.factor ?? skimFactor());
     } else {
+      setSpeedDrag(null);
       // A plain click: select the region and jump to it.
       setSelSpeed(d.idx);
       scrub(d.orig.start);
@@ -2308,7 +2680,8 @@ function App() {
   const onCutDown = (idx: number, c: Trim, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    snapHold = null;
+    beginSnapGesture(`c${idx}`);
+    refreshTlRect();
     setCutDrag({
       idx,
       mode: force,
@@ -2331,15 +2704,19 @@ function App() {
   const onCutUp = async () => {
     const d = cutDrag();
     if (!d) return;
-    setCutDrag(null);
     setSnapLine(null);
-    snapHold = null;
+    endSnapGesture();
     setSelected(null);
     setSelZoom(null);
     setSelSpeed(null);
     if (d.moved) {
+      // Local-first commit (see onZoomUp).
+      setCuts(cuts().map((c, i) => (i === d.idx ? { ...c, start: d.cur.start, end: d.cur.end } : c)));
+      setDirty(true);
+      setCutDrag(null);
       await applyCutEdit(d.idx, d.cur.start, d.cur.end);
     } else {
+      setCutDrag(null);
       // A plain click: select the cut and jump to it.
       setSelCut(d.idx);
       scrub(d.orig.start);
@@ -2357,6 +2734,12 @@ function App() {
   // downstream (ruler ticks, and, crucially, the snap catch radius which is SNAP_PX/pxPerSec)
   // reads this, so snap tolerances and grid stay constant in *screen pixels* at any zoom.
   const pxPerSec = () => tlScale() ?? fitPps();
+  createEffect(() => {
+    // Timeline zoom changes the track's rendered geometry: the cached rect goes stale.
+    void tlScale();
+    void duration();
+    invalidateTlRect();
+  });
   const TL_MAX_PPS = 200; // ~200 px/s ceiling; fitPps() is the floor
   // CSS width for the inner track: 100% in fit mode (exact old layout), else duration*scale
   // (never below the viewport, so a barely-zoomed track can't leave a gap).
@@ -2480,7 +2863,8 @@ function App() {
     (e: PointerEvent) => {
       e.stopPropagation();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      snapHold = null;
+      beginSnapGesture(`a${b.kind}${b.id}`);
+      refreshTlRect();
       setAnnDrag({
         kind: b.kind,
         id: b.id,
@@ -2504,7 +2888,7 @@ function App() {
     if (!d) return;
     setAnnDrag(null);
     setSnapLine(null);
-    snapHold = null;
+    endSnapGesture();
     // A Shift/Ctrl-click (no drag) toggles the bar in/out of the multi-selection.
     if (d.additive && !d.moved) {
       toggleSelect(d.kind, d.id);
@@ -2517,41 +2901,65 @@ function App() {
     clearExtra();
     setSelected({ kind: d.kind, id: d.id });
     if (d.moved) {
+      // Local-first commit: the lane bar holds its dragged span until the engine answers.
+      patchAnn(d.kind, d.id, (a) => {
+        const r = (a as TextAnn).range;
+        (a as TextAnn).range = { ...r, start: d.cur.start, end: d.cur.end };
+      });
+      setDirty(true);
       try {
         await invoke("update_annotation_range", { id: d.id, start: d.cur.start, end: d.cur.end });
         await refresh();
         await pushSeek(playhead());
       } catch (e) {
-        setStatus(`Retime failed: ${String(e)}`);
+        await refresh(); // rejected: engine truth restores the old span
+        toast(`Retime failed: ${friendlyError(e)}`, "error");
       }
     } else {
       scrub(d.orig.start);
     }
   };
 
-  // All annotations as flat timeline bars, sorted by start time.
+  // All annotations as flat timeline bars, sorted by start time. Memoized on the anns()
+  // reference AND reusing bar objects per kind:id, so Solid's <For> keeps DOM rows across
+  // refreshes (new objects every call would recreate every lane on every edit).
+  let barsCacheSrc: AnnotationSet | null = null;
+  let barsCache: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
   const annBars = () => {
     const a = anns();
-    const bars: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
-    for (const t of a.texts)
-      bars.push({ kind: "text", id: t.id, start: t.range.start, end: t.range.end, label: t.text || "Text" });
-    for (const ar of a.arrows)
-      bars.push({
-        kind: "arrow",
-        id: ar.id,
-        start: ar.range.start,
-        end: ar.range.end,
-        label: ar.style === "Line" ? "Line" : "Arrow",
-      });
-    for (const b of a.highlights)
-      bars.push({
-        kind: "box",
-        id: b.id,
-        start: b.range.start,
-        end: b.range.end,
-        label: b.shape === "Ellipse" ? "Ellipse" : "Box",
-      });
-    return bars.sort((x, y) => x.start - y.start);
+    if (a !== barsCacheSrc) {
+      const prev = new Map(barsCache.map((b) => [`${b.kind}:${b.id}`, b]));
+      const next: typeof barsCache = [];
+      for (const t of a.texts)
+        next.push({ kind: "text", id: t.id, start: t.range.start, end: t.range.end, label: t.text || "Text" });
+      for (const ar of a.arrows)
+        next.push({
+          kind: "arrow",
+          id: ar.id,
+          start: ar.range.start,
+          end: ar.range.end,
+          label: ar.style === "Line" ? "Line" : "Arrow",
+        });
+      for (const b of a.highlights)
+        next.push({
+          kind: "box",
+          id: b.id,
+          start: b.range.start,
+          end: b.range.end,
+          label: b.shape === "Ellipse" ? "Ellipse" : "Box",
+        });
+      // Reuse the previous object for an unchanged id+span so row identity survives.
+      for (let i = 0; i < next.length; i++) {
+        const bar = next[i];
+        const old = prev.get(`${bar.kind}:${bar.id}`);
+        if (old && old.start === bar.start && old.end === bar.end && old.label === bar.label) {
+          next[i] = old;
+        }
+      }
+      barsCache = next.sort((x, y) => x.start - y.start);
+      barsCacheSrc = a;
+    }
+    return barsCache;
   };
 
   // ── resizable inspector ────────────────────────────────────────────────────────
@@ -2595,7 +3003,7 @@ function App() {
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
-      rememberRecent(dir);
+      rememberRecent(dir, captureThumb());
       setStatus(`Saved ${dir}`);
       toast("Project saved", "success");
     } catch (e) {
@@ -2727,35 +3135,58 @@ function App() {
           Save
         </button>
         <span class="toolbar-sep" />
-        <select
-          class="tbtn-sel"
-          title="Add a padded frame and backdrop"
-          disabled={!hasClip()}
-          value={framePreset()}
-          onChange={(e) => void applyFramePreset(e.currentTarget.value)}
-        >
-          <option value="none">No frame</option>
-          <option value="subtle">Subtle frame</option>
-          <option value="studio">Studio frame</option>
-        </select>
-        <Show when={hasClip() && framePreset() !== "none"}>
-          <div class="bg-swatches" title="Backdrop behind the frame">
-            <For each={BG_SWATCHES}>
-              {(sw) => (
-                <button
-                  type="button"
-                  class="bg-swatch"
-                  classList={{ sel: bgPreset() === sw.name }}
-                  style={{ background: sw.css }}
-                  title={sw.label}
-                  aria-label={`Backdrop: ${sw.label}`}
-                  aria-pressed={bgPreset() === sw.name}
-                  onClick={() => void applyBackground(sw.name)}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
+        <div class="thememenu appear-menu" ref={(el) => (appearEl = el)}>
+          <button
+            type="button"
+            class="btn ghost"
+            disabled={!hasClip()}
+            title="Frame and backdrop"
+            aria-expanded={appearOpen()}
+            aria-haspopup="dialog"
+            onClick={() => setAppearOpen(!appearOpen())}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <path d="M3 15h18" />
+              <circle cx="8.5" cy="9" r="1.6" />
+              <path d="M5 21l7-6 5 4 4-3" />
+            </svg>
+            Appearance
+          </button>
+          <Show when={appearOpen()}>
+            <div class="thememenu-list appear-list" role="dialog" aria-label="Appearance">
+              <p class="appear-title">Frame</p>
+              <select
+                class="tbtn-sel appear-select"
+                value={framePreset()}
+                onChange={(e) => applyFramePreset(e.currentTarget.value)}
+              >
+                <option value="none">No frame</option>
+                <option value="subtle">Subtle frame</option>
+                <option value="studio">Studio frame</option>
+              </select>
+              <Show when={framePreset() !== "none"}>
+                <p class="appear-title">Backdrop</p>
+                <div class="bg-swatches appear-swatches">
+                  <For each={BG_SWATCHES}>
+                    {(sw) => (
+                      <button
+                        type="button"
+                        class="bg-swatch"
+                        classList={{ sel: bgPreset() === sw.name }}
+                        style={{ background: sw.css }}
+                        title={sw.label}
+                        aria-label={`Backdrop: ${sw.label}`}
+                        aria-pressed={bgPreset() === sw.name}
+                        onClick={() => applyBackground(sw.name)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
+        </div>
         <button class="btn export" disabled={!hasClip()} title="Export a GIF or MP4 (Ctrl+E)" onClick={() => setShowExport(true)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 21h16" />
@@ -2856,9 +3287,21 @@ function App() {
                   Record your screen. Vuoom zooms in where you click, then exports a crisp
                   GIF or MP4.
                 </p>
-                <button class="btn record cta" onClick={() => void startRecord()}>
-                  <span class="dot" /> Start recording
-                </button>
+                <div class="hero-actions">
+                  <button class="btn record cta" onClick={() => void startRecord()}>
+                    <span class="dot" /> Start recording
+                  </button>
+                  <button
+                    class="btn cta-ghost"
+                    title="Open a saved .vuoom project folder (Ctrl+O)"
+                    onClick={() => void onOpenProject()}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M3 8V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2M3 8h17.2a1 1 0 0 1 .97 1.24l-2 8a1 1 0 0 1-.97.76H4a1 1 0 0 1-1-1z" />
+                    </svg>
+                    Open project
+                  </button>
+                </div>
                 <span class="placeholder-hint">
                   <kbd>Ctrl+Shift+R</kbd> record · <kbd>Ctrl+Shift+Z</kbd> zoom ·{" "}
                   <kbd>Ctrl+Shift+X</kbd> stop
@@ -2892,10 +3335,17 @@ function App() {
                             onClick={() => void openRecent(r.dir)}
                           >
                             <div class="recent-thumb">
-                              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="5" width="18" height="14" rx="2" />
-                                <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
-                              </svg>
+                              <Show
+                                when={r.thumb}
+                                fallback={
+                                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                                    <path d="M3 9h18M7 5v14M17 5v14M3 14h4M17 14h4" />
+                                  </svg>
+                                }
+                              >
+                                <img src={r.thumb} alt="" draggable={false} />
+                              </Show>
                             </div>
                             <div class="recent-meta">
                               <strong>{r.name}</strong>
@@ -2931,8 +3381,15 @@ function App() {
                   "tool-text": tool() === "text",
                 }}
                 onPointerDown={(e) => void onPointerDown(e)}
-                onPointerMove={onPointerMove}
+                onPointerMove={frameCanvas(onPointerMove)}
                 onPointerUp={(e) => void onPointerUp(e)}
+                onLostPointerCapture={() => {
+                  // A canceled gesture (pointercancel / capture lost) aborts cleanly:
+                  // create drafts are discarded, move/resize overrides are dropped.
+                  if (drag()?.mode.startsWith("create-")) setDrag(null);
+                  setSnapX(null);
+                  setSnapY(null);
+                }}
               >
                 {/* boxes */}
                 <For each={anns().highlights}>
@@ -3280,22 +3737,6 @@ function App() {
                     </button>
                   </div>
                 </InspRow>
-                <InspRow label="Font" stack>
-                  <div class="font-grid">
-                    <For each={TEXT_FONTS}>
-                      {(f) => (
-                        <button
-                          classList={{ fontbtn: true, on: (selectedText()!.font || "") === f.id }}
-                          style={{ "font-family": f.css }}
-                          title={f.label}
-                          onClick={() => void editTextStyle({ font: f.id })}
-                        >
-                          {f.label}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </InspRow>
                 <InspRow label="Size">
                   <ScrubField
                     value={selectedText()!.font_size}
@@ -3473,29 +3914,53 @@ function App() {
                 {fmt(selectedRange()!.start)} to {fmt(selectedRange()!.end)}.
               </p>
             </Show>
-            <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>
-            <button class="btn block" title="Duplicate (Ctrl+D)" onClick={() => void duplicateSelected()}>
-              Duplicate
-            </button>
-            <div class="btn-row">
-              <button
-                class="btn"
-                title="Bring forward (Ctrl+]) · Shift for front"
-                onClick={(e) => void reorderSelected(e.shiftKey ? "front" : "forward")}
-              >
-                Forward
+            <Show when={selectedText()}>
+              <InspSection title="Font">
+                <InspRow label="Font" stack>
+                  <div class="font-grid">
+                    <For each={TEXT_FONTS}>
+                      {(f) => (
+                        <button
+                          classList={{ fontbtn: true, on: (selectedText()!.font || "") === f.id }}
+                          style={{ "font-family": f.css }}
+                          title={f.label}
+                          onClick={() => void editTextStyle({ font: f.id })}
+                        >
+                          {f.label}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </InspRow>
+              </InspSection>
+            </Show>
+            {/* Sticky action footer: Duplicate / z-order / Delete stay reachable no matter
+                how long the sections above grow. */}
+            <div class="inspector-actions">
+              <p class="muted small">Drag to move · drag a handle to resize · Delete to remove.</p>
+              <button class="btn block" title="Duplicate (Ctrl+D)" onClick={() => void duplicateSelected()}>
+                Duplicate
               </button>
-              <button
-                class="btn"
-                title="Send backward (Ctrl+[) · Shift for back"
-                onClick={(e) => void reorderSelected(e.shiftKey ? "back" : "backward")}
-              >
-                Backward
+              <div class="btn-row">
+                <button
+                  class="btn"
+                  title="Bring forward (Ctrl+]) · Shift for front"
+                  onClick={(e) => void reorderSelected(e.shiftKey ? "front" : "forward")}
+                >
+                  Forward
+                </button>
+                <button
+                  class="btn"
+                  title="Send backward (Ctrl+[) · Shift for back"
+                  onClick={(e) => void reorderSelected(e.shiftKey ? "back" : "backward")}
+                >
+                  Backward
+                </button>
+              </div>
+              <button class="btn danger" onClick={() => void deleteSelection()}>
+                Delete element
               </button>
             </div>
-            <button class="btn danger" onClick={() => void deleteSelection()}>
-              Delete element
-            </button>
             </Show>
           </InspectorPanel>
         </Show>
@@ -3606,10 +4071,12 @@ function App() {
             <Show when={selZoomFocus()}>
               <p class="muted small">Drag the crosshair on the video to aim this zoom.</p>
             </Show>
-            <p class="muted small">Drag the block on the timeline, or its edges, to retime.</p>
-            <button class="btn danger" onClick={() => void deleteSelectedZoom()}>
-              Delete zoom
-            </button>
+            <div class="inspector-actions">
+              <p class="muted small">Drag the block on the timeline, or its edges, to retime.</p>
+              <button class="btn danger" onClick={() => void deleteSelectedZoom()}>
+                Delete zoom
+              </button>
+            </div>
           </InspectorPanel>
         </Show>
 
@@ -3671,10 +4138,12 @@ function App() {
                 />
               </InspRow>
             </InspSection>
-            <p class="muted small">Drag the band on the timeline, or its edges, to retime.</p>
-            <button class="btn danger" onClick={() => void deleteSelectedSpeed()}>
-              Delete speed region
-            </button>
+            <div class="inspector-actions">
+              <p class="muted small">Drag the band on the timeline, or its edges, to retime.</p>
+              <button class="btn danger" onClick={() => void deleteSelectedSpeed()}>
+                Delete speed region
+              </button>
+            </div>
           </InspectorPanel>
         </Show>
 
@@ -3716,13 +4185,15 @@ function App() {
                 />
               </InspRow>
             </InspSection>
-            <p class="muted small">
-              This section is removed from the GIF. Playback and export skip over it. Drag the
-              band on the timeline, or its edges, to retime.
-            </p>
-            <button class="btn danger" onClick={() => void deleteSelectedCut()}>
-              Restore this section
-            </button>
+            <div class="inspector-actions">
+              <p class="muted small">
+                This section is removed from the export. Playback and export skip over it. Drag
+                the band on the timeline, or its edges, to retime.
+              </p>
+              <button class="btn danger" onClick={() => void deleteSelectedCut()}>
+                Restore this section
+              </button>
+            </div>
           </InspectorPanel>
         </Show>
 
@@ -3914,6 +4385,7 @@ function App() {
             if (!hasClip()) return;
             (e.currentTarget as Element).setPointerCapture(e.pointerId);
             tlDrag = true;
+            refreshTlRect();
             tlDownX = e.clientX;
             tlDownY = e.clientY;
             const target = e.target as Element;
@@ -3923,9 +4395,14 @@ function App() {
             setGhostT(null);
             tlSeekFromEvent(e);
           }}
-          onPointerMove={(e) => {
-            onTlHoverMove(e);
-            if (tlDrag) tlSeekFromEvent(e);
+          onPointerMove={frameTl(onTlPointerMove)}
+          onPointerCancel={() => {
+            tlDrag = false;
+            tlDownInZoomLane = false;
+            endSnapGesture();
+            setSnapLine(null);
+            setHoverT(null);
+            setGhostT(null);
           }}
           onPointerUp={(e) => {
             // A plain click (not a drag-scrub) on the empty zoom lane adds a zoom there.
@@ -3946,7 +4423,7 @@ function App() {
             when={hasClip()}
             fallback={<div class="tl-empty">Your recording's timeline appears here</div>}
           >
-            <div class="tl-scroll" ref={(el) => (tlScrollEl = el)}>
+            <div class="tl-scroll" ref={(el) => (tlScrollEl = el)} onScroll={invalidateTlRect}>
             <div class="tl-track-inner" ref={(el) => (tlTrackEl = el)} style={{ width: trackWidth() }}>
             <div class="tl-ruler">
               <For each={tickMarks()}>
@@ -3962,8 +4439,11 @@ function App() {
                 )}
               </For>
             </div>
-            <div class="tl-track" onPointerMove={onZoomLaneMove} onPointerLeave={() => setGhostT(null)}>
+            <div class="tl-track" onPointerLeave={() => setGhostT(null)}>
               <span class="tl-tracklabel">Zoom</span>
+              <Show when={zooms().length === 0}>
+                <div class="tl-lanehint">Click in this lane to add a zoom at that moment</div>
+              </Show>
               <Show when={ghostT() !== null && !zoomDrag() && !speedDrag() && !cutDrag()}>
                 {(() => {
                   const w = () => (duration() > 0 ? Math.min(100, (1.6 / duration()) * 100) : 10);
@@ -3988,25 +4468,35 @@ function App() {
                   const g = () => zoomGeom(i(), z);
                   const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
                   return (
-                    <div
+                    <button
+                      type="button"
                       classList={{ "tl-seg": true, selected: selZoom() === i(), swallowed: gone() }}
                       style={{
                         left: `${pct(g().start)}%`,
-                        width: `${Math.max(pct(g().end) - pct(g().start), 1.6)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 0.18)}%`,
                       }}
+                      aria-label={`Zoom ${z.amount.toFixed(1)} times, ${z.start.toFixed(1)} to ${z.end.toFixed(1)} seconds${gone() ? ", hidden by a cut" : ""}. Press Enter to select.`}
+                      aria-pressed={selZoom() === i()}
                       title={
                         gone()
                           ? "Hidden by a cut. Never appears in the export."
                           : `Zoom ${z.amount.toFixed(1)}× · drag to move, drag an edge to resize`
                       }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelZoom(i());
+                          scrub(g().start);
+                        }
+                      }}
                       onPointerDown={onZoomDown(i(), z, "move")}
-                      onPointerMove={onZoomMove}
-                      onPointerUp={() => void onZoomUp()}
+                      onPointerMove={frameZoom(onZoomMove)}
+                      onPointerUp={() => void onZoomUp()} onLostPointerCapture={() => void onZoomUp()}
                     >
-                      <div class="tl-handle l" onPointerDown={onZoomDown(i(), z, "l")} onPointerMove={onZoomMove} onPointerUp={() => void onZoomUp()} />
+                      <div class="tl-handle l" onPointerDown={onZoomDown(i(), z, "l")} onPointerMove={frameZoom(onZoomMove)} onPointerUp={() => void onZoomUp()} onLostPointerCapture={() => void onZoomUp()} />
                       {z.amount.toFixed(1)}×
-                      <div class="tl-handle r" onPointerDown={onZoomDown(i(), z, "r")} onPointerMove={onZoomMove} onPointerUp={() => void onZoomUp()} />
-                    </div>
+                      <div class="tl-handle r" onPointerDown={onZoomDown(i(), z, "r")} onPointerMove={frameZoom(onZoomMove)} onPointerUp={() => void onZoomUp()} onLostPointerCapture={() => void onZoomUp()} />
+                    </button>
                   );
                 }}
               </For>
@@ -4032,7 +4522,7 @@ function App() {
                         }}
                         style={{
                           left: `${pct(g().start)}%`,
-                          width: `${Math.max(pct(g().end) - pct(g().start), 2.4)}%`,
+                          width: `${Math.max(pct(g().end) - pct(g().start), 0.18)}%`,
                         }}
                         title={
                           gone()
@@ -4040,78 +4530,85 @@ function App() {
                             : `${b.label} · drag to move, drag an edge to set how long it shows`
                         }
                         onPointerDown={onAnnDown(b, "move")}
-                        onPointerMove={onAnnMove}
-                        onPointerUp={() => void onAnnUp()}
+                        onPointerMove={frameAnn(onAnnMove)}
+                        onPointerUp={() => void onAnnUp()} onLostPointerCapture={() => void onAnnUp()}
                       >
-                        <span class="tl-handle l" onPointerDown={onAnnDown(b, "l")} onPointerMove={onAnnMove} onPointerUp={() => void onAnnUp()} />
+                        <span class="tl-handle l" onPointerDown={onAnnDown(b, "l")} onPointerMove={frameAnn(onAnnMove)} onPointerUp={() => void onAnnUp()} onLostPointerCapture={() => void onAnnUp()} />
                         {b.label}
-                        <span class="tl-handle r" onPointerDown={onAnnDown(b, "r")} onPointerMove={onAnnMove} onPointerUp={() => void onAnnUp()} />
+                        <span class="tl-handle r" onPointerDown={onAnnDown(b, "r")} onPointerMove={frameAnn(onAnnMove)} onPointerUp={() => void onAnnUp()} onLostPointerCapture={() => void onAnnUp()} />
                       </button>
                     </div>
                   );
                 }}
               </For>
             </div>
-            {/* Speed-up bands, click the chip to select, drag to move, drag an edge to resize. */}
-            <For each={speed()}>
-              {(r, i) => {
-                const g = () => speedGeom(i(), r);
-                const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
-                return (
-                  <div
-                    classList={{ "tl-speedband": true, selected: selSpeed() === i(), swallowed: gone() }}
-                    style={{
-                      left: `${pct(g().start)}%`,
-                      width: `${Math.max(pct(g().end) - pct(g().start), 1.2)}%`,
-                    }}
-                  >
-                    <div class="tl-handle l" onPointerDown={onSpeedDown(i(), r, "l")} onPointerMove={onSpeedMove} onPointerUp={() => void onSpeedUp()} />
-                    <button
-                      class="tl-speedchip"
-                      title={
-                        gone()
-                          ? "Hidden by a cut. Never affects the export."
-                          : `Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`
-                      }
-                      onPointerDown={onSpeedDown(i(), r, "move")}
-                      onPointerMove={onSpeedMove}
-                      onPointerUp={() => void onSpeedUp()}
+            {/* Speed + cuts live in their OWN lane: their hatching used to cross the
+                annotation lanes and bury the color language. Red here always means
+                "removed"; amber always means "faster". */}
+            <div class="tl-effects">
+              <span class="tl-tracklabel">Speed / Cuts</span>
+              <Show when={speed().length === 0 && cuts().length === 0}>
+                <div class="tl-lanehint">Skim idle or Cut sections appear in this lane</div>
+              </Show>
+              <For each={speed()}>
+                {(r, i) => {
+                  const g = () => speedGeom(i(), r);
+                  const gone = () => isSwallowed(g().start, g().end, cuts(), trim());
+                  return (
+                    <div
+                      classList={{ "tl-speedband": true, selected: selSpeed() === i(), swallowed: gone() }}
+                      style={{
+                        left: `${pct(g().start)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 0.18)}%`,
+                      }}
                     >
-                      {r.factor}×
-                    </button>
-                    <div class="tl-handle r" onPointerDown={onSpeedDown(i(), r, "r")} onPointerMove={onSpeedMove} onPointerUp={() => void onSpeedUp()} />
-                  </div>
-                );
-              }}
-            </For>
+                      <div class="tl-handle l" onPointerDown={onSpeedDown(i(), r, "l")} onPointerMove={frameSpeed(onSpeedMove)} onPointerUp={() => void onSpeedUp()} onLostPointerCapture={() => void onSpeedUp()} />
+                      <button
+                        class="tl-speedchip"
+                        title={
+                          gone()
+                            ? "Hidden by a cut. Never affects the export."
+                            : `Plays at ${r.factor}× · drag the chip to move, drag an edge to resize`
+                        }
+                        onPointerDown={onSpeedDown(i(), r, "move")}
+                        onPointerMove={frameSpeed(onSpeedMove)}
+                        onPointerUp={() => void onSpeedUp()} onLostPointerCapture={() => void onSpeedUp()}
+                      >
+                        {r.factor}×
+                      </button>
+                      <div class="tl-handle r" onPointerDown={onSpeedDown(i(), r, "r")} onPointerMove={frameSpeed(onSpeedMove)} onPointerUp={() => void onSpeedUp()} onLostPointerCapture={() => void onSpeedUp()} />
+                    </div>
+                  );
+                }}
+              </For>
 
-            {/* Cut bands, sections removed from the output. Click the chip to select. */}
-            <For each={cuts()}>
-              {(c, i) => {
-                const g = () => cutGeom(i(), c);
-                return (
-                  <div
-                    classList={{ "tl-cutband": true, selected: selCut() === i() }}
-                    style={{
-                      left: `${pct(g().start)}%`,
-                      width: `${Math.max(pct(g().end) - pct(g().start), 1.2)}%`,
-                    }}
-                  >
-                    <div class="tl-handle l" onPointerDown={onCutDown(i(), c, "l")} onPointerMove={onCutMove} onPointerUp={() => void onCutUp()} />
-                    <button
-                      class="tl-cutchip"
-                      title="Removed from the GIF. Drag to move, edges to resize, Delete to restore."
-                      onPointerDown={onCutDown(i(), c, "move")}
-                      onPointerMove={onCutMove}
-                      onPointerUp={() => void onCutUp()}
+              <For each={cuts()}>
+                {(c, i) => {
+                  const g = () => cutGeom(i(), c);
+                  return (
+                    <div
+                      classList={{ "tl-cutband": true, selected: selCut() === i() }}
+                      style={{
+                        left: `${pct(g().start)}%`,
+                        width: `${Math.max(pct(g().end) - pct(g().start), 0.18)}%`,
+                      }}
                     >
-                      ✂
-                    </button>
-                    <div class="tl-handle r" onPointerDown={onCutDown(i(), c, "r")} onPointerMove={onCutMove} onPointerUp={() => void onCutUp()} />
-                  </div>
-                );
-              }}
-            </For>
+                      <div class="tl-handle l" onPointerDown={onCutDown(i(), c, "l")} onPointerMove={frameCut(onCutMove)} onPointerUp={() => void onCutUp()} onLostPointerCapture={() => void onCutUp()} />
+                      <button
+                        class="tl-cutchip"
+                        title="Removed from the export. Drag to move, edges to resize, Delete to restore."
+                        onPointerDown={onCutDown(i(), c, "move")}
+                        onPointerMove={frameCut(onCutMove)}
+                        onPointerUp={() => void onCutUp()} onLostPointerCapture={() => void onCutUp()}
+                      >
+                        ✂ Removed
+                      </button>
+                      <div class="tl-handle r" onPointerDown={onCutDown(i(), c, "r")} onPointerMove={frameCut(onCutMove)} onPointerUp={() => void onCutUp()} onLostPointerCapture={() => void onCutUp()} />
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
 
             {/* Trim: dimmed cut-off areas + draggable in/out handles */}
             <div class="tl-shade" style={{ left: "0", width: `${pct(tStart())}%` }} />
@@ -4121,16 +4618,16 @@ function App() {
               style={{ left: `${pct(tStart())}%` }}
               title="Trim start"
               onPointerDown={onTrimDown("start")}
-              onPointerMove={onTrimMove}
-              onPointerUp={() => void onTrimUp()}
+              onPointerMove={frameTrim(onTrimMove)}
+              onPointerUp={() => void onTrimUp()} onLostPointerCapture={() => void onTrimUp()}
             />
             <div
               class="tl-trim end"
               style={{ left: `${pct(tEnd())}%` }}
               title="Trim end"
               onPointerDown={onTrimDown("end")}
-              onPointerMove={onTrimMove}
-              onPointerUp={() => void onTrimUp()}
+              onPointerMove={frameTrim(onTrimMove)}
+              onPointerUp={() => void onTrimUp()} onLostPointerCapture={() => void onTrimUp()}
             />
 
             {/* Snap guide, flashes at the snapped time while a segment/trim drag is engaged. */}
@@ -4180,6 +4677,7 @@ function App() {
         <ExportDialog
           name={projectName()}
           duration={duration()}
+          aspect={frameAspect()}
           trim={trim()}
           speed={speed()}
           cuts={cuts()}

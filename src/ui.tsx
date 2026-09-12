@@ -48,17 +48,27 @@ export interface Toast {
 
 const [toasts, setToasts] = createSignal<Toast[]>([]);
 let nextToastId = 1;
+const toastTimers = new Map<number, number>();
 
-/** Push a toast. Auto-dismisses after `ttl` ms (errors stay a little longer). */
+function scheduleDismiss(id: number, ttl: number) {
+  clearTimeout(toastTimers.get(id));
+  toastTimers.set(
+    id,
+    window.setTimeout(() => dismissToast(id), ttl),
+  );
+}
+
+/** Push a toast. Auto-dismisses after `ttl` ms (errors stay a little longer); hovering a
+ *  toast pauses the timer, and every toast has a real, focusable dismiss button. */
 export function toast(text: string, kind: ToastKind = "info", ttl = 3800): void {
   const id = nextToastId++;
   setToasts((prev) => [...prev.slice(-3), { id, kind, text }]);
-  setTimeout(() => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  }, kind === "error" ? ttl + 2200 : ttl);
+  scheduleDismiss(id, kind === "error" ? ttl + 2200 : ttl);
 }
 
 export function dismissToast(id: number): void {
+  clearTimeout(toastTimers.get(id));
+  toastTimers.delete(id);
   setToasts((prev) => prev.filter((t) => t.id !== id));
 }
 
@@ -70,7 +80,12 @@ export function ToastHost(): JSX.Element {
     <div class="toasts" role="status" aria-live="polite">
       <For each={toasts()}>
         {(t) => (
-          <div class="toast" classList={{ [t.kind]: true }} onClick={() => dismissToast(t.id)}>
+          <div
+            class="toast"
+            classList={{ [t.kind]: true }}
+            onPointerEnter={() => clearTimeout(toastTimers.get(t.id))}
+            onPointerLeave={() => scheduleDismiss(t.id, 2000)}
+          >
             <Show when={t.kind === "success"}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4.5 12.5l5 5 10-11" />
@@ -89,6 +104,16 @@ export function ToastHost(): JSX.Element {
               </svg>
             </Show>
             <span>{t.text}</span>
+            <button
+              type="button"
+              class="toast-x"
+              aria-label="Dismiss notification"
+              onClick={() => dismissToast(t.id)}
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
           </div>
         )}
       </For>

@@ -139,14 +139,20 @@ export class PreviewClient {
   }
 }
 
-/** Browser-stand-in for PreviewClient: paints the synthetic desktop scene at ~12fps so the
- *  editor and recording flows are fully visible without the native engine. */
+/** Browser-stand-in for PreviewClient. While "recording" it paints at ~12fps; otherwise it
+ *  repaints ONLY when the visible state changes (seek, edit, scene bump), coalesced to
+ *  animation frames. A paused editor costs zero work per second. */
 export class MockPreviewClient {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private aspect = 0;
   private onAspect: ((aspect: number) => void) | null = null;
   private timer: number | undefined;
+  private raf = 0;
+  private dirty = true;
+  private lastT = -1;
+  private lastVersion = -1;
+  private unlistenDirty: (() => void) | null = null;
 
   attach(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
@@ -165,14 +171,41 @@ export class MockPreviewClient {
       this.aspect = 16 / 9;
       this.onAspect?.(16 / 9);
     }
-    this.timer = window.setInterval(() => this.draw(), 80);
-    this.draw();
+    this.dirty = true;
+    this.unlistenDirty = mockEngine.onDirty(() => {
+      this.dirty = true;
+      // Live recording keeps a continuous ~12fps loop; idle mode paints on change only.
+      if (mockEngine.live && this.timer === undefined) {
+        this.timer = window.setInterval(() => this.draw(), 80);
+      } else if (!mockEngine.live && this.timer !== undefined) {
+        clearInterval(this.timer);
+        this.timer = undefined;
+      }
+      this.schedulePaint();
+    });
+    if (mockEngine.live) {
+      this.timer = window.setInterval(() => this.draw(), 80);
+    }
+    this.schedulePaint();
   }
   disconnect(): void {
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+    if (this.raf) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    }
+    this.unlistenDirty?.();
+    this.unlistenDirty = null;
+  }
+  private schedulePaint(): void {
+    if (this.raf || !this.canvas) return;
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      this.draw();
+    });
   }
   private draw(): void {
     if (!this.canvas || !this.ctx) return;
@@ -180,6 +213,11 @@ export class MockPreviewClient {
     // page is backgrounded, so the mock costs nothing while idle.
     if (document.hidden || this.canvas.offsetParent === null) return;
     const t = mockEngine.live ? mockEngine.liveElapsed() : mockEngine.playhead;
+    const v = mockEngine.sceneVersion;
+    if (!mockEngine.live && !this.dirty && t === this.lastT && v === this.lastVersion) return;
+    this.lastT = t;
+    this.lastVersion = v;
+    this.dirty = false;
     paintDesktop(this.ctx, this.canvas.width, this.canvas.height, t, { live: mockEngine.live });
   }
 }

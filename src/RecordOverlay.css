@@ -125,7 +125,6 @@
   border: 1px solid var(--glass-line);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
   cursor: default;
-  backdrop-filter: blur(18px) saturate(140%);
   animation: bar-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes bar-rise {
@@ -248,9 +247,15 @@
   font-weight: 650;
   padding: 9px 22px;
 }
-.sel-btn.primary:hover {
+.sel-btn.primary:hover:not(:disabled) {
   background: var(--record-hover);
   box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
+}
+.sel-btn:disabled,
+.rec-cancel:disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* ── Recording panel: live zoom preview + controls ────────────────────────────── */
@@ -271,7 +276,6 @@
   background: var(--glass);
   border: 1px solid var(--glass-line);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(18px) saturate(140%);
 }
 
 /* Drag handle, moves the whole preview window out of the way. */
@@ -442,6 +446,22 @@
   border-color: rgba(255, 210, 63, 0.6);
   color: #ffd23f;
 }
+.rec-finishing {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.rec-spin {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: rec-spin 0.8s linear infinite;
+}
+@keyframes rec-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .rec-pause {
   padding: 8px 14px;
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -469,4 +489,21 @@
 }
 .rec-cancel:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+/* Reduced motion: settle instantly, keep the LIVE dot (informational, not decorative). */
+@media (prefers-reduced-motion: reduce) {
+  .sel-root,
+  .sel-bar,
+  .rec-panel,
+  .rec-countdown .rec-num {
+    animation: none !important;
+  }
+  .rec-stop,
+  .rec-pause,
+  .rec-cancel,
+  .sel-btn,
+  .sel-chip,
+  .sel-zoom {
+    transition: none !important;
+  }
 }

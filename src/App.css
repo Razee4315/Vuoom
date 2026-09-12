@@ -36,6 +36,7 @@
   --accent: var(--record);
   --accent-text: #ffffff;
   --accent-soft: rgba(229, 72, 77, 0.15);
+  --shadow-canvas: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 :root[data-theme="mono-light"] {
   --bg: #ffffff;
@@ -60,6 +61,8 @@
   --accent: var(--record);
   --accent-text: #ffffff;
   --accent-soft: rgba(229, 72, 77, 0.12);
+  /* Light surfaces need a fraction of the dark-theme shadow to read as elevation. */
+  --shadow-canvas: 0 12px 36px rgba(20, 20, 28, 0.14);
 }
 :root[data-theme="graphite"] {
   --bg: #15181b;
@@ -84,6 +87,7 @@
   --accent: var(--record);
   --accent-text: #ffffff;
   --accent-soft: rgba(229, 72, 77, 0.15);
+  --shadow-canvas: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 :root[data-theme="paper"] {
   --bg: #f5f3ee;
@@ -108,6 +112,7 @@
   --accent: var(--record);
   --accent-text: #ffffff;
   --accent-soft: rgba(229, 72, 77, 0.12);
+  --shadow-canvas: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 :root[data-theme="midnight"] {
   --bg: #0a0e15;
@@ -302,19 +307,20 @@ kbd {
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
+  /* Feedback colors settle in 60ms; the press state is INSTANT (no transition at all).
+     Shadow/transform transitions were the "soft button" feel: gone. */
   transition:
-    background var(--dur-hover) var(--ease),
-    border-color var(--dur-hover) var(--ease),
-    color var(--dur-hover) var(--ease),
-    box-shadow var(--dur-hover) var(--ease),
-    transform var(--dur-hover) var(--ease);
+    background-color 60ms linear,
+    border-color 60ms linear,
+    color 60ms linear;
 }
 .btn:hover:not(:disabled) {
   background: var(--surface-4);
   border-color: var(--line-strong);
 }
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transition: none;
+  transform: translateY(1px);
 }
 .btn:disabled {
   opacity: 0.42;
@@ -835,7 +841,7 @@ kbd {
   color: var(--text);
 }
 .tool:hover:not(:disabled):not(.active) {
-  transform: translateY(-1px);
+  background: var(--surface-4);
 }
 /* Armed state: raised surface, red ring, full-strength icon. */
 .tool.active {
@@ -902,7 +908,7 @@ kbd {
   border-radius: var(--radius-lg);
   background: linear-gradient(150deg, var(--canvas-a), var(--canvas-b));
   border: 1px solid var(--line);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-canvas);
   overflow: hidden;
 }
 
@@ -1605,7 +1611,7 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
   user-select: none;
 }
 .tbtn {
@@ -1619,10 +1625,9 @@ kbd {
   display: grid;
   place-items: center;
   transition:
-    background var(--dur-hover) var(--ease),
-    border-color var(--dur-hover) var(--ease),
-    color var(--dur-hover) var(--ease),
-    box-shadow var(--dur-hover) var(--ease);
+    background-color 60ms linear,
+    border-color 60ms linear,
+    color 60ms linear;
 }
 .tbtn:hover:not(:disabled) {
   background: var(--surface-4);
@@ -1638,8 +1643,11 @@ kbd {
 }
 .tbtn.play:hover:not(:disabled) {
   background: var(--record-hover);
-  box-shadow: 0 0 0 4px var(--accent-soft);
   color: var(--accent-text);
+}
+.tbtn:active:not(:disabled) {
+  transition: none;
+  transform: translateY(1px);
 }
 .tbtn:disabled {
   opacity: 0.4;
@@ -1711,7 +1719,7 @@ kbd {
 }
 .tl-empty {
   font-size: var(--fs-sm);
-  color: var(--faint);
+  color: var(--muted);
 }
 /* Horizontal-scroll viewport. */
 .tl-scroll {
@@ -1842,7 +1850,7 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted);
   pointer-events: none;
   z-index: 2;
 }
@@ -1871,20 +1879,26 @@ kbd {
   cursor: grab;
   touch-action: none;
   z-index: 1;
-  transition: box-shadow var(--dur-hover) var(--ease), filter var(--dur-hover) var(--ease);
+  /* Zero transitions on draggable geometry: hover/selected/press must be frame-exact. */
+  transition: none;
 }
 .tl-seg:hover {
-  filter: brightness(1.15);
+  outline: 1px solid var(--text-2);
+  outline-offset: -1px;
 }
 .tl-seg:active {
   cursor: grabbing;
 }
 .tl-seg.selected {
-  border-color: #fff;
+  border-color: var(--sel-ring, #fff);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    0 0 0 1px #fff,
+    0 0 0 1px var(--sel-ring, #fff),
     0 4px 14px color-mix(in srgb, var(--record) 40%, transparent);
+}
+:root[data-theme="mono-light"] .tl-seg.selected,
+:root[data-theme="paper"] .tl-seg.selected {
+  --sel-ring: var(--ink);
 }
 
 /* Grabbable resize handles: pill end-caps that appear on hover/selection. */
@@ -1948,10 +1962,11 @@ kbd {
   cursor: grab;
   touch-action: none;
   z-index: 1;
-  transition: box-shadow var(--dur-hover) var(--ease), filter var(--dur-hover) var(--ease);
+  transition: none;
 }
 .tl-ann:hover {
-  filter: brightness(1.12);
+  outline: 1px solid var(--text-2);
+  outline-offset: -1px;
 }
 .tl-ann:active {
   cursor: grabbing;
@@ -1969,8 +1984,12 @@ kbd {
   border-color: color-mix(in srgb, var(--note-box) 55%, transparent);
 }
 .tl-ann.selected {
-  border-color: #fff;
-  box-shadow: 0 0 0 1px #fff, 0 4px 14px rgba(0, 0, 0, 0.35);
+  border-color: var(--sel-ring, #fff);
+  box-shadow: 0 0 0 1px var(--sel-ring, #fff), 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="mono-light"] .tl-ann.selected,
+:root[data-theme="paper"] .tl-ann.selected {
+  --sel-ring: var(--ink);
 }
 
 /* Segments swallowed by cuts: dimmed + hatched, still draggable back out. */
@@ -1999,9 +2018,11 @@ kbd {
   border-color: #d9383d;
   color: #fff;
 }
+/* The old override used --ink-text, which is white/near-white in light themes: pale text
+   on pastel glass, a release-quality readability bug. Dark ink is the fix. */
 :root[data-theme="mono-light"] .tl-ann,
 :root[data-theme="paper"] .tl-ann {
-  color: var(--ink-text);
+  color: var(--text);
   text-shadow: none;
 }
 :root[data-theme="mono-light"] .tl-ann.tl-text,
@@ -2072,7 +2093,11 @@ kbd {
   cursor: grabbing;
 }
 .tl-speedband.selected .tl-speedchip {
-  outline: 1px solid var(--record);
+  outline: 1px solid var(--sel-ring, var(--record));
+}
+:root[data-theme="mono-light"] .tl-speedband.selected .tl-speedchip,
+:root[data-theme="paper"] .tl-speedband.selected .tl-speedchip {
+  --sel-ring: var(--ink);
 }
 
 /* Cut bands: sections removed from the output entirely. */
@@ -2091,8 +2116,12 @@ kbd {
   z-index: 1;
 }
 .tl-cutband.selected {
-  border-left: 1px solid #fff;
-  border-right: 1px solid #fff;
+  border-left: 1px solid var(--sel-ring, #fff);
+  border-right: 1px solid var(--sel-ring, #fff);
+}
+:root[data-theme="mono-light"] .tl-cutband.selected,
+:root[data-theme="paper"] .tl-cutband.selected {
+  --sel-ring: var(--ink);
 }
 .tl-cutchip {
   pointer-events: auto;
@@ -2116,7 +2145,11 @@ kbd {
   cursor: grabbing;
 }
 .tl-cutband.selected .tl-cutchip {
-  outline: 1px solid #fff;
+  outline: 1px solid var(--sel-ring, #fff);
+}
+:root[data-theme="mono-light"] .tl-cutband.selected .tl-cutchip,
+:root[data-theme="paper"] .tl-cutband.selected .tl-cutchip {
+  --sel-ring: var(--ink);
 }
 
 /* Trim: dimmed cut-off areas + draggable flag handles. */
@@ -2498,8 +2531,7 @@ kbd {
   padding: 9px 13px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--surface-3) 92%, transparent);
-  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--surface-3) 96%, transparent);
   box-shadow: var(--shadow-md);
   color: var(--text);
   font-size: var(--fs-sm);
@@ -2786,5 +2818,223 @@ kbd {
   }
   .canvas-placeholder .sub {
     display: none;
+  }
+}
+
+/* ============================================================
+   Feedback-fixes batch: appearance popover, inspector footer,
+   effects lane, lane hints, home hero pair, recents thumbs
+   ============================================================ */
+
+/* Appearance popover (frame + backdrop) */
+.appear-menu .btn.ghost {
+  height: 32px;
+}
+.appear-list {
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 230px;
+  padding: 14px;
+}
+.appear-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.appear-select {
+  width: 100%;
+}
+.appear-swatches {
+  margin: 2px 0 0;
+  flex-wrap: wrap;
+}
+.appear-list .appear-title + .appear-swatches {
+  margin-bottom: 2px;
+}
+
+/* Sticky inspector action footer: Duplicate / z-order / Delete never scroll away. */
+.inspector-actions {
+  position: sticky;
+  bottom: -16px; /* bleeds over the panel padding */
+  margin: 16px -16px -16px;
+  padding: 12px 16px 16px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+}
+.inspector-actions .muted.small {
+  margin-top: 0;
+}
+.inspector-actions .btn.block {
+  margin-bottom: 8px;
+}
+
+/* Effects lane: speed + cuts live apart from the annotation notes. */
+.tl-effects {
+  position: relative;
+  height: 26px;
+  border-top: 1px solid var(--line);
+}
+.tl-effects .tl-speedband,
+.tl-effects .tl-cutband {
+  top: 2px;
+  bottom: 2px;
+}
+.tl-effects .tl-tracklabel {
+  top: 50%;
+}
+.tl-lanehint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+/* Honest widths: no minimum-percentage exaggeration. Grab area comes from the
+   end-cap handles, which extend past short blocks. */
+.tl-seg .tl-handle,
+.tl-ann .tl-handle {
+  width: 14px;
+}
+.tl-seg .tl-handle.l,
+.tl-ann .tl-handle.l {
+  margin-left: -7px;
+}
+.tl-seg .tl-handle.r,
+.tl-ann .tl-handle.r {
+  margin-right: -7px;
+}
+/* Zoom blocks are real buttons now (keyboard selectable). */
+button.tl-seg {
+  padding: 0 8px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+button.tl-seg:focus-visible {
+  outline: 2px solid var(--record);
+  outline-offset: 1px;
+}
+
+/* Home hero action pair */
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-10);
+  margin-top: 22px;
+  animation: rise-in var(--dur-slow) var(--ease) 0.1s both;
+}
+.cta-ghost {
+  height: 44px;
+  padding: 0 18px;
+  font-size: var(--fs-md);
+  border-radius: var(--radius-full);
+  background: transparent;
+}
+.canvas-placeholder .hero-actions + .placeholder-hint {
+  margin-top: 16px;
+}
+
+/* Recents thumbnails */
+.recent-thumb {
+  overflow: hidden;
+}
+.recent-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Toast dismiss button */
+.toast-x {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.toast-x:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+
+/* Export: error state + fit-to-size */
+.export-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--record) 45%, var(--line));
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  word-break: break-word;
+}
+.fit-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  margin-bottom: 14px;
+}
+.fit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-6);
+  flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.fit-input {
+  width: 84px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.fit-input:focus {
+  outline: none;
+  border-color: var(--record);
+}
+
+/* Reduced motion: button feedback too (transitions off everywhere). */
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .tbtn,
+  .tbtn-sel,
+  .tl-seg,
+  .tl-ann,
+  .bg-swatch,
+  .swatchbtn,
+  .recent-card,
+  .tool,
+  .chip {
+    transition: none !important;
+  }
+  .toast {
+    animation: none !important;
+  }
+  .btn.record .dot {
+    animation: none !important;
   }
 }

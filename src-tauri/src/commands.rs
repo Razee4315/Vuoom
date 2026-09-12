@@ -5,6 +5,7 @@
 //! the frontend retries. Heavy commands (capture, composite, encode, disk I/O) are `async`
 //! so they run off the main thread and never freeze the UI.
 
+use crate::displays::DisplayInfo;
 use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::region_border::RegionBorder;
 use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSummary};
@@ -14,7 +15,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
+use vuoom_project::{CropRect, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -76,13 +77,121 @@ pub fn enter_overlay(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
     border: tauri::State<'_, BorderState>,
+    monitor_name: Option<String>,
+    window_hwnd: Option<f64>,
 ) -> Result<String, String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    let monitor = main.current_monitor().ok().flatten();
+    // What the overlay targets this time: a whole window (its client rect + display), a
+    // named display from the picker, or the editor's own monitor when nothing was given.
+    enum Target {
+        Window {
+            hwnd: f64,
+            client: (i32, i32, u32, u32),
+            mon: crate::session::MonitorInfo,
+        },
+        Display(crate::session::MonitorInfo),
+        Current,
+    }
+    let target = if let Some(hwnd) = window_hwnd {
+        let client = crate::windows_list::client_screen_rect(hwnd as isize)
+            .map_err(|e| format!("capture window is gone: {e}"))?;
+        let mon = crate::windows_list::window_monitor(hwnd as isize);
+        Target::Window { hwnd, client, mon }
+    } else if let Some(name) = monitor_name
+        .as_ref()
+        .and_then(|n| crate::displays::find_by_name(n))
+    {
+        Target::Display(crate::session::MonitorInfo {
+            name: name.name,
+            x: name.x,
+            y: name.y,
+            w: name.w,
+            h: name.h,
+        })
+    } else {
+        Target::Current
+    };
+
+    // Resolve the Tauri monitor handle for placement: the window's own display, or the
+    // named display matched by geometry (Tauri and GDI enumerate the same set).
+    let monitor: Option<tauri::Monitor> = match &target {
+        Target::Window { mon, .. } => app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| {
+                monitors.into_iter().find(|m| {
+                    m.position().x == mon.x
+                        && m.position().y == mon.y
+                        && m.size().width == mon.w
+                        && m.size().height == mon.h
+                })
+            })
+            .or_else(|| app.primary_monitor().ok().flatten()),
+        Target::Display(info) => app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| {
+                monitors.into_iter().find(|m| {
+                    m.position().x == info.x
+                        && m.position().y == info.y
+                        && m.size().width == info.w
+                        && m.size().height == info.h
+                })
+            })
+            .or_else(|| app.primary_monitor().ok().flatten()),
+        Target::Current => main.current_monitor().ok().flatten(),
+    };
+
+    // Window mode: pin the session to the window BEFORE the backdrop grab. Display mode:
+    // clear any stale window target so the recording targets the display.
+    match &target {
+        Target::Window { hwnd, client, mon } => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_capture_window(
+                    *hwnd as isize,
+                    client.0,
+                    client.1,
+                    client.2,
+                    client.3,
+                    crate::session::MonitorInfo {
+                        name: monitor
+                            .as_ref()
+                            .and_then(|m| m.name().cloned())
+                            .unwrap_or_default(),
+                        x: mon.x,
+                        y: mon.y,
+                        w: mon.w,
+                        h: mon.h,
+                    },
+                );
+            }
+        }
+        other => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_monitor(match other {
+                    Target::Display(info) => Some(info.clone()),
+                    _ => monitor.as_ref().and_then(|m| {
+                        m.name().map(|n| crate::session::MonitorInfo {
+                            name: n.clone(),
+                            x: m.position().x,
+                            y: m.position().y,
+                            w: m.size().width,
+                            h: m.size().height,
+                        })
+                    }),
+                });
+            }
+        }
+    }
     if let Ok(mut slot) = border.origin.lock() {
-        *slot = monitor
-            .as_ref()
-            .map_or((0, 0), |m| (m.position().x, m.position().y));
+        // Region-relative origin: the client rect for window capture, the monitor origin
+        // for display capture.
+        *slot = match &target {
+            Target::Window { client, .. } => (client.0, client.1),
+            _ => monitor
+                .as_ref()
+                .map_or((0, 0), |m| (m.position().x, m.position().y)),
+        };
     }
     if let Ok(session) = engine.session() {
         let info = monitor.as_ref().and_then(|m| {
@@ -780,6 +889,60 @@ pub fn add_highlighter(
     t: f64,
 ) -> Result<u32, String> {
     engine.session()?.add_highlighter(x, y, w, h, t)
+}
+
+/// Add an opaque redaction mask (near-black block; content under it never shows).
+#[tauri::command]
+pub fn add_mask(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_mask(x, y, w, h, t)
+}
+
+/// Set (or clear) the normalized output crop. `None` fields clear the crop.
+#[tauri::command]
+pub fn set_crop(
+    engine: tauri::State<'_, Engine>,
+    x: Option<f64>,
+    y: Option<f64>,
+    w: Option<f64>,
+    h: Option<f64>,
+) -> Result<ClipState, String> {
+    let session = engine.session()?;
+    let crop = match (x, y, w, h) {
+        (None, None, None, None) => None,
+        (Some(x), Some(y), Some(w), Some(h)) => Some(CropRect { x, y, w, h }),
+        _ => return Err("set_crop: provide all of x, y, w, h, or none to reset".into()),
+    };
+    session.set_crop(crop)?;
+    session.clip_state()
+}
+
+/// Re-run the automatic zoom planner over the recorded click log at the given strength,
+/// replacing the manual zoom list (undoable).
+#[tauri::command]
+pub fn plan_zoom_auto(
+    engine: tauri::State<'_, Engine>,
+    amount: f64,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.plan_zoom_auto(amount)
+}
+
+/// Every active display, for the record-flow source picker.
+#[tauri::command]
+pub fn list_displays() -> Vec<DisplayInfo> {
+    crate::displays::enumerate()
+}
+
+/// Enumerable top-level windows (visible, non-tool, non-cloaked), for window capture.
+#[tauri::command]
+pub fn list_windows() -> Vec<crate::windows_list::WindowInfo> {
+    crate::windows_list::enumerate()
 }
 
 /// Snapshot every annotation (for the editor overlay).

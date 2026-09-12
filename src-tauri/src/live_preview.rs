@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use glam::DVec2;
-use vuoom_capture::{spawn_region, CapturedFrame, CropRegion};
+use vuoom_capture::{spawn_capture, CaptureSource, CapturedFrame, CropRegion};
 use vuoom_encode::{downscale_rgba, swizzle_rb, RgbaImage};
 use vuoom_input::Clock;
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
@@ -48,7 +48,7 @@ impl LivePreview {
     #[must_use]
     pub fn start(
         region: Option<CropRegion>,
-        monitor: Option<String>,
+        source: CaptureSource,
         origin: (i32, i32),
         amount: f64,
         sink: FrameSink,
@@ -56,7 +56,7 @@ impl LivePreview {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
         let handle =
-            std::thread::spawn(move || run(region, monitor, origin, amount, sink, &stop_worker));
+            std::thread::spawn(move || run(region, source, origin, amount, sink, &stop_worker));
         Self {
             stop,
             handle: Some(handle),
@@ -80,13 +80,13 @@ impl Drop for LivePreview {
 
 fn run(
     region: Option<CropRegion>,
-    monitor: Option<String>,
+    source: CaptureSource,
     origin: (i32, i32),
     amount: f64,
     sink: FrameSink,
     stop: &AtomicBool,
 ) {
-    let (rx, capture) = spawn_region(region, monitor);
+    let (rx, capture) = spawn_capture(region, &source);
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, amount);
     let clock = Clock::new();

@@ -73,7 +73,11 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
   const onPointerDown = (e: PointerEvent) => {
     if (props.disabled || editing()) return;
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* synthetic pointer: fall back to bubbling */
+    }
     activePointer = e.pointerId;
     startX = e.clientX;
     startVal = props.value ?? (props.min + props.max) / 2;

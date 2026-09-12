@@ -21,7 +21,9 @@ use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use vuoom_capture::{spawn_region, CaptureHandle, CapturedFrame, CropRegion};
+use vuoom_capture::{
+    spawn_capture, spawn_region, CaptureHandle, CaptureSource, CapturedFrame, CropRegion,
+};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -29,9 +31,9 @@ use vuoom_encode::{
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, FrameStyle,
-    HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
-    TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, CropRect,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
+    SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -54,6 +56,19 @@ pub struct RecordingSummary {
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
     pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// A window capture target: the HWND plus its client rect in screen coords, so cursor
+/// events (virtual-desktop coords) normalize into client space with the same offset
+/// math a monitor capture uses.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowTarget {
+    pub hwnd: isize,
+    /// Client-rect origin in screen coords (physical px).
     pub x: i32,
     pub y: i32,
     pub w: u32,
@@ -198,6 +213,10 @@ pub struct Session {
     pending_region: Mutex<Option<CropRegion>>,
     /// The monitor the next recording captures; `None` = primary.
     pending_monitor: Mutex<Option<MonitorInfo>>,
+    /// The capture source for the next recording: a display (default) or a window. In
+    /// window mode `origin`/`size` carry the CLIENT rect in screen coords, which drives
+    /// cursor normalization and region validation.
+    pending_window: Mutex<Option<WindowTarget>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
@@ -240,6 +259,7 @@ impl Session {
             edited: Mutex::new(Edited::default()),
             pending_region: Mutex::new(None),
             pending_monitor: Mutex::new(None),
+            pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
@@ -293,12 +313,54 @@ impl Session {
     }
 
     /// Set the monitor the next recording (and its selector screenshot) captures.
+    /// Display mode: clears any window target.
     pub fn set_monitor(&self, monitor: Option<MonitorInfo>) -> Result<(), String> {
         *self
             .pending_monitor
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = monitor;
+        *self
+            .pending_window
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
+    }
+
+    /// Capture a top-level window instead of a display. `x/y/w/h` describe the client
+    /// rect in screen coords (physical px); `monitor` is the window's display, used for
+    /// selector placement and the region border.
+    pub fn set_capture_window(
+        &self,
+        hwnd: isize,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        monitor: MonitorInfo,
+    ) -> Result<(), String> {
+        if w < 8 || h < 8 {
+            return Err("capture window is too small".into());
+        }
+        *self
+            .pending_window
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(WindowTarget { hwnd, x, y, w, h });
+        *self
+            .pending_monitor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(monitor);
+        *self
+            .pending_region
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
+    }
+
+    fn pending_window(&self) -> Option<WindowTarget> {
+        *self
+            .pending_window
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
@@ -310,6 +372,11 @@ impl Session {
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL,
     /// the still backdrop the region selector draws on (no transparent window needed).
     pub fn screenshot(&self) -> Result<String, String> {
+        // Window mode: grab the window's client area via PrintWindow instead of a
+        // display frame, so the selector backdrop shows exactly what will record.
+        if let Some(w) = self.pending_window() {
+            return screenshot_window(w.hwnd);
+        }
         let monitor = self
             .pending_monitor
             .lock()
@@ -360,13 +427,24 @@ impl Session {
             .pending_region
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        let window = self.pending_window();
         let monitor = self
             .pending_monitor
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let mon_name = monitor.as_ref().map(|m| m.name.clone());
-        let mon_origin = monitor.as_ref().map_or((0, 0), |m| (m.x, m.y));
+        let source = match &window {
+            Some(w) => CaptureSource::Window { hwnd: w.hwnd },
+            None => CaptureSource::Monitor {
+                name: monitor.as_ref().map(|m| m.name.clone()),
+            },
+        };
+        // Cursor normalization offset: the monitor origin for display capture, the client
+        // origin for window capture (window frames arrive client-sized).
+        let mon_origin = window.map_or_else(
+            || monitor.as_ref().map_or((0, 0), |m| (m.x, m.y)),
+            |w| (w.x, w.y),
+        );
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
 
         // Guard the recording volume BEFORE creating anything: raw uncompressed BGRA streams to
@@ -376,6 +454,7 @@ impl Session {
         // warn (surfaced at stop) if it's above the floor but only a few minutes' worth.
         let (est_w, est_h) = region
             .map(|r| (r.w, r.h))
+            .or_else(|| window.as_ref().map(|w| (w.w, w.h)))
             .or_else(|| monitor.as_ref().map(|m| (m.w, m.h)))
             .unwrap_or((1920, 1080));
         let _ = std::fs::create_dir_all(frame_store::recovery_root());
@@ -426,10 +505,10 @@ impl Session {
         // arrives during startup can be stamped earlier than the epoch (a negative time would
         // otherwise slip into normalization / zoom planning).
         let start_qpc = self.clock.now();
-        let (frames_rx, capture) = spawn_region(region, mon_name.clone());
+        let (frames_rx, capture) = spawn_capture(region, &source);
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview, its own capture, so it can never disturb the recording.
-        let preview = LivePreview::start(region, mon_name, mon_origin, amount, self.preview.sink());
+        let preview = LivePreview::start(region, source, mon_origin, amount, self.preview.sink());
 
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
@@ -1188,6 +1267,78 @@ impl Session {
             range,
         });
         Ok(id)
+    }
+
+    /// Add an opaque redaction mask: the compositor forces a near-black fill regardless
+    /// of styling, and the range uses hard edges (no fades) so masked content never
+    /// leaks during a fade. Returns its id.
+    pub fn add_mask(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.0);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            color: Color::rgb(0.04, 0.04, 0.05),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Mask,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Set (or clear) the normalized crop. Annotations live in OUTPUT-normalized space,
+    /// so changing the crop rescales them by the output-dimension ratio and they keep
+    /// their on-screen placement. Clearing via a full-frame rect is a no-op.
+    pub fn set_crop(&self, crop: Option<CropRect>) -> Result<(), String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "crop");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let (old_w, old_h) = project.output_dims();
+        project.crop = crop.and_then(CropRect::sanitized);
+        let (new_w, new_h) = project.output_dims();
+        if (old_w != new_w || old_h != new_h) && old_w > 0 && old_h > 0 {
+            let sx = f64::from(new_w) / f64::from(old_w);
+            let sy = f64::from(new_h) / f64::from(old_h);
+            for t in &mut project.texts {
+                t.pos.x = (t.pos.x * sx).clamp(0.0, 1.0);
+                t.pos.y = (t.pos.y * sy).clamp(0.0, 1.0);
+            }
+            for a in &mut project.arrows {
+                a.from.x = (a.from.x * sx).clamp(0.0, 1.0);
+                a.from.y = (a.from.y * sy).clamp(0.0, 1.0);
+                a.to.x = (a.to.x * sx).clamp(0.0, 1.0);
+                a.to.y = (a.to.y * sy).clamp(0.0, 1.0);
+            }
+            for h in &mut project.highlights {
+                h.rect.x = (h.rect.x * sx).clamp(0.0, 1.0);
+                h.rect.y = (h.rect.y * sy).clamp(0.0, 1.0);
+                h.rect.w = (h.rect.w * sx).clamp(0.0, 1.0);
+                h.rect.h = (h.rect.h * sy).clamp(0.0, 1.0);
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-run the automatic zoom planner over the persisted input log with click-driven
+    /// zooms enabled at the requested strength, REPLACING the manual zoom list. Undoable
+    /// like any edit. Returns the new segments.
+    pub fn plan_zoom_auto(&self, amount: f64) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "zoomplan");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let duration = project.source.duration;
+        let mut cfg = project.zoom_config;
+        cfg.amount = amount.clamp(1.2, 4.0);
+        cfg.auto_zoom_on_click = true;
+        let zooms = plan_zooms(&project.events, duration, &cfg);
+        project.zooms = zooms.clone();
+        project.zoom_config = cfg;
+        resimulate(&mut edited);
+        Ok(zooms)
     }
 
     /// Snapshot everything the editor timeline binds to.
@@ -2685,6 +2836,76 @@ fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, S
         )));
     }
     Ok(None)
+}
+
+/// Grab a window's client area via `PrintWindow` (with the render-full-content flag so
+/// GPU-composited apps like Chrome render), returning a `data:image/png;base64,…` URL.
+/// Falls back to a display grab only if the caller decides; failures are loud here.
+pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULLCONTENT};
+
+    let hwnd = HWND(hwnd as _);
+    let mut rc = windows::Win32::Foundation::RECT::default();
+    unsafe { GetClientRect(hwnd, &mut rc) }.map_err(|e| format!("GetClientRect failed: {e}"))?;
+    let w = (rc.right - rc.left).max(1);
+    let h = (rc.bottom - rc.top).max(1);
+
+    unsafe {
+        let hdc_window: HDC = GetDC(Some(hwnd));
+        if hdc_window.is_invalid() {
+            return Err("GetDC failed".into());
+        }
+        let hdc_mem: HDC = CreateCompatibleDC(Some(hdc_window));
+        let bitmap = CreateCompatibleBitmap(hdc_window, w, h);
+        let old = SelectObject(hdc_mem, bitmap.into());
+
+        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT: client area only, and
+        // DirectComposition content (Chrome, Electron) actually renders.
+        // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
+        let drawn = windows::Win32::Storage::Xps::PrintWindow(
+            hwnd,
+            hdc_mem,
+            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
+        );
+        let _ = drawn; // a partial grab still yields a usable backdrop
+
+        let mut bi = BITMAPINFO::default();
+        bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bi.bmiHeader.biWidth = w;
+        // Negative height = top-down rows, the layout the rest of the pipeline expects.
+        bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = DIB_RGB_COLORS.0;
+        let mut pixels = vec![0u8; (w * h * 4) as usize];
+        let lines = GetDIBits(
+            hdc_mem,
+            bitmap,
+            0,
+            h as u32,
+            Some(pixels.as_mut_ptr().cast()),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
+        let _ = SelectObject(hdc_mem, old);
+        let _ = DeleteObject(bitmap.into());
+        let _ = DeleteDC(hdc_mem);
+        ReleaseDC(Some(hwnd), hdc_window);
+        if lines == 0 {
+            return Err("GetDIBits failed".into());
+        }
+        // The DIB is BGRA; the pipeline wants RGBA.
+        let rgba = swizzle_rb(&pixels);
+        let img = RgbaImage::new(w as u32, h as u32, rgba);
+        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        Ok(format!("data:image/png;base64,{b64}"))
+    }
 }
 
 #[cfg(test)]

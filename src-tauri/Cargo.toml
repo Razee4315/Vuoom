@@ -59,6 +59,8 @@ windows = { version = "0.62", features = [
     # SetWindowSubclass/DefSubclassProc/RemoveWindowSubclass — the recording panel's
     # WM_MOVING drag wall (see drag_wall.rs) subclasses the main window's top-level HWND.
     "Win32_UI_Shell",
+    # DwmGetWindowAttribute(DWMWA_CLOAKED): skip suspended UWP windows in the picker.
+    "Win32_Graphics_Dwm",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Media_MediaFoundation",
@@ -67,6 +69,8 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     # GetDiskFreeSpaceExW — free-space guard so a raw-BGRA stream can't silently fill the disk.
     "Win32_Storage_FileSystem",
+    # PrintWindow lives under Storage::Xps in windows-rs 0.62 (window backdrop grabs).
+    "Win32_Storage_Xps",
 ] }
 # CF_HDROP clipboard file copy (paste the exported GIF into Slack/Discord/etc.).
 # Safe wrapper over the DROPFILES + clipboard dance; replaces hand-rolled unsafe.

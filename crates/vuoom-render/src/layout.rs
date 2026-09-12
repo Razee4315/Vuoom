@@ -4,7 +4,7 @@
 //! which region of the source frame to sample (the zoom/pan crop) and where to draw the
 //! framed recording inside the padded output. See `docs/05-Compositing-and-Preview.md`.
 
-use vuoom_project::FrameStyle;
+use vuoom_project::{CropRect, FrameStyle};
 use vuoom_zoom::CameraState;
 
 /// A normalized rectangle in `0.0..=1.0` source space.
@@ -62,17 +62,47 @@ pub fn content_rect(out_w: u32, out_h: u32, padding: f64) -> PxRect {
     }
 }
 
-/// Compute the full per-frame layout from output size, framing, and camera pose.
+/// Map a camera source rect through the crop: the camera pans/zooms INSIDE the cropped
+/// region, so the sampled area is the camera rect expressed in crop space, then clamped
+/// to the crop so the camera can never reveal pixels outside it.
+#[must_use]
+pub fn crop_src_rect(cam: &CameraState, crop: Option<CropRect>) -> NormRect {
+    let cam_src = camera_src_rect(cam);
+    match crop {
+        None => cam_src,
+        Some(c) => {
+            let mapped = NormRect {
+                x: c.x + cam_src.x * c.w,
+                y: c.y + cam_src.y * c.h,
+                w: cam_src.w * c.w,
+                h: cam_src.h * c.h,
+            };
+            let x0 = mapped.x.max(c.x);
+            let y0 = mapped.y.max(c.y);
+            let x1 = (mapped.x + mapped.w).min(c.x + c.w);
+            let y1 = (mapped.y + mapped.h).min(c.y + c.h);
+            NormRect {
+                x: x0,
+                y: y0,
+                w: (x1 - x0).max(1e-4),
+                h: (y1 - y0).max(1e-4),
+            }
+        }
+    }
+}
+
+/// Compute the full per-frame layout from output size, framing, camera pose, and crop.
 #[must_use]
 pub fn compute_layout(
     out_w: u32,
     out_h: u32,
     frame: &FrameStyle,
     cam: &CameraState,
+    crop: Option<CropRect>,
 ) -> CompositeLayout {
     let small = f64::from(out_w.min(out_h));
     CompositeLayout {
-        src_rect: camera_src_rect(cam),
+        src_rect: crop_src_rect(cam, crop),
         dst_rect: content_rect(out_w, out_h, frame.padding),
         corner_radius_px: (frame.corner_radius * small).max(0.0),
     }
@@ -138,7 +168,7 @@ mod tests {
             corner_radius: 0.02,
             ..FrameStyle::default()
         };
-        let l = compute_layout(1920, 1080, &f, &cam(0.5, 0.5, 1.0));
+        let l = compute_layout(1920, 1080, &f, &cam(0.5, 0.5, 1.0), None);
         assert!((l.corner_radius_px - 0.02 * 1080.0).abs() < 1e-9);
     }
 }

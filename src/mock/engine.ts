@@ -101,6 +101,7 @@ class MockEngine {
   cuts: Trim[] = [];
   showClicks = false;
   showKeys = false;
+  crop: { x: number; y: number; w: number; h: number } | null = null;
   framePreset = "none";
   bgPreset = "";
   playhead = 0;
@@ -141,6 +142,7 @@ class MockEngine {
       cuts: [...this.cuts],
       showClicks: this.showClicks,
       showKeys: this.showKeys,
+      crop: this.crop ? { ...this.crop } : null,
       framePreset: this.framePreset,
       bgPreset: this.bgPreset,
       duration: this.duration,
@@ -214,9 +216,40 @@ class MockEngine {
       zooms: [...this.zooms],
       show_clicks: this.showClicks,
       show_keys: this.showKeys,
+      crop: this.crop ? { ...this.crop } : null,
       frame_preset: this.framePreset,
       background_preset: this.bgPreset,
     };
+  }
+
+  setCrop(crop: { x: number; y: number; w: number; h: number } | null) {
+    this.mutate("crop", () => {
+      const full =
+        !crop || (crop.x <= 1e-3 && crop.y <= 1e-3 && crop.w >= 0.999 && crop.h >= 0.999);
+      this.crop = full ? null : { ...crop };
+    });
+  }
+
+  planZoomAuto(amount: number): ZoomSeg[] {
+    this.mutate("zoomplan", () => {
+      // Re-derive zooms from the scripted click times at the requested strength.
+      const spans: ZoomSeg[] = [];
+      for (const ct of CLICK_TIMES) {
+        const start = Math.max(0, ct - 0.35);
+        const end = Math.min(this.duration, ct + 1.4);
+        if (end - start < 0.6) continue;
+        const last = spans[spans.length - 1];
+        // Merge only genuine click bursts (overlapping spans), never chain distant
+        // clusters, so the demo plans several distinct zooms like the Rust planner.
+        if (last && start < last.end) {
+          last.end = Math.max(last.end, end);
+          continue;
+        }
+        spans.push({ start, end, amount, mode: "Auto", style: "Smooth" });
+      }
+      this.zooms = spans;
+    });
+    return [...this.zooms];
   }
 
   summary(): RecordingSummary {
@@ -337,17 +370,34 @@ class MockEngine {
     });
     return id;
   }
-  addBox(a: { x: number; y: number; w: number; h: number; t: number; ellipse?: boolean; highlight?: boolean }): number {
+  addBox(a: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    t: number;
+    ellipse?: boolean;
+    highlight?: boolean;
+    mask?: boolean;
+  }): number {
     const id = this.nextAnnId();
     this.mutate(undefined, () => {
+      const mask = !!a.mask;
       this.anns.highlights.push({
         id,
         rect: { x: a.x, y: a.y, w: a.w, h: a.h },
-        color: a.highlight ? color("#ffd23f", 0.4) : color("#ffd23f"),
-        thickness: 0.004,
-        filled: !!a.highlight,
-        shape: a.ellipse ? "Ellipse" : "Rect",
-        range: range(Math.max(0, a.t - 0.2), Math.min(this.duration, a.t + 2.8)),
+        color: mask ? color("#0a0a0d") : a.highlight ? color("#ffd23f", 0.4) : color("#ffd23f"),
+        thickness: 0.0,
+        filled: mask || !!a.highlight,
+        shape: mask ? "Mask" : a.ellipse ? "Ellipse" : "Rect",
+        range: mask
+          ? {
+              start: Math.max(0, a.t - 0.2),
+              end: Math.min(this.duration, a.t + 2.8),
+              fade_in: 0,
+              fade_out: 0,
+            }
+          : range(Math.max(0, a.t - 0.2), Math.min(this.duration, a.t + 2.8)),
       });
     });
     return id;

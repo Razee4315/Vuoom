@@ -82,7 +82,7 @@ pub fn build_scene(
     t: f64,
 ) -> Scene {
     let cam = camera.at(t);
-    let layout = compute_layout(out_w, out_h, &project.frame, &cam);
+    let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
     let ow = f64::from(out_w);
     let oh = f64::from(out_h);
 
@@ -151,15 +151,26 @@ pub fn build_scene(
         if o <= 0.0 {
             continue;
         }
+        // A mask is an OPAQUE redaction block: the compositor forces a near-black fill
+        // and ignores the stored color/thickness so masked content can never leak.
+        let is_mask = h.shape == HighlightShape::Mask;
         highlights.push(ResolvedHighlight {
             x: h.rect.x * ow,
             y: h.rect.y * oh,
             w: h.rect.w * ow,
             h: h.rect.h * oh,
-            thickness_px: f64::from(h.thickness) * oh,
-            filled: h.filled,
+            thickness_px: if is_mask {
+                0.0
+            } else {
+                f64::from(h.thickness) * oh
+            },
+            filled: h.filled || is_mask,
             ellipse: h.shape == HighlightShape::Ellipse,
-            color: fade(h.color, o),
+            color: if is_mask {
+                fade(Color::rgb(0.04, 0.04, 0.05), o)
+            } else {
+                fade(h.color, o)
+            },
         });
     }
 

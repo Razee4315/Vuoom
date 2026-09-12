@@ -17,6 +17,7 @@ use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
+use windows_capture::window::Window;
 
 /// One captured frame: tightly-packed BGRA8 pixels + dimensions + QPC timestamp.
 pub struct CapturedFrame {
@@ -184,6 +185,54 @@ impl GraphicsCaptureApiHandler for Handler {
 }
 
 /// Resolve a monitor by Win32 device name (e.g. `\\.\DISPLAY2`), falling back to primary.
+/// What to capture: a display (by Win32 device name) or a top-level window (by HWND).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureSource {
+    Monitor { name: Option<String> },
+    Window { hwnd: isize },
+}
+
+/// Resolve a window by HWND among the enumerable top-level windows.
+fn pick_window(hwnd: isize) -> Result<Window, CaptureError> {
+    let windows = Window::enumerate().map_err(|e| CaptureError::Start(e.to_string()))?;
+    windows
+        .into_iter()
+        .find(|w| w.as_raw_hwnd() as isize == hwnd)
+        .ok_or_else(|| CaptureError::Start(format!("capture window {hwnd} not found")))
+}
+
+/// Capture a top-level window's client area, **blocking** until stopped; BGRA frames go
+/// to `tx`. Window frames arrive client-sized, so `crop` (when set) is client-relative.
+///
+/// # Errors
+/// Returns [`CaptureError`] if the window or capture session cannot be started.
+pub fn run_window(
+    tx: SyncSender<CapturedFrame>,
+    stop: Arc<AtomicBool>,
+    crop: Option<CropRegion>,
+    dropped: Arc<AtomicU64>,
+    hwnd: isize,
+) -> Result<(), CaptureError> {
+    let window = pick_window(hwnd)?;
+    let border = if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
+        DrawBorderSettings::WithoutBorder
+    } else {
+        DrawBorderSettings::Default
+    };
+    let settings = Settings::new(
+        window,
+        CursorCaptureSettings::Default,
+        border,
+        SecondaryWindowSettings::Default,
+        MinimumUpdateIntervalSettings::Default,
+        DirtyRegionSettings::Default,
+        ColorFormat::Bgra8,
+        (tx, stop, crop, dropped),
+    );
+    Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
+    Ok(())
+}
+
 fn pick_monitor(name: Option<&str>) -> Result<Monitor, CaptureError> {
     if let Some(name) = name {
         if let Ok(monitors) = Monitor::enumerate() {
@@ -243,9 +292,9 @@ const CHANNEL_CAP: usize = 8;
 /// sub-rectangle (monitor-relative physical px) before being sent. `monitor` is a Win32
 /// device name (e.g. `\\.\DISPLAY2`); `None` captures the primary display.
 #[must_use]
-pub fn spawn_region(
+pub fn spawn_capture(
     crop: Option<CropRegion>,
-    monitor: Option<String>,
+    source: &CaptureSource,
 ) -> (Receiver<CapturedFrame>, CaptureHandle) {
     // Bounded so a stalled/dead drain applies backpressure (drop-newest, see the handler)
     // instead of growing RAM without limit, each buffered frame is a full BGRA screen.
@@ -258,12 +307,28 @@ pub fn spawn_region(
         stop: Arc::clone(&stop),
         dropped: Arc::clone(&dropped),
     };
+    let source = source.clone();
     std::thread::spawn(move || {
-        if let Err(e) = run_display(tx, stop, crop, dropped, monitor.as_deref()) {
+        let result = match &source {
+            CaptureSource::Monitor { name } => {
+                run_display(tx, stop, crop, dropped, name.as_deref())
+            }
+            CaptureSource::Window { hwnd } => run_window(tx, stop, crop, dropped, *hwnd),
+        };
+        if let Err(e) = result {
             tracing::error!("screen capture stopped: {e}");
         }
     });
     (rx, handle)
+}
+
+/// Spawn display capture on a background thread. Legacy wrapper over [`spawn_capture`].
+#[must_use]
+pub fn spawn_region(
+    crop: Option<CropRegion>,
+    monitor: Option<String>,
+) -> (Receiver<CapturedFrame>, CaptureHandle) {
+    spawn_capture(crop, &CaptureSource::Monitor { name: monitor })
 }
 
 /// Spawn full primary-display capture (no crop). Convenience wrapper over [`spawn_region`].

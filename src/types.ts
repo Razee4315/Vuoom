@@ -1,7 +1,7 @@
 // Shared editor types. These mirror the src-tauri / vuoom_* serde shapes and are
 // imported across the frontend. Keep names identical to their App.tsx origins.
 
-export type Tool = "select" | "text" | "arrow" | "line" | "shape" | "highlight";
+export type Tool = "select" | "text" | "arrow" | "line" | "shape" | "highlight" | "mask";
 export type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -55,7 +55,7 @@ export interface BoxAnn {
   color: Color;
   thickness: number;
   filled: boolean;
-  shape: "Rect" | "Ellipse";
+  shape: "Rect" | "Ellipse" | "Mask";
   range: TimeRange;
 }
 export interface AnnotationSet {
@@ -85,6 +85,14 @@ export interface Trim {
   start: number;
   end: number;
 }
+/** Mirrors vuoom_project::CropRect (normalized source-space rect). */
+export interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Mirrors src-tauri session::ClipState. */
 export interface ClipState {
   duration: number;
@@ -94,8 +102,28 @@ export interface ClipState {
   zooms: ZoomSeg[];
   show_clicks: boolean;
   show_keys: boolean;
+  crop: CropRect | null;
   frame_preset: string;
   background_preset: string;
+}
+
+/** Mirrors src-tauri displays::DisplayInfo. */
+export interface DisplayInfo {
+  name: string;
+  index: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  primary: boolean;
+}
+
+/** Mirrors the src-tauri window enumeration (window capture source). */
+export interface WindowInfo {
+  hwnd: number;
+  title: string;
+  w: number;
+  h: number;
 }
 
 export type Kind = "text" | "arrow" | "box";
@@ -111,6 +139,7 @@ export type Drag =
   | { mode: "create-box"; start: Vec2; cur: Vec2 }
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
+  | { mode: "create-mask"; start: Vec2; cur: Vec2 }
   // `group` carries the OTHER selected annotations so a canvas drag of any member
   // translates the whole multi-selection rigidly (empty/undefined for a lone selection).
   | {

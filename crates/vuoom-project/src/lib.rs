@@ -88,8 +88,56 @@ pub struct Project {
     /// Render the keystroke overlay (chips at the bottom of the frame).
     #[serde(default)]
     pub show_keys: bool,
+    /// Optional normalized crop of the recorded frame (`None` = full frame). Applied
+    /// before the zoom camera: the camera pans/zooms inside the cropped region, and the
+    /// output aspect follows the crop. Serde default keeps older projects loading.
+    #[serde(default)]
+    pub crop: Option<CropRect>,
     pub frame: FrameStyle,
     pub aspect: AspectRatio,
+}
+
+/// A normalized crop rectangle in `0.0..=1.0` source space.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CropRect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl CropRect {
+    /// The full-frame crop (no cropping).
+    #[must_use]
+    pub fn full() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        }
+    }
+
+    /// `true` when the crop covers (almost) the whole frame and is a no-op.
+    #[must_use]
+    pub fn is_full(&self) -> bool {
+        self.x <= 1e-3 && self.y <= 1e-3 && self.w >= 0.999 && self.h >= 0.999
+    }
+
+    /// Clamp to a valid, non-degenerate crop inside the frame.
+    #[must_use]
+    pub fn sanitized(mut self) -> Option<Self> {
+        const MIN: f64 = 0.05;
+        self.w = self.w.clamp(MIN, 1.0);
+        self.h = self.h.clamp(MIN, 1.0);
+        self.x = self.x.clamp(0.0, 1.0 - self.w);
+        self.y = self.y.clamp(0.0, 1.0 - self.h);
+        if self.is_full() {
+            None
+        } else {
+            Some(self)
+        }
+    }
 }
 
 impl Project {
@@ -114,16 +162,31 @@ impl Project {
             show_clicks: false,
             key_taps: Vec::new(),
             show_keys: false,
+            crop: None,
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,
         }
     }
 
-    /// Output dimensions for the chosen aspect ratio.
+    /// Source dimensions after the crop (the full frame when no crop is set).
+    #[must_use]
+    pub fn effective_source_dims(&self) -> (u32, u32) {
+        match self.crop {
+            None => (self.source.width.max(2), self.source.height.max(2)),
+            Some(c) => {
+                let w = ((f64::from(self.source.width) * c.w).round() as u32).max(2);
+                let h = ((f64::from(self.source.height) * c.h).round() as u32).max(2);
+                (w, h)
+            }
+        }
+    }
+
+    /// Output dimensions for the chosen aspect ratio, computed on the CROPPED source so
+    /// the output aspect follows the crop.
     #[must_use]
     pub fn output_dims(&self) -> (u32, u32) {
-        self.aspect
-            .output_dims(self.source.width, self.source.height)
+        let (sw, sh) = self.effective_source_dims();
+        self.aspect.output_dims(sw, sh)
     }
 
     /// The effective time window after trimming.

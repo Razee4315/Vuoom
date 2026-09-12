@@ -27,6 +27,8 @@ import type {
   ArrowAnn,
   BoxAnn,
   ClipState,
+  CropRect,
+  DisplayInfo,
   Color,
   Drag,
   Kind,
@@ -143,6 +145,7 @@ function App() {
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
   const [showKeys, setShowKeys] = createSignal(false);
+  const [crop, setCrop] = createSignal<CropRect | null>(null);
   const [framePreset, setFramePreset] = createSignal("none");
   const [bgPreset, setBgPreset] = createSignal("");
   const [recoverable, setRecoverable] = createSignal<number | null>(null);
@@ -298,7 +301,7 @@ function App() {
     }
   };
   const rememberRecent = (dir: string, thumb?: string) => {
-    const name = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? dir;
+    const name = dir.replace(/[/]+$/, "").split(/[/]/).pop() ?? dir;
     const prev = recents().find((r) => r.dir === dir);
     const next = [
       { dir, name, ts: Date.now(), thumb: thumb ?? prev?.thumb },
@@ -320,6 +323,8 @@ function App() {
       /* ignore */
     }
   };
+  const [recentSearch, setRecentSearch] = createSignal("");
+
   const openRecent = async (dir: string) => {
     setStatus("Opening project…");
     try {
@@ -334,6 +339,12 @@ function App() {
     } catch (e) {
       setStatus(`Open failed: ${String(e)}`);
       toast(`Could not open project: ${friendlyError(e)}`, "error");
+      // The folder is likely gone (moved or deleted): offer to drop it from the grid.
+      const remove = await ask(
+        "This project folder could not be opened. It may have been moved or deleted. Remove it from the recents list?",
+        { title: "Project unavailable", kind: "warning", okLabel: "Remove", cancelLabel: "Keep" },
+      );
+      if (remove) removeRecent(dir);
     }
   };
   const fmtAgo = (ts: number) => {
@@ -734,6 +745,7 @@ function App() {
       setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
       setShowKeys(cs.show_keys);
+      setCrop(cs.crop);
       setFramePreset(cs.frame_preset);
       setBgPreset(cs.background_preset);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
@@ -1142,7 +1154,7 @@ function App() {
   // ── pointer interaction on the overlay ───────────────────────────────────────────
   const onPointerDown = async (e: PointerEvent) => {
     if (!hasClip()) return;
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     const p = norm(e);
     const t = tool();
 
@@ -1237,6 +1249,10 @@ function App() {
     }
     if (t === "highlight") {
       setDrag({ mode: "create-highlight", start: p, cur: p });
+      return;
+    }
+    if (t === "mask") {
+      setDrag({ mode: "create-mask", start: p, cur: p });
       return;
     }
 
@@ -1349,7 +1365,8 @@ function App() {
       d.mode === "create-line" ||
       d.mode === "create-box" ||
       d.mode === "create-ellipse" ||
-      d.mode === "create-highlight"
+      d.mode === "create-highlight" ||
+      d.mode === "create-mask"
     ) {
       setDrag({ ...d, cur: p });
       return;
@@ -1436,14 +1453,17 @@ function App() {
     } else if (
       d.mode === "create-box" ||
       d.mode === "create-ellipse" ||
-      d.mode === "create-highlight"
+      d.mode === "create-highlight" ||
+      d.mode === "create-mask"
     ) {
       const cmd =
         d.mode === "create-box"
           ? "add_box"
           : d.mode === "create-ellipse"
             ? "add_ellipse"
-            : "add_highlighter";
+            : d.mode === "create-mask"
+              ? "add_mask"
+              : "add_highlighter";
       setDrag(null);
       const x = Math.min(d.start.x, p.x);
       const y = Math.min(d.start.y, p.y);
@@ -1571,10 +1591,12 @@ function App() {
       },
     );
   };
+  const isMask = () => selectedBox()?.shape === "Mask";
   const inspTitle = () => {
     const s = selected()!;
     if (s.kind === "box") {
       const b = selectedBox();
+      if (b?.shape === "Mask") return "Mask";
       if (b?.shape === "Ellipse") return "Ellipse";
       if (b?.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
       return "Box";
@@ -1872,6 +1894,18 @@ function App() {
   // The record flow (region selector → countdown → stop bar) runs as an overlay INSIDE
   // this window, the window is excluded from the capture and grown/shrunk by the backend,
   // so the overlay never lands in the recording and we avoid fragile extra webviews.
+  // ── record source: display picker + window capture ──────────────────────────────
+  // A single display records directly (the old behavior); with several attached, a
+  // chooser offers displays AND app windows before the region overlay appears.
+  type RecordTarget =
+    | { kind: "display"; name: string; label: string }
+    | { kind: "window"; hwnd: number; label: string };
+  const [showSource, setShowSource] = createSignal(false);
+  const [sources, setSources] = createSignal<{
+    displays: DisplayInfo[];
+    windows: { hwnd: number; title: string; w: number; h: number }[];
+  }>({ displays: [], windows: [] });
+
   const startRecord = async () => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
     // Soft copy: the previous session's recovery dir survives one more recording.
@@ -1884,23 +1918,55 @@ function App() {
     }
     setCoachRecord(false);
     try {
+      const displays = await invoke<DisplayInfo[]>("list_displays");
+      if (displays.length <= 1) {
+        await beginRecordWith({ kind: "display", name: displays[0]?.name ?? "", label: "Display 1" });
+        return;
+      }
+      let windows: { hwnd: number; title: string; w: number; h: number }[] = [];
+      try {
+        windows = await invoke<{ hwnd: number; title: string; w: number; h: number }[]>("list_windows");
+      } catch {
+        /* window capture unavailable: displays only */
+      }
+      setSources({ displays, windows });
+      setShowSource(true);
+    } catch (e) {
+      // No display enumeration (older backend): fall straight through to the editor's monitor.
+      await beginRecordWith({ kind: "display", name: "", label: "Display 1" });
+      setStatus(`Falling back to the editor's display: ${String(e)}`);
+    }
+  };
+
+  const beginRecordWith = async (target: RecordTarget) => {
+    setShowSource(false);
+    setCoachRecord(false);
+    setRecordTarget(target);
+    try {
       setStatus("Choose the area to record…");
       setBackdrop(null);
       setRecordPhase("active"); // overlay shows immediately (dark + presets)
-      // enter_overlay hides the editor, grabs the desktop as the selector backdrop, then
+      // enter_overlay hides the editor, grabs the target as the selector backdrop, then
       // brings the window back fullscreen + excluded from capture. It returns the frozen
-      // desktop as a data-URL (empty string if the grab failed → dark canvas fallback).
-      const shot = await invoke<string>("enter_overlay");
+      // frame as a data-URL (empty string if the grab failed → dark canvas fallback).
+      const shot =
+        target.kind === "display"
+          ? await invoke<string>("enter_overlay", { monitorName: target.name || null })
+          : await invoke<string>("enter_overlay", { windowHwnd: target.hwnd });
       setBackdrop(shot || null);
     } catch (e) {
       setRecordPhase("idle");
       setStatus(`Error: ${String(e)}`);
+      toast(`Could not start: ${friendlyError(e)}`, "error");
     }
   };
+
+  const [recordTarget, setRecordTarget] = createSignal<RecordTarget | null>(null);
 
   const onRecordFinished = async (summary: RecordingSummary) => {
     setRecordPhase("idle");
     setBackdrop(null);
+    setRecordTarget(null);
     await loadFinishedClip(summary);
     toast(
       `Recording loaded: ${summary.duration.toFixed(1)}s, ${summary.zooms} zoom${summary.zooms === 1 ? "" : "s"}`,
@@ -1910,6 +1976,7 @@ function App() {
   const onRecordCancel = () => {
     setRecordPhase("idle");
     setBackdrop(null);
+    setRecordTarget(null);
     setStatus("Recording cancelled");
   };
   const onRecordFailed = (message: string) => {
@@ -2040,7 +2107,7 @@ function App() {
   const [focusDrag, setFocusDrag] = createSignal<Vec2 | null>(null);
   const onFocusDown = (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     setFocusDrag(norm(e));
   };
   const onFocusMove = (e: PointerEvent) => {
@@ -2087,6 +2154,59 @@ function App() {
         }
       }
     });
+  };
+
+  // ── crop ───────────────────────────────────────────────────────────────────────
+  // Presets anchor on the full frame; custom rects come from the Appearance popover.
+  const applyCrop = async (c: CropRect | null) => {
+    if (!hasClip()) return;
+    try {
+      const cs = c
+        ? await invoke<ClipState>("set_crop", { x: c.x, y: c.y, w: c.w, h: c.h })
+        : await invoke<ClipState>("set_crop");
+      setCrop(cs.crop);
+      setDirty(true);
+      await pushSeek(playhead());
+      setStatus(c ? "Crop applied. Annotations kept their on-screen placement." : "Crop reset to full frame.");
+    } catch (e) {
+      setStatus(`Crop failed: ${String(e)}`);
+      toast(`Crop failed: ${friendlyError(e)}`, "error");
+    }
+  };
+
+  // Centered crop presets: shrink the LONGER side to match the target ratio.
+  const centeredCrop = (ratio: number): CropRect => {
+    const srcAspect = frameAspect();
+    let w = 1.0;
+    let h = 1.0;
+    if (srcAspect > ratio) {
+      w = ratio / srcAspect;
+    } else {
+      h = srcAspect / ratio;
+    }
+    return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+  };
+
+  // ── zoom re-planning ────────────────────────────────────────────────────────────
+  const [zoomStrength, setZoomStrength] = createSignal(1.8);
+  const planZoomAuto = async () => {
+    if (!hasClip()) return;
+    try {
+      const list = await invoke<ZoomSeg[]>("plan_zoom_auto", { amount: zoomStrength() });
+      setZooms(list);
+      setDirty(true);
+      setSelZoom(null);
+      setStatus(
+        list.length > 0
+          ? `Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"} at ${zoomStrength()}×. Ctrl+Z restores your manual zooms.`
+          : "No click activity found to plan zooms from",
+      );
+      toast(`Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"}`, "success");
+      await pushSeek(playhead());
+    } catch (e) {
+      setStatus(`Auto zoom failed: ${String(e)}`);
+      toast(`Auto zoom failed: ${friendlyError(e)}`, "error");
+    }
   };
 
   // ── click ripples ──────────────────────────────────────────────────────────────
@@ -2330,7 +2450,7 @@ function App() {
   let trimDrag: "start" | "end" | null = null;
   const onTrimDown = (which: "start" | "end") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     trimDrag = which;
     beginSnapGesture(which === "start" ? "tS" : "tE");
     refreshTlRect();
@@ -2388,7 +2508,7 @@ function App() {
   // l/r counts as moved immediately so a small edge drag resizes instead of scrubbing.
   const onZoomDown = (idx: number, z: ZoomSeg, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`z${idx}`);
     refreshTlRect();
     setZoomDrag({
@@ -2619,7 +2739,7 @@ function App() {
   };
   const onSpeedDown = (idx: number, r: SpeedRegion, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`s${idx}`);
     refreshTlRect();
     setSpeedDrag({
@@ -2679,7 +2799,7 @@ function App() {
   };
   const onCutDown = (idx: number, c: Trim, force: "l" | "r" | "move") => (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     beginSnapGesture(`c${idx}`);
     refreshTlRect();
     setCutDrag({
@@ -2862,7 +2982,7 @@ function App() {
     (b: { kind: Kind; id: number; start: number; end: number }, force: "l" | "r" | "move") =>
     (e: PointerEvent) => {
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
       beginSnapGesture(`a${b.kind}${b.id}`);
       refreshTlRect();
       setAnnDrag({
@@ -2926,6 +3046,7 @@ function App() {
   let barsCacheSrc: AnnotationSet | null = null;
   let barsCache: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
   const annBars = () => {
+
     const a = anns();
     if (a !== barsCacheSrc) {
       const prev = new Map(barsCache.map((b) => [`${b.kind}:${b.id}`, b]));
@@ -2969,7 +3090,7 @@ function App() {
   let inspectorDrag = false;
   const onInspDown = (e: PointerEvent) => {
     e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     inspectorDrag = true;
   };
   const onInspMove = (e: PointerEvent) => {
@@ -3184,6 +3305,27 @@ function App() {
                   </For>
                 </div>
               </Show>
+              <p class="appear-title">Crop</p>
+              <div class="crop-presets">
+                <button type="button" class="chip-btn" aria-pressed={!crop()} onClick={() => void applyCrop(null)}>
+                  Full
+                </button>
+                <button type="button" class="chip-btn" aria-pressed={crop()?.w === centeredCrop(16 / 9).w} onClick={() => void applyCrop(centeredCrop(16 / 9))}>
+                  16:9
+                </button>
+                <button type="button" class="chip-btn" aria-pressed={crop()?.h === centeredCrop(9 / 16).h} onClick={() => void applyCrop(centeredCrop(9 / 16))}>
+                  9:16
+                </button>
+                <button type="button" class="chip-btn" aria-pressed={crop()?.w === centeredCrop(1).w} onClick={() => void applyCrop(centeredCrop(1))}>
+                  1:1
+                </button>
+              </div>
+              <Show when={crop()}>
+                <p class="appear-note">
+                  Cropped to {Math.round(crop()!.w * 100)}% × {Math.round(crop()!.h * 100)}% of the frame.
+                  Annotations keep their on-screen placement.
+                </p>
+              </Show>
             </div>
           </Show>
         </div>
@@ -3308,6 +3450,16 @@ function App() {
                 </span>
                 <Show when={recoverable() !== null || recents().length > 0}>
                   <div class="home-cards">
+                    <Show when={recents().length > 3}>
+                      <input
+                        class="recent-search"
+                        type="search"
+                        placeholder="Search projects"
+                        aria-label="Search recent projects"
+                        value={recentSearch()}
+                        onInput={(e) => setRecentSearch(e.currentTarget.value)}
+                      />
+                    </Show>
                     <Show when={recoverable() !== null}>
                       <button
                         class="recent-card recover"
@@ -3326,7 +3478,11 @@ function App() {
                         </div>
                       </button>
                     </Show>
-                    <For each={recents()}>
+                    <For
+                      each={recents().filter((r) =>
+                        r.name.toLowerCase().includes(recentSearch().toLowerCase()),
+                      )}
+                    >
                       {(r) => (
                         <div class="recent-wrap">
                           <button
@@ -3583,6 +3739,17 @@ function App() {
                     );
                   })()}
                 </Show>
+                <Show when={drag()?.mode === "create-mask"}>
+                  {(() => {
+                    const d = drag() as { start: Vec2; cur: Vec2 };
+                    const a = px({ x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y) });
+                    const w = Math.abs(d.cur.x - d.start.x) * stage().w;
+                    const h = Math.abs(d.cur.y - d.start.y) * stage().h;
+                    return (
+                      <rect x={a.x} y={a.y} width={w} height={h} fill="rgba(10,10,13,0.85)" stroke="#e5484d" stroke-width={1.5} stroke-dasharray="5 3" />
+                    );
+                  })()}
+                </Show>
                 <Show when={drag()?.mode === "create-ellipse"}>
                   {(() => {
                     const d = drag() as { start: Vec2; cur: Vec2 };
@@ -3754,6 +3921,16 @@ function App() {
             </Show>
 
             <Show when={selectedBox()}>
+              <Show when={isMask()}>
+                <InspSection title="Mask">
+                  <p class="muted small">
+                    Opaque redaction block: the area renders as solid black in the export no
+                    matter what was underneath. Drag its edges on the timeline to control when
+                    it covers the frame.
+                  </p>
+                </InspSection>
+              </Show>
+              <Show when={!isMask()}>
               <InspSection title="Shape">
                 <InspRow label="Shape">
                   <div class="style-row">
@@ -3816,6 +3993,7 @@ function App() {
                   </InspRow>
                 </Show>
               </InspSection>
+              </Show>
             </Show>
             <Show when={selectedArrow()}>
               <InspSection title="Style">
@@ -3857,7 +4035,7 @@ function App() {
               </InspSection>
             </Show>
 
-            <Show when={selectedColor()}>
+            <Show when={selectedColor() && !isMask()}>
               <InspSection title="Color">
                 <InspRow label="Color" stack>
                   <div class="swatch-row">
@@ -4322,6 +4500,27 @@ function App() {
             <span class="tgroup-label">Enhance</span>
             <button
               class="tbtn wide"
+              title="Re-plan zooms automatically from your recorded clicks at the chosen strength (replaces manual zooms; Ctrl+Z restores them)"
+              disabled={!hasClip()}
+              onClick={() => void planZoomAuto()}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
+                <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" />
+              </svg>
+              <span>Auto zooms</span>
+            </button>
+            <select
+              class="tbtn-sel"
+              title="Zoom strength used by Auto zooms"
+              disabled={!hasClip()}
+              value={String(zoomStrength())}
+              onChange={(e) => setZoomStrength(Number(e.currentTarget.value))}
+            >
+              <For each={[1.5, 1.8, 2, 2.5, 3]}>{(f) => <option value={String(f)}>{f}×</option>}</For>
+            </select>
+            <button
+              class="tbtn wide"
               classList={{ on: speed().length > 0 }}
               title={`Play idle stretches at ${skimFactor()}× (auto-detected from your activity)`}
               disabled={!hasClip()}
@@ -4383,7 +4582,7 @@ function App() {
           }}
           onPointerDown={(e) => {
             if (!hasClip()) return;
-            (e.currentTarget as Element).setPointerCapture(e.pointerId);
+            try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
             tlDrag = true;
             refreshTlRect();
             tlDownX = e.clientX;
@@ -4691,11 +4890,89 @@ function App() {
         <RecordOverlay
           backdrop={backdrop()}
           zoom={zoomAmount()}
+          target={recordTarget()}
           onZoomChange={setZoomAmount}
           onFinished={(s) => void onRecordFinished(s)}
           onCancel={onRecordCancel}
           onFailed={onRecordFailed}
         />
+      </Show>
+
+      {/* Record source chooser: displays + windows, shown when several displays exist. */}
+      <Show when={showSource()}>
+        <div class="modal-backdrop" onClick={() => setShowSource(false)}>
+          <div
+            class="modal source-modal"
+            ref={(el) => dialogA11y(el, "Choose what to record", () => setShowSource(false))}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>Choose what to record</h2>
+            <p class="source-tabs-label">Displays</p>
+            <div class="source-list">
+              <For each={sources().displays}>
+                {(d) => (
+                  <button
+                    type="button"
+                    class="source-item"
+                                        onClick={() => void beginRecordWith({ kind: "display", name: d.name, label: `Display ${d.index}` })}
+                  >
+                    <span class="source-icon">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="4" width="20" height="13" rx="2" />
+                        <path d="M8 21h8M12 17v4" />
+                      </svg>
+                    </span>
+                    <span class="source-meta">
+                      <strong>
+                        Display {d.index}
+                        <Show when={d.primary}>
+                          {" "}
+                          <span class="source-badge">Primary</span>
+                        </Show>
+                      </strong>
+                      <small>
+                        {d.w} × {d.h}
+                      </small>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+            <Show when={sources().windows.length > 0}>
+              <p class="source-tabs-label">Windows</p>
+              <div class="source-list source-list-tall">
+                <For each={sources().windows}>
+                  {(w) => (
+                    <button
+                      type="button"
+                      class="source-item"
+                                            title={w.title}
+                      onClick={() => void beginRecordWith({ kind: "window", hwnd: w.hwnd, label: w.title })}
+                    >
+                      <span class="source-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path d="M3 9h18" />
+                        </svg>
+                      </span>
+                      <span class="source-meta">
+                        <strong>{w.title || "Untitled window"}</strong>
+                        <small>
+                          {w.w} × {w.h}
+                        </small>
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="modal-actions">
+              <button class="btn ghost" onClick={() => setShowSource(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
 
       {/* Keyboard cheat-sheet, data-driven from SHORTCUTS so it can't drift. */}

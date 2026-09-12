@@ -15,6 +15,7 @@ mod prefs;
 mod region_border;
 mod session;
 mod windows_ext;
+mod windows_list;
 mod zoom_chord;
 
 use std::path::PathBuf;
@@ -231,6 +232,7 @@ pub fn run() {
             commands::set_crop,
             commands::plan_zoom_auto,
             commands::list_displays,
+            commands::list_windows,
             commands::list_annotations,
             commands::clip_state,
             commands::set_show_clicks,

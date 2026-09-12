@@ -78,37 +78,141 @@ pub fn enter_overlay(
     engine: tauri::State<'_, Engine>,
     border: tauri::State<'_, BorderState>,
     monitor_name: Option<String>,
+    window_hwnd: Option<f64>,
 ) -> Result<String, String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    // The picker may nominate a display other than the one the editor sits on: resolve it
-    // by GDI device name (falling back to a position/size match, and finally to the
-    // editor's own monitor when no name was given or the lookup fails).
-    let requested = monitor_name
-        .as_ref()
-        .and_then(|n| crate::displays::find_by_name(n));
-    let monitor = match requested {
-        Some(info) => {
-            let found = app.available_monitors().ok().and_then(|monitors| {
+    // What the overlay targets this time: a whole window (its client rect + display), a
+    // named display from the picker, or the editor's own monitor when nothing was given.
+    enum Target {
+        Window {
+            hwnd: f64,
+            client: (i32, i32, u32, u32),
+            mon: crate::session::MonitorInfo,
+        },
+        Display(crate::session::MonitorInfo),
+        Current,
+    }
+    let target = if let Some(hwnd) = window_hwnd {
+        let client = crate::windows_list::client_screen_rect(hwnd as isize)
+            .map_err(|e| format!("capture window is gone: {e}"))?;
+        let mon = crate::windows_list::window_monitor(hwnd as isize);
+        Target::Window {
+            hwnd,
+            client,
+            mon,
+        }
+    } else if let Some(name) = monitor_name.as_ref().and_then(|n| crate::displays::find_by_name(n)) {
+        Target::Display(crate::session::MonitorInfo {
+            name: name.name,
+            x: name.x,
+            y: name.y,
+            w: name.w,
+            h: name.h,
+        })
+    } else {
+        Target::Current
+    };
+
+    // Resolve the Tauri monitor handle for placement: the window's own display, or the
+    // named display matched by geometry (Tauri and GDI enumerate the same set).
+    let monitor: Option<tauri::Monitor> = match &target {
+        Target::Window { mon, .. } => app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| {
+                monitors.into_iter().find(|m| {
+                    m.position().x == mon.x
+                        && m.position().y == mon.y
+                        && m.size().width == mon.w
+                        && m.size().height == mon.h
+                })
+            })
+            .or_else(|| app.primary_monitor().ok().flatten()),
+        Target::Display(info) => app
+            .available_monitors()
+            .ok()
+            .and_then(|monitors| {
                 monitors.into_iter().find(|m| {
                     m.position().x == info.x
                         && m.position().y == info.y
                         && m.size().width == info.w
                         && m.size().height == info.h
                 })
-            });
-            Some(found.unwrap_or_else(|| {
-                app.primary_monitor()
-                    .ok()
-                    .flatten()
-                    .expect("no primary monitor")
-            }))
-        }
-        None => main.current_monitor().ok().flatten(),
+            })
+            .or_else(|| app.primary_monitor().ok().flatten()),
+        Target::Current => main.current_monitor().ok().flatten(),
     };
+
+    // Window mode: pin the session to the window BEFORE the backdrop grab. Display mode:
+    // clear any stale window target so the recording targets the display.
+    match &target {
+        Target::Window { hwnd, client, mon } => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_capture_window(
+                    *hwnd as isize,
+                    client.0,
+                    client.1,
+                    client.2,
+                    client.3,
+                    crate::session::MonitorInfo {
+                        name: monitor
+                            .as_ref()
+                            .and_then(|m| m.name())
+                            .unwrap_or_default(),
+                        x: mon.x,
+                        y: mon.y,
+                        w: mon.w,
+                        h: mon.h,
+                    },
+                );
+            }
+        }
+        other => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_monitor(match other {
+                    Target::Display(info) => Some(info.clone()),
+                    _ => monitor.as_ref().and_then(|m| {
+                        m.name().map(|n| crate::session::MonitorInfo {
+                            name: n.clone(),
+                            x: m.position().x,
+                            y: m.position().y,
+                            w: m.size().width,
+                            h: m.size().height,
+                        })
+                    }),
+                });
+            }
+        }
+    }
+
+    // Window mode: pin the session to the window BEFORE the backdrop grab.
+    if let (Some(geo), Some(info), Some(hwnd)) = (window_geo, monitor.as_ref(), window_hwnd) {
+        if let Ok(session) = engine.session() {
+            let _ = session.set_capture_window(
+                hwnd as isize,
+                geo.0,
+                geo.1,
+                geo.2,
+                geo.3,
+                crate::session::MonitorInfo {
+                    name: info.name().unwrap_or_default(),
+                    x: info.position().x,
+                    y: info.position().y,
+                    w: info.size().width,
+                    h: info.size().height,
+                },
+            );
+        }
+    }
     if let Ok(mut slot) = border.origin.lock() {
-        *slot = monitor
-            .as_ref()
-            .map_or((0, 0), |m| (m.position().x, m.position().y));
+        // Region-relative origin: the client rect for window capture, the monitor origin
+        // for display capture.
+        *slot = match &target {
+            Target::Window { client, .. } => (client.0, client.1),
+            _ => monitor
+                .as_ref()
+                .map_or((0, 0), |m| (m.position().x, m.position().y)),
+        };
     }
     if let Ok(session) = engine.session() {
         let info = monitor.as_ref().and_then(|m| {
@@ -854,6 +958,12 @@ pub fn plan_zoom_auto(
 #[tauri::command]
 pub fn list_displays() -> Vec<DisplayInfo> {
     crate::displays::enumerate()
+}
+
+/// Enumerable top-level windows (visible, non-tool, non-cloaked), for window capture.
+#[tauri::command]
+pub fn list_windows() -> Vec<crate::windows_list::WindowInfo> {
+    crate::windows_list::enumerate()
 }
 
 /// Snapshot every annotation (for the editor overlay).

@@ -59,6 +59,8 @@ windows = { version = "0.62", features = [
     # SetWindowSubclass/DefSubclassProc/RemoveWindowSubclass — the recording panel's
     # WM_MOVING drag wall (see drag_wall.rs) subclasses the main window's top-level HWND.
     "Win32_UI_Shell",
+    # DwmGetWindowAttribute(DWMWA_CLOAKED): skip suspended UWP windows in the picker.
+    "Win32_Graphics_Dwm",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Media_MediaFoundation",

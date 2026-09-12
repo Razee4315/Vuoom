@@ -11,5 +11,5 @@ mod capture;
 #[cfg(windows)]
 pub use capture::{
     run_display, spawn_capture, spawn_primary_display, spawn_region, CaptureError, CaptureHandle,
-    CapturedFrame, CaptureSource, CropRegion,
+    CaptureSource, CapturedFrame, CropRegion,
 };

@@ -354,7 +354,10 @@ impl Session {
     }
 
     fn pending_window(&self) -> Option<WindowTarget> {
-        *self.pending_window.lock().unwrap_or_else(|e| e.into_inner())
+        *self
+            .pending_window
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set the zoom multiplier for the next recording (clamped to a sane range).

@@ -9,12 +9,12 @@
 use serde::Serialize;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetWindowLongW, GetWindowTextLengthW, GetWindowTextW,
     IsWindowVisible, GWL_EXSTYLE, GWL_STYLE,
-};
-use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 
 /// One selectable window capture source.
@@ -50,7 +50,13 @@ pub fn window_monitor(hwnd: isize) -> crate::session::MonitorInfo {
             h: (info.rcMonitor.bottom - info.rcMonitor.top).max(0) as u32,
         };
     }
-    crate::session::MonitorInfo { name: String::new(), x: 0, y: 0, w: 0, h: 0 }
+    crate::session::MonitorInfo {
+        name: String::new(),
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
+    }
 }
 
 /// The client rect in SCREEN coords (physical px): `(x, y, w, h)`.
@@ -61,9 +67,17 @@ pub fn client_screen_rect(hwnd: isize) -> Result<(i32, i32, u32, u32), String> {
     let hwnd = HWND(hwnd as _);
     let mut rc = RECT::default();
     unsafe { GetClientRect(hwnd, &mut rc) }.map_err(|e| format!("GetClientRect failed: {e}"))?;
-    let mut pt = windows::Win32::Foundation::POINT { x: rc.left, y: rc.top };
+    let mut pt = windows::Win32::Foundation::POINT {
+        x: rc.left,
+        y: rc.top,
+    };
     unsafe { windows::Win32::UI::WindowsAndMessaging::ClientToScreen(hwnd, &mut pt) };
-    Ok((pt.x, pt.y, (rc.right - rc.left).max(0) as u32, (rc.bottom - rc.top).max(0) as u32))
+    Ok((
+        pt.x,
+        pt.y,
+        (rc.right - rc.left).max(0) as u32,
+        (rc.bottom - rc.top).max(0) as u32,
+    ))
 }
 
 /// Enumerate selectable windows, roughly z-order (top first).
@@ -71,7 +85,10 @@ pub fn client_screen_rect(hwnd: isize) -> Result<(i32, i32, u32, u32), String> {
 pub fn enumerate() -> Vec<WindowInfo> {
     let mut out: Vec<WindowInfo> = Vec::new();
     unsafe {
-        let _ = EnumWindows(Some(enum_callback), &mut out as *mut Vec<WindowInfo> as isize);
+        let _ = EnumWindows(
+            Some(enum_callback),
+            &mut out as *mut Vec<WindowInfo> as isize,
+        );
     }
     out
 }

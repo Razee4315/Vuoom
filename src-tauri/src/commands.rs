@@ -96,12 +96,11 @@ pub fn enter_overlay(
         let client = crate::windows_list::client_screen_rect(hwnd as isize)
             .map_err(|e| format!("capture window is gone: {e}"))?;
         let mon = crate::windows_list::window_monitor(hwnd as isize);
-        Target::Window {
-            hwnd,
-            client,
-            mon,
-        }
-    } else if let Some(name) = monitor_name.as_ref().and_then(|n| crate::displays::find_by_name(n)) {
+        Target::Window { hwnd, client, mon }
+    } else if let Some(name) = monitor_name
+        .as_ref()
+        .and_then(|n| crate::displays::find_by_name(n))
+    {
         Target::Display(crate::session::MonitorInfo {
             name: name.name,
             x: name.x,
@@ -155,10 +154,7 @@ pub fn enter_overlay(
                     client.2,
                     client.3,
                     crate::session::MonitorInfo {
-                        name: monitor
-                            .as_ref()
-                            .and_then(|m| m.name())
-                            .unwrap_or_default(),
+                        name: monitor.as_ref().and_then(|m| m.name()).unwrap_or_default(),
                         x: mon.x,
                         y: mon.y,
                         w: mon.w,

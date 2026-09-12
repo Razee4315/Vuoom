@@ -13,11 +13,11 @@ use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl};
 use windows_capture::monitor::Monitor;
-use windows_capture::window::Window;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
 };
+use windows_capture::window::Window;
 
 /// One captured frame: tightly-packed BGRA8 pixels + dimensions + QPC timestamp.
 pub struct CapturedFrame {

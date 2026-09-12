@@ -21,7 +21,7 @@ use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
-use vuoom_capture::{spawn_capture, CaptureHandle, CapturedFrame, CaptureSource, CropRegion};
+use vuoom_capture::{spawn_capture, CaptureHandle, CaptureSource, CapturedFrame, CropRegion};
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
@@ -338,8 +338,10 @@ impl Session {
         if w < 8 || h < 8 {
             return Err("capture window is too small".into());
         }
-        *self.pending_window.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(WindowTarget { hwnd, x, y, w, h });
+        *self
+            .pending_window
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(WindowTarget { hwnd, x, y, w, h });
         *self
             .pending_monitor
             .lock()
@@ -3118,7 +3120,6 @@ mod tests {
         assert_eq!(check_free_space(500 * GB, 1920, 1080), Ok(None));
     }
 }
-
 
 /// Grab a window's client area via `PrintWindow` (with the render-full-content flag so
 /// GPU-composited apps like Chrome render), returning a `data:image/png;base64,…` URL.

@@ -5,6 +5,7 @@
 //! the frontend retries. Heavy commands (capture, composite, encode, disk I/O) are `async`
 //! so they run off the main thread and never freeze the UI.
 
+use crate::displays::DisplayInfo;
 use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::region_border::RegionBorder;
 use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSummary};
@@ -14,7 +15,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
+use vuoom_project::{CropRect, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -76,9 +77,29 @@ pub fn enter_overlay(
     app: AppHandle,
     engine: tauri::State<'_, Engine>,
     border: tauri::State<'_, BorderState>,
+    monitor_name: Option<String>,
 ) -> Result<String, String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    let monitor = main.current_monitor().ok().flatten();
+    // The picker may nominate a display other than the one the editor sits on: resolve it
+    // by GDI device name (falling back to a position/size match, and finally to the
+    // editor's own monitor when no name was given or the lookup fails).
+    let requested = monitor_name.as_ref().and_then(|n| crate::displays::find_by_name(n));
+    let monitor = match requested {
+        Some(info) => {
+            let found = app.available_monitors().ok().and_then(|monitors| {
+                monitors.into_iter().find(|m| {
+                    m.position().x == info.x
+                        && m.position().y == info.y
+                        && m.size().width == info.w
+                        && m.size().height == info.h
+                })
+            });
+            Some(found.unwrap_or_else(|| {
+                app.primary_monitor().ok().flatten().expect("no primary monitor")
+            }))
+        }
+        None => main.current_monitor().ok().flatten(),
+    };
     if let Ok(mut slot) = border.origin.lock() {
         *slot = monitor
             .as_ref()
@@ -780,6 +801,54 @@ pub fn add_highlighter(
     t: f64,
 ) -> Result<u32, String> {
     engine.session()?.add_highlighter(x, y, w, h, t)
+}
+
+/// Add an opaque redaction mask (near-black block; content under it never shows).
+#[tauri::command]
+pub fn add_mask(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_mask(x, y, w, h, t)
+}
+
+/// Set (or clear) the normalized output crop. `None` fields clear the crop.
+#[tauri::command]
+pub fn set_crop(
+    engine: tauri::State<'_, Engine>,
+    x: Option<f64>,
+    y: Option<f64>,
+    w: Option<f64>,
+    h: Option<f64>,
+) -> Result<ClipState, String> {
+    let session = engine.session()?;
+    let crop = match (x, y, w, h) {
+        (None, None, None, None) => None,
+        (Some(x), Some(y), Some(w), Some(h)) => Some(CropRect { x, y, w, h }),
+        _ => return Err("set_crop: provide all of x, y, w, h, or none to reset".into()),
+    };
+    session.set_crop(crop)?;
+    session.clip_state()
+}
+
+/// Re-run the automatic zoom planner over the recorded click log at the given strength,
+/// replacing the manual zoom list (undoable).
+#[tauri::command]
+pub fn plan_zoom_auto(
+    engine: tauri::State<'_, Engine>,
+    amount: f64,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.plan_zoom_auto(amount)
+}
+
+/// Every active display, for the record-flow source picker.
+#[tauri::command]
+pub fn list_displays() -> Vec<DisplayInfo> {
+    crate::displays::enumerate()
 }
 
 /// Snapshot every annotation (for the editor overlay).

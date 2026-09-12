@@ -29,9 +29,9 @@ use vuoom_encode::{
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, FrameStyle,
-    HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion,
-    TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, CropRect,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
+    SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -1188,6 +1188,78 @@ impl Session {
             range,
         });
         Ok(id)
+    }
+
+    /// Add an opaque redaction mask: the compositor forces a near-black fill regardless
+    /// of styling, and the range uses hard edges (no fades) so masked content never
+    /// leaks during a fade. Returns its id.
+    pub fn add_mask(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.0);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            color: Color::rgb(0.04, 0.04, 0.05),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Mask,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Set (or clear) the normalized crop. Annotations live in OUTPUT-normalized space,
+    /// so changing the crop rescales them by the output-dimension ratio and they keep
+    /// their on-screen placement. Clearing via a full-frame rect is a no-op.
+    pub fn set_crop(&self, crop: Option<CropRect>) -> Result<(), String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "crop");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let (old_w, old_h) = project.output_dims();
+        project.crop = crop.and_then(CropRect::sanitized);
+        let (new_w, new_h) = project.output_dims();
+        if (old_w != new_w || old_h != new_h) && old_w > 0 && old_h > 0 {
+            let sx = f64::from(new_w) / f64::from(old_w);
+            let sy = f64::from(new_h) / f64::from(old_h);
+            for t in &mut project.texts {
+                t.pos.x = (t.pos.x * sx).clamp(0.0, 1.0);
+                t.pos.y = (t.pos.y * sy).clamp(0.0, 1.0);
+            }
+            for a in &mut project.arrows {
+                a.from.x = (a.from.x * sx).clamp(0.0, 1.0);
+                a.from.y = (a.from.y * sy).clamp(0.0, 1.0);
+                a.to.x = (a.to.x * sx).clamp(0.0, 1.0);
+                a.to.y = (a.to.y * sy).clamp(0.0, 1.0);
+            }
+            for h in &mut project.highlights {
+                h.rect.x = (h.rect.x * sx).clamp(0.0, 1.0);
+                h.rect.y = (h.rect.y * sy).clamp(0.0, 1.0);
+                h.rect.w = (h.rect.w * sx).clamp(0.0, 1.0);
+                h.rect.h = (h.rect.h * sy).clamp(0.0, 1.0);
+            }
+        }
+        Ok(())
+    }
+
+    /// Re-run the automatic zoom planner over the persisted input log with click-driven
+    /// zooms enabled at the requested strength, REPLACING the manual zoom list. Undoable
+    /// like any edit. Returns the new segments.
+    pub fn plan_zoom_auto(&self, amount: f64) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "zoomplan");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let duration = project.source.duration;
+        let mut cfg = project.zoom_config;
+        cfg.amount = amount.clamp(1.2, 4.0);
+        cfg.auto_zoom_on_click = true;
+        let zooms = plan_zooms(&project.events, duration, &cfg);
+        project.zooms = zooms.clone();
+        project.zoom_config = cfg;
+        resimulate(&mut edited);
+        Ok(zooms)
     }
 
     /// Snapshot everything the editor timeline binds to.

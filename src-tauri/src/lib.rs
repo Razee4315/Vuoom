@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod commands;
+mod displays;
 mod drag_wall;
 mod frame_store;
 mod hotkey;
@@ -226,6 +227,10 @@ pub fn run() {
             commands::add_box,
             commands::add_ellipse,
             commands::add_highlighter,
+            commands::add_mask,
+            commands::set_crop,
+            commands::plan_zoom_auto,
+            commands::list_displays,
             commands::list_annotations,
             commands::clip_state,
             commands::set_show_clicks,

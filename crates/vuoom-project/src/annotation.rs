@@ -71,6 +71,9 @@ pub enum HighlightShape {
     Rect,
     /// Ellipse inscribed in the rect.
     Ellipse,
+    /// Opaque redaction block: the compositor enforces a near-black fill and ignores
+    /// the stored color, so masked content can never leak through a wrong style.
+    Mask,
 }
 
 /// A highlight region (outlined or filled; rectangle or ellipse).

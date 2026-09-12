@@ -1506,9 +1506,9 @@ dependencies = [
 
 [[package]]
 name = "gif"
-version = "0.13.3"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ae047235e33e2829703574b54fdec96bfbad892062d97fed2f76022287de61b"
+checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
 dependencies = [
  "color_quant 1.1.0",
  "weezl",
@@ -5436,7 +5436,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",
@@ -5465,7 +5465,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5475,7 +5475,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "color_quant 2.0.0",
  "gif",
@@ -5488,7 +5488,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5499,7 +5499,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
@@ -5511,7 +5511,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "serde",
@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5536,7 +5536,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "serde",

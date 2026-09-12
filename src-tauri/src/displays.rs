@@ -8,8 +8,12 @@ use serde::Serialize;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW, MONITORINFOF_PRIMARY,
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
 };
+
+/// `MONITORINFOF_PRIMARY` from the Win32 API (this flag lives outside the windows-crate
+/// bindings in 0.62, so it is pinned here with the SDK's value).
+const MONITORINFOF_PRIMARY: u32 = 0x1;
 
 /// One selectable capture display.
 #[derive(Debug, Clone, Serialize)]
@@ -46,17 +50,17 @@ pub fn find_by_name(name: &str) -> Option<DisplayInfo> {
     enumerate().into_iter().find(|d| d.name == name)
 }
 
+/// windows 0.62 callback shape: `(HMONITOR, HDC, *mut RECT, LPARAM)`.
 unsafe extern "system" fn monitor_callback(
-    _hdc: HDC,
-    _hdc_monitor: HDC,
-    _rect: *mut RECT,
     hmonitor: HMONITOR,
+    _hdc: HDC,
+    _rect: *mut RECT,
     lparam: LPARAM,
 ) -> BOOL {
     let list = unsafe { &mut *(lparam.0 as *mut Vec<DisplayInfo>) };
     let mut info = MONITORINFOEXW::default();
     info.monitorInfo.cbSize = u32::try_from(std::mem::size_of::<MONITORINFOEXW>()).unwrap_or(0);
-    if unsafe { GetMonitorInfoW(hmonitor, &info.monitorInfo) }.as_bool() {
+    if unsafe { GetMonitorInfoW(hmonitor, &mut info.monitorInfo) }.as_bool() {
         let rc = info.monitorInfo.rcMonitor;
         let device: String = info
             .szDevice

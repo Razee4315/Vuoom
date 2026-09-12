@@ -37,8 +37,10 @@ const WS_CAPTION: i32 = 0xC0_0000;
 pub fn window_monitor(hwnd: isize) -> crate::session::MonitorInfo {
     let hwnd = HWND(hwnd as _);
     let hmon: HMONITOR = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
-    let mut info = MONITORINFO::default();
-    info.cbSize = u32::try_from(std::mem::size_of::<MONITORINFO>()).unwrap_or(0);
+    let mut info = MONITORINFO {
+        cbSize: u32::try_from(std::mem::size_of::<MONITORINFO>()).unwrap_or(0),
+        ..MONITORINFO::default()
+    };
     if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
         return crate::session::MonitorInfo {
             // The device name is the capture-path key; the EXW variant would carry it,
@@ -72,7 +74,8 @@ pub fn client_screen_rect(hwnd: isize) -> Result<(i32, i32, u32, u32), String> {
         y: rc.top,
     };
     // windows-rs 0.62 files ClientToScreen under Graphics::Gdi (metadata quirk).
-    unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut pt) };
+    // The BOOL (false = point outside the window) carries no action here.
+    let _ = unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut pt) };
     Ok((
         pt.x,
         pt.y,

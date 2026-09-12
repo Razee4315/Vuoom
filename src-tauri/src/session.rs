@@ -2838,6 +2838,76 @@ fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, S
     Ok(None)
 }
 
+/// Grab a window's client area via `PrintWindow` (with the render-full-content flag so
+/// GPU-composited apps like Chrome render), returning a `data:image/png;base64,…` URL.
+/// Falls back to a display grab only if the caller decides; failures are loud here.
+pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULLCONTENT};
+
+    let hwnd = HWND(hwnd as _);
+    let mut rc = windows::Win32::Foundation::RECT::default();
+    unsafe { GetClientRect(hwnd, &mut rc) }.map_err(|e| format!("GetClientRect failed: {e}"))?;
+    let w = (rc.right - rc.left).max(1);
+    let h = (rc.bottom - rc.top).max(1);
+
+    unsafe {
+        let hdc_window: HDC = GetDC(Some(hwnd));
+        if hdc_window.is_invalid() {
+            return Err("GetDC failed".into());
+        }
+        let hdc_mem: HDC = CreateCompatibleDC(Some(hdc_window));
+        let bitmap = CreateCompatibleBitmap(hdc_window, w, h);
+        let old = SelectObject(hdc_mem, bitmap.into());
+
+        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT: client area only, and
+        // DirectComposition content (Chrome, Electron) actually renders.
+        // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
+        let drawn = windows::Win32::Storage::Xps::PrintWindow(
+            hwnd,
+            hdc_mem,
+            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
+        );
+        let _ = drawn; // a partial grab still yields a usable backdrop
+
+        let mut bi = BITMAPINFO::default();
+        bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bi.bmiHeader.biWidth = w;
+        // Negative height = top-down rows, the layout the rest of the pipeline expects.
+        bi.bmiHeader.biHeight = -h;
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = DIB_RGB_COLORS.0;
+        let mut pixels = vec![0u8; (w * h * 4) as usize];
+        let lines = GetDIBits(
+            hdc_mem,
+            bitmap,
+            0,
+            h as u32,
+            Some(pixels.as_mut_ptr().cast()),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
+        let _ = SelectObject(hdc_mem, old);
+        let _ = DeleteObject(bitmap.into());
+        let _ = DeleteDC(hdc_mem);
+        ReleaseDC(Some(hwnd), hdc_window);
+        if lines == 0 {
+            return Err("GetDIBits failed".into());
+        }
+        // The DIB is BGRA; the pipeline wants RGBA.
+        let rgba = swizzle_rb(&pixels);
+        let img = RgbaImage::new(w as u32, h as u32, rgba);
+        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        Ok(format!("data:image/png;base64,{b64}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3124,75 +3194,5 @@ mod tests {
     fn free_space_ok_when_plenty() {
         // 500 GB at 1080p clears even the 5 min warn line, no warning.
         assert_eq!(check_free_space(500 * GB, 1920, 1080), Ok(None));
-    }
-}
-
-/// Grab a window's client area via `PrintWindow` (with the render-full-content flag so
-/// GPU-composited apps like Chrome render), returning a `data:image/png;base64,…` URL.
-/// Falls back to a display grab only if the caller decides; failures are loud here.
-pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULLCONTENT};
-
-    let hwnd = HWND(hwnd as _);
-    let mut rc = windows::Win32::Foundation::RECT::default();
-    unsafe { GetClientRect(hwnd, &mut rc) }.map_err(|e| format!("GetClientRect failed: {e}"))?;
-    let w = (rc.right - rc.left).max(1);
-    let h = (rc.bottom - rc.top).max(1);
-
-    unsafe {
-        let hdc_window: HDC = GetDC(Some(hwnd));
-        if hdc_window.is_invalid() {
-            return Err("GetDC failed".into());
-        }
-        let hdc_mem: HDC = CreateCompatibleDC(Some(hdc_window));
-        let bitmap = CreateCompatibleBitmap(hdc_window, w, h);
-        let old = SelectObject(hdc_mem, bitmap.into());
-
-        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT: client area only, and
-        // DirectComposition content (Chrome, Electron) actually renders.
-        // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
-        let drawn = windows::Win32::Storage::Xps::PrintWindow(
-            hwnd,
-            hdc_mem,
-            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
-        );
-        let _ = drawn; // a partial grab still yields a usable backdrop
-
-        let mut bi = BITMAPINFO::default();
-        bi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-        bi.bmiHeader.biWidth = w;
-        // Negative height = top-down rows, the layout the rest of the pipeline expects.
-        bi.bmiHeader.biHeight = -h;
-        bi.bmiHeader.biPlanes = 1;
-        bi.bmiHeader.biBitCount = 32;
-        bi.bmiHeader.biCompression = DIB_RGB_COLORS.0;
-        let mut pixels = vec![0u8; (w * h * 4) as usize];
-        let lines = GetDIBits(
-            hdc_mem,
-            bitmap,
-            0,
-            h as u32,
-            Some(pixels.as_mut_ptr().cast()),
-            &mut bi,
-            DIB_RGB_COLORS,
-        );
-        let _ = SelectObject(hdc_mem, old);
-        let _ = DeleteObject(bitmap.into());
-        let _ = DeleteDC(hdc_mem);
-        ReleaseDC(Some(hwnd), hdc_window);
-        if lines == 0 {
-            return Err("GetDIBits failed".into());
-        }
-        // The DIB is BGRA; the pipeline wants RGBA.
-        let rgba = swizzle_rb(&pixels);
-        let img = RgbaImage::new(w as u32, h as u32, rgba);
-        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
-        Ok(format!("data:image/png;base64,{b64}"))
     }
 }

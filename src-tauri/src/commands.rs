@@ -142,6 +142,47 @@ pub fn enter_overlay(
         Target::Current => main.current_monitor().ok().flatten(),
     };
 
+    // Window mode: pin the session to the window BEFORE the backdrop grab. Display mode:
+    // clear any stale window target so the recording targets the display.
+    match &target {
+        Target::Window { hwnd, client, mon } => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_capture_window(
+                    *hwnd as isize,
+                    client.0,
+                    client.1,
+                    client.2,
+                    client.3,
+                    crate::session::MonitorInfo {
+                        name: monitor
+                            .as_ref()
+                            .and_then(|m| m.name().cloned())
+                            .unwrap_or_default(),
+                        x: mon.x,
+                        y: mon.y,
+                        w: mon.w,
+                        h: mon.h,
+                    },
+                );
+            }
+        }
+        other => {
+            if let Ok(session) = engine.session() {
+                let _ = session.set_monitor(match other {
+                    Target::Display(info) => Some(info.clone()),
+                    _ => monitor.as_ref().and_then(|m| {
+                        m.name().map(|n| crate::session::MonitorInfo {
+                            name: n.clone(),
+                            x: m.position().x,
+                            y: m.position().y,
+                            w: m.size().width,
+                            h: m.size().height,
+                        })
+                    }),
+                });
+            }
+        }
+    }
     if let Ok(mut slot) = border.origin.lock() {
         // Region-relative origin: the client rect for window capture, the monitor origin
         // for display capture.

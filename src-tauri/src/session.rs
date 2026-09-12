@@ -3136,7 +3136,7 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
         ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULL_CONTENT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, PW_RENDERFULLCONTENT};
 
     let hwnd = HWND(hwnd as _);
     let mut rc = windows::Win32::Foundation::RECT::default();
@@ -3153,10 +3153,10 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         let bitmap = CreateCompatibleBitmap(hdc_window, w, h);
         let old = SelectObject(hdc_mem, bitmap.into());
 
-        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULL_CONTENT: client area only, and
+        // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT: client area only, and
         // DirectComposition content (Chrome, Electron) actually renders.
         // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
-        let drawn = windows::Win32::Storage::Xps::PrintWindow(hwnd, hdc_mem, PW_RENDERFULL_CONTENT);
+        let drawn = windows::Win32::Storage::Xps::PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
         let _ = drawn; // a partial grab still yields a usable backdrop
 
         let mut bi = BITMAPINFO::default();

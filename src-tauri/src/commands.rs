@@ -83,7 +83,9 @@ pub fn enter_overlay(
     // The picker may nominate a display other than the one the editor sits on: resolve it
     // by GDI device name (falling back to a position/size match, and finally to the
     // editor's own monitor when no name was given or the lookup fails).
-    let requested = monitor_name.as_ref().and_then(|n| crate::displays::find_by_name(n));
+    let requested = monitor_name
+        .as_ref()
+        .and_then(|n| crate::displays::find_by_name(n));
     let monitor = match requested {
         Some(info) => {
             let found = app.available_monitors().ok().and_then(|monitors| {
@@ -95,7 +97,10 @@ pub fn enter_overlay(
                 })
             });
             Some(found.unwrap_or_else(|| {
-                app.primary_monitor().ok().flatten().expect("no primary monitor")
+                app.primary_monitor()
+                    .ok()
+                    .flatten()
+                    .expect("no primary monitor")
             }))
         }
         None => main.current_monitor().ok().flatten(),

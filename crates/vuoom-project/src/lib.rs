@@ -110,7 +110,12 @@ impl CropRect {
     /// The full-frame crop (no cropping).
     #[must_use]
     pub fn full() -> Self {
-        Self { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+        }
     }
 
     /// `true` when the crop covers (almost) the whole frame and is a no-op.

@@ -6,10 +6,10 @@
 
 use serde::Serialize;
 use windows::core::BOOL;
+use windows::Win32::Foundation::{LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW, MONITORINFOF_PRIMARY,
 };
-use windows::Win32::Foundation::{LPARAM, RECT};
 
 /// One selectable capture display.
 #[derive(Debug, Clone, Serialize)]

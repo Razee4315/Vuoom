@@ -159,7 +159,11 @@ pub fn build_scene(
             y: h.rect.y * oh,
             w: h.rect.w * ow,
             h: h.rect.h * oh,
-            thickness_px: if is_mask { 0.0 } else { f64::from(h.thickness) * oh },
+            thickness_px: if is_mask {
+                0.0
+            } else {
+                f64::from(h.thickness) * oh
+            },
             filled: h.filled || is_mask,
             ellipse: h.shape == HighlightShape::Ellipse,
             color: if is_mask {

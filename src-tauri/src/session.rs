@@ -3156,7 +3156,11 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         // PrintWindow with PW_CLIENTONLY | PW_RENDERFULLCONTENT: client area only, and
         // DirectComposition content (Chrome, Electron) actually renders.
         // windows-rs 0.62 files PrintWindow under Storage::Xps (metadata quirk).
-        let drawn = windows::Win32::Storage::Xps::PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
+        let drawn = windows::Win32::Storage::Xps::PrintWindow(
+            hwnd,
+            hdc_mem,
+            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
+        );
         let _ = drawn; // a partial grab still yields a usable backdrop
 
         let mut bi = BITMAPINFO::default();

@@ -54,8 +54,11 @@ export class PreviewClient {
   /** Connect to the engine's preview server on `port` with its per-session auth `token`
    *  (both from the Rust side). The token is required in the URL path or the engine refuses
    *  the connection. The socket auto-reconnects with a short backoff if the engine drops it,
-   *  until `disconnect()`. */
+   *  until `disconnect()`. Idempotent: connecting again with the same port/token while the
+   *  socket is open (or being open already) is a no-op, so callers can hook the stream
+   *  early and refresh the call later without churning the connection. */
   connect(port: number, token: string): void {
+    if (this.ws && this.port === port && this.token === token && !this.closed) return;
     this.disconnect();
     this.port = port;
     this.token = token;
@@ -162,6 +165,9 @@ export class MockPreviewClient {
     this.onAspect = cb;
   }
   connect(_port: number, _token: string): void {
+    // Idempotent like the real client: a second connect (countdown → recording) keeps the
+    // running loop, the canvas size and the painted still intact.
+    if (this.unlistenDirty) return;
     this.disconnect();
     if (this.canvas) {
       this.canvas.width = 960;

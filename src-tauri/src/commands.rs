@@ -538,6 +538,10 @@ pub fn engine_health(engine: tauri::State<'_, Engine>) -> Result<EngineHealth, S
     })
 }
 
+/// Settle time (ms) after minimizing the panel, so DWM recomposes without it before the
+/// first captured frame. Same trick as `enter_overlay`'s hide-before-grab.
+const PANEL_HIDE_SETTLE_MS: u64 = 120;
+
 /// Begin capturing the primary display + global input, and arm the global
 /// Ctrl+Shift+X stop hotkey for the duration of the recording.
 #[tauri::command]
@@ -547,29 +551,14 @@ pub async fn start_recording(
     hotkey: tauri::State<'_, RecordingHotkey>,
     border: tauri::State<'_, BorderState>,
 ) -> Result<(), String> {
-    engine.session()?.start_recording()?;
-    // Frame the recorded region so the user always sees what's being captured. The strips
-    // sit outside the crop (that is why they never land in the recording, NOT because
-    // exclusion reveals what's behind them). Idempotent with `show_region_border`, which the
-    // countdown may already have raised, only create the strips if they aren't up yet.
-    // Full-screen recordings skip the frame, the screen edge is the region.
     let region = border.region.lock().ok().and_then(|r| *r);
     let (mx, my) = border.origin.lock().map_or((0, 0), |o| *o);
-    if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
-        if slot.is_none() {
-            *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
-        }
-    }
-    // Keep the panel out of the captured area. Ground truth (verified on hardware): on
-    // Windows 10 a capture-excluded window that overlaps the recorded region is recorded as
-    // a solid BLACK rectangle, Win10 does not re-composite the desktop behind an excluded
-    // window the way Win11 does, so `WDA_EXCLUDEFROMCAPTURE` alone is not enough here. Two
-    // defenses: (1) if the panel currently sits inside the region, always true for a
-    // full-screen recording, minimize it for the duration (Ctrl+Shift+X still stops and
-    // `restore_editor` un-minimizes); (2) otherwise arm the WM_MOVING drag wall so the user
-    // cannot drag the panel into the region (it slides along the edge). The window keeps its
-    // `WDA_EXCLUDEFROMCAPTURE` affinity too, harmless on Win10, a real second line of
-    // defense on Win11.
+    // Get the panel out of the captured area BEFORE capture starts, never after: the old
+    // order minimized once recording was already running, so the opening frames recorded
+    // the panel (on Win11 the window itself, on Win10 a solid black rectangle) and the
+    // take visibly jumped as the panel vanished. Minimize first + a short DWM settle makes
+    // frame 0 clean. Region recordings with a panel parked clear of the crop keep it (and
+    // its live preview) on screen the whole time.
     if let Some(main) = app.get_webview_window("main") {
         let covered = match region {
             None => true,
@@ -586,9 +575,25 @@ pub async fn start_recording(
         };
         if covered {
             let _ = main.minimize();
+            std::thread::sleep(std::time::Duration::from_millis(PANEL_HIDE_SETTLE_MS));
         }
     }
-    // Arm the drag wall for region recordings (nothing to slide against for full screen).
+    engine.session()?.start_recording()?;
+    // Frame the recorded region so the user always sees what's being captured. The strips
+    // sit outside the crop (that is why they never land in the recording, NOT because
+    // exclusion reveals what's behind them). Idempotent with `show_region_border`, which
+    // the countdown may already have raised, only create the strips if they aren't up yet.
+    // Full-screen recordings skip the frame, the screen edge is the region.
+    if let (Some(r), Ok(mut slot)) = (region, border.border.lock()) {
+        if slot.is_none() {
+            *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
+        }
+    }
+    // Keep the panel out of the captured area while it is being dragged: arm the WM_MOVING
+    // drag wall so it slides along the region's edge instead of crossing it (the
+    // parked-overlap case was already minimized above). Full-screen recordings have
+    // nothing to slide against. The window keeps its `WDA_EXCLUDEFROMCAPTURE` affinity
+    // throughout: harmless on Win10, a real second line of defense on Win11.
     if let Some(r) = region {
         let forbidden = inflate(
             (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32),

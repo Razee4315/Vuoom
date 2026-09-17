@@ -1,0 +1,59 @@
+name: Lockfile update
+
+# Maintenance task for when a `cargo-deny` advisory (or a fresh patch release) calls for
+# bumping a locked crate and there is no local Rust toolchain at hand. Runs
+# `cargo update -p <packages>` and commits the updated Cargo.lock to a branch, which
+# re-runs CI on any open PR for that branch.
+#
+# Trigger from the Actions tab (or `gh workflow run lockfile-update`), then merge the
+# resulting commit. Never run this blindly for a major bump: `-p` only updates within the
+# resolved semver requirements, so transitive crates usually land here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "Space-separated crate names passed to `cargo update -p`"
+        required: true
+        default: "rustls"
+      branch:
+        description: "Branch to commit the updated Cargo.lock to"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lockfile-update-${{ github.event.inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Update locked packages
+        run: cargo update -p ${{ github.event.inputs.packages }}
+
+      - name: Show the lockfile diff
+        run: git --no-pager diff -- Cargo.lock
+
+      - name: Commit and push the updated lockfile
+        run: |
+          git config user.name "vuoom-ci"
+          git config user.email "vuoom-ci@users.noreply.github.com"
+          git add Cargo.lock
+          if git diff --cached --quiet; then
+            Write-Output "Cargo.lock unchanged - nothing to commit."
+          else
+            git commit -m "chore(deps): cargo update -p ${{ github.event.inputs.packages }}"
+            git push
+          fi
+        shell: pwsh

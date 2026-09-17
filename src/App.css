@@ -630,6 +630,10 @@ kbd {
 .thememenu {
   position: relative;
   display: flex;
+  /* The wrapper stretches to the full topbar height (it anchors the dropdown), so the
+     button inside needs explicit centering or it pins to the top edge and sits visibly
+     higher than its topbar neighbors. */
+  align-items: center;
 }
 .thememenu-list {
   position: absolute;
@@ -943,10 +947,8 @@ kbd {
   color: var(--muted);
   animation: rise-in var(--dur-slow) var(--ease) 0.05s both;
 }
-.canvas-placeholder .btn.record.cta {
-  margin-top: 22px;
-  animation: rise-in var(--dur-slow) var(--ease) 0.1s both;
-}
+/* The record CTA gets no animation of its own: `.hero-actions` rises in as one unit, so
+   the pair stays aligned. Spacing to the hero copy is its `margin-top: 22px`. */
 .placeholder-hint {
   margin-top: 18px;
   font-size: var(--fs-sm);

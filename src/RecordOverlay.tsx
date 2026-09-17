@@ -65,7 +65,11 @@ export default function RecordOverlay(props: {
   const [phase, setPhase] = createSignal<
     "select" | "preparing" | "countdown" | "recording" | "finalizing"
   >("select");
-  const [preset, setPreset] = createSignal<Preset>(PRESETS[1]);
+  // Custom is the default: the chip highlights "Custom" and Start stays disabled until the
+  // user drags a region, so what's highlighted always matches what will actually record.
+  const [preset, setPreset] = createSignal<Preset>(
+    PRESETS.find((p) => p.id === "free") ?? PRESETS[0],
+  );
   const [sel, setSel] = createSignal<Rect | null>(null);
   const [count, setCount] = createSignal(3);
   const [elapsed, setElapsed] = createSignal(0);
@@ -118,8 +122,9 @@ export default function RecordOverlay(props: {
     const p = preset();
     const r = sel();
     const windowMode = props.target?.kind === "window";
-    // A non-full preset without a drawn region must never silently record full screen.
-    if (!windowMode && p.ratio !== "full" && p.ratio !== null && (!r || r.w < 8 || r.h < 8)) return;
+    // Any non-full preset without a drawn region (Custom included) must never silently
+    // record full screen.
+    if (!windowMode && p.ratio !== "full" && (!r || r.w < 8 || r.h < 8)) return;
     setPhase("preparing"); // instant acknowledgment: no dead click while the engine sets up
     try {
       if (windowMode) {
@@ -146,6 +151,13 @@ export default function RecordOverlay(props: {
         /* backend without show_region_border, border still shows at record start */
       }
       setPhase("countdown");
+      // Hook the preview socket now: the port exists from engine boot, frames only flow
+      // once recording starts, so the very first live frame lands with capture instead of
+      // a connect round-trip later. hookPreview also paints the frozen backdrop cropped to
+      // the chosen region into the canvas, so the countdown shows exactly what will record
+      // and the first live frame replaces the identical geometry instead of popping from
+      // black.
+      hookPreview();
       runCountdown();
     } catch (e) {
       setPhase("select");
@@ -170,12 +182,59 @@ export default function RecordOverlay(props: {
     countTimer = window.setTimeout(tick, 1000);
   };
 
+  // Bind the panel canvas to the live preview stream as early as the countdown. The
+  // connect is idempotent, so `beginRecording`'s own call below is a no-op once open.
+  // The still is painted after the connect settles: a mock client resets the canvas
+  // there, and repainting last keeps the countdown frame intact either way.
+  const hookPreview = () => {
+    if (!canvasEl) return;
+    preview.attach(canvasEl);
+    const paint = () => paintStill();
+    void invoke<{ port: number; token: string }>("preview_port")
+      .then((conn) => {
+        preview.connect(conn.port, conn.token);
+        paint();
+      })
+      .catch(paint);
+  };
+
+  // The region that will actually record, in CSS px (the viewport maps 1:1 onto the
+  // frozen backdrop). `null` = nothing drawn / window targets don't map 1:1.
+  const recordRectCss = () => {
+    if (props.target?.kind === "window") return null;
+    if (preset().ratio === "full") {
+      return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+    }
+    const r = sel();
+    return r && r.w >= 8 && r.h >= 8 ? r : null;
+  };
+
+  // Draw the frozen backdrop cropped to the recorded region into the preview canvas at
+  // the stream's own resolution. The still occupies exactly the pixels the live frames
+  // will replace, so the hand-over from countdown to recording is invisible instead of
+  // the picture jumping in from black once the stream connects.
+  const paintStill = () => {
+    if (!canvasEl || !shotEl?.naturalWidth) return;
+    const r = recordRectCss();
+    if (!r) return;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return;
+    const { sx, sy } = toPhysical();
+    const aspect = r.w / r.h;
+    const w = 480;
+    const h = Math.max(1, Math.round(w / aspect));
+    canvasEl.width = w;
+    canvasEl.height = h;
+    ctx.drawImage(shotEl, r.x * sx, r.y * sy, r.w * sx, r.h * sy, 0, 0, w, h);
+  };
+
   const beginRecording = async () => {
     try {
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording");
       setPhase("recording");
-      // Hook the live preview stream to the panel canvas.
+      // The stream was hooked at countdown; refresh the binding in case the canvas
+      // changed, and rely on the idempotent connect to skip an already-open socket.
       if (canvasEl) preview.attach(canvasEl);
       try {
         const conn = await invoke<{ port: number; token: string }>("preview_port");
@@ -418,7 +477,7 @@ export default function RecordOverlay(props: {
       const r = sel();
       if (props.target?.kind === "window") {
         void beginCountdown();
-      } else if (p.ratio === "full" || p.ratio === null || (r && r.w >= 8 && r.h >= 8)) {
+      } else if (p.ratio === "full" || (r && r.w >= 8 && r.h >= 8)) {
         void beginCountdown();
       }
     }
@@ -648,12 +707,9 @@ export default function RecordOverlay(props: {
             </button>
             <button
               class="sel-btn primary"
-              disabled={
-                phase() === "preparing" ||
-                (preset().ratio !== "full" && preset().ratio !== null && !sel())
-              }
+              disabled={phase() === "preparing" || (preset().ratio !== "full" && !sel())}
               title={
-                preset().ratio !== "full" && preset().ratio !== null && !sel()
+                preset().ratio !== "full" && !sel()
                   ? "Drag on the screen to mark the area first"
                   : undefined
               }

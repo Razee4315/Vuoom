@@ -125,19 +125,36 @@ export default function RecordOverlay(props: {
     // Any non-full preset without a drawn region (Custom included) must never silently
     // record full screen.
     if (!windowMode && p.ratio !== "full" && (!r || r.w < 8 || r.h < 8)) return;
+    stillRegion = null; // recomputed below; never reuse a previous attempt's rect
     setPhase("preparing"); // instant acknowledgment: no dead click while the engine sets up
     try {
       if (windowMode) {
         // Window capture records the whole client area; no region call at all.
       } else if (p.ratio === "full" || !r) {
+        const { sx, sy } = toPhysical();
+        stillRegion = {
+          x: 0,
+          y: 0,
+          w: Math.round(window.innerWidth * sx),
+          h: Math.round(window.innerHeight * sy),
+        };
         await invoke("set_region", {}); // no fields → full screen
       } else {
+        // Resolved to backdrop pixels NOW, while the overlay is still fullscreen and
+        // `toPhysical` maps the viewport 1:1 onto the shot — after `enter_stopbar` shrinks
+        // the window to the panel this scale is gone.
         const { sx, sy } = toPhysical();
-        await invoke("set_region", {
+        stillRegion = {
           x: Math.round(r.x * sx),
           y: Math.round(r.y * sy),
           w: Math.round(r.w * sx),
           h: Math.round(r.h * sy),
+        };
+        await invoke("set_region", {
+          x: stillRegion.x,
+          y: stillRegion.y,
+          w: stillRegion.w,
+          h: stillRegion.h,
         });
       }
       await invoke("enter_stopbar"); // shrink the host window to the bar
@@ -198,34 +215,34 @@ export default function RecordOverlay(props: {
       .catch(paint);
   };
 
-  // The region that will actually record, in CSS px (the viewport maps 1:1 onto the
-  // frozen backdrop). `null` = nothing drawn / window targets don't map 1:1.
-  const recordRectCss = () => {
-    if (props.target?.kind === "window") return null;
-    if (preset().ratio === "full") {
-      return { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
-    }
-    const r = sel();
-    return r && r.w >= 8 && r.h >= 8 ? r : null;
-  };
+  // The region that will record, in backdrop (natural image) pixels, captured while the
+  // overlay is still fullscreen. `null` = no still to show (nothing drawn / window target).
+  let stillRegion: { x: number; y: number; w: number; h: number } | null = null;
 
   // Draw the frozen backdrop cropped to the recorded region into the preview canvas at
   // the stream's own resolution. The still occupies exactly the pixels the live frames
   // will replace, so the hand-over from countdown to recording is invisible instead of
   // the picture jumping in from black once the stream connects.
   const paintStill = () => {
-    if (!canvasEl || !shotEl?.naturalWidth) return;
-    const r = recordRectCss();
-    if (!r) return;
+    if (!canvasEl || !shotEl?.naturalWidth || !stillRegion) return;
     const ctx = canvasEl.getContext("2d");
     if (!ctx) return;
-    const { sx, sy } = toPhysical();
-    const aspect = r.w / r.h;
+    const aspect = stillRegion.w / stillRegion.h;
     const w = 480;
     const h = Math.max(1, Math.round(w / aspect));
     canvasEl.width = w;
     canvasEl.height = h;
-    ctx.drawImage(shotEl, r.x * sx, r.y * sy, r.w * sx, r.h * sy, 0, 0, w, h);
+    ctx.drawImage(
+      shotEl,
+      stillRegion.x,
+      stillRegion.y,
+      stillRegion.w,
+      stillRegion.h,
+      0,
+      0,
+      w,
+      h,
+    );
   };
 
   const beginRecording = async () => {

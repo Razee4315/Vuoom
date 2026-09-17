@@ -3149,9 +3149,9 @@ dependencies = [
 
 [[package]]
 name = "pollster"
-version = "0.4.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+checksum = "bc6355899e1c9462875b6757c79f3caa011a1fdae12bbb1a2e72dd1f234f8336"
 
 [[package]]
 name = "portable-atomic"
@@ -5436,7 +5436,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",
@@ -5465,7 +5465,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5475,7 +5475,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "color_quant 2.0.0",
  "gif",
@@ -5488,7 +5488,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5499,7 +5499,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
@@ -5511,7 +5511,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "serde",
@@ -5521,7 +5521,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5536,7 +5536,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.33"
+version = "0.1.36"
 dependencies = [
  "glam",
  "serde",

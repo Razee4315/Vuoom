@@ -13,6 +13,6 @@ vuoom-project.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 wgpu = "25"
-glyphon = "0.9"
+glyphon = "0.12"
 bytemuck.workspace = true
 pollster.workspace = true

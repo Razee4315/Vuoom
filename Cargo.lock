@@ -2434,6 +2434,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 
 [[package]]
+name = "lz4_flex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3574,9 +3583,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.40"
+version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
+checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
  "once_cell",
  "ring",
@@ -5218,6 +5227,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5283634e518fe9e82c7b20520bb4bc209009fd16c82077c802f8111ecbb0117a"
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5436,11 +5451,13 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "base64 0.22.1",
  "clipboard-win",
  "glam",
+ "lz4_flex",
+ "rayon",
  "serde",
  "serde_json",
  "tauri",
@@ -5465,7 +5482,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -5475,7 +5492,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "color_quant 2.0.0",
  "gif",
@@ -5488,7 +5505,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "glam",
  "thiserror 2.0.18",
@@ -5499,7 +5516,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
@@ -5511,7 +5528,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "glam",
  "serde",
@@ -5521,7 +5538,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5536,7 +5553,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "0.1.33"
+version = "0.1.40"
 dependencies = [
  "glam",
  "serde",

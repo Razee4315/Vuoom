@@ -25,7 +25,7 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>)
   if (!isMock) return tauriInvoke<T>(cmd, args);
   // Clone like real IPC would: the mock keeps and mutates its own objects, and handing
   // those references to the UI would defeat Solid's reference-based list diffing.
-  return Promise.resolve(structuredClone(handleMock(cmd, args ?? {})) as T);
+  return Promise.resolve(handleMock(cmd, args ?? {})).then((r) => structuredClone(r) as T);
 }
 
 export function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
@@ -142,6 +142,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "plan_zoom_auto":
       return m.planZoomAuto(a.amount as number);
     case "list_displays":
+      // `&onedisplay` skips the display picker (screenshots of the region HUD).
+      if (params.has("onedisplay"))
+        return [{ name: "\\.DISPLAY1", index: 1, x: 0, y: 0, w: 1920, h: 1080, primary: true }];
       return [
         { name: "\\.DISPLAY1", index: 1, x: 0, y: 0, w: 1920, h: 1080, primary: true },
         { name: "\\.DISPLAY2", index: 2, x: 1920, y: 0, w: 2560, h: 1440, primary: false },

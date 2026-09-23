@@ -7,7 +7,7 @@ import { prefs } from "../prefs";
 import { Kbd, Seg } from "../ui";
 
 const SOURCES: { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] = [
-  { mode: "region", icon: "region", title: "Region", sub: "Draw any area or snap to 16:9" },
+  { mode: "region", icon: "region", title: "Region", sub: "Any area, any aspect ratio" },
   { mode: "full", icon: "fullscreen", title: "Full screen", sub: "Everything on one display" },
   { mode: "window", icon: "window", title: "Window", sub: "Follow a single app window" },
 ];

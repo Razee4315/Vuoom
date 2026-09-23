@@ -34,53 +34,66 @@ Windows, in a small native app:
 **Record, zoom happens where you point, cut the dead air, export a GIF or MP4
 you can paste anywhere.**
 
-## A redesigned experience
+## A studio, not a toolbar
 
-The whole interface was rebuilt around one idea: a quiet, focused editor that
-stays out of your way until you need it.
+The interface is a quiet workspace built from floating panels you control:
+
+- **Every panel is yours to arrange.** Show or hide the tool rail, inspector and
+  timeline (`Ctrl+1/2/3`), drag the inspector and timeline to any size, collapse
+  the timeline to its transport bar, slim the tool rail to icons. Double click a
+  divider to reset it, `Ctrl+0` resets everything. Layout is remembered.
+- **An inspector that follows you.** Select something and its every property is
+  there in collapsible sections; select nothing and the **Clip** tab holds the
+  whole-recording settings: frame and backdrop, crop, auto zooms, pacing, click
+  ripples and keystrokes.
+- **Search every action** with `Ctrl+K`, right-click anything for its menu, and
+  hover any control to see its shortcut.
+- **Home that starts the right take**: Region, Full screen or Window, with frame
+  rate, zoom strength and countdown set right there.
 
 | | |
 |---|---|
 | <img src=".github/assets/screenshot-home.png" alt="Vuoom home with recovery and recents" /> | <img src=".github/assets/screenshot-record.png" alt="Picking a region to record" /> |
-| **Home that helps.** A calm hero, one big Record button, crash recovery, and your recent projects on a card grid. | **Framing first.** Frozen-desktop region picking with social presets, live pixel dimensions, and zoom strength before you start. |
+| **Home that starts the right take.** Region, full screen or window, with frame rate, zoom and countdown on the page; recovery and recents below. | **Framing first.** One glass HUD over the frozen desktop: aspect presets, zoom, fps and countdown next to a single Record button. |
 | <img src=".github/assets/screenshot-export.png" alt="The export card with GIF and MP4 presets" /> | <img src=".github/assets/screenshot-editor-light.png" alt="The editor in the light theme" /> |
-| **Export without a wizard.** Format and presets on one card, honest size estimates, live progress, then copy or reveal. | **Five themes, re-tuned.** Black and white first, plus Graphite, Paper and Midnight. No purple anywhere. |
+| **Export without a wizard.** Format cards, presets, sliders, an honest size estimate and a fit-under-N-MB helper, then copy or reveal. | **Five themes, re-tuned.** Black and white first, plus Graphite, Paper and Midnight. No purple anywhere. |
 
 ## Features
 
-- 🎥 **Native capture**: Windows Graphics Capture at full resolution, full
-  screen or a region (16:9 / 9:16 / 1:1 / 4:5 presets for social-ready
-  framing). A red frame shows exactly what is being recorded (and never appears
-  in it). Works on **any monitor** and you can **pause/resume** mid-take.
-- 🔍 **Cinematic zoom**: press `Ctrl+Shift+Z` while recording to glide the
-  camera into your cursor (and again to pull back out). Critically damped
-  spring motion, never a hard cut, never shows off-screen area. In the editor,
-  every zoom is **aimable**: follow the cursor, or drag a crosshair to lock
-  onto one spot.
-- 🎞️ **A real editor, not a video NLE**: timeline with a ruler, playhead and
-  drag-to-scrub; **trim** handles; **cut out** the middle bits you don't want;
-  **zoom blocks** you can move, resize, re-level, add (hover the lane for the
-  click-to-add ghost) or delete; **"Skim idle"** that plays dead stretches at
-  2 to 8x, plus manual speed regions; **undo/redo** across everything.
-- ✏️ **Annotations**: text labels (bold/italic, color presets, six bundled
-  display fonts), arrows, lines, boxes and ellipses with fill/thickness
-  controls. Each one gets its own timeline lane: drag to control when (and how
-  long) it shows, `Ctrl+D` to duplicate.
-- 👆 **Demo polish, baked in**: **click ripples** at every recorded mouse
-  click, a **keystroke overlay** that shows shortcuts like `Ctrl+C` as chips
-  (plain typing is never shown, so passwords can't leak), and **Subtle / Studio
-  frame presets** with seven backdrop gradients.
-- 📦 **Export GIF or MP4**: optimized GIF for READMEs (with a **live size
-  estimate**), or H.264 MP4 up to 60 fps for Slack / X / YouTube, encoded by
-  Windows itself, no ffmpeg. One-click **Copy** pastes the file anywhere.
-- 💾 **Projects and crash recovery**: save everything as a `.vuoom` bundle;
-  frames stream to disk while recording, so length isn't capped by RAM, and a
-  crash or accidental close offers **"Recover last session"** on the next
-  launch. Recent projects wait on the home grid.
-- 🎨 **Five clean themes**, toasts for every action, keyboard-first editing
-  with a cheat sheet under `?`, and zero purple.
+- 🎥 **Native capture**: Windows Graphics Capture at full resolution: a region
+  (free or 16:9 / 9:16 / 1:1 / 4:5), a whole display, or a single app window,
+  on any monitor, with pause/resume. Capture is paced at the compositor to the
+  frame rate you pick (24 / 30 / 60 fps), so a 144 Hz screen doesn't burn CPU on
+  frames nobody needs.
+- 🗜️ **Recordings that stay small**: frames are stored losslessly as LZ4
+  compressed XOR deltas with periodic keyframes, typically 20x+ smaller than raw
+  pixels, streamed to disk as you record so length is bounded by your drive and
+  a crash never loses the take.
+- 🔍 **Cinematic zoom**: press `Ctrl+Shift+Z` while recording to glide the camera
+  into your cursor (and again to pull back out). Critically damped spring motion,
+  never a hard cut. In the editor every zoom is aimable (follow the cursor or lock
+  a crosshair), has a feel (Smooth / Snappy / Slow), and **Auto zooms** can
+  re-plan them from your clicks at any strength.
+- 🎞️ **A real editor, not a video NLE**: timeline with named, colour-coded tracks,
+  magnetic snapping, trim handles (or `I` / `O`), cuts, speed-ups, **Skim idle**
+  (2 to 8x on dead stretches), timeline zoom, undo/redo across everything.
+- ✂️ **Visual crop**: drag a crop rectangle right on the video with aspect locks
+  and rule-of-thirds guides, or pick a centered preset.
+- ✏️ **Annotations**: text (six display fonts, bold/italic, legible plate),
+  arrows, lines, boxes, ellipses, highlights and **redaction masks**, each with
+  its own timeline bar, colour, opacity, fade in / fade out and stacking order.
+- 👆 **Demo polish**: click ripples, a keystroke overlay that shows shortcuts
+  (never plain typing), and Subtle / Studio frame presets on seven backdrops.
+- 📦 **Export GIF or MP4**: optimized GIF with a live size estimate and a
+  fit-under-N-MB helper, or H.264 MP4 up to 60 fps encoded by Windows on your
+  GPU (NVENC / Quick Sync / AMF) when available. One-click **Copy** pastes the
+  file anywhere.
+- 💾 **Projects and crash recovery**: save a `.vuoom` project in seconds (the
+  compressed frames are copied, not re-encoded), reopen it from the recents grid,
+  and recover the last unsaved take after a crash.
+- 🎨 **Five themes**, reduced-motion mode, and zero purple.
 - 🪶 **Lightweight**: Tauri + Rust, not Electron. The webview is just the
-  cockpit; capture, compositing (wgpu) and encoding all run natively.
+  cockpit; capture, compositing (wgpu) and encoding run natively.
 
 ## Quick start
 
@@ -102,16 +115,22 @@ stays out of your way until you need it.
 | `Ctrl+Shift+R` | Start the record flow |
 | `Ctrl+Shift+Z` | Zoom in / out at the cursor (while recording) |
 | `Ctrl+Shift+X` | Stop recording (global) |
+| `Ctrl+K` | Search every action |
 | `Space` | Play / pause |
 | `←` / `→` | Scrub the playhead (`Shift` = 1s jumps, `Home`/`End` = trim bounds) |
-| `Z` / `X` / `C` | Insert a zoom / speed region / cut at the playhead |
-| `V` `T` `A` `L` `S` `H` | Select, Text, Arrow, Line, Shape, Highlight tools |
+| `I` / `O` | Trim start / end at the playhead (`Shift` clears) |
+| `Z` / `X` / `C` | Insert a zoom / speed-up / cut at the playhead |
+| `V` `T` `A` `L` `S` `H` `M` | Select, Text, Arrow, Line, Shape, Highlight, Mask |
 | Arrow keys | Nudge the selected annotation (`Shift` = bigger steps) |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo any edit |
-| `Ctrl+D` | Duplicate the selected annotation |
-| `Delete` | Remove the selected annotation, zoom, speed region, or cut |
+| `Ctrl+D` / `Ctrl+C` / `Ctrl+V` | Duplicate / copy / paste annotations |
+| `Ctrl+]` / `Ctrl+[` | Bring forward / send backward (`Shift` = front / back) |
+| `Delete` | Remove the selected annotation, zoom, speed-up, or cut |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Show or hide tools / inspector / timeline |
+| `Ctrl+0` | Reset the layout |
 | `Ctrl+S` / `Ctrl+O` | Save / open a project |
 | `Ctrl+E` | Export GIF / MP4 |
+| `Ctrl+,` | Settings |
 | `?` | Keyboard cheat sheet |
 
 ## How it's built
@@ -129,8 +148,10 @@ SolidJS + Vite (editor UI)  <-WebSocket preview-  Rust engine
 ```
 
 The same `render(t)` path drives scrubbing **and** export, so what you preview
-is exactly what ships. While recording, frames stream straight to disk: clip
-length is bounded by your drive, not your RAM. Design docs live in
+is exactly what ships. While recording, frames stream straight to disk as
+compressed deltas: clip length is bounded by your drive, not your RAM. The UI is
+a SolidJS app whose state lives in one editor store (`src/editor/`) that the
+components in `src/components/` render. Design docs live in
 [`docs/`](./docs), including the [redesign blueprint](docs/AUDIT-AND-REDESIGN.md).
 
 ## Building from source

@@ -76,6 +76,10 @@ button:disabled {
   box-shadow: var(--focus);
   border-radius: var(--r-sm);
 }
+/* Headings and panels focused programmatically (dialog phase changes) stay quiet. */
+[tabindex="-1"]:focus-visible {
+  box-shadow: none;
+}
 
 * {
   scrollbar-width: thin;

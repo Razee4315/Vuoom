@@ -125,3 +125,26 @@ redesign, in this order:
 
 Explicitly out of scope for v1: cloud hosting, collaboration, a marketplace, a music
 library, or a general multitrack editor.
+
+## Part 7: Studio redesign (v3, 2026-09-24)
+
+The v2 interface still kept all state and markup in one `App.tsx` and packed settings into
+a popover and a toolbar. v3 rebuilds the experience around control and focus:
+
+- **Architecture.** All editor state and actions live in `src/editor/createEditor.ts`,
+  handed to components through `EditorContext`. The UI is `src/components/*` (Titlebar,
+  Home, ToolRail, Stage, CropEditor, Inspector, Timeline, StatusBar, dialogs), styled by
+  `src/styles/*` on one token file, one icon set (`src/icons.tsx`) and one primitive kit
+  (`src/ui.tsx`). Preferences and layout persist through `src/prefs.ts`.
+- **Workspace.** Floating panels, each hideable (`Ctrl+1/2/3`), with resizable inspector
+  and timeline, a compact rail, and `Ctrl+0` to reset.
+- **Inspector.** Selection and Clip tabs with collapsible sections. The Clip tab replaces
+  the Appearance popover and the Enhance toolbar.
+- **Direct manipulation.** Right-click menus everywhere, a visual crop editor, I/O trim,
+  fade in/out fields, a command palette (`Ctrl+K`) and a tooltip layer that shows each
+  control's shortcut.
+- **Recording.** Home offers Region / Full screen / Window with fps, zoom and countdown;
+  the region selector is one HUD; the live panel was rebuilt for its 384×300 window.
+
+The recording pipeline work that shipped alongside is described in
+[13-Recording-Pipeline.md](./13-Recording-Pipeline.md).

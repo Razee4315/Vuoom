@@ -82,6 +82,11 @@ export default function Titlebar() {
       onSelect: () => layout.guides.set(!layout.guides()),
     },
     {
+      label: "Frame thumbnails",
+      checked: layout.filmstrip(),
+      onSelect: () => layout.filmstrip.set(!layout.filmstrip()),
+    },
+    {
       label: "Annotations on one lane",
       checked: layout.compactNotes(),
       onSelect: () => layout.compactNotes.set(!layout.compactNotes()),

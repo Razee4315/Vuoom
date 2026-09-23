@@ -189,6 +189,17 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "update_annotation_range":
       m.updateAnnRange(a.id as number, a.start as number, a.end as number);
       return null;
+    case "thumbnails": {
+      const n = (a.count as number) || 1;
+      const c = document.createElement("canvas");
+      c.width = 160;
+      c.height = 90;
+      const ctx = c.getContext("2d")!;
+      return Array.from({ length: n }, (_, k) => {
+        paintDesktop(ctx, 160, 90, ((k + 0.5) / n) * (m.duration || 1));
+        return c.toDataURL("image/jpeg", 0.7);
+      });
+    }
     case "persist_edits":
       return null;
     case "set_annotation_fades":

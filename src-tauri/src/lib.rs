@@ -283,6 +283,7 @@ pub fn run() {
             commands::set_region,
             commands::screenshot,
             commands::set_zoom_amount,
+            commands::thumbnails,
             commands::set_capture_fps,
             commands::save_project_bundle,
             commands::open_project_bundle,

@@ -16,6 +16,16 @@ export default function Timeline() {
   const open = () => layout.timelineOpen();
   const w = (s: number, e: number) => `${Math.max(ed.pct(e) - ed.pct(s), 0.18)}%`;
   const outDur = () => outputDuration(ed.duration(), ed.trim(), ed.speed(), ed.cuts());
+  // As many thumbnails as fit at their real aspect across the (possibly zoomed) track,
+  // each picked from the fetched set at its slot's moment.
+  const filmSlots = () => {
+    const all = ed.thumbs();
+    if (all.length === 0) return [];
+    const trackPx = ed.tlScale() ? ed.duration() * ed.tlScale()! : ed.tlWidth();
+    const slotPx = 32 * Math.max(0.3, ed.frameAspect());
+    const n = Math.max(1, Math.min(all.length, Math.floor(trackPx / slotPx)));
+    return Array.from({ length: n }, (_, j) => all[Math.min(all.length - 1, Math.floor(((j + 0.5) / n) * all.length))]);
+  };
   const noteLanes = () => (layout.compactNotes() ? 1 : Math.max(1, ed.annBars().length));
 
   let resizing = false;
@@ -130,6 +140,12 @@ export default function Timeline() {
             onClick={() => prefs.snapping.set(!prefs.snapping())}
           />
           <IconButton
+            icon="film"
+            tip={layout.filmstrip() ? "Hide frame thumbnails" : "Show frame thumbnails"}
+            active={layout.filmstrip()}
+            onClick={() => layout.filmstrip.set(!layout.filmstrip())}
+          />
+          <IconButton
             icon={layout.compactNotes() ? "expand" : "compact"}
             tip={layout.compactNotes() ? "One lane per annotation" : "All annotations on one lane"}
             active={layout.compactNotes()}
@@ -161,6 +177,12 @@ export default function Timeline() {
         <div class="tl-body">
           <div class="tl-heads" aria-hidden="true">
             <div class="tl-headcell ruler" />
+            <Show when={layout.filmstrip()}>
+              <div class="tl-headcell film">
+                <Icon name="film" size={12} />
+                <span>Frames</span>
+              </div>
+            </Show>
             <div class="tl-headcell zoom">
               <span class="tl-swatch" />
               <span>Camera</span>
@@ -201,6 +223,24 @@ export default function Timeline() {
                     )}
                   </For>
                 </div>
+
+                <Show when={layout.filmstrip()}>
+                  <div class="tl-film">
+                    <For each={filmSlots()}>
+                      {(src, k) => (
+                        <img
+                          src={src}
+                          alt=""
+                          draggable={false}
+                          style={{
+                            left: `${(k() / filmSlots().length) * 100}%`,
+                            width: `${100 / filmSlots().length}%`,
+                          }}
+                        />
+                      )}
+                    </For>
+                  </div>
+                </Show>
 
                 {/* Camera: zoom blocks. Click empty lane space to add one. */}
                 <div class="tl-lane tl-zoomlane" onPointerLeave={() => ed.setGhostT(null)}>

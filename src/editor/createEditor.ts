@@ -465,8 +465,8 @@ export function createEditor() {
         const summary = await invoke<RecordingSummary>("recover_session");
         setRecoverable(null);
         await loadFinishedClip(summary);
-      } catch {
-        /* screenshot nicety only */
+      } catch (e) {
+        console.warn("[mock] demo load failed", e);
       }
       if (mockParams.has("export")) setShowExport(true);
       if (mockParams.has("record")) void startRecord();
@@ -1972,6 +1972,23 @@ export function createEditor() {
     setStatus(`Recording failed: ${message}`);
   };
 
+  // ── timeline filmstrip ────────────────────────────────────────────────────────────
+  // Thumbnails of the raw recording, fetched once per loaded clip (they never change with
+  // edits). A newer clip load supersedes an in-flight fetch.
+  const FILM_COUNT = 32;
+  const [thumbs, setThumbs] = createSignal<string[]>([]);
+  let thumbGen = 0;
+  const loadThumbs = async () => {
+    const gen = ++thumbGen;
+    setThumbs([]);
+    try {
+      const list = await invoke<string[]>("thumbnails", { count: FILM_COUNT, width: 160 });
+      if (gen === thumbGen) setThumbs(list);
+    } catch {
+      /* older engine or no clip: the filmstrip simply stays empty */
+    }
+  };
+
   const loadFinishedClip = async (summary: RecordingSummary) => {
     setHasClip(true);
     setDuration(summary.duration);
@@ -1989,6 +2006,7 @@ export function createEditor() {
     // A freshly loaded clip (new recording / recover / open project) starts clean,
     // reset after the syncs above, which optimistically flag dirty.
     setDirty(false);
+    void loadThumbs();
     persistedVersion = editVersion; // nothing new for autosave to write
   };
 
@@ -3413,6 +3431,7 @@ export function createEditor() {
   };
 
   return {
+    thumbs,
     frameInfo,
     applyFrameStyle,
     applyBackgroundCustom,

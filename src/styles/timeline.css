@@ -5,6 +5,7 @@
   --zoom-h: 40px;
   --lane-h: 28px;
   --fx-h: 34px;
+  --film-h: 36px;
   --heads-w: 104px;
   position: relative;
   display: flex;
@@ -207,6 +208,10 @@
 .tl-headcell.ruler {
   height: var(--ruler-h);
 }
+.tl-headcell.film {
+  height: var(--film-h);
+  color: var(--faint);
+}
 .tl-headcell.zoom {
   height: var(--zoom-h);
   --c: var(--t-zoom);
@@ -286,6 +291,23 @@
   font-variant-numeric: tabular-nums;
 }
 
+.tl-film {
+  position: relative;
+  height: var(--film-h);
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--stage-b);
+}
+.tl-film img {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  height: calc(100% - 4px);
+  object-fit: cover;
+  border-right: 1px solid color-mix(in srgb, var(--panel) 70%, transparent);
+  opacity: 0.9;
+  pointer-events: none;
+}
 .tl-lane {
   position: relative;
   border-bottom: 1px solid var(--line);

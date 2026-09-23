@@ -10,14 +10,15 @@ import { arrowHeads, v2 } from "../geometry";
 import { Icon } from "../icons";
 import { TOOLS } from "../shortcuts";
 import { stageMenu } from "./contextMenus";
+import CropEditor, { CropBar } from "./CropEditor";
 import type { Vec2 } from "../types";
 
 export default function Stage() {
   const ed = useEditor();
   const hint = () => TOOLS.find((t) => t.id === ed.tool())?.hint;
   return (
-    <main class="stage-wrap">
-      <Show when={ed.tool() !== "select"}>
+    <main class="stage-wrap" classList={{ cropping: !!ed.cropEdit() }}>
+      <Show when={ed.tool() !== "select" && !ed.cropEdit()}>
         <div class="stage-hint">
           <Icon name="info" size={13} />
           <span>{hint()}</span>
@@ -31,6 +32,7 @@ export default function Stage() {
       <svg
         class="overlay"
         classList={{
+          hidden: !!ed.cropEdit(),
           "tool-draw": ed.tool() !== "select" && ed.tool() !== "text",
           "tool-text": ed.tool() === "text",
         }}
@@ -344,7 +346,13 @@ export default function Stage() {
           );
         })()}
       </Show>
+        <Show when={ed.cropEdit()}>
+          <CropEditor />
+        </Show>
       </div>
+      <Show when={ed.cropEdit()}>
+        <CropBar />
+      </Show>
     </main>
   );
 }

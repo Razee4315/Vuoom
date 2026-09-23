@@ -760,6 +760,14 @@ function ClipPanel() {
             )}
           </For>
         </div>
+        <button
+          type="button"
+          class="btn sm block"
+          data-tip="Drag a crop rectangle on the video"
+          onClick={() => void ed.beginCropEdit()}
+        >
+          <Icon name="crop" size={14} /> Adjust on canvas…
+        </button>
         <Show when={ed.crop()} fallback={<p class="note">Centered crops re-frame the whole clip. Annotations keep their on-screen spot.</p>}>
           <p class="note">
             Showing {Math.round(ed.crop()!.w * 100)}% × {Math.round(ed.crop()!.h * 100)}% of the recording.

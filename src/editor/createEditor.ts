@@ -764,6 +764,14 @@ export function createEditor() {
     }
     // A modal owns the screen, its own handler deals with Esc/Tab; don't drive the editor behind it.
     if (isModal()) return;
+    // The crop editor owns the keyboard: Enter applies, Esc cancels.
+    if (cropEdit()) {
+      if (e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        void finishCropEdit(e.key === "Enter");
+      }
+      return;
+    }
     if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
       e.preventDefault();
       void startRecord();
@@ -2114,6 +2122,39 @@ export function createEditor() {
     }
   };
 
+  // ── visual crop editing ─────────────────────────────────────────────────────────
+  // While editing, the stage shows the whole uncropped, unframed recording and the crop
+  // editor draws the draft rect on top; Apply writes it (or clears it when it covers the
+  // whole frame), Cancel restores the previous crop. The frame preset comes back either way.
+  const FULL_CROP: CropRect = { x: 0, y: 0, w: 1, h: 1 };
+  const [cropEdit, setCropEdit] = createSignal<{ prevCrop: CropRect | null; prevFrame: string } | null>(null);
+  const [cropDraft, setCropDraft] = createSignal<CropRect>(FULL_CROP);
+  const beginCropEdit = async () => {
+    if (!hasClip() || cropEdit()) return;
+    const prevCrop = crop();
+    const prevFrame = framePreset();
+    setPlaying(false);
+    setTool("select");
+    setSelected(null);
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    setCropDraft(prevCrop ?? FULL_CROP);
+    setCropEdit({ prevCrop, prevFrame });
+    if (prevFrame !== "none") applyFramePreset("none");
+    if (prevCrop) await applyCrop(null);
+  };
+  const finishCropEdit = async (apply: boolean) => {
+    const st = cropEdit();
+    if (!st) return;
+    setCropEdit(null);
+    const r = cropDraft();
+    const whole = r.x < 0.002 && r.y < 0.002 && r.w > 0.996 && r.h > 0.996;
+    const target = apply ? (whole ? null : r) : st.prevCrop;
+    if (target || crop()) await applyCrop(target);
+    if (st.prevFrame !== "none") applyFramePreset(st.prevFrame);
+  };
+
   // Centered crop presets: shrink the LONGER side to match the target ratio.
   const centeredCrop = (ratio: number): CropRect => {
     const srcAspect = frameAspect();
@@ -3251,6 +3292,11 @@ export function createEditor() {
   };
 
   return {
+    cropEdit,
+    cropDraft,
+    setCropDraft,
+    beginCropEdit,
+    finishCropEdit,
     commitTrim,
     settingsTab,
     setSettingsTab,

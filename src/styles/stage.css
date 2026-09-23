@@ -26,6 +26,10 @@
   box-shadow: var(--shadow-stage), 0 0 0 1px var(--line-2);
   overflow: hidden;
 }
+.stage-wrap.cropping .stage {
+  width: min(100cqw - 56px, (100cqh - 128px) * var(--ar));
+  margin-bottom: 48px;
+}
 .stage-canvas {
   position: absolute;
   inset: 0;
@@ -185,4 +189,128 @@
   height: 10px;
   background: var(--ink);
   transform: rotate(45deg);
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+/* ── crop editor ───────────────────────────────────────────────────────── */
+
+.crop-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  touch-action: none;
+}
+.crop-rect {
+  position: absolute;
+  border: 1.5px solid #fff;
+  box-shadow:
+    0 0 0 100vmax rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: move;
+}
+.crop-third {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.28);
+  pointer-events: none;
+}
+.crop-third.v1,
+.crop-third.v2 {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.crop-third.v1 {
+  left: 33.333%;
+}
+.crop-third.v2 {
+  left: 66.666%;
+}
+.crop-third.h1,
+.crop-third.h2 {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.crop-third.h1 {
+  top: 33.333%;
+}
+.crop-third.h2 {
+  top: 66.666%;
+}
+.crop-size {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.crop-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.crop-handle.edge {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+}
+.crop-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--r-lg);
+  background: var(--glass);
+  border: 1px solid var(--line-2);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(12px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  animation: hint-in var(--dur-3) var(--spring);
+}
+.crop-bar > svg {
+  color: var(--muted);
+}
+.crop-locks {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r);
+  background: var(--raised);
+}
+.crop-lock {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: calc(var(--r) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.crop-lock:hover {
+  color: var(--text);
+}
+.crop-lock.on {
+  background: var(--ink);
+  color: var(--ink-text);
 }

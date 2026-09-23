@@ -16,9 +16,10 @@ mod imp {
         IMFAttributes, IMFByteStream, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType,
         MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video,
         MFStartup, MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
-        MFSTARTUP_FULL, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
-        MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
-        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING, MF_VERSION,
+        MFSTARTUP_FULL, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
+        MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO,
+        MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING,
+        MF_VERSION,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -98,7 +99,10 @@ mod imp {
                 MFCreateAttributes(&mut attrs, 2).map_err(|e| e.to_string())?;
                 let attrs = attrs.ok_or("sink writer attributes")?;
                 attrs
-                    .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, u32::from(hardware))
+                    .SetUINT32(
+                        &MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+                        u32::from(hardware),
+                    )
                     .map_err(|e| e.to_string())?;
                 // We feed frames as fast as we can composite them (offline export), so let the
                 // writer accept samples without pacing them to real time.

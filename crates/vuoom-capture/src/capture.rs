@@ -336,9 +336,7 @@ pub fn spawn_capture(
             CaptureSource::Monitor { name } => {
                 run_display(tx, stop, crop, dropped, name.as_deref(), max_fps)
             }
-            CaptureSource::Window { hwnd } => {
-                run_window(tx, stop, crop, dropped, *hwnd, max_fps)
-            }
+            CaptureSource::Window { hwnd } => run_window(tx, stop, crop, dropped, *hwnd, max_fps),
         };
         if let Err(e) = result {
             tracing::error!("screen capture stopped: {e}");

@@ -110,7 +110,9 @@ fn strip_ranges(w: u32, h: u32) -> Vec<std::ops::Range<usize>> {
     let n = strip_count(h);
     let row = w as usize * 4;
     let h = h as usize;
-    (0..n).map(|k| (k * h / n) * row..((k + 1) * h / n) * row).collect()
+    (0..n)
+        .map(|k| (k * h / n) * row..((k + 1) * h / n) * row)
+        .collect()
 }
 
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the

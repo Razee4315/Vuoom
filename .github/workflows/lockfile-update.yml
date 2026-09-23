@@ -40,7 +40,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Update locked packages
-        run: cargo update -p ${{ github.event.inputs.packages }}
+        run: cargo update ${{ github.event.inputs.packages }}
 
       - name: Show the lockfile diff
         run: git --no-pager diff -- Cargo.lock
@@ -53,7 +53,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Cargo.lock unchanged - nothing to commit."
           else
-            git commit -m "chore(deps): cargo update -p ${{ github.event.inputs.packages }}"
+            git commit -m "chore(deps): cargo update ${{ github.event.inputs.packages }}"
             git push
           fi
         shell: bash

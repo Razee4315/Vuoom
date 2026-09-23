@@ -25,13 +25,3 @@ export function LogoMark(props: { size?: number }): JSX.Element {
     </svg>
   );
 }
-
-/** Mark + wordmark, for the titlebar. */
-export function LogoWordmark(): JSX.Element {
-  return (
-    <span class="brand" data-tauri-drag-region="">
-      <LogoMark size={17} />
-      <span class="brand-name">Vuoom</span>
-    </span>
-  );
-}

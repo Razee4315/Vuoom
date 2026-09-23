@@ -157,9 +157,24 @@ export class MockPreviewClient {
   private lastVersion = -1;
   private unlistenDirty: (() => void) | null = null;
 
+  constructor() {
+    // A paint skipped while the page was hidden is retried once it is visible again.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && this.dirty) this.schedulePaint();
+    });
+  }
+
   attach(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+    // A canvas mounted after connect (the editor appears once a clip loads) gets sized and
+    // painted right away instead of waiting for the next state change.
+    if (this.unlistenDirty) {
+      canvas.width = 960;
+      canvas.height = 540;
+      this.dirty = true;
+      this.schedulePaint();
+    }
   }
   onAspectChange(cb: (aspect: number) => void): void {
     this.onAspect = cb;

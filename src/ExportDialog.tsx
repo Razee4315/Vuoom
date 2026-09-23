@@ -1,6 +1,8 @@
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { invoke, listen, save, revealItemInDir } from "./bridge";
-import { toast } from "./ui";
+import { Icon } from "./icons";
+import { prefs } from "./prefs";
+import { Field, Slider, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
@@ -20,7 +22,7 @@ export function ExportDialog(props: {
   onStatus: (s: string) => void;
   onExported: () => void;
 }): JSX.Element {
-  const [format, setFormat] = createSignal<"gif" | "mp4">("gif");
+  const [format, setFormat] = createSignal<"gif" | "mp4">(prefs.exportFormat());
   const [preset, setPreset] = createSignal<"readme" | "hq" | "custom">("readme");
   const [fps, setFps] = createSignal(15);
   const [width, setWidth] = createSignal(1000);
@@ -94,6 +96,9 @@ export function ExportDialog(props: {
       setQuality(v.quality);
     }
   };
+
+  // The dialog may open on MP4 (Settings > Editing > Default format): start on its preset.
+  if (format() === "mp4") applyPreset("readme");
 
   // Switching format re-grounds the active preset so values stay consistent.
   const switchFormat = (f: "gif" | "mp4") => {
@@ -239,10 +244,15 @@ export function ExportDialog(props: {
 
   const busy = () => phase() === "starting" || phase() === "exporting";
 
+  const pct = () => Math.round(progress() * 100);
+  const sizeText = () =>
+    estimate() === null ? "Estimating…" : estimate()! < 0 ? "Unavailable" : `≈ ${fmtBytes(estimate()!)}`;
+  const height = () => Math.round(width() / Math.max(props.aspect || 16 / 9, 0.2));
+
   return (
     <div class="modal-backdrop" onClick={() => !busy() && props.onClose()}>
       <div
-        class="modal"
+        class="modal export"
         ref={(el) => {
           dialogEl = el;
           dialogA11y(el, "Export", () =>
@@ -253,176 +263,262 @@ export function ExportDialog(props: {
         onClick={(e) => e.stopPropagation()}
       >
         <Show when={phase() === "configure"}>
-          <h2 data-phase-title tabindex="-1">Export</h2>
-          <div class="format-row">
+          <header class="modal-head">
+            <div>
+              <h2 data-phase-title tabindex="-1">
+                Export
+              </h2>
+              <p class="muted small">Zooms, annotations, speed-ups and cuts are baked into the file.</p>
+            </div>
+            <button type="button" class="ibtn" aria-label="Close" onClick={props.onClose}>
+              <Icon name="close" size={14} />
+            </button>
+          </header>
+
+          <div class="export-formats">
             <button
               type="button"
-              classList={{ chip: true, active: format() === "gif" }}
+              class="export-format"
+              classList={{ on: format() === "gif" }}
               aria-pressed={format() === "gif"}
               onClick={() => switchFormat("gif")}
             >
-              GIF<small>loops anywhere · README / chat</small>
+              <span class="export-format-icon">
+                <Icon name="gif" size={20} />
+              </span>
+              <span>
+                <strong>GIF</strong>
+                <small>Loops anywhere: READMEs, docs, chat</small>
+              </span>
             </button>
             <button
               type="button"
-              classList={{ chip: true, active: format() === "mp4" }}
+              class="export-format"
+              classList={{ on: format() === "mp4" }}
               aria-pressed={format() === "mp4"}
               onClick={() => switchFormat("mp4")}
             >
-              MP4 video<small>smaller · smoother · Slack / X / YouTube</small>
-            </button>
-          </div>
-          <div class="preset-row">
-            <button type="button" classList={{ chip: true, active: preset() === "readme" }} aria-pressed={preset() === "readme"} onClick={() => applyPreset("readme")}>
-              README<small>
-                {presetValues("readme").fps}fps · {presetValues("readme").width}px
-              </small>
-            </button>
-            <button type="button" classList={{ chip: true, active: preset() === "hq" }} aria-pressed={preset() === "hq"} onClick={() => applyPreset("hq")}>
-              High quality<small>
-                {presetValues("hq").fps}fps · {presetValues("hq").width}px
-              </small>
-            </button>
-            <button type="button" classList={{ chip: true, active: preset() === "custom" }} aria-pressed={preset() === "custom"} onClick={() => applyPreset("custom")}>
-              Custom<small>tune it yourself</small>
+              <span class="export-format-icon">
+                <Icon name="film" size={20} />
+              </span>
+              <span>
+                <strong>MP4 video</strong>
+                <small>Smaller and smoother: Slack, X, YouTube</small>
+              </span>
             </button>
           </div>
 
-          <label class="field">
-            <span class="field-label">
-              Frame rate <span class="field-value">{fps()} fps</span>
-            </span>
-            <input type="range" min="8" max={format() === "mp4" ? 60 : 30} step="1" value={fps()} onInput={(e) => { setFps(Number(e.currentTarget.value)); setPreset("custom"); }} />
-          </label>
-          <label class="field">
-            <span class="field-label">
-              Max width <span class="field-value">{width()} px</span>
-            </span>
-            <input type="range" min="400" max="1920" step="20" value={width()} onInput={(e) => { setWidth(Number(e.currentTarget.value)); setPreset("custom"); }} />
-          </label>
-          <label class="field">
-            <span class="field-label">
-              Quality <span class="field-value">{quality()}</span>
-            </span>
-            <input type="range" min="40" max="100" step="1" value={quality()} onInput={(e) => { setQuality(Number(e.currentTarget.value)); setPreset("custom"); }} />
-          </label>
+          <div class="export-presets">
+            <button
+              type="button"
+              class="export-preset"
+              classList={{ on: preset() === "readme" }}
+              aria-pressed={preset() === "readme"}
+              onClick={() => applyPreset("readme")}
+            >
+              Balanced
+              <small>
+                {presetValues("readme").fps} fps · {presetValues("readme").width}px
+              </small>
+            </button>
+            <button
+              type="button"
+              class="export-preset"
+              classList={{ on: preset() === "hq" }}
+              aria-pressed={preset() === "hq"}
+              onClick={() => applyPreset("hq")}
+            >
+              High quality
+              <small>
+                {presetValues("hq").fps} fps · {presetValues("hq").width}px
+              </small>
+            </button>
+            <button
+              type="button"
+              class="export-preset"
+              classList={{ on: preset() === "custom" }}
+              aria-pressed={preset() === "custom"}
+              onClick={() => applyPreset("custom")}
+            >
+              Custom
+              <small>Tune every setting</small>
+            </button>
+          </div>
 
-          <Show when={format() === "gif"}>
-            <div class="fit-row">
-              <label class="fit-label">
-                Fit under
+          <div class="export-controls">
+            <Field label="Frame rate">
+              <Slider
+                value={fps()}
+                min={8}
+                max={format() === "mp4" ? 60 : 30}
+                step={1}
+                label="Frame rate"
+                format={(v) => `${v} fps`}
+                onInput={(v) => {
+                  setFps(v);
+                  setPreset("custom");
+                }}
+              />
+            </Field>
+            <Field label="Width">
+              <Slider
+                value={width()}
+                min={400}
+                max={1920}
+                step={20}
+                label="Max width"
+                format={(v) => `${v}px`}
+                onInput={(v) => {
+                  setWidth(v);
+                  setPreset("custom");
+                }}
+              />
+            </Field>
+            <Field label="Quality">
+              <Slider
+                value={quality()}
+                min={40}
+                max={100}
+                step={1}
+                label="Quality"
+                format={(v) => `${v}`}
+                onInput={(v) => {
+                  setQuality(v);
+                  setPreset("custom");
+                }}
+              />
+            </Field>
+            <Show when={format() === "gif"}>
+              <div class="export-fit">
+                <Icon name="target" size={14} />
+                <span>Fit under</span>
                 <input
-                  class="fit-input"
+                  class="input"
                   type="number"
                   min="0.2"
                   step="0.5"
                   placeholder="MB"
+                  aria-label="Size budget in MB"
                   value={budgetMb()}
                   onInput={(e) => setBudgetMb(e.currentTarget.value)}
                 />
-                MB
-              </label>
-              <button
-                type="button"
-                class="btn"
-                disabled={!Number(budgetMb()) || fitting()}
-                title="Probe encoder estimates and pick the largest settings under the budget"
-                onClick={() => void fitToBudget()}
-              >
-                {fitting() ? "Fitting..." : "Fit"}
-              </button>
-            </div>
-          </Show>
+                <span>MB</span>
+                <button
+                  type="button"
+                  class="btn sm"
+                  disabled={!Number(budgetMb()) || fitting()}
+                  data-tip="Find the largest width and quality that stay under the budget"
+                  onClick={() => void fitToBudget()}
+                >
+                  {fitting() ? "Fitting…" : "Fit"}
+                </button>
+              </div>
+            </Show>
+          </div>
 
-          <div class="export-meta">
-            <span>
-              {outDur().toFixed(1)}s of {format().toUpperCase()}
-            </span>
-            <span class="export-size">
-              {estimate() === null
-                ? "estimating size..."
-                : estimate()! < 0
-                  ? "Estimate unavailable"
-                  : `≈ ${fmtBytes(estimate()!)}`}
-            </span>
+          <div class="export-summary">
+            <div>
+              <small>Estimated size</small>
+              <span class="export-size">{sizeText()}</span>
+            </div>
+            <div>
+              <small>Output</small>
+              <span>
+                {width()} × {height()} · {outDur().toFixed(1)}s
+              </span>
+            </div>
           </div>
 
           <div class="modal-actions">
-            <button class="btn ghost" onClick={props.onClose}>
+            <button type="button" class="btn ghost" onClick={props.onClose}>
               Cancel
             </button>
-            <button class="btn export" onClick={() => void doExport()}>
-              Choose location & export
+            <button type="button" class="btn primary" onClick={() => void doExport()}>
+              <Icon name="export" size={14} /> Export {format().toUpperCase()}
             </button>
           </div>
         </Show>
 
         <Show when={phase() === "starting"}>
-          <h2 data-phase-title tabindex="-1">Choosing a location...</h2>
-          <p class="muted small">Pick where the {format().toUpperCase()} should be written.</p>
+          <div class="export-progress">
+            <h2 data-phase-title tabindex="-1">
+              Choose where to save
+            </h2>
+            <p class="muted small">Pick a folder and a name for the {format().toUpperCase()}.</p>
+          </div>
         </Show>
 
         <Show when={phase() === "exporting"}>
-          <h2 data-phase-title tabindex="-1">Exporting {format().toUpperCase()}</h2>
-          <p class="export-pct" role="status">{Math.round(progress() * 100)}%</p>
-          <div
-            class="progress"
-            role="progressbar"
-            aria-label="Export progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(progress() * 100)}
-          >
-            <div class="progress-fill" style={{ width: `${Math.round(progress() * 100)}%` }} />
-          </div>
-          <p class="muted small">
-            Annotations, zooms, speed-up and cuts are baked into the final file. This takes a
-            moment.
-          </p>
-          <div class="modal-actions">
-            <button class="btn ghost" onClick={cancelExport}>
+          <div class="export-progress">
+            <div
+              class="ring"
+              style={{ "--p": pct() }}
+              role="progressbar"
+              aria-label="Export progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct()}
+            >
+              <span>{pct()}%</span>
+            </div>
+            <h2 data-phase-title tabindex="-1">
+              Exporting {format().toUpperCase()}
+            </h2>
+            <p class="muted small">Rendering every frame with your zooms and annotations.</p>
+            <button type="button" class="btn ghost" onClick={cancelExport}>
               Cancel export
             </button>
           </div>
         </Show>
 
         <Show when={phase() === "error"}>
-          <h2 data-phase-title tabindex="-1">Export failed</h2>
+          <h2 data-phase-title tabindex="-1">
+            Export failed
+          </h2>
           <p class="export-error">{errMsg()}</p>
           <div class="modal-actions">
-            <button class="btn ghost" onClick={() => setPhase("configure")}>
+            <button type="button" class="btn ghost" onClick={() => setPhase("configure")}>
               Back to settings
             </button>
-            <button class="btn export" onClick={() => void doExport()}>
-              Retry export
+            <button type="button" class="btn primary" onClick={() => void doExport()}>
+              Try again
             </button>
           </div>
         </Show>
 
         <Show when={phase() === "done"}>
-          <h2 data-phase-title tabindex="-1">{format().toUpperCase()} exported</h2>
-          <p class="export-path" title={outPath()}>
-            {outPath()}
-          </p>
-          <div class="done-actions">
-            <button class="btn export" onClick={() => void copyFile()}>
-              Copy {format().toUpperCase()}
-            </button>
-            <button class="btn" onClick={() => void copyPath()}>
-              Copy path
-            </button>
-            <button class="btn" onClick={reveal}>
-              Show in folder
-            </button>
+          <div class="export-progress">
+            <div class="ring done">
+              <span>
+                <Icon name="check" size={34} stroke={2.4} />
+              </span>
+            </div>
+            <h2 data-phase-title tabindex="-1">
+              {format().toUpperCase()} ready
+            </h2>
+            <p class="export-path" data-tip={outPath()}>
+              {outPath()}
+            </p>
+            <div class="done-actions">
+              <button type="button" class="btn primary" onClick={() => void copyFile()}>
+                <Icon name="copy" size={14} /> Copy file
+              </button>
+              <button type="button" class="btn" onClick={() => void copyPath()}>
+                Copy path
+              </button>
+              <button type="button" class="btn" onClick={reveal}>
+                <Icon name="folder" size={14} /> Show
+              </button>
+            </div>
+            <p class="muted small">
+              {copied() ||
+                (format() === "gif"
+                  ? "Copy, then paste the GIF into Slack, Discord or a GitHub comment."
+                  : "Copy puts the MP4 on the clipboard as a file. If an app refuses to paste it, drag it in from the folder.")}
+            </p>
           </div>
-          <p class="muted small">
-            {copied() ||
-              (format() === "gif"
-                ? "Paste the copied GIF anywhere that accepts files."
-                : "Copy puts the MP4 on the clipboard as a file, so drag it in from the folder if an app won't paste it.")}
-          </p>
           <div class="modal-actions">
-            <button class="btn" onClick={props.onClose}>
+            <button type="button" class="btn" onClick={props.onClose}>
               Done
             </button>
           </div>

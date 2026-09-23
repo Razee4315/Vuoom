@@ -56,6 +56,10 @@ export default function RecordOverlay(props: {
   zoom: number;
   /** What the take records: a display (region-selectable) or a whole app window. */
   target: RecordTarget;
+  /** Which framing the selector opens on: the whole display or a drawn region. */
+  initialMode?: "full" | "region";
+  /** Seconds of 3-2-1 before capture starts (0 starts immediately). */
+  countdown?: number;
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
@@ -68,10 +72,10 @@ export default function RecordOverlay(props: {
   // Custom is the default: the chip highlights "Custom" and Start stays disabled until the
   // user drags a region, so what's highlighted always matches what will actually record.
   const [preset, setPreset] = createSignal<Preset>(
-    PRESETS.find((p) => p.id === "free") ?? PRESETS[0],
+    PRESETS.find((p) => p.id === (props.initialMode === "full" ? "full" : "free")) ?? PRESETS[0],
   );
   const [sel, setSel] = createSignal<Rect | null>(null);
-  const [count, setCount] = createSignal(3);
+  const [count, setCount] = createSignal(Math.max(0, props.countdown ?? 3));
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
@@ -168,6 +172,12 @@ export default function RecordOverlay(props: {
         /* backend without show_region_border, border still shows at record start */
       }
       setPhase("countdown");
+      if (count() <= 0) {
+        // No countdown: capture starts right away (the preview still hooks up below).
+        hookPreview();
+        void beginRecording();
+        return;
+      }
       // Hook the preview socket now: the port exists from engine boot, frames only flow
       // once recording starts, so the very first live frame lands with capture instead of
       // a connect round-trip later. hookPreview also paints the frozen backdrop cropped to

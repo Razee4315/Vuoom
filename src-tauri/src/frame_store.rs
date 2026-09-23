@@ -839,10 +839,14 @@ mod tests {
         .unwrap();
         let store = w.finish().unwrap();
 
-        let raw_len = fs::metadata(raw_path(&dir)).unwrap().len();
-        assert_eq!(raw_len, 40, "16 + 24 bytes, nothing deduplicated");
+        // Both frames wrote their own pixels: the second is neither a duplicate nor a delta
+        // against a frame of another size.
+        let recs = store.recs();
         assert_eq!(store.len(), 2);
-        assert_eq!(store.frame(1).unwrap().width, 3);
+        assert_ne!(recs[1].offset, recs[0].offset);
+        assert_eq!(recs[1].flags & (FLAG_DUP | FLAG_DELTA), 0);
+        let f = store.frame(1).unwrap();
+        assert_eq!((f.width, f.bgra.clone()), (3, vec![0xAA; 24]));
 
         let _ = fs::remove_dir_all(&dir);
     }

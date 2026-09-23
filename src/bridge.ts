@@ -23,7 +23,9 @@ const VIDEOS = "C:\\Users\\demo\\Videos";
 
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isMock) return tauriInvoke<T>(cmd, args);
-  return Promise.resolve(handleMock(cmd, args ?? {}) as T);
+  // Clone like real IPC would: the mock keeps and mutates its own objects, and handing
+  // those references to the UI would defeat Solid's reference-based list diffing.
+  return Promise.resolve(structuredClone(handleMock(cmd, args ?? {})) as T);
 }
 
 export function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {

@@ -9,6 +9,7 @@ import { outputDuration } from "../geometry";
 import { Icon } from "../icons";
 import { layout, prefs, setTimelineH } from "../prefs";
 import { IconButton } from "../ui";
+import { annBarMenu, cutMenu, speedMenu, timelineMenu, zoomMenu } from "./contextMenus";
 
 export default function Timeline() {
   const ed = useEditor();
@@ -163,6 +164,7 @@ export default function Timeline() {
             onPointerCancel={ed.onTlCancel}
             onPointerUp={ed.onTlUp}
             onPointerLeave={ed.onTlHoverLeave}
+            onContextMenu={(e) => timelineMenu(ed, e)}
           >
             <div class="tl-scroll" ref={ed.refs.tlScroll} onScroll={ed.invalidateTlRect}>
               <div class="tl-inner" ref={ed.refs.tlTrack} style={{ width: ed.trackWidth() }}>
@@ -215,6 +217,7 @@ export default function Timeline() {
                               ed.scrub(g().start);
                             }
                           }}
+                          onContextMenu={(e) => zoomMenu(ed, e, i())}
                           onPointerDown={ed.onZoomDown(i(), z, "move")}
                           onPointerMove={ed.frameZoom(ed.onZoomMove)}
                           onPointerUp={() => void ed.onZoomUp()}
@@ -253,6 +256,7 @@ export default function Timeline() {
                             top: `calc(var(--lane-h) * ${layout.compactNotes() ? 0 : i()} + 3px)`,
                           }}
                           data-tip={gone() ? "Hidden by a cut, never exported" : undefined}
+                          onContextMenu={(e) => annBarMenu(ed, e, b.kind, b.id)}
                           onPointerDown={ed.onAnnDown(b, "move")}
                           onPointerMove={ed.frameAnn(ed.onAnnMove)}
                           onPointerUp={() => void ed.onAnnUp()}
@@ -288,6 +292,7 @@ export default function Timeline() {
                             type="button"
                             class="tl-seg-body"
                             aria-label={`Plays at ${r.factor} times`}
+                            onContextMenu={(e) => speedMenu(ed, e, i())}
                             onPointerDown={ed.onSpeedDown(i(), r, "move")}
                             onPointerMove={ed.frameSpeed(ed.onSpeedMove)}
                             onPointerUp={() => void ed.onSpeedUp()}
@@ -315,6 +320,7 @@ export default function Timeline() {
                             type="button"
                             class="tl-seg-body"
                             aria-label="Removed section"
+                            onContextMenu={(e) => cutMenu(ed, e, i())}
                             data-tip="Removed from the export. Delete restores it"
                             onPointerDown={ed.onCutDown(i(), c, "move")}
                             onPointerMove={ed.frameCut(ed.onCutMove)}

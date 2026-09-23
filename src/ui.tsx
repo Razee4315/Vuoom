@@ -3,7 +3,6 @@
 // chips, a global tooltip layer, and the toast stack for action feedback.
 
 import {
-  createEffect,
   createSignal,
   For,
   onCleanup,
@@ -224,6 +223,115 @@ export type MenuItem =
   | { separator: true }
   | { heading: string };
 
+/** The popup half of a menu: positioned list, keyboard navigation, dismissal. Shared by
+ *  dropdown menus and right-click context menus. */
+function MenuPopup(props: {
+  items: MenuItem[];
+  x: number;
+  y: number;
+  align?: "start" | "end";
+  class?: string;
+  onClose: (refocus: boolean) => void;
+  keepOpenOn?: () => HTMLElement | undefined;
+}): JSX.Element {
+  let menuEl: HTMLDivElement | undefined;
+  // Keep the popup on screen: flip left/up when it would overflow the viewport.
+  const [shift, setShift] = createSignal({ x: 0, y: 0 });
+  onMount(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (menuEl?.contains(t) || props.keepOpenOn?.()?.contains(t)) return;
+      props.onClose(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onClose(true);
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        const items = [...(menuEl?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? [])];
+        if (!items.length) return;
+        const i = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+        items[next].focus();
+      }
+    };
+    const close = () => props.onClose(false);
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    queueMicrotask(() => {
+      if (!menuEl) return;
+      const r = menuEl.getBoundingClientRect();
+      setShift({
+        x: r.right > window.innerWidth - 8 ? window.innerWidth - 8 - r.right : 0,
+        y: r.bottom > window.innerHeight - 8 ? -(r.height + 12) : 0,
+      });
+      menuEl.querySelector<HTMLButtonElement>(".menu-item:not(:disabled)")?.focus();
+    });
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+    });
+  });
+  return (
+    <Portal>
+      <div
+        ref={menuEl}
+        class={`menu ${props.class ?? ""}`}
+        classList={{ end: props.align === "end" }}
+        role="menu"
+        style={{ left: `${props.x + shift().x}px`, top: `${props.y + shift().y}px` }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <For each={props.items}>
+          {(it) => {
+            if ("separator" in it) return <div class="menu-sep" />;
+            if ("heading" in it) return <div class="menu-heading">{it.heading}</div>;
+            return (
+              <button
+                type="button"
+                role="menuitem"
+                class="menu-item"
+                classList={{ danger: !!it.danger }}
+                disabled={it.disabled}
+                onClick={() => {
+                  props.onClose(false);
+                  it.onSelect();
+                }}
+              >
+                <span class="menu-icon">
+                  <Show
+                    when={it.checked !== undefined}
+                    fallback={
+                      <Show when={it.icon}>
+                        <Icon name={it.icon!} size={15} />
+                      </Show>
+                    }
+                  >
+                    <Show when={it.checked}>
+                      <Icon name="check" size={14} />
+                    </Show>
+                  </Show>
+                </span>
+                <span class="menu-label">{it.label}</span>
+                <Show when={it.kbd}>
+                  <span class="menu-kbd">{it.kbd}</span>
+                </Show>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+    </Portal>
+  );
+}
+
 /** A dropdown menu anchored to its trigger. Closes on selection, outside click, or Esc;
  *  arrow keys move between items. */
 export function Menu(props: {
@@ -235,95 +343,52 @@ export function Menu(props: {
   const [open, setOpen] = createSignal(false);
   const [pos, setPos] = createSignal({ x: 0, y: 0 });
   let anchor: HTMLElement | undefined;
-  let menuEl: HTMLDivElement | undefined;
-  const place = () => {
-    if (!anchor) return;
-    const r = anchor.getBoundingClientRect();
-    setPos({ x: props.align === "end" ? r.right : r.left, y: r.bottom + 6 });
-  };
   const toggle = () => {
-    place();
+    if (anchor) {
+      const r = anchor.getBoundingClientRect();
+      setPos({ x: props.align === "end" ? r.right : r.left, y: r.bottom + 6 });
+    }
     setOpen(!open());
   };
-  createEffect(() => {
-    if (!open()) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (menuEl?.contains(t) || anchor?.contains(t)) return;
-      setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        setOpen(false);
-        anchor?.focus();
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const items = [...(menuEl?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? [])];
-        if (!items.length) return;
-        const i = items.indexOf(document.activeElement as HTMLButtonElement);
-        const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
-        items[next].focus();
-      }
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("resize", place);
-    queueMicrotask(() => menuEl?.querySelector<HTMLButtonElement>(".menu-item:not(:disabled)")?.focus());
-    onCleanup(() => {
-      document.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("resize", place);
-    });
-  });
   return (
     <>
       {props.trigger({ open: open(), toggle, ref: (el) => (anchor = el) })}
       <Show when={open()}>
-        <Portal>
-          <div
-            ref={menuEl}
-            class={`menu ${props.class ?? ""}`}
-            classList={{ end: props.align === "end" }}
-            role="menu"
-            style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
-          >
-            <For each={props.items()}>
-              {(it) => {
-                if ("separator" in it) return <div class="menu-sep" />;
-                if ("heading" in it) return <div class="menu-heading">{it.heading}</div>;
-                return (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    class="menu-item"
-                    classList={{ danger: !!it.danger }}
-                    disabled={it.disabled}
-                    onClick={() => {
-                      setOpen(false);
-                      it.onSelect();
-                    }}
-                  >
-                    <span class="menu-icon">
-                      <Show when={it.checked !== undefined} fallback={<Show when={it.icon}><Icon name={it.icon!} size={15} /></Show>}>
-                        <Show when={it.checked}>
-                          <Icon name="check" size={14} />
-                        </Show>
-                      </Show>
-                    </span>
-                    <span class="menu-label">{it.label}</span>
-                    <Show when={it.kbd}>
-                      <span class="menu-kbd">{it.kbd}</span>
-                    </Show>
-                  </button>
-                );
-              }}
-            </For>
-          </div>
-        </Portal>
+        <MenuPopup
+          items={props.items()}
+          x={pos().x}
+          y={pos().y}
+          align={props.align}
+          class={props.class}
+          keepOpenOn={() => anchor}
+          onClose={(refocus) => {
+            setOpen(false);
+            if (refocus) anchor?.focus();
+          }}
+        />
       </Show>
     </>
+  );
+}
+
+// ── context menus ──────────────────────────────────────────────────────────────
+// One right-click menu for the whole app. Components call `openContextMenu(e, items)`
+// from their `onContextMenu`; <ContextMenuHost/> renders it at the pointer.
+
+const [ctxMenu, setCtxMenu] = createSignal<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+export function openContextMenu(e: MouseEvent, items: MenuItem[]): void {
+  e.preventDefault();
+  e.stopPropagation();
+  setCtxMenu(null);
+  queueMicrotask(() => setCtxMenu({ x: e.clientX, y: e.clientY, items }));
+}
+
+export function ContextMenuHost(): JSX.Element {
+  return (
+    <Show when={ctxMenu()} keyed>
+      {(m) => <MenuPopup items={m.items} x={m.x} y={m.y} onClose={() => setCtxMenu(null)} />}
+    </Show>
   );
 }
 

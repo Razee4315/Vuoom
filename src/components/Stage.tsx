@@ -9,6 +9,7 @@ import { cssColor } from "../format";
 import { arrowHeads, v2 } from "../geometry";
 import { Icon } from "../icons";
 import { TOOLS } from "../shortcuts";
+import { stageMenu } from "./contextMenus";
 import type { Vec2 } from "../types";
 
 export default function Stage() {
@@ -34,6 +35,7 @@ export default function Stage() {
           "tool-text": ed.tool() === "text",
         }}
         onPointerDown={(e) => void ed.onPointerDown(e)}
+        onContextMenu={(e) => stageMenu(ed, e)}
         onPointerMove={ed.frameCanvas(ed.onPointerMove)}
         onPointerUp={(e) => void ed.onPointerUp(e)}
         onLostPointerCapture={() => {

@@ -821,6 +821,18 @@ export function createEditor() {
       !e.ctrlKey &&
       !e.altKey &&
       !e.metaKey &&
+      editingText() === null &&
+      (e.code === "KeyI" || e.code === "KeyO")
+    ) {
+      // I / O set the trim in / out point at the playhead (Shift clears that side).
+      e.preventDefault();
+      if (e.code === "KeyI") void commitTrim(e.shiftKey ? 0 : playhead(), tEnd());
+      else void commitTrim(tStart(), e.shiftKey ? duration() : playhead());
+    } else if (
+      hasClip() &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
       !e.shiftKey &&
       editingText() === null &&
       (e.code === "KeyZ" || e.code === "KeyX" || e.code === "KeyC")
@@ -2419,6 +2431,23 @@ export function createEditor() {
     }
   };
 
+  // Set the trim window directly (context menu, I / O keys). A full-range window clears it.
+  const commitTrim = async (start: number, end: number) => {
+    if (!hasClip()) return;
+    const s0 = Math.max(0, Math.min(start, end - 0.2));
+    const e0 = Math.min(duration(), Math.max(end, s0 + 0.2));
+    setTrimState({ start: s0, end: e0 });
+    setDirty(true);
+    try {
+      await invoke("set_trim", { start: s0, end: e0 });
+      await refreshClip();
+      if (playhead() < tStart() || playhead() > tEnd()) scrub(tStart());
+    } catch (e) {
+      await refreshClip();
+      toast(`Trim failed: ${friendlyError(e)}`, "error");
+    }
+  };
+
   // Zoom block dragging: grab the middle to move, the edges (8px) to resize.
   const [zoomDrag, setZoomDrag] = createSignal<{
     idx: number;
@@ -3222,6 +3251,7 @@ export function createEditor() {
   };
 
   return {
+    commitTrim,
     settingsTab,
     setSettingsTab,
     showPalette,

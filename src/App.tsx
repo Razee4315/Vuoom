@@ -20,7 +20,7 @@ import { GPU_FAILED_MSG } from "./format";
 import { Icon } from "./icons";
 import { layout, prefs, resetLayout } from "./prefs";
 import RecordOverlay from "./RecordOverlay";
-import { ToastHost, TooltipLayer } from "./ui";
+import { ContextMenuHost, ToastHost, TooltipLayer } from "./ui";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
@@ -141,6 +141,7 @@ export default function App() {
         <CommandPalette />
       </Show>
       <Welcome />
+      <ContextMenuHost />
       <TooltipLayer />
       <ToastHost />
     </EditorContext.Provider>

@@ -15,12 +15,14 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use crate::audio::AudioChoice;
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::LivePreview;
 use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
+use vuoom_audio::{Anchor, Recorder, Source as AudioSource};
 use vuoom_capture::{
     spawn_capture, spawn_region, CaptureHandle, CaptureOptions, CaptureSource, CapturedFrame,
     CropRegion,
@@ -32,9 +34,9 @@ use vuoom_encode::{
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, Background, Color, CropRect,
-    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
-    SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, AudioKind, AudioTrack,
+    Background, Color, CropRect, FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect,
+    Shadow, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -124,6 +126,8 @@ pub struct ClipState {
     /// The exact frame values (padding, corners, shadow, backdrop colors) behind the preset
     /// names above, for the editor's fine-grained frame controls.
     pub frame: FrameInfo,
+    /// Recorded audio tracks and how they play (volume, mute).
+    pub audio: Vec<AudioTrack>,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -197,6 +201,10 @@ struct Active {
     space_warning: Option<String>,
     /// Decoupled live "director's monitor", dropped (and stopped) when recording ends.
     _preview: LivePreview,
+    /// Microphone / system-sound captures writing next to the frames.
+    audio: crate::audio::Captures,
+    /// Audio sources that failed to start (the take goes on without them).
+    audio_failed: Vec<String>,
 }
 
 #[derive(Default)]
@@ -283,6 +291,10 @@ pub struct Session {
     pending_fps: AtomicU32,
     /// Whether the next recording draws the mouse cursor (see [`Session::set_capture_cursor`]).
     pending_cursor: AtomicBool,
+    /// Audio sources for the next recording (see [`Session::set_capture_audio`]).
+    audio_choice: Mutex<AudioChoice>,
+    /// A microphone check running outside a recording (level meter only, nothing saved).
+    mic_check: Mutex<Option<Recorder>>,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
     /// *previous* unsaved session rather than the one already in the editor.
@@ -327,6 +339,8 @@ impl Session {
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
             pending_cursor: AtomicBool::new(true),
+            audio_choice: Mutex::new(AudioChoice::default()),
+            mic_check: Mutex::new(None),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
         })
@@ -449,6 +463,87 @@ impl Session {
     pub fn set_capture_cursor(&self, show: bool) -> Result<(), String> {
         self.pending_cursor.store(show, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Choose the audio the next recording captures: the microphone (`mic_device` = an
+    /// endpoint id, `None` for the system default) and/or everything the speakers play.
+    pub fn set_capture_audio(
+        &self,
+        mic: bool,
+        mic_device: Option<String>,
+        system: bool,
+    ) -> Result<(), String> {
+        let choice = AudioChoice {
+            mic,
+            mic_device,
+            system,
+        };
+        *self.audio_choice.lock().unwrap_or_else(|e| e.into_inner()) = choice;
+        Ok(())
+    }
+
+    /// Start (or stop) a microphone check: a live level for the recording UI's meter,
+    /// nothing is saved. Ignored while recording (the take's own capture feeds the meter).
+    pub fn set_mic_check(&self, on: bool, device: Option<String>) -> Result<(), String> {
+        // Read the recording flag on its own: `start_recording` takes `active` and then
+        // `mic_check`, so holding `mic_check` while locking `active` could deadlock.
+        let recording = self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+        let mut check = self.mic_check.lock().unwrap_or_else(|e| e.into_inner());
+        *check = None;
+        if on && !recording {
+            let anchor = Anchor {
+                start_qpc: self.clock.now(),
+                freq: self.clock.freq(),
+            };
+            *check = Some(Recorder::start(AudioSource::Mic(device), None, anchor)?);
+        }
+        Ok(())
+    }
+
+    /// Peak levels (0..1) since the last call, `(mic, system)`: from the running take, or
+    /// from the mic check when not recording.
+    pub fn audio_levels(&self) -> (f32, f32) {
+        {
+            let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(a) = active.as_ref() {
+                return (
+                    crate::audio::level(&a.audio, AudioKind::Mic),
+                    crate::audio::level(&a.audio, AudioKind::System),
+                );
+            }
+        }
+        let check = self.mic_check.lock().unwrap_or_else(|e| e.into_inner());
+        (check.as_ref().map_or(0.0, Recorder::level), 0.0)
+    }
+
+    /// The loaded clip's recorded track of `kind` as WAV bytes (source time), for the
+    /// editor's waveform and preview playback.
+    pub fn audio_track_wav(&self, kind: AudioKind) -> Result<Vec<u8>, String> {
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("no recording")?;
+        vuoom_audio::wav::normalized_bytes(&dir.join(kind.file_name()))
+    }
+
+    /// Set a track's volume (linear, 0..4) and mute. Drags coalesce into one undo step.
+    pub fn set_audio_track(&self, kind: AudioKind, gain: f32, muted: bool) -> Result<(), String> {
+        self.with_project("audio-track", |p| {
+            let track = p
+                .audio
+                .iter_mut()
+                .find(|t| t.kind == kind)
+                .ok_or("no such audio track")?;
+            track.gain = gain.clamp(0.0, AudioTrack::MAX_GAIN);
+            track.muted = muted;
+            Ok(())
+        })
     }
 
     /// Grab a single full-display frame and return it as a `data:image/png;base64,…` URL,
@@ -624,6 +719,20 @@ impl Session {
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview, its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, source, mon_origin, amount, self.preview.sink());
+        // Audio opens after video so device setup never delays frame 0; each track lays its
+        // packets onto the timeline by their counter timestamps. The mic check is stopped
+        // first so it doesn't hold a second stream on the same device.
+        *self.mic_check.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let choice = self
+            .audio_choice
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let anchor = Anchor {
+            start_qpc,
+            freq: self.clock.freq(),
+        };
+        let (audio, audio_failed) = crate::audio::start(&choice, &recovery_dir, anchor);
 
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
@@ -701,6 +810,8 @@ impl Session {
             pauses: Vec::new(),
             space_warning,
             _preview: preview,
+            audio,
+            audio_failed,
         });
         Ok(())
     }
@@ -736,6 +847,9 @@ impl Session {
         session._preview.stop(); // tear down the live monitor before post-processing
         session.capture.stop();
         session.recorder.stop();
+        let mut audio_failed = std::mem::take(&mut session.audio_failed);
+        let (audio_tracks, late) = crate::audio::finish(std::mem::take(&mut session.audio));
+        audio_failed.extend(late);
 
         // Let the drain thread flush remaining frames and hand back the disk store. A disk
         // write that failed mid-recording comes back as a warning (not an error): the frames
@@ -831,6 +945,7 @@ impl Session {
         // Paused spans become ordinary cuts: skipped by playback/export, but visible and
         // restorable in the editor if a pause was hit by mistake.
         project.cuts = pauses_to_cuts(&session.pauses, self.clock, session.start_qpc, duration);
+        project.audio = audio_tracks;
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -874,6 +989,8 @@ impl Session {
                     .to_string(),
             )
         } else if let Some(w) = dropped_frames_warning(dropped, frame_count) {
+            Some(w)
+        } else if let Some(w) = crate::audio::warning(&audio_failed) {
             Some(w)
         } else {
             session.space_warning.take()
@@ -1063,10 +1180,11 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        audio: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Log every failure exit once at this seam (see `export_gif`).
-        self.export_mp4_impl(out_path, fps, width, quality, progress)
+        self.export_mp4_impl(out_path, fps, width, quality, audio, progress)
             .map_err(|e| {
                 tracing::error!("MP4 export failed: {e}");
                 e
@@ -1079,6 +1197,7 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        audio: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Clear any stale cancel request before we begin (see `cancel_export` / `export_gif`).
@@ -1117,8 +1236,28 @@ impl Session {
         };
         let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
 
-        let encoder =
-            crate::mp4::Mp4Encoder::new(Path::new(&out_path), enc_w, enc_h, fps, quality)?;
+        // The mixed soundtrack for the played timeline, if there's anything audible.
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mix = match (audio, dir) {
+            (true, Some(d)) => crate::audio::Mix::load(&d, &project, t0, span, &regions, &cuts),
+            _ => None,
+        };
+        let encoder = crate::mp4::Mp4Encoder::new(
+            Path::new(&out_path),
+            enc_w,
+            enc_h,
+            fps,
+            quality,
+            mix.is_some(),
+        )?;
+        // The encoder falls back to video-only when the OS has no usable AAC encoder.
+        let mix = mix.filter(|_| encoder.has_audio());
+        let audio_rate = f64::from(vuoom_audio::OUTPUT_RATE);
+        let mut audio_done = 0u64;
         // Track the first frame error instead of `?`-ing out mid-stream, so a failure can
         // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
         let mut frame_err: Option<String> = None;
@@ -1164,6 +1303,19 @@ impl Session {
             if let Err(e) = encoder.write_rgba(&img.pixels, img.width, img.height, i as u32) {
                 frame_err = Some(e);
                 break;
+            }
+            // Keep the soundtrack level with the video: write audio up to this frame's end.
+            if let Some(mix) = &mix {
+                let until = ((i + 1) as f64 / f64::from(fps) * audio_rate).round() as u64;
+                let until = until.min(mix.frames());
+                if until > audio_done {
+                    let chunk = mix.render(audio_done, (until - audio_done) as usize);
+                    if let Err(e) = encoder.write_audio(&chunk, audio_done) {
+                        frame_err = Some(e);
+                        break;
+                    }
+                    audio_done = until;
+                }
             }
             progress(i as u32 + 1, total as u32 + 1);
         }
@@ -1481,6 +1633,7 @@ impl Session {
                 .unwrap_or_default()
                 .into(),
             frame: FrameInfo::of(&project.frame),
+            audio: project.audio.clone(),
         })
     }
 
@@ -2371,6 +2524,7 @@ impl Session {
         frame_store::copy_store(&src, &frames_dir, |q| {
             (i128::from(q - start_qpc) * i128::from(BUNDLE_TIMEBASE) / freq) as i64
         })?;
+        crate::audio::copy_tracks(&src, &dir.join("audio"), &project.audio)?;
         std::fs::write(
             dir.join("project.json"),
             project.to_json().map_err(|e| e.to_string())?,
@@ -2445,6 +2599,9 @@ impl Session {
         frame_store::copy_store(frames_dir, &scratch, |t| {
             base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
         })?;
+        if let Some(bundle) = frames_dir.parent() {
+            crate::audio::copy_tracks(&bundle.join("audio"), &scratch, &project.audio)?;
+        }
         let store = FrameStore::open(&scratch)?;
         if let Ok(json) = project.to_json() {
             let _ = std::fs::write(frame_store::project_path(&scratch), json);
@@ -2564,6 +2721,7 @@ impl Session {
         // consistent; anchoring the epoch on the first frame reproduces the timeline
         // (within the first frame's capture latency).
         let start_qpc = first.qpc;
+        crate::audio::recover(&dir, &mut project, start_qpc);
 
         // A take recovered from a hard crash carries only the startup placeholder manifest,
         // no real dimensions/fps/duration (and no post-processed events/zooms). Rebuild the

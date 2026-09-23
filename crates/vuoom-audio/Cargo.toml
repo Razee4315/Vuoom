@@ -1,0 +1,26 @@
+[package]
+name = "vuoom-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Microphone and system-audio capture (WASAPI, QPC-aligned), WAV storage, and the edit-aware mixer used by preview and MP4 export."
+
+[dependencies]
+tracing.workspace = true
+
+# WASAPI capture and endpoint enumeration. Pinned to the version the rest of the workspace
+# uses (0.62) so no second `windows` tree is compiled.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Devices_FunctionDiscovery",
+] }
+
+[dev-dependencies]
+tempfile = "3"

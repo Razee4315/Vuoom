@@ -52,6 +52,7 @@ vuoom-input.workspace = true
 vuoom-capture.workspace = true
 vuoom-render.workspace = true
 vuoom-preview.workspace = true
+vuoom-audio.workspace = true
 
 # Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
 # hotkey polling. Pinned to the version windows-capture pulls in (0.62) so vuoom-input
@@ -79,3 +80,6 @@ windows = { version = "0.62", features = [
 # CF_HDROP clipboard file copy (paste the exported GIF into Slack/Discord/etc.).
 # Safe wrapper over the DROPFILES + clipboard dance; replaces hand-rolled unsafe.
 clipboard-win = "5"
+
+[dev-dependencies]
+tempfile = "3"

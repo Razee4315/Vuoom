@@ -6,15 +6,17 @@
 //! `docs/02-Architecture.md` and `docs/11-Editor-and-Annotations.md`.
 
 mod annotation;
+mod audio;
 mod color;
 mod frame;
 mod timeline;
 mod timing;
 
 pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
+pub use audio::{AudioKind, AudioTrack};
 pub use color::{Color, Rect};
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
-pub use timeline::{output_duration, output_to_source};
+pub use timeline::{output_duration, output_segments, output_to_source};
 pub use timing::TimeRange;
 
 // Re-export the zoom types so a Project is self-describing from one crate.
@@ -95,6 +97,10 @@ pub struct Project {
     pub crop: Option<CropRect>,
     pub frame: FrameStyle,
     pub aspect: AspectRatio,
+    /// Recorded audio (microphone, system sound). Empty for silent takes and for projects
+    /// saved before audio existed.
+    #[serde(default)]
+    pub audio: Vec<AudioTrack>,
 }
 
 /// A normalized crop rectangle in `0.0..=1.0` source space.
@@ -165,6 +171,7 @@ impl Project {
             crop: None,
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,
+            audio: Vec::new(),
         }
     }
 

@@ -94,6 +94,17 @@ fn segments(source_duration: f64, regions: &[SpeedRegion], cuts: &[Trim]) -> Vec
     segs
 }
 
+/// The played timeline as `(src_start, src_end, factor)` spans in playback order, covering
+/// `[0, source_duration]`. Cuts appear with an infinite factor (zero output length).
+#[must_use]
+pub fn output_segments(
+    source_duration: f64,
+    regions: &[SpeedRegion],
+    cuts: &[Trim],
+) -> Vec<(f64, f64, f64)> {
+    segments(source_duration, regions, cuts)
+}
+
 /// Total played (output) duration after applying speed regions and cuts.
 #[must_use]
 pub fn output_duration(source_duration: f64, regions: &[SpeedRegion], cuts: &[Trim]) -> f64 {

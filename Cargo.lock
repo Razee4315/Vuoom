@@ -5467,9 +5467,11 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "vuoom-audio",
  "vuoom-capture",
  "vuoom-encode",
  "vuoom-input",
@@ -5477,6 +5479,15 @@ dependencies = [
  "vuoom-project",
  "vuoom-render",
  "vuoom-zoom",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "vuoom-audio"
+version = "0.1.40"
+dependencies = [
+ "tempfile",
+ "tracing",
  "windows 0.62.2",
 ]
 

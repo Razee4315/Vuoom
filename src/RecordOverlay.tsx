@@ -2,7 +2,7 @@ import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
 import { Icon } from "./icons";
 import { prefs } from "./prefs";
-import { toast } from "./ui";
+import { Menu, toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import "./RecordOverlay.css";
 
@@ -43,7 +43,6 @@ const ZOOM_LEVELS = [
   { v: 1.0, label: "Off" },
   { v: 1.5, label: "1.5×" },
   { v: 1.8, label: "1.8×" },
-  { v: 2.0, label: "2×" },
   { v: 2.5, label: "2.5×" },
   { v: 3.0, label: "3×" },
 ];
@@ -746,46 +745,52 @@ export default function RecordOverlay(props: {
             </div>
           </div>
           <span class="hud-sep" />
-          <div class="hud-group">
-            <span class="hud-label">FPS</span>
-            <div class="hud-seg">
-              <For each={[30, 60]}>
-                {(f) => (
-                  <button
-                    type="button"
-                    class="hud-chip"
-                    classList={{ on: prefs.captureFps() === f }}
-                    aria-pressed={prefs.captureFps() === f}
-                    onClick={() => {
-                      prefs.captureFps.set(f);
-                      void invoke("set_capture_fps", { fps: f }).catch(() => undefined);
-                    }}
-                  >
-                    {f}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-          <span class="hud-sep" />
-          <div class="hud-group">
-            <span class="hud-label">Timer</span>
-            <div class="hud-seg">
-              <For each={[0, 3, 5]}>
-                {(c) => (
-                  <button
-                    type="button"
-                    class="hud-chip"
-                    classList={{ on: prefs.countdown() === c }}
-                    aria-pressed={prefs.countdown() === c}
-                    onClick={() => prefs.countdown.set(c)}
-                  >
-                    {c === 0 ? "Off" : `${c}s`}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
+          <Menu
+            class="hud-menu"
+            items={() => [
+              { heading: "Frame rate" },
+              ...[24, 30, 60].map((f) => ({
+                label: `${f} fps`,
+                checked: prefs.captureFps() === f,
+                onSelect: () => {
+                  prefs.captureFps.set(f);
+                  void invoke("set_capture_fps", { fps: f }).catch(() => undefined);
+                },
+              })),
+              { heading: "Mouse cursor" },
+              ...[true, false].map((show) => ({
+                label: show ? "Show the pointer" : "Hide the pointer",
+                checked: prefs.captureCursor() === show,
+                onSelect: () => {
+                  prefs.captureCursor.set(show);
+                  void invoke("set_capture_cursor", { show }).catch(() => undefined);
+                },
+              })),
+              { heading: "Countdown" },
+              ...[0, 3, 5, 10].map((c) => ({
+                label: c === 0 ? "Start immediately" : `${c} seconds`,
+                checked: prefs.countdown() === c,
+                onSelect: () => prefs.countdown.set(c),
+              })),
+            ]}
+            trigger={(m) => (
+              <button
+                type="button"
+                class="hud-options"
+                classList={{ on: m.open }}
+                ref={m.ref}
+                data-tip="Frame rate, cursor and countdown"
+                onClick={m.toggle}
+              >
+                <Icon name="sliders" size={14} />
+                <span>
+                  {prefs.captureFps()} fps · {prefs.captureCursor() ? "cursor" : "no cursor"} ·{" "}
+                  {prefs.countdown() === 0 ? "no timer" : `${prefs.countdown()}s`}
+                </span>
+                <Icon name="chevronUp" size={12} />
+              </button>
+            )}
+          />
           <span class="hud-sep" />
           <div class="hud-actions">
             <span class="hud-dims">{windowMode() ? "Window" : dims()}</span>

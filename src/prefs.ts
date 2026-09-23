@@ -45,6 +45,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export const prefs = {
   /** Capture frame-rate cap for new recordings. */
   captureFps: persisted<number>("capture-fps", 60),
+  /** Draw the mouse cursor into recordings. */
+  captureCursor: persisted<boolean>("capture-cursor", true),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */

@@ -58,6 +58,37 @@ fn crop_bgra(full: &[u8], w: u32, h: u32, region: CropRegion) -> (u32, u32, Vec<
     (cw, ch, out)
 }
 
+/// Per-session capture options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaptureOptions {
+    /// Frame-rate cap delivered by the compositor (`0` = every composition).
+    pub max_fps: u32,
+    /// Whether the mouse cursor is drawn into the captured frames.
+    pub cursor: bool,
+}
+
+impl Default for CaptureOptions {
+    fn default() -> Self {
+        Self {
+            max_fps: 0,
+            cursor: true,
+        }
+    }
+}
+
+/// The cursor setting for a capture. Where the OS can't change it (older Windows 10
+/// builds), the system default applies: requesting a value there fails the session.
+fn cursor_setting(show: bool) -> CursorCaptureSettings {
+    if !GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false) {
+        return CursorCaptureSettings::Default;
+    }
+    if show {
+        CursorCaptureSettings::WithCursor
+    } else {
+        CursorCaptureSettings::WithoutCursor
+    }
+}
+
 /// The compositor-side frame throttle for a `max_fps` target (`0` = no cap).
 ///
 /// Left at its default, WGC delivers a frame on every DWM composition: 144 or 240 per second
@@ -231,7 +262,7 @@ pub fn run_window(
     crop: Option<CropRegion>,
     dropped: Arc<AtomicU64>,
     hwnd: isize,
-    max_fps: u32,
+    opts: CaptureOptions,
 ) -> Result<(), CaptureError> {
     let window = pick_window(hwnd)?;
     let border = if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
@@ -241,10 +272,10 @@ pub fn run_window(
     };
     let settings = Settings::new(
         window,
-        CursorCaptureSettings::Default,
+        cursor_setting(opts.cursor),
         border,
         SecondaryWindowSettings::Default,
-        update_interval(max_fps),
+        update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
         (tx, stop, crop, dropped),
@@ -277,7 +308,7 @@ pub fn run_display(
     crop: Option<CropRegion>,
     dropped: Arc<AtomicU64>,
     monitor: Option<&str>,
-    max_fps: u32,
+    opts: CaptureOptions,
 ) -> Result<(), CaptureError> {
     let monitor = pick_monitor(monitor)?;
     // Capture without the OS "being captured" highlight where the platform allows it
@@ -291,10 +322,10 @@ pub fn run_display(
     };
     let settings = Settings::new(
         monitor,
-        CursorCaptureSettings::Default,
+        cursor_setting(opts.cursor),
         border,
         SecondaryWindowSettings::Default,
-        update_interval(max_fps),
+        update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
         (tx, stop, crop, dropped),
@@ -311,13 +342,13 @@ const CHANNEL_CAP: usize = 8;
 /// Spawn display capture on a background thread; returns the frame receiver and a
 /// [`CaptureHandle`] to stop it. When `crop` is set, frames are cropped to that
 /// sub-rectangle (monitor-relative physical px) before being sent. `monitor` is a Win32
-/// device name (e.g. `\\.\DISPLAY2`); `None` captures the primary display. `max_fps` caps
-/// how often the compositor delivers frames (`0` = every composition, see [`update_interval`]).
+/// device name (e.g. `\\.\DISPLAY2`); `None` captures the primary display. `opts` caps how
+/// often the compositor delivers frames and whether the cursor is drawn into them.
 #[must_use]
 pub fn spawn_capture(
     crop: Option<CropRegion>,
     source: &CaptureSource,
-    max_fps: u32,
+    opts: CaptureOptions,
 ) -> (Receiver<CapturedFrame>, CaptureHandle) {
     // Bounded so a stalled/dead drain applies backpressure (drop-newest, see the handler)
     // instead of growing RAM without limit, each buffered frame is a full BGRA screen.
@@ -334,9 +365,9 @@ pub fn spawn_capture(
     std::thread::spawn(move || {
         let result = match &source {
             CaptureSource::Monitor { name } => {
-                run_display(tx, stop, crop, dropped, name.as_deref(), max_fps)
+                run_display(tx, stop, crop, dropped, name.as_deref(), opts)
             }
-            CaptureSource::Window { hwnd } => run_window(tx, stop, crop, dropped, *hwnd, max_fps),
+            CaptureSource::Window { hwnd } => run_window(tx, stop, crop, dropped, *hwnd, opts),
         };
         if let Err(e) = result {
             tracing::error!("screen capture stopped: {e}");
@@ -351,7 +382,11 @@ pub fn spawn_region(
     crop: Option<CropRegion>,
     monitor: Option<String>,
 ) -> (Receiver<CapturedFrame>, CaptureHandle) {
-    spawn_capture(crop, &CaptureSource::Monitor { name: monitor }, 0)
+    spawn_capture(
+        crop,
+        &CaptureSource::Monitor { name: monitor },
+        CaptureOptions::default(),
+    )
 }
 
 /// Spawn full primary-display capture (no crop). Convenience wrapper over [`spawn_region`].

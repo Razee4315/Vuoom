@@ -1929,6 +1929,7 @@ export function createEditor() {
     setRecordTarget(target);
     // The capture rate is a preference; older engines without the command just keep theirs.
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
+    void invoke("set_capture_cursor", { show: prefs.captureCursor() }).catch(() => undefined);
     try {
       setStatus("Choose the area to record…");
       setBackdrop(null);

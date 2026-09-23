@@ -196,6 +196,28 @@
   height: 22px;
   background: var(--glass-line);
 }
+.hud-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--chip);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hud-options:hover,
+.hud-options.on {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.hud-options > svg:first-child {
+  color: rgba(255, 255, 255, 0.6);
+}
 .hud-actions {
   display: flex;
   align-items: center;

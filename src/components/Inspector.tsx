@@ -3,7 +3,8 @@
 //    the armed tool's card, in collapsible sections that remember their state.
 //  - Clip: whole-recording settings: frame + backdrop, crop, camera (auto zooms), pacing
 //    (skim idle), click ripples + keystrokes, and clip facts.
-import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, Index, on, Show, type JSX } from "solid-js";
+import { trackLabel } from "../editor/audio";
 import { useEditor } from "../editor/context";
 import { PRESET_COLORS, TEXT_FONTS } from "../editor/constants";
 import { fmt, rgbHex } from "../format";
@@ -993,6 +994,45 @@ function ClipPanel() {
             </Show>
           </span>
         </Field>
+      </Section>
+
+      <Section id="clip-audio" title="Audio" icon="waves">
+        <Show
+          when={ed.audio.hasAudio()}
+          fallback={
+            <p class="note">
+              This take is silent. Turn on the microphone or system sound before recording to add narration.
+            </p>
+          }
+        >
+          <Index each={ed.audio.tracks()}>
+            {(t) => (
+              <div class="audio-row" classList={{ muted: t().muted }}>
+                <div class="audio-row-head">
+                  <Icon name={t().kind === "mic" ? "mic" : "volume"} size={14} />
+                  <span>{trackLabel(t().kind)}</span>
+                  <IconButton
+                    icon={t().muted ? "volumeOff" : "volume"}
+                    tip={t().muted ? "Unmute" : "Mute"}
+                    active={t().muted}
+                    onClick={() => ed.audio.toggleMute(t().kind)}
+                  />
+                </div>
+                <Slider
+                  value={t().gain}
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  disabled={t().muted}
+                  label={`${trackLabel(t().kind)} volume`}
+                  format={(v) => `${Math.round(v * 100)}%`}
+                  onInput={(v) => void ed.audio.setGain(t().kind, v)}
+                />
+              </div>
+            )}
+          </Index>
+          <p class="note">Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIFs are always silent.</p>
+        </Show>
       </Section>
 
       <Section id="clip-overlays" title="Overlays" icon="clicks">

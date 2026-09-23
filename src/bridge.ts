@@ -10,8 +10,9 @@ import { save as tauriSave, open as tauriOpen, ask as tauriAsk } from "@tauri-ap
 import { check as tauriCheck, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch as tauriRelaunch } from "@tauri-apps/plugin-process";
 import { revealItemInDir as tauriReveal } from "@tauri-apps/plugin-opener";
+import { mockTrackWav, mockLevel } from "./mock/audio";
 import { mockEngine, paintDesktop } from "./mock/engine";
-import type { AnnotationSet, SpeedRegion, Trim, ZoomSeg, ZoomStyle } from "./types";
+import type { AnnotationSet, AudioDevices, AudioKind, SpeedRegion, Trim, ZoomSeg, ZoomStyle } from "./types";
 
 export type { Update };
 
@@ -234,6 +235,30 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.deleteZoom(a.index as number);
     case "set_capture_cursor":
     case "set_capture_fps":
+      return null;
+    case "list_audio_devices":
+      return {
+        inputs: [
+          { id: "mock-mic-1", name: "Microphone (USB Audio)", is_default: true },
+          { id: "mock-mic-2", name: "Headset Microphone", is_default: false },
+        ],
+        has_output: true,
+      } satisfies AudioDevices;
+    case "set_capture_audio":
+      m.audioChoice = { mic: a.mic as boolean, system: a.system as boolean };
+      return null;
+    case "set_mic_check":
+      m.micCheck = a.on as boolean;
+      return null;
+    case "audio_levels":
+      return {
+        mic: m.live ? (m.audioChoice.mic ? mockLevel("mic") : 0) : m.micCheck ? mockLevel("mic") : 0,
+        system: m.live && m.audioChoice.system ? mockLevel("system") : 0,
+      };
+    case "audio_track":
+      return mockTrackWav(a.kind as AudioKind, m.duration || 1);
+    case "set_audio_track":
+      m.setAudioTrack(a.kind as AudioKind, a.gain as number, a.muted as boolean);
       return null;
     case "set_zoom_amount":
       m.zoomAmount = a.amount as number;

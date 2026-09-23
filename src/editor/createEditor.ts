@@ -8,6 +8,7 @@ import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { invoke, isMock, save, open, ask, check, relaunch, type Update } from "../bridge";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
+import { createAudio } from "./audio";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -675,6 +676,7 @@ export function createEditor() {
       setFramePreset(cs.frame_preset);
       setBgPreset(cs.background_preset);
       setFrameInfo(cs.frame ?? null);
+      audio.adopt(cs.audio ?? []);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -687,6 +689,12 @@ export function createEditor() {
   const tEnd = () => trim()?.end ?? duration();
   const factorAt = (t: number) =>
     speed().find((r) => t >= r.start && t < r.end)?.factor ?? 1;
+
+  // Recorded audio follows the playhead (see editor/audio.ts); any stop silences it.
+  const audio = createAudio({ onEdit: () => setDirty(true) });
+  createEffect(() => {
+    if (!playing()) audio.stop();
+  });
 
   let raf = 0;
   let lastTs = 0;
@@ -708,6 +716,7 @@ export function createEditor() {
       }
       setPlayhead(t);
       void pushSeek(t);
+      audio.sync(playing(), t, factorAt(t), prefs.previewRate());
     }
     lastTs = ts;
     if (playing()) raf = requestAnimationFrame(tick);
@@ -1991,6 +2000,8 @@ export function createEditor() {
   };
 
   const loadFinishedClip = async (summary: RecordingSummary) => {
+    // A new clip's tracks load fresh (refreshClip below adopts and decodes them).
+    audio.unload();
     setHasClip(true);
     setDuration(summary.duration);
     setSelected(null);
@@ -3480,6 +3491,7 @@ export function createEditor() {
     setPlayhead,
     playing,
     setPlaying,
+    audio,
     looping,
     setLooping,
     anns,

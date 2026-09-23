@@ -117,6 +117,27 @@ export interface ClipState {
   frame_preset: string;
   background_preset: string;
   frame: FrameInfo;
+  /** Recorded audio tracks (absent from engines that predate audio). */
+  audio?: AudioTrack[];
+}
+
+/** Where an audio track was recorded from. */
+export type AudioKind = "mic" | "system";
+
+/** Mirrors vuoom_project::AudioTrack. */
+export interface AudioTrack {
+  kind: AudioKind;
+  /** Source time (s) of the track's first sample. */
+  offset: number;
+  /** Linear volume, 0..4. */
+  gain: number;
+  muted: boolean;
+}
+
+/** Mirrors src-tauri audio::AudioDevices. */
+export interface AudioDevices {
+  inputs: { id: string; name: string; is_default: boolean }[];
+  has_output: boolean;
 }
 
 /** Mirrors src-tauri displays::DisplayInfo. */

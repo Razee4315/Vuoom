@@ -202,7 +202,10 @@ mod tests {
 
     /// Source sample `i` of a ramp is `i`, so an output value names the source frame.
     fn ramp(rate: u32, secs: u32) -> Pcm {
-        mono(rate, (0..rate * secs).map(|i| (i % 30_000) as i16).collect())
+        mono(
+            rate,
+            (0..rate * secs).map(|i| (i % 30_000) as i16).collect(),
+        )
     }
 
     fn left(out: &[i16], frame: usize) -> i16 {

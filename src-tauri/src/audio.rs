@@ -157,6 +157,17 @@ pub fn recover(dir: &Path, project: &mut Project, first_frame_qpc: i64) {
     }
 }
 
+/// Read one track's WAV for mixing, with its gain and offset; `None` (logged) if unreadable.
+fn load_track(dir: &Path, t: &AudioTrack) -> Option<(Pcm, f32, f64)> {
+    match vuoom_audio::wav::read(&dir.join(t.kind.file_name())) {
+        Ok(pcm) => Some((pcm, t.effective_gain(), t.offset)),
+        Err(e) => {
+            tracing::warn!("{:?} audio skipped in export: {e}", t.kind);
+            None
+        }
+    }
+}
+
 /// The audible tracks of a project, loaded and ready to mix for the played timeline.
 pub struct Mix {
     tracks: Vec<(Pcm, f32, f64)>,
@@ -179,13 +190,7 @@ impl Mix {
             .audio
             .iter()
             .filter(|t| t.effective_gain() > 0.0)
-            .filter_map(|t| match vuoom_audio::wav::read(&dir.join(t.kind.file_name())) {
-                Ok(pcm) => Some((pcm, t.effective_gain(), t.offset)),
-                Err(e) => {
-                    tracing::warn!("{:?} audio skipped in export: {e}", t.kind);
-                    None
-                }
-            })
+            .filter_map(|t| load_track(dir, t))
             .collect();
         if tracks.is_empty() {
             return None;
@@ -289,8 +294,7 @@ mod tests {
             channels: 1,
             samples: vec![1_000; 32_000],
         };
-        std::fs::write(dir.path().join("mic.wav"), vuoom_audio::wav::encode(&pcm))
-            .unwrap();
+        std::fs::write(dir.path().join("mic.wav"), vuoom_audio::wav::encode(&pcm)).unwrap();
         let mut p = project();
         p.audio = vec![AudioTrack::new(AudioKind::Mic)];
         // Trimmed to [1, 3] with a trim-local cut at [0.5, 1.0]: 1.5 s plays.

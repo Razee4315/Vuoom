@@ -6,6 +6,8 @@
 import type {
   AnnotationSet,
   ArrowAnn,
+  AudioKind,
+  AudioTrack,
   BoxAnn,
   ClipState,
   Color,
@@ -87,6 +89,8 @@ function demoZooms(): ZoomSeg[] {
 
 type Snapshot = string;
 
+const track = (kind: AudioKind): AudioTrack => ({ kind, offset: 0, gain: 1, muted: false });
+
 type ClipItem =
   | ({ kind: "text" } & TextAnn)
   | ({ kind: "arrow" } & ArrowAnn)
@@ -103,6 +107,10 @@ class MockEngine {
   showClicks = false;
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
+  audio: AudioTrack[] = [];
+  /** Audio the next mock recording "captures" (set_capture_audio). */
+  audioChoice = { mic: false, system: false };
+  micCheck = false;
   framePreset = "none";
   bgPreset = "";
   /** Exact frame values behind the preset names (mirrors session::FrameInfo). */
@@ -150,6 +158,7 @@ class MockEngine {
       bgPreset: this.bgPreset,
       frame: this.frame,
       duration: this.duration,
+      audio: this.audio,
     });
   }
   private mutate(tag?: string, fn?: () => void) {
@@ -179,6 +188,7 @@ class MockEngine {
     this.bgPreset = st.bgPreset;
     this.frame = st.frame;
     this.duration = st.duration;
+    this.audio = st.audio ?? [];
   }
 
   private loadDemo() {
@@ -194,6 +204,7 @@ class MockEngine {
     this.framePreset = "subtle";
     this.bgPreset = "graphite";
     this.frame = { ...FRAME_SUBTLE, ...bgInfo("graphite") };
+    this.audio = [track("mic"), track("system")];
     this.playhead = 0;
     this.undoStack = [];
     this.redoStack = [];
@@ -226,7 +237,14 @@ class MockEngine {
       frame_preset: this.frame.padding <= 0 ? "none" : this.frame.padding < 0.06 ? "subtle" : "studio",
       background_preset: this.bgPreset,
       frame: structuredClone(this.frame),
+      audio: structuredClone(this.audio),
     };
+  }
+
+  setAudioTrack(kind: AudioKind, gain: number, muted: boolean) {
+    this.mutate("audio-track", () => {
+      this.audio = this.audio.map((t) => (t.kind === kind ? { ...t, gain: Math.max(0, Math.min(4, gain)), muted } : t));
+    });
   }
 
   setFramePreset(preset: string) {
@@ -356,6 +374,10 @@ class MockEngine {
     }
     this.speed = [];
     this.cuts = [];
+    this.audio = [
+      ...(this.audioChoice.mic ? [track("mic")] : []),
+      ...(this.audioChoice.system ? [track("system")] : []),
+    ];
     return this.summary();
   }
   recoverSession(): RecordingSummary {

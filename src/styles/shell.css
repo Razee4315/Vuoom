@@ -418,3 +418,16 @@ body.resizing-y * {
     opacity: 0.35;
   }
 }
+
+/* Short windows: the rail drops its labels so every tool stays reachable. */
+@media (max-height: 820px) {
+  .rail {
+    width: 46px;
+  }
+  .rail .rail-tool {
+    height: 34px;
+  }
+  .rail .rail-label {
+    display: none;
+  }
+}

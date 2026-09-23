@@ -8,7 +8,7 @@ import { fmt, fmtT } from "../format";
 import { outputDuration } from "../geometry";
 import { Icon } from "../icons";
 import { layout, prefs, setTimelineH } from "../prefs";
-import { IconButton } from "../ui";
+import { IconButton, Menu } from "../ui";
 import { annBarMenu, cutMenu, speedMenu, timelineMenu, zoomMenu } from "./contextMenus";
 
 export default function Timeline() {
@@ -75,6 +75,27 @@ export default function Timeline() {
               ed.setLooping(!ed.looping());
               prefs.loop.set(ed.looping());
             }}
+          />
+          <Menu
+            items={() =>
+              [0.25, 0.5, 1, 1.5, 2].map((r) => ({
+                label: r === 1 ? "Normal speed" : `${r}×`,
+                checked: prefs.previewRate() === r,
+                onSelect: () => prefs.previewRate.set(r),
+              }))
+            }
+            trigger={(m) => (
+              <button
+                type="button"
+                class="tl-rate"
+                classList={{ on: m.open, off: prefs.previewRate() !== 1 }}
+                ref={m.ref}
+                data-tip="Preview speed (export is unaffected)"
+                onClick={m.toggle}
+              >
+                {prefs.previewRate()}×
+              </button>
+            )}
           />
           <div class="tl-time" aria-live="off">
             <span class="tl-time-now">{fmtT(ed.playhead())}</span>

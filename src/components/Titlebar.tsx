@@ -76,6 +76,12 @@ export default function Titlebar() {
       onSelect: () => layout.railCompact.set(!layout.railCompact()),
     },
     {
+      label: "Composition guides",
+      kbd: "G",
+      checked: layout.guides(),
+      onSelect: () => layout.guides.set(!layout.guides()),
+    },
+    {
       label: "Annotations on one lane",
       checked: layout.compactNotes(),
       onSelect: () => layout.compactNotes.set(!layout.compactNotes()),

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { batch, createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { invoke, listen, save, revealItemInDir } from "./bridge";
 import { Icon } from "./icons";
 import { prefs } from "./prefs";
@@ -97,13 +97,33 @@ export function ExportDialog(props: {
     }
   };
 
-  // The dialog may open on MP4 (Settings > Editing > Default format): start on its preset.
-  if (format() === "mp4") applyPreset("readme");
+  // Each format remembers its last settings; otherwise it starts on its Balanced preset.
+  const savedFor = (f: "gif" | "mp4") => (f === "gif" ? prefs.exportGif() : prefs.exportMp4());
+  const restore = (f: "gif" | "mp4") => {
+    const s = savedFor(f);
+    if (!s) {
+      applyPreset("readme");
+      return;
+    }
+    setPreset(s.preset);
+    setFps(s.fps);
+    setWidth(s.width);
+    setQuality(s.quality);
+  };
+  restore(format());
+  createEffect(() => {
+    const s = { preset: preset(), fps: fps(), width: width(), quality: quality() };
+    (format() === "gif" ? prefs.exportGif : prefs.exportMp4).set(s);
+  });
 
-  // Switching format re-grounds the active preset so values stay consistent.
+  // Switching format restores that format's own last settings.
   const switchFormat = (f: "gif" | "mp4") => {
-    setFormat(f);
-    if (preset() !== "custom") applyPreset(preset());
+    if (f === format()) return;
+    // One batch, so the save effect never sees the new format with the old values.
+    batch(() => {
+      setFormat(f);
+      restore(f);
+    });
   };
 
   // E2: fit the GIF into an explicit byte budget by probing the engine's estimator for the

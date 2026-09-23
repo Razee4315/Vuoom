@@ -38,7 +38,7 @@ export default function Inspector() {
   };
 
   return (
-    <aside class="inspector panel" style={{ width: `${layout.inspectorW()}px` }} aria-label="Inspector">
+    <aside class="inspector panel" style={{ width: `min(${layout.inspectorW()}px, 36vw)` }} aria-label="Inspector">
       <div
         class="resizer resizer-x"
         aria-hidden="true"

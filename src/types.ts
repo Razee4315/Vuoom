@@ -93,6 +93,17 @@ export interface CropRect {
   h: number;
 }
 
+/** Mirrors src-tauri session::FrameInfo: exact frame values (fractions of output height). */
+export interface FrameInfo {
+  padding: number;
+  corner_radius: number;
+  shadow: number;
+  bg_kind: "solid" | "gradient";
+  bg_from: [number, number, number];
+  bg_to: [number, number, number];
+  bg_angle: number;
+}
+
 /** Mirrors src-tauri session::ClipState. */
 export interface ClipState {
   duration: number;
@@ -105,6 +116,7 @@ export interface ClipState {
   crop: CropRect | null;
   frame_preset: string;
   background_preset: string;
+  frame: FrameInfo;
 }
 
 /** Mirrors src-tauri displays::DisplayInfo. */

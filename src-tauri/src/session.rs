@@ -120,6 +120,48 @@ pub struct ClipState {
     /// Active backdrop preset name (`Background::preset_name`), or `""` if the backdrop is a
     /// custom one that matches no preset. Drives the background swatch picker's selection.
     pub background_preset: String,
+    /// The exact frame values (padding, corners, shadow, backdrop colors) behind the preset
+    /// names above, for the editor's fine-grained frame controls.
+    pub frame: FrameInfo,
+}
+
+/// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
+#[derive(Debug, Clone, Serialize)]
+pub struct FrameInfo {
+    pub padding: f64,
+    pub corner_radius: f64,
+    pub shadow: f64,
+    /// `"solid"` or `"gradient"`.
+    pub bg_kind: String,
+    pub bg_from: [f32; 3],
+    pub bg_to: [f32; 3],
+    pub bg_angle: f64,
+}
+
+impl FrameInfo {
+    fn of(frame: &FrameStyle) -> Self {
+        let rgb = |c: &Color| [c.r, c.g, c.b];
+        let (bg_kind, bg_from, bg_to, bg_angle) = match &frame.background {
+            Background::Solid(c) => ("solid", rgb(c), rgb(c), 45.0),
+            Background::Gradient {
+                from,
+                to,
+                angle_deg,
+            } => ("gradient", rgb(from), rgb(to), *angle_deg),
+            Background::Image { .. } | Background::Blur { .. } => {
+                ("solid", [0.08, 0.08, 0.09], [0.08, 0.08, 0.09], 45.0)
+            }
+        };
+        Self {
+            padding: frame.padding,
+            corner_radius: frame.corner_radius,
+            shadow: frame.shadow.strength,
+            bg_kind: bg_kind.into(),
+            bg_from,
+            bg_to,
+            bg_angle,
+        }
+    }
 }
 
 /// What the drain thread hands back at stop: the disk store, an optional warning describing
@@ -1395,6 +1437,7 @@ impl Session {
                 .preset_name()
                 .unwrap_or_default()
                 .into(),
+            frame: FrameInfo::of(&project.frame),
         })
     }
 
@@ -1468,6 +1511,51 @@ impl Session {
         let bg = Background::preset(name).ok_or("unknown background preset")?;
         self.with_project("", |p| {
             p.frame.background = bg;
+            Ok(())
+        })
+    }
+
+    /// Set the frame values directly: padding (0..0.2), corner radius (0..0.08) and shadow
+    /// strength (0..1). Slider drags stream this, so a run coalesces into one undo step. The
+    /// first time padding appears on the default black backdrop, a graphite gradient is
+    /// seeded (as the presets do) so the padded area doesn't read as a void.
+    pub fn set_frame_style(
+        &self,
+        padding: f64,
+        corner_radius: f64,
+        shadow: f64,
+    ) -> Result<(), String> {
+        self.with_project("frame-style", |p| {
+            let padding = padding.clamp(0.0, 0.2);
+            if padding > 0.0 && p.frame.background == Background::Solid(Color::BLACK) {
+                if let Some(bg) = Background::preset("graphite") {
+                    p.frame.background = bg;
+                }
+            }
+            p.frame.padding = padding;
+            p.frame.corner_radius = corner_radius.clamp(0.0, 0.08);
+            p.frame.shadow.strength = shadow.clamp(0.0, 1.0);
+            Ok(())
+        })
+    }
+
+    /// Set a custom backdrop: a solid color, or a two-color gradient at `angle` degrees
+    /// when `to` is given. Colors are 0..1 RGB.
+    pub fn set_background_custom(
+        &self,
+        from: [f32; 3],
+        to: Option<[f32; 3]>,
+        angle: f64,
+    ) -> Result<(), String> {
+        self.with_project("bg-custom", |p| {
+            p.frame.background = match to {
+                Some(t) => Background::Gradient {
+                    from: rgb01(from),
+                    to: rgb01(t),
+                    angle_deg: angle.rem_euclid(360.0),
+                },
+                None => Background::Solid(rgb01(from)),
+            };
             Ok(())
         })
     }
@@ -2822,6 +2910,12 @@ fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>, Vec<Trim>) {
 /// Resolve the project's backdrop into the compositor's [`BgFill`] (a linear 2-stop gradient;
 /// a solid fill is the degenerate `color2 == color` case). Image/Blur backdrops aren't
 /// rendered yet, so they fall back to a flat neutral dark.
+/// An opaque color from 0..1 RGB components, clamped into range.
+fn rgb01(v: [f32; 3]) -> Color {
+    let c = |x: f32| x.clamp(0.0, 1.0);
+    Color::rgb(c(v[0]), c(v[1]), c(v[2]))
+}
+
 fn background_fill(frame: &FrameStyle) -> BgFill {
     let rgba = |c: Color| [c.r, c.g, c.b, c.a];
     match &frame.background {
@@ -3311,5 +3405,26 @@ mod tests {
     fn free_space_ok_when_plenty() {
         // 500 GB at 1080p clears even the 5 min warn line, no warning.
         assert_eq!(check_free_space(500 * GB, 1920, 1080), Ok(None));
+    }
+
+    // --- frame controls ---
+
+    #[test]
+    fn frame_info_reports_solid_and_gradient_backdrops() {
+        let mut f = FrameStyle::default();
+        assert_eq!(FrameInfo::of(&f).bg_kind, "solid");
+        f.background = Background::preset("slate").unwrap();
+        f.padding = 0.05;
+        f.shadow.strength = 0.4;
+        let info = FrameInfo::of(&f);
+        assert_eq!(info.bg_kind, "gradient");
+        assert!((info.padding - 0.05).abs() < 1e-9);
+        assert!((info.shadow - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rgb01_clamps_components_and_is_opaque() {
+        let c = rgb01([-1.0, 0.5, 2.0]);
+        assert_eq!((c.r, c.g, c.b, c.a), (0.0, 0.5, 1.0, 1.0));
     }
 }

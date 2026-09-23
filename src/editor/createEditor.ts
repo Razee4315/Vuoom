@@ -20,6 +20,7 @@ import type {
   BoxAnn,
   ClipState,
   CropRect,
+  FrameInfo,
   DisplayInfo,
   Color,
   Drag,
@@ -84,6 +85,8 @@ export function createEditor() {
   const [crop, setCrop] = createSignal<CropRect | null>(null);
   const [framePreset, setFramePreset] = createSignal("none");
   const [bgPreset, setBgPreset] = createSignal("");
+  // Exact frame values (padding, corners, shadow, backdrop colors) for the fine controls.
+  const [frameInfo, setFrameInfo] = createSignal<FrameInfo | null>(null);
   const [recoverable, setRecoverable] = createSignal<number | null>(null);
   const [selected, setSelected] = createSignal<Selection | null>(null);
   // Multi-selection foundation (annotations only). `selected` stays the PRIMARY / last-clicked
@@ -671,6 +674,7 @@ export function createEditor() {
       setCrop(cs.crop);
       setFramePreset(cs.frame_preset);
       setBgPreset(cs.background_preset);
+      setFrameInfo(cs.frame ?? null);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -2339,6 +2343,7 @@ export function createEditor() {
     frameSync.push({ preset, prevBg }, async (val, superseded) => {
       try {
         await invoke("set_frame_preset", { preset: val.preset });
+        await refreshFrame();
         await pushSeek(playhead());
         setStatus(
           val.preset === "none" ? "Frame removed. Edge to edge export." : `Frame: ${val.preset}`,
@@ -2373,11 +2378,75 @@ export function createEditor() {
     bgSync.push(name, async (val, superseded) => {
       try {
         await invoke("set_background_preset", { name: val });
+        await refreshFrame();
         await pushSeek(playhead());
         setStatus(`Backdrop: ${val}`);
       } catch (e) {
         if (!superseded()) {
           setBgPreset(prev);
+          toast(`Backdrop failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
+  };
+
+  // ── fine frame + backdrop controls ─────────────────────────────────────────────
+  const refreshFrame = async () => {
+    try {
+      const cs = await invoke<ClipState>("clip_state");
+      setFrameInfo(cs.frame ?? null);
+      setFramePreset(cs.frame_preset);
+      setBgPreset(cs.background_preset);
+    } catch {
+      /* no clip */
+    }
+  };
+  // Slider drags: the value lands locally this frame, the engine gets the latest value.
+  const frameStyleSync = createSyncSlot<{ padding: number; radius: number; shadow: number }>();
+  const applyFrameStyle = (patch: { padding?: number; radius?: number; shadow?: number }) => {
+    const cur = frameInfo();
+    if (!hasClip() || !cur) return;
+    const next = {
+      padding: patch.padding ?? cur.padding,
+      radius: patch.radius ?? cur.corner_radius,
+      shadow: patch.shadow ?? cur.shadow,
+    };
+    setFrameInfo({ ...cur, padding: next.padding, corner_radius: next.radius, shadow: next.shadow });
+    setDirty(true);
+    frameStyleSync.push(next, async (val, superseded) => {
+      try {
+        await invoke("set_frame_style", { padding: val.padding, cornerRadius: val.radius, shadow: val.shadow });
+        if (!superseded()) await refreshFrame();
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) {
+          await refreshFrame();
+          toast(`Frame change failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
+  };
+  const bgCustomSync = createSyncSlot<{ from: number[]; to: number[] | null; angle: number }>();
+  /** Custom backdrop: `to` null = solid color. Colors are "#rrggbb". */
+  const applyBackgroundCustom = (from: string, to: string | null, angle: number) => {
+    const cur = frameInfo();
+    if (!hasClip() || !cur) return;
+    const rgb = (hex: string) => {
+      const c = hexRgb(hex);
+      return [c.r, c.g, c.b] as [number, number, number];
+    };
+    const f = rgb(from);
+    const t = to ? rgb(to) : null;
+    setFrameInfo({ ...cur, bg_kind: t ? "gradient" : "solid", bg_from: f, bg_to: t ?? f, bg_angle: angle });
+    setBgPreset("");
+    setDirty(true);
+    bgCustomSync.push({ from: f, to: t, angle }, async (val, superseded) => {
+      try {
+        await invoke("set_background_custom", val.to ? { from: val.from, to: val.to, angle: val.angle } : { from: val.from, angle: val.angle });
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) {
+          await refreshFrame();
           toast(`Backdrop failed: ${friendlyError(e)}`, "error");
         }
       }
@@ -3340,6 +3409,9 @@ export function createEditor() {
   };
 
   return {
+    frameInfo,
+    applyFrameStyle,
+    applyBackgroundCustom,
     editFades,
     cropEdit,
     cropDraft,

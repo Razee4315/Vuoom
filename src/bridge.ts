@@ -253,10 +253,20 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       m.showKeys = a.on as boolean;
       return null;
     case "set_frame_preset":
-      m.framePreset = a.preset as string;
+      m.setFramePreset(a.preset as string);
       return null;
     case "set_background_preset":
-      m.bgPreset = a.name as string;
+      m.setBackgroundPreset(a.name as string);
+      return null;
+    case "set_frame_style":
+      m.setFrameStyle(a.padding as number, a.cornerRadius as number, a.shadow as number);
+      return null;
+    case "set_background_custom":
+      m.setBackgroundCustom(
+        a.from as [number, number, number],
+        (a.to as [number, number, number] | undefined) ?? null,
+        a.angle as number,
+      );
       return null;
     case "estimate_gif":
       return m.estimateGif(a.fps as number, a.width as number, a.quality as number);

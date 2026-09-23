@@ -993,6 +993,30 @@ pub fn set_background_preset(engine: tauri::State<'_, Engine>, name: String) -> 
     engine.session()?.set_background_preset(&name)
 }
 
+/// Set padding / corner radius / shadow strength of the frame directly.
+#[tauri::command]
+pub fn set_frame_style(
+    engine: tauri::State<'_, Engine>,
+    padding: f64,
+    corner_radius: f64,
+    shadow: f64,
+) -> Result<(), String> {
+    engine
+        .session()?
+        .set_frame_style(padding, corner_radius, shadow)
+}
+
+/// Set a custom solid (no `to`) or gradient backdrop.
+#[tauri::command]
+pub fn set_background_custom(
+    engine: tauri::State<'_, Engine>,
+    from: [f32; 3],
+    to: Option<[f32; 3]>,
+    angle: f64,
+) -> Result<(), String> {
+    engine.session()?.set_background_custom(from, to, angle)
+}
+
 /// Move/edit a text label (omit a field to leave it unchanged).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

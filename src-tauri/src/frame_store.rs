@@ -427,9 +427,9 @@ pub struct FrameWriter {
 }
 
 /// Byte accounting for a store being written: what the frames would have cost raw versus
-/// what actually reached disk. Surfaces in logs and the recording summary.
-#[derive(Debug, Clone, Copy, Default, Serialize)]
-pub struct StoreStats {
+/// what actually reached disk. Logged when the store is finished.
+#[derive(Debug, Clone, Copy, Default)]
+struct StoreStats {
     pub frames: u64,
     pub raw_bytes: u64,
     pub stored_bytes: u64,
@@ -455,11 +455,6 @@ impl FrameWriter {
             since_key: 0,
             stats: StoreStats::default(),
         })
-    }
-
-    /// Bytes written so far versus their raw size.
-    pub fn stats(&self) -> StoreStats {
-        self.stats
     }
 
     /// Append one frame. Three shapes, cheapest first:
@@ -726,12 +721,6 @@ impl FrameStore {
         decode_frame(&payload, rec.w, rec.h, &mut out, false)?;
         Ok(out)
     }
-
-    /// Total bytes the store occupies on disk (pixels + index).
-    pub fn disk_bytes(dir: &Path) -> u64 {
-        let f = |p: PathBuf| fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-        f(raw_path(dir)) + f(index_path(dir))
-    }
 }
 
 /// Read one record's payload bytes into `buf` (resized to fit).
@@ -935,7 +924,7 @@ mod tests {
             let step = if i % 4 == 3 { i as u32 - 1 } else { i as u32 };
             w_.push(screen(w, h, step, i as i64)).unwrap();
         }
-        let stats = w_.stats();
+        let stats = w_.stats;
         let store = w_.finish().unwrap();
         assert_eq!(store.len(), n);
         assert!(

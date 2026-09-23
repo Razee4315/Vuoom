@@ -28,6 +28,9 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 const PREVIEW_WIDTH: u32 = 480;
 /// Preview cadence (~20 fps), independent of the capture rate so it never steals throughput.
 const EMIT_INTERVAL: f64 = 0.05;
+/// The preview runs its own capture next to the recording's; it only ever shows ~20 fps, so
+/// cap its compositor delivery instead of paying a full-screen copy per display refresh.
+const PREVIEW_CAPTURE_FPS: u32 = 30;
 
 // Virtual-key codes for the manual-zoom chord (Ctrl+Shift+Z).
 const VK_SHIFT: i32 = 0x10;
@@ -86,7 +89,7 @@ fn run(
     sink: FrameSink,
     stop: &AtomicBool,
 ) {
-    let (rx, capture) = spawn_capture(region, &source);
+    let (rx, capture) = spawn_capture(region, &source, PREVIEW_CAPTURE_FPS);
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, amount);
     let clock = Clock::new();

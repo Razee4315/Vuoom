@@ -29,6 +29,10 @@ tauri-plugin-process = "2"
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
+# Frame store codec: LZ4 (pure Rust, no unsafe by default) over XOR deltas, with strips
+# compressed/decompressed in parallel on rayon's pool (see frame_store.rs).
+lz4_flex = "0.14"
+rayon = "1"
 
 # Diagnostics. `env-filter` gives us RUST_LOG honoring; `tracing-appender`
 # writes a rotating daily log file so a windowed release build (which detaches

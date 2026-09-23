@@ -2,8 +2,10 @@
 //!
 //! No bundled ffmpeg: the OS H.264 encoder MFT does the work. We feed uncompressed RGB32
 //! frames (BGRA memory order, top-down via a positive `MF_MT_DEFAULT_STRIDE`) and the sink
-//! writer inserts the color converter the encoder needs. Compile-verified on CI; the
-//! encode path needs a real Windows session to run.
+//! writer inserts the color converter the encoder needs. The sink writer only considers
+//! hardware encoders (NVENC, Quick Sync, AMF) when the hardware-transforms attribute is set,
+//! so it is, with a software-encoder fallback for GPUs whose MFT rejects the setup.
+//! Compile-verified on CI; the encode path needs a real Windows session to run.
 
 #[cfg(windows)]
 mod imp {
@@ -11,12 +13,12 @@ mod imp {
     use std::sync::OnceLock;
     use windows::core::PCWSTR;
     use windows::Win32::Media::MediaFoundation::{
-        IMFAttributes, IMFByteStream, IMFSinkWriter, MFCreateMediaType, MFCreateMemoryBuffer,
-        MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video, MFStartup,
-        MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive, MFSTARTUP_FULL,
-        MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
+        IMFAttributes, IMFByteStream, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video,
+        MFStartup, MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
+        MFSTARTUP_FULL, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE,
         MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
-        MF_VERSION,
+        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING, MF_VERSION,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -61,9 +63,28 @@ mod imp {
     }
 
     impl Mp4Encoder {
-        /// Create the sink writer for `path` and configure H.264 out / RGB32 in.
+        /// Create the sink writer for `path` and configure H.264 out / RGB32 in, preferring a
+        /// hardware encoder and falling back to Microsoft's software one.
         pub fn new(path: &Path, w: u32, h: u32, fps: u32, quality: u8) -> Result<Self, String> {
             ensure_mf()?;
+            match Self::with_hardware(path, w, h, fps, quality, true) {
+                Ok(enc) => Ok(enc),
+                Err(e) => {
+                    tracing::warn!("hardware H.264 setup failed ({e}), using software");
+                    let _ = std::fs::remove_file(path);
+                    Self::with_hardware(path, w, h, fps, quality, false)
+                }
+            }
+        }
+
+        fn with_hardware(
+            path: &Path,
+            w: u32,
+            h: u32,
+            fps: u32,
+            quality: u8,
+            hardware: bool,
+        ) -> Result<Self, String> {
             let wide: Vec<u16> = path
                 .as_os_str()
                 .to_string_lossy()
@@ -73,10 +94,21 @@ mod imp {
 
             // SAFETY: standard sink-writer setup; all pointers outlive the calls.
             unsafe {
+                let mut attrs: Option<IMFAttributes> = None;
+                MFCreateAttributes(&mut attrs, 2).map_err(|e| e.to_string())?;
+                let attrs = attrs.ok_or("sink writer attributes")?;
+                attrs
+                    .SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, u32::from(hardware))
+                    .map_err(|e| e.to_string())?;
+                // We feed frames as fast as we can composite them (offline export), so let the
+                // writer accept samples without pacing them to real time.
+                attrs
+                    .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
+                    .map_err(|e| e.to_string())?;
                 let writer = MFCreateSinkWriterFromURL(
                     PCWSTR(wide.as_ptr()),
                     None::<&IMFByteStream>,
-                    None::<&IMFAttributes>,
+                    &attrs,
                 )
                 .map_err(|e| format!("create MP4 writer: {e}"))?;
 

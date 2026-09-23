@@ -705,6 +705,14 @@ const FRAMES: { id: string; label: string; tip: string }[] = [
   { id: "studio", label: "Studio", tip: "Generous padding on a backdrop, product-shot style" },
 ];
 
+// Mirrors the values session::set_frame_preset writes for each preset.
+const FRAME_VALUES: Record<string, { padding: number; radius: number; shadow: number }> = {
+  none: { padding: 0, radius: 0, shadow: 0 },
+  subtle: { padding: 0.04, radius: 0.012, shadow: 0.3 },
+  studio: { padding: 0.075, radius: 0.02, shadow: 0.5 },
+};
+const bgHex = (c: [number, number, number]) => rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 });
+
 const CROPS: { id: string; label: string; ratio: number | null }[] = [
   { id: "full", label: "Full", ratio: null },
   { id: "16:9", label: "16:9", ratio: 16 / 9 },
@@ -725,18 +733,39 @@ function ClipPanel() {
     return Math.abs(c.w - want.w) < 0.002 && Math.abs(c.h - want.h) < 0.002;
   };
   const outDur = () => outputDuration(ed.duration(), ed.trim(), ed.speed(), ed.cuts());
+  // A preset card is lit only when the frame matches that preset exactly; any slider
+  // tweak turns the frame "Custom".
+  const framePresetExact = () => {
+    const fi = ed.frameInfo();
+    if (!fi) return ed.framePreset();
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-3;
+    for (const [id, v] of Object.entries(FRAME_VALUES)) {
+      if (near(fi.padding, v.padding) && near(fi.corner_radius, v.radius) && near(fi.shadow, v.shadow)) return id;
+    }
+    return "";
+  };
+  const isCustomFrame = () => framePresetExact() === "";
 
   return (
     <>
-      <Section id="clip-frame" title="Frame" icon="frame">
+      <Section
+        id="clip-frame"
+        title="Frame"
+        icon="frame"
+        aside={
+          <Show when={isCustomFrame()}>
+            <span class="badge">Custom</span>
+          </Show>
+        }
+      >
         <div class="frame-cards">
           <For each={FRAMES}>
             {(f) => (
               <button
                 type="button"
                 class="frame-card"
-                classList={{ on: ed.framePreset() === f.id, [f.id]: true }}
-                aria-pressed={ed.framePreset() === f.id}
+                classList={{ on: framePresetExact() === f.id, [f.id]: true }}
+                aria-pressed={framePresetExact() === f.id}
                 data-tip={f.tip}
                 onClick={() => ed.applyFramePreset(f.id)}
               >
@@ -748,6 +777,46 @@ function ClipPanel() {
             )}
           </For>
         </div>
+        <Show when={ed.frameInfo()}>
+          {(fi) => (
+            <>
+              <Field label="Padding">
+                <Slider
+                  value={fi().padding}
+                  min={0}
+                  max={0.2}
+                  step={0.005}
+                  label="Padding"
+                  format={(v) => `${Math.round(v * 100)}%`}
+                  onInput={(v) => ed.applyFrameStyle({ padding: v })}
+                />
+              </Field>
+              <Field label="Corners">
+                <Slider
+                  value={fi().corner_radius}
+                  min={0}
+                  max={0.08}
+                  step={0.002}
+                  label="Corner radius"
+                  format={(v) => `${(v * 100).toFixed(1)}%`}
+                  onInput={(v) => ed.applyFrameStyle({ radius: v })}
+                />
+              </Field>
+              <Field label="Shadow">
+                <Slider
+                  value={fi().shadow}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  label="Shadow strength"
+                  disabled={fi().padding <= 0}
+                  format={(v) => `${Math.round(v * 100)}%`}
+                  onInput={(v) => ed.applyFrameStyle({ shadow: v })}
+                />
+              </Field>
+            </>
+          )}
+        </Show>
         <Show when={ed.framePreset() !== "none"}>
           <Field label="Backdrop" stack>
             <div class="swatches">
@@ -764,8 +833,73 @@ function ClipPanel() {
                   />
                 )}
               </For>
+              <button
+                type="button"
+                class="swatch swatch-custom"
+                aria-label="Custom backdrop"
+                aria-pressed={ed.bgPreset() === ""}
+                data-tip="Custom colors"
+                onClick={() => {
+                  const fi = ed.frameInfo();
+                  if (fi && ed.bgPreset() !== "") ed.applyBackgroundCustom(bgHex(fi.bg_from), bgHex(fi.bg_to), fi.bg_angle);
+                }}
+              />
             </div>
           </Field>
+          <Show when={ed.bgPreset() === "" && ed.frameInfo()}>
+            {(fi) => (
+              <div class="bg-custom">
+                <Seg
+                  full
+                  value={fi().bg_kind}
+                  onChange={(k) =>
+                    ed.applyBackgroundCustom(bgHex(fi().bg_from), k === "gradient" ? bgHex(fi().bg_to) : null, fi().bg_angle)
+                  }
+                  options={[
+                    { value: "solid", label: "Solid" },
+                    { value: "gradient", label: "Gradient" },
+                  ]}
+                />
+                <div class="bg-colors">
+                  <label class="color-well" data-tip={fi().bg_kind === "gradient" ? "Start color" : "Color"}>
+                    <span style={{ background: bgHex(fi().bg_from) }} />
+                    <input
+                      type="color"
+                      value={bgHex(fi().bg_from)}
+                      aria-label="Backdrop color"
+                      onInput={(e) =>
+                        ed.applyBackgroundCustom(
+                          e.currentTarget.value,
+                          fi().bg_kind === "gradient" ? bgHex(fi().bg_to) : null,
+                          fi().bg_angle,
+                        )
+                      }
+                    />
+                  </label>
+                  <Show when={fi().bg_kind === "gradient"}>
+                    <label class="color-well" data-tip="End color">
+                      <span style={{ background: bgHex(fi().bg_to) }} />
+                      <input
+                        type="color"
+                        value={bgHex(fi().bg_to)}
+                        aria-label="Backdrop end color"
+                        onInput={(e) => ed.applyBackgroundCustom(bgHex(fi().bg_from), e.currentTarget.value, fi().bg_angle)}
+                      />
+                    </label>
+                    <Slider
+                      value={fi().bg_angle}
+                      min={0}
+                      max={360}
+                      step={5}
+                      label="Gradient angle"
+                      format={(v) => `${Math.round(v)}°`}
+                      onInput={(v) => ed.applyBackgroundCustom(bgHex(fi().bg_from), bgHex(fi().bg_to), v)}
+                    />
+                  </Show>
+                </div>
+              </div>
+            )}
+          </Show>
         </Show>
       </Section>
 

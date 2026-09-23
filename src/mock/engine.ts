@@ -9,6 +9,7 @@ import type {
   BoxAnn,
   ClipState,
   Color,
+  FrameInfo,
   RecordingSummary,
   SpeedRegion,
   TextAnn,
@@ -104,6 +105,8 @@ class MockEngine {
   crop: { x: number; y: number; w: number; h: number } | null = null;
   framePreset = "none";
   bgPreset = "";
+  /** Exact frame values behind the preset names (mirrors session::FrameInfo). */
+  frame: FrameInfo = { ...FRAME_NONE, bg_kind: "solid", bg_from: [0, 0, 0], bg_to: [0, 0, 0], bg_angle: 45 };
   playhead = 0;
   zoomAmount = 1.8;
   live = false;
@@ -145,6 +148,7 @@ class MockEngine {
       crop: this.crop ? { ...this.crop } : null,
       framePreset: this.framePreset,
       bgPreset: this.bgPreset,
+      frame: this.frame,
       duration: this.duration,
     });
   }
@@ -173,6 +177,7 @@ class MockEngine {
     this.showKeys = st.showKeys;
     this.framePreset = st.framePreset;
     this.bgPreset = st.bgPreset;
+    this.frame = st.frame;
     this.duration = st.duration;
   }
 
@@ -188,6 +193,7 @@ class MockEngine {
     this.showKeys = true;
     this.framePreset = "subtle";
     this.bgPreset = "graphite";
+    this.frame = { ...FRAME_SUBTLE, ...bgInfo("graphite") };
     this.playhead = 0;
     this.undoStack = [];
     this.redoStack = [];
@@ -217,9 +223,50 @@ class MockEngine {
       show_clicks: this.showClicks,
       show_keys: this.showKeys,
       crop: this.crop ? { ...this.crop } : null,
-      frame_preset: this.framePreset,
+      frame_preset: this.frame.padding <= 0 ? "none" : this.frame.padding < 0.06 ? "subtle" : "studio",
       background_preset: this.bgPreset,
+      frame: structuredClone(this.frame),
     };
+  }
+
+  setFramePreset(preset: string) {
+    this.mutate(undefined, () => {
+      this.framePreset = preset;
+      const vals = preset === "studio" ? FRAME_STUDIO : preset === "subtle" ? FRAME_SUBTLE : FRAME_NONE;
+      this.frame = { ...this.frame, ...vals };
+      if (preset !== "none" && this.bgPreset === "" && this.frame.bg_from.every((c) => c === 0)) {
+        this.bgPreset = "graphite";
+        this.frame = { ...this.frame, ...bgInfo("graphite") };
+      }
+    });
+  }
+  setFrameStyle(padding: number, radius: number, shadow: number) {
+    this.mutate("frame-style", () => {
+      this.frame = {
+        ...this.frame,
+        padding: Math.min(0.2, Math.max(0, padding)),
+        corner_radius: Math.min(0.08, Math.max(0, radius)),
+        shadow: Math.min(1, Math.max(0, shadow)),
+      };
+    });
+  }
+  setBackgroundPreset(name: string) {
+    this.mutate(undefined, () => {
+      this.bgPreset = name;
+      this.frame = { ...this.frame, ...bgInfo(name) };
+    });
+  }
+  setBackgroundCustom(from: [number, number, number], to: [number, number, number] | null, angle: number) {
+    this.mutate("bg-custom", () => {
+      this.bgPreset = "";
+      this.frame = {
+        ...this.frame,
+        bg_kind: to ? "gradient" : "solid",
+        bg_from: from,
+        bg_to: to ?? from,
+        bg_angle: angle,
+      };
+    });
   }
 
   setCrop(crop: { x: number; y: number; w: number; h: number } | null) {
@@ -847,6 +894,26 @@ function paintDesktopToDataUrl(w: number, h: number): string {
     paintDesktop(backdropCanvas.getContext("2d")!, w, h, 0);
   }
   return backdropCanvas.toDataURL("image/png");
+}
+
+const FRAME_NONE = { padding: 0, corner_radius: 0, shadow: 0 };
+const FRAME_SUBTLE = { padding: 0.04, corner_radius: 0.012, shadow: 0.3 };
+const FRAME_STUDIO = { padding: 0.075, corner_radius: 0.02, shadow: 0.5 };
+// Mirrors vuoom_project::Background::preset (RGB 0..1).
+const BG_PRESETS: Record<string, [number[], number[]] | [number[]]> = {
+  graphite: [[0.16, 0.16, 0.17], [0.04, 0.04, 0.05]],
+  slate: [[0.2, 0.24, 0.3], [0.07, 0.09, 0.12]],
+  teal: [[0.06, 0.2, 0.21], [0.02, 0.08, 0.09]],
+  dusk: [[0.17, 0.19, 0.26], [0.06, 0.06, 0.1]],
+  paper: [[0.96, 0.95, 0.92], [0.85, 0.83, 0.78]],
+  midnight: [[0.06, 0.07, 0.1], [0.01, 0.01, 0.02]],
+  solid: [[0.09, 0.09, 0.1]],
+};
+function bgInfo(name: string): Pick<FrameInfo, "bg_kind" | "bg_from" | "bg_to" | "bg_angle"> {
+  const p = BG_PRESETS[name] ?? BG_PRESETS.graphite;
+  const from = p[0] as [number, number, number];
+  const to = (p[1] ?? p[0]) as [number, number, number];
+  return { bg_kind: p.length > 1 ? "gradient" : "solid", bg_from: from, bg_to: to, bg_angle: 45 };
 }
 
 export { MockEngine, paintDesktop };

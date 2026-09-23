@@ -57,7 +57,14 @@ export function createEditor() {
   // True once the loaded clip has unsaved edits (annotations, zooms, trim, cuts, speed,
   // frame, click/key overlays). Drives the "discard edits?" guard before a new recording
   // replaces the clip. Set wherever an edit lands; cleared on load / save / export.
-  const [dirty, setDirty] = createSignal(false);
+  const [dirty, setDirtyRaw] = createSignal(false);
+  // Bumped on every edit; the autosave loop compares it with the last persisted version.
+  let editVersion = 0;
+  let persistedVersion = 0;
+  const setDirty = (v: boolean) => {
+    if (v) editVersion++;
+    setDirtyRaw(v);
+  };
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
   const [playing, setPlaying] = createSignal(false);
@@ -1968,6 +1975,7 @@ export function createEditor() {
     // A freshly loaded clip (new recording / recover / open project) starts clean,
     // reset after the syncs above, which optimistically flag dirty.
     setDirty(false);
+    persistedVersion = editVersion; // nothing new for autosave to write
   };
 
   // ── zoom segment editing ───────────────────────────────────────────────────────
@@ -3257,6 +3265,22 @@ export function createEditor() {
     setHoverT(null);
     setGhostT(null);
   };
+
+  // ── autosave for crash recovery ────────────────────────────────────────────────
+  // Every few seconds, if anything changed, the engine writes the edited project next to
+  // the take's frames. Recovery after a crash then restores the edits, not just the raw
+  // recording. Cheap (a JSON write) and skipped while recording.
+  const AUTOSAVE_MS = 8000;
+  const autosave = window.setInterval(() => {
+    if (!hasClip() || recordPhase() !== "idle" || editVersion === persistedVersion) return;
+    const v = editVersion;
+    invoke("persist_edits")
+      .then(() => {
+        persistedVersion = v;
+      })
+      .catch(() => undefined);
+  }, AUTOSAVE_MS);
+  onCleanup(() => clearInterval(autosave));
 
   // ── DOM refs ─────────────────────────────────────────────────────────────────────
   // Components register the elements they own; size-tracking elements get a

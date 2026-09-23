@@ -2358,6 +2358,27 @@ impl Session {
         Ok(summary)
     }
 
+    /// Write the current project, edits included, next to its frames so crash recovery
+    /// brings back the edits and not just the raw take. Written to a temp file and renamed
+    /// over the manifest, so a crash mid-write never leaves a torn one.
+    pub fn persist_edits(&self) -> Result<(), String> {
+        let json = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            let project = edited.project.as_ref().ok_or("no recording")?;
+            project.to_json().map_err(|e| e.to_string())?
+        };
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("no recording")?;
+        let path = frame_store::project_path(&dir);
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json).map_err(|e| format!("autosave: {e}"))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("autosave: {e}"))
+    }
+
     /// Whether a recoverable session (frames + manifest from a crash or accidental close)
     /// is sitting in the recovery directory. Returns its duration in seconds.
     pub fn recovery_available(&self) -> Option<f64> {

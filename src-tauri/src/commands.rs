@@ -1094,6 +1094,12 @@ pub fn set_arrow_style(
     engine.session()?.set_arrow_style(id, &style)
 }
 
+/// Autosave: persist the edited project beside its frames for crash recovery.
+#[tauri::command]
+pub async fn persist_edits(engine: tauri::State<'_, Engine>) -> Result<(), String> {
+    engine.session()?.persist_edits()
+}
+
 /// Set an annotation's fade-in / fade-out lengths in seconds.
 #[tauri::command]
 pub fn set_annotation_fades(

@@ -118,7 +118,10 @@ export default function Home() {
             </span>
             <span class="recover-text">
               <strong>Your last take wasn't saved</strong>
-              <small>{ed.recoverable()!.toFixed(1)}s recording from a previous session. Pick it back up.</small>
+              <small>
+                {ed.recoverable()!.toFixed(1)}s recording from a previous session, with the edits you made. Pick
+                it back up.
+              </small>
             </span>
             <span class="btn sm">Recover</span>
           </button>

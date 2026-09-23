@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use glam::DVec2;
-use vuoom_capture::{spawn_capture, CaptureSource, CapturedFrame, CropRegion};
+use vuoom_capture::{spawn_capture, CaptureOptions, CaptureSource, CapturedFrame, CropRegion};
 use vuoom_encode::{downscale_rgba, swizzle_rb, RgbaImage};
 use vuoom_input::Clock;
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
@@ -89,7 +89,11 @@ fn run(
     sink: FrameSink,
     stop: &AtomicBool,
 ) {
-    let (rx, capture) = spawn_capture(region, &source, PREVIEW_CAPTURE_FPS);
+    let opts = CaptureOptions {
+        max_fps: PREVIEW_CAPTURE_FPS,
+        cursor: true,
+    };
+    let (rx, capture) = spawn_capture(region, &source, opts);
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, amount);
     let clock = Clock::new();

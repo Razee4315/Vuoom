@@ -233,6 +233,8 @@ function MenuPopup(props: {
   class?: string;
   onClose: (refocus: boolean) => void;
   keepOpenOn?: () => HTMLElement | undefined;
+  /** Top edge of the trigger: when the menu would overflow the bottom, it opens above it. */
+  flipAbove?: number;
 }): JSX.Element {
   let menuEl: HTMLDivElement | undefined;
   // Keep the popup on screen: flip left/up when it would overflow the viewport.
@@ -265,10 +267,18 @@ function MenuPopup(props: {
     window.addEventListener("blur", close);
     queueMicrotask(() => {
       if (!menuEl) return;
-      const r = menuEl.getBoundingClientRect();
+      // Layout sizes, not the bounding box: the pop-in animation transforms the popup.
+      const w = menuEl.offsetWidth;
+      const h = menuEl.offsetHeight;
+      const left = props.align === "end" ? props.x - w : props.x;
       setShift({
-        x: r.right > window.innerWidth - 8 ? window.innerWidth - 8 - r.right : 0,
-        y: r.bottom > window.innerHeight - 8 ? -(r.height + 12) : 0,
+        x: left + w > window.innerWidth - 8 ? window.innerWidth - 8 - (left + w) : 0,
+        y:
+          props.y + h > window.innerHeight - 8
+            ? props.flipAbove !== undefined
+              ? props.flipAbove - 6 - h - props.y
+              : -(h + 12)
+            : 0,
       });
       menuEl.querySelector<HTMLButtonElement>(".menu-item:not(:disabled)")?.focus();
     });
@@ -341,12 +351,12 @@ export function Menu(props: {
   class?: string;
 }): JSX.Element {
   const [open, setOpen] = createSignal(false);
-  const [pos, setPos] = createSignal({ x: 0, y: 0 });
+  const [pos, setPos] = createSignal({ x: 0, y: 0, top: 0 });
   let anchor: HTMLElement | undefined;
   const toggle = () => {
     if (anchor) {
       const r = anchor.getBoundingClientRect();
-      setPos({ x: props.align === "end" ? r.right : r.left, y: r.bottom + 6 });
+      setPos({ x: props.align === "end" ? r.right : r.left, y: r.bottom + 6, top: r.top });
     }
     setOpen(!open());
   };
@@ -360,6 +370,7 @@ export function Menu(props: {
           y={pos().y}
           align={props.align}
           class={props.class}
+          flipAbove={pos().top}
           keepOpenOn={() => anchor}
           onClose={(refocus) => {
             setOpen(false);

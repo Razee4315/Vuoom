@@ -22,7 +22,8 @@ use base64::Engine;
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use vuoom_capture::{
-    spawn_capture, spawn_region, CaptureHandle, CaptureSource, CapturedFrame, CropRegion,
+    spawn_capture, spawn_region, CaptureHandle, CaptureOptions, CaptureSource, CapturedFrame,
+    CropRegion,
 };
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
@@ -280,6 +281,8 @@ pub struct Session {
     pending_zoom: Mutex<f64>,
     /// Frame-rate cap for the next recording (see [`Session::set_capture_fps`]).
     pending_fps: AtomicU32,
+    /// Whether the next recording draws the mouse cursor (see [`Session::set_capture_cursor`]).
+    pending_cursor: AtomicBool,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
     /// *previous* unsaved session rather than the one already in the editor.
@@ -323,6 +326,7 @@ impl Session {
             pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
+            pending_cursor: AtomicBool::new(true),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
         })
@@ -437,6 +441,13 @@ impl Session {
     pub fn set_capture_fps(&self, fps: u32) -> Result<(), String> {
         self.pending_fps
             .store(fps.clamp(10, 120), Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Show or hide the mouse cursor in the next recording. Zooms still follow the cursor
+    /// either way (they are driven by the input log, not the pixels).
+    pub fn set_capture_cursor(&self, show: bool) -> Result<(), String> {
+        self.pending_cursor.store(show, Ordering::Relaxed);
         Ok(())
     }
 
@@ -605,8 +616,11 @@ impl Session {
         // arrives during startup can be stamped earlier than the epoch (a negative time would
         // otherwise slip into normalization / zoom planning).
         let start_qpc = self.clock.now();
-        let fps = self.pending_fps.load(Ordering::Relaxed);
-        let (frames_rx, capture) = spawn_capture(region, &source, fps);
+        let opts = CaptureOptions {
+            max_fps: self.pending_fps.load(Ordering::Relaxed),
+            cursor: self.pending_cursor.load(Ordering::Relaxed),
+        };
+        let (frames_rx, capture) = spawn_capture(region, &source, opts);
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview, its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, source, mon_origin, amount, self.preview.sink());

@@ -232,6 +232,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.setZoomStyle(a.index as number, a.style as ZoomStyle);
     case "delete_zoom":
       return m.deleteZoom(a.index as number);
+    case "set_capture_cursor":
     case "set_capture_fps":
       return null;
     case "set_zoom_amount":

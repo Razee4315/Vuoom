@@ -125,6 +125,16 @@ export default function Settings() {
                 ]}
               />
             </Field>
+            <Field label="Mouse cursor" hint="Hide the pointer in the video; zooms still follow it">
+              <Seg
+                value={prefs.captureCursor() ? "show" : "hide"}
+                onChange={(v) => prefs.captureCursor.set(v === "show")}
+                options={[
+                  { value: "show", label: "Show" },
+                  { value: "hide", label: "Hide" },
+                ]}
+              />
+            </Field>
             <Field label="Countdown">
               <Seg
                 value={prefs.countdown()}

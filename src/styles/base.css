@@ -635,7 +635,7 @@ select.input {
 
 .menu {
   position: fixed;
-  z-index: 900;
+  z-index: 10002; /* above everything, including the record overlay */
   min-width: 220px;
   max-width: 320px;
   padding: 5px;

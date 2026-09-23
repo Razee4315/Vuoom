@@ -285,6 +285,7 @@ pub fn run() {
             commands::set_zoom_amount,
             commands::thumbnails,
             commands::set_capture_fps,
+            commands::set_capture_cursor,
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,

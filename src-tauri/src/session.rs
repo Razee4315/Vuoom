@@ -492,15 +492,18 @@ impl Session {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_some();
-        let mut check = self.mic_check.lock().unwrap_or_else(|e| e.into_inner());
-        *check = None;
-        if on && !recording {
+        // Open the device before taking the lock: it can take a moment, and the level
+        // meter polls through the same lock.
+        let next = if on && !recording {
             let anchor = Anchor {
                 start_qpc: self.clock.now(),
                 freq: self.clock.freq(),
             };
-            *check = Some(Recorder::start(AudioSource::Mic(device), None, anchor)?);
-        }
+            Some(Recorder::start(AudioSource::Mic(device), None, anchor)?)
+        } else {
+            None
+        };
+        *self.mic_check.lock().unwrap_or_else(|e| e.into_inner()) = next;
         Ok(())
     }
 

@@ -89,7 +89,7 @@ export const layout = {
   inspectorOpen: persisted<boolean>("inspector-open", true),
   inspectorW: persisted<number>("inspector-w", 312),
   timelineOpen: persisted<boolean>("timeline-open", true),
-  timelineH: persisted<number>("timeline-h", 268),
+  timelineH: persisted<number>("timeline-h", 300),
   /** All annotation bars on one lane instead of one lane each. */
   compactNotes: persisted<boolean>("compact-notes", false),
   /** Rule-of-thirds + center guides over the stage (G). */

@@ -501,9 +501,10 @@ pub struct AudioLevels {
     pub system: f32,
 }
 
-/// Peak levels (0..1) since the last call, from the running take or the mic check.
+/// Peak levels (0..1) since the last call, from the running take or the mic check. Async so
+/// a poll that waits on a device opening never stalls the UI thread.
 #[tauri::command]
-pub fn audio_levels(engine: tauri::State<'_, Engine>) -> Result<AudioLevels, String> {
+pub async fn audio_levels(engine: tauri::State<'_, Engine>) -> Result<AudioLevels, String> {
     let (mic, system) = engine.session()?.audio_levels();
     Ok(AudioLevels { mic, system })
 }

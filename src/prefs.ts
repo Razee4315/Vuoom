@@ -47,6 +47,12 @@ export const prefs = {
   captureFps: persisted<number>("capture-fps", 60),
   /** Draw the mouse cursor into recordings. */
   captureCursor: persisted<boolean>("capture-cursor", true),
+  /** Record the microphone (narration) with new takes. */
+  recordMic: persisted<boolean>("record-mic", false),
+  /** Microphone endpoint id; null = the system default input. */
+  micDevice: persisted<string | null>("mic-device", null),
+  /** Record everything the computer plays (app sounds, a video being demoed). */
+  recordSystem: persisted<boolean>("record-system", false),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */
@@ -83,7 +89,7 @@ export const layout = {
   inspectorOpen: persisted<boolean>("inspector-open", true),
   inspectorW: persisted<number>("inspector-w", 312),
   timelineOpen: persisted<boolean>("timeline-open", true),
-  timelineH: persisted<number>("timeline-h", 268),
+  timelineH: persisted<number>("timeline-h", 300),
   /** All annotation bars on one lane instead of one lane each. */
   compactNotes: persisted<boolean>("compact-notes", false),
   /** Rule-of-thirds + center guides over the stage (G). */

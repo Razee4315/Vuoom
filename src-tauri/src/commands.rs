@@ -15,7 +15,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{CropRect, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
+use vuoom_project::{AudioKind, CropRect, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -466,6 +466,71 @@ pub fn set_capture_cursor(engine: tauri::State<'_, Engine>, show: bool) -> Resul
     engine.session()?.set_capture_cursor(show)
 }
 
+/// Microphones (default first) and whether system sound can be recorded.
+#[tauri::command]
+pub async fn list_audio_devices() -> Result<crate::audio::AudioDevices, String> {
+    crate::audio::devices()
+}
+
+/// Choose the audio the next recording captures: the microphone (`mic_device` = endpoint
+/// id, `None` = system default) and/or system sound.
+#[tauri::command]
+pub fn set_capture_audio(
+    engine: tauri::State<'_, Engine>,
+    mic: bool,
+    mic_device: Option<String>,
+    system: bool,
+) -> Result<(), String> {
+    engine.session()?.set_capture_audio(mic, mic_device, system)
+}
+
+/// Start or stop the microphone check that feeds the recording UI's level meter.
+#[tauri::command]
+pub async fn set_mic_check(
+    engine: tauri::State<'_, Engine>,
+    on: bool,
+    device: Option<String>,
+) -> Result<(), String> {
+    engine.session()?.set_mic_check(on, device)
+}
+
+/// Input levels since the last call, for the meters.
+#[derive(Serialize)]
+pub struct AudioLevels {
+    pub mic: f32,
+    pub system: f32,
+}
+
+/// Peak levels (0..1) since the last call, from the running take or the mic check. Async so
+/// a poll that waits on a device opening never stalls the UI thread.
+#[tauri::command]
+pub async fn audio_levels(engine: tauri::State<'_, Engine>) -> Result<AudioLevels, String> {
+    let (mic, system) = engine.session()?.audio_levels();
+    Ok(AudioLevels { mic, system })
+}
+
+/// The loaded clip's recorded track as WAV bytes (an `ArrayBuffer` on the JS side), for the
+/// timeline waveform and preview playback.
+#[tauri::command]
+pub async fn audio_track(
+    engine: tauri::State<'_, Engine>,
+    kind: AudioKind,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = engine.session()?.audio_track_wav(kind)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Set a recorded track's volume (linear, 0..4) and mute state.
+#[tauri::command]
+pub fn set_audio_track(
+    engine: tauri::State<'_, Engine>,
+    kind: AudioKind,
+    gain: f32,
+    muted: bool,
+) -> Result<(), String> {
+    engine.session()?.set_audio_track(kind, gain, muted)
+}
+
 /// Cap the next recording's capture frame rate (10-120 fps).
 #[tauri::command]
 pub fn set_capture_fps(engine: tauri::State<'_, Engine>, fps: u32) -> Result<(), String> {
@@ -675,10 +740,12 @@ pub async fn export_mp4(
     fps: u32,
     width: Option<u32>,
     quality: u8,
+    audio: Option<bool>,
 ) -> Result<(), String> {
+    let audio = audio.unwrap_or(true);
     engine
         .session()?
-        .export_mp4(path, fps, width, quality, &|done, total| {
+        .export_mp4(path, fps, width, quality, audio, &|done, total| {
             let _ = app.emit("export-progress", ExportProgress { done, total });
         })
 }

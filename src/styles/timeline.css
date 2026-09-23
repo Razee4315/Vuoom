@@ -6,6 +6,7 @@
   --lane-h: 28px;
   --fx-h: 34px;
   --film-h: 36px;
+  --audio-h: 30px;
   --heads-w: 104px;
   position: relative;
   display: flex;
@@ -179,15 +180,19 @@
   }
 }
 
+/* The body scrolls vertically as one piece: heads and lanes both grow to their content
+   (at least the panel's height), so tall lane stacks scroll together instead of clipping. */
 .tl-body {
   flex: 1;
   min-height: 0;
   display: flex;
+  align-items: flex-start;
   overflow-y: auto;
   overflow-x: hidden;
 }
 .tl-heads {
   width: var(--heads-w);
+  min-height: 100%;
   flex: none;
   border-right: 1px solid var(--line);
   display: flex;
@@ -226,6 +231,39 @@
   --c: var(--t-speed);
   border-bottom: 0;
 }
+.tl-headcell.audio {
+  height: var(--audio-h);
+  gap: 5px;
+  padding-left: 8px;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  color: color-mix(in srgb, var(--t-audio) 70%, var(--muted));
+}
+.tl-headcell.audio + .tl-headcell.audio {
+  border-top-color: color-mix(in srgb, var(--line) 60%, transparent);
+}
+.tl-headcell.audio.muted {
+  color: var(--faint);
+}
+.tl-mute {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.tl-mute:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.tl-mute[aria-pressed="true"] {
+  color: var(--record);
+}
 .tl-swatch {
   width: 8px;
   height: 8px;
@@ -241,18 +279,23 @@
 
 .tl {
   position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
+  min-height: 100%;
   cursor: text;
 }
 .tl-scroll {
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
   overflow-x: auto;
   overflow-y: hidden;
 }
 .tl-inner {
   position: relative;
-  min-height: 100%;
+  flex: 1 0 auto;
 }
 
 .tl-ruler {
@@ -328,6 +371,23 @@
 .tl-effects {
   height: var(--fx-h);
   border-bottom: 0;
+}
+.tl-audio {
+  height: var(--audio-h);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--t-audio) 4%, transparent);
+}
+.tl-audio + .tl-audio {
+  border-top-color: color-mix(in srgb, var(--line) 60%, transparent);
+}
+.tl-audio.muted {
+  background: none;
+}
+.tl-wave {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .tl-lanehint {
   position: absolute;

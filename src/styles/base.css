@@ -624,6 +624,64 @@ select.input {
   flex: 1;
   min-width: 0;
 }
+/* Audio source picker (Home, Settings): reads like a segmented control. */
+.audio-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.audio-picker:hover,
+.audio-picker.on {
+  border-color: var(--line-strong);
+}
+.audio-picker > svg:first-child {
+  color: var(--t-audio);
+}
+.audio-picker.off {
+  color: var(--muted);
+}
+.audio-picker.off > svg:first-child {
+  color: var(--faint);
+}
+.audio-picker > svg:last-child {
+  color: var(--faint);
+}
+
+/* Input level meter (recording audio): teal, warming to amber near the top, red at clip. */
+.meter {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 64px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.28);
+}
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--t-audio);
+  transition: width 60ms linear;
+}
+.meter.hot .meter-fill {
+  background: linear-gradient(90deg, var(--t-audio) 60%, var(--warn));
+}
+.meter.clip .meter-fill {
+  background: linear-gradient(90deg, var(--t-audio) 55%, var(--warn) 80%, var(--record));
+}
+
 .note {
   margin: 0;
   color: var(--muted);

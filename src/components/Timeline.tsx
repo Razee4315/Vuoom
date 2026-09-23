@@ -1,15 +1,17 @@
 // The timeline panel: transport + insert tools in the header, then a ruler and three
 // colour-coded tracks (camera zooms, annotations, speed & cuts) with named track headers.
 // Resizable from its top edge, collapsible to just the header, zoomable with Ctrl+wheel.
-import { For, Show } from "solid-js";
+import { For, Index, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { isSwallowed } from "../editor/constants";
 import { fmt, fmtT } from "../format";
 import { outputDuration } from "../geometry";
 import { Icon } from "../icons";
 import { layout, prefs, setTimelineH } from "../prefs";
+import { trackLabel } from "../editor/audio";
 import { IconButton, Menu } from "../ui";
 import { annBarMenu, cutMenu, speedMenu, timelineMenu, zoomMenu } from "./contextMenus";
+import Waveform from "./Waveform";
 
 export default function Timeline() {
   const ed = useEditor();
@@ -175,28 +177,45 @@ export default function Timeline() {
 
       <Show when={open()}>
         <div class="tl-body">
-          <div class="tl-heads" aria-hidden="true">
-            <div class="tl-headcell ruler" />
+          <div class="tl-heads">
+            <div class="tl-headcell ruler" aria-hidden="true" />
             <Show when={layout.filmstrip()}>
-              <div class="tl-headcell film">
+              <div class="tl-headcell film" aria-hidden="true">
                 <Icon name="film" size={12} />
                 <span>Frames</span>
               </div>
             </Show>
-            <div class="tl-headcell zoom">
+            <div class="tl-headcell zoom" aria-hidden="true">
               <span class="tl-swatch" />
               <span>Camera</span>
               <span class="tl-count">{ed.zooms().length}</span>
             </div>
-            <div class="tl-headcell notes" style={{ height: `calc(var(--lane-h) * ${noteLanes()})` }}>
+            <div class="tl-headcell notes" aria-hidden="true" style={{ height: `calc(var(--lane-h) * ${noteLanes()})` }}>
               <span class="tl-swatch" />
               <span>Notes</span>
               <span class="tl-count">{ed.annBars().length}</span>
             </div>
-            <div class="tl-headcell effects">
+            <div class="tl-headcell effects" aria-hidden="true">
               <span class="tl-swatch" />
               <span>Speed · Cuts</span>
             </div>
+            <Index each={ed.audio.tracks()}>
+              {(t) => (
+                <div class="tl-headcell audio" classList={{ muted: t().muted }}>
+                  <button
+                    type="button"
+                    class="tl-mute"
+                    aria-pressed={t().muted}
+                    aria-label={`${t().muted ? "Unmute" : "Mute"} ${trackLabel(t().kind)}`}
+                    data-tip={t().muted ? "Unmute" : "Mute"}
+                    onClick={() => ed.audio.toggleMute(t().kind)}
+                  >
+                    <Icon name={t().muted ? "volumeOff" : t().kind === "mic" ? "mic" : "volume"} size={12} />
+                  </button>
+                  <span>{t().kind === "mic" ? "Mic" : "System"}</span>
+                </div>
+              )}
+            </Index>
           </div>
 
           <div
@@ -397,6 +416,23 @@ export default function Timeline() {
                     }}
                   </For>
                 </div>
+
+                {/* Audio: one waveform lane per recorded track. */}
+                <Index each={ed.audio.tracks()}>
+                  {(t) => (
+                    <div class="tl-lane tl-audio" classList={{ muted: t().muted }}>
+                      <Waveform
+                        data={ed.audio.data()[t().kind]}
+                        track={t()}
+                        duration={ed.duration()}
+                        trim={ed.trim()}
+                        cuts={ed.cuts()}
+                        speed={ed.speed()}
+                        theme={ed.theme()}
+                      />
+                    </div>
+                  )}
+                </Index>
 
                 {/* Trim: shaded outside, draggable in/out handles. */}
                 <div class="tl-shade" style={{ left: "0", width: `${ed.pct(ed.tStart())}%` }} />

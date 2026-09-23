@@ -49,7 +49,7 @@ The interface is a quiet workspace built from floating panels you control:
 - **Search every action** with `Ctrl+K`, right-click anything for its menu, and
   hover any control to see its shortcut.
 - **Home that starts the right take**: Region, Full screen or Window, with frame
-  rate, zoom strength and countdown set right there.
+  rate, zoom strength, audio and countdown set right there.
 
 | | |
 |---|---|
@@ -65,6 +65,12 @@ The interface is a quiet workspace built from floating panels you control:
   on any monitor, with pause/resume. Capture is paced at the compositor to the
   frame rate you pick (24 / 30 / 60 fps), so a 144 Hz screen doesn't burn CPU on
   frames nobody needs.
+- 🎙️ **Narration and system sound**: record your microphone, everything the
+  computer plays, or both, each as its own track with a live level meter while
+  you frame the shot. Audio is timed by the same clock as the frames, so it
+  stays in sync through every cut and speed-up; sped-up stretches play silent.
+  Waveforms sit on the timeline, with volume and mute per track, and MP4
+  exports carry an AAC soundtrack.
 - 🗜️ **Recordings that stay small**: frames are stored losslessly as LZ4
   compressed XOR deltas with periodic keyframes, typically 20x+ smaller than raw
   pixels, streamed to disk as you record so length is bounded by your drive and
@@ -101,7 +107,8 @@ The interface is a quiet workspace built from floating panels you control:
    `.msi` (recommended) or `.exe` installer.
    > Builds are not yet code-signed: SmartScreen will warn. Click
    > *More info, then Run anyway*.
-2. Press **Record**, frame your shot, hit **Start**.
+2. Press **Record**, frame your shot, turn on the microphone if you want to
+   narrate, hit **Start**.
 3. While recording: `Ctrl+Shift+Z` to zoom in/out, **Pause** if you need a
    beat, `Ctrl+Shift+X` to stop.
 4. Trim the ends, cut the fumbles, skim the idle parts, drop a text label or
@@ -138,6 +145,7 @@ The interface is a quiet workspace built from floating panels you control:
 ```
 SolidJS + Vite (editor UI)  <-WebSocket preview-  Rust engine
                                                   |- vuoom-capture   Windows Graphics Capture (any monitor)
+                                                  |- vuoom-audio     mic + system sound (WASAPI), edit-aware mixer
                                                   |- vuoom-input     global input log (QPC-stamped)
                                                   |- vuoom-zoom      auto-zoom planner + spring camera
                                                   |- vuoom-render    wgpu compositor (zoom, text, shapes, overlays)

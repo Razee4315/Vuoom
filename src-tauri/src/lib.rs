@@ -4,6 +4,7 @@
 //! command surface in [`commands`] (record/preview/export/annotations). See
 //! `docs/02-Architecture.md`.
 
+mod audio;
 mod commands;
 mod displays;
 mod drag_wall;
@@ -286,6 +287,12 @@ pub fn run() {
             commands::thumbnails,
             commands::set_capture_fps,
             commands::set_capture_cursor,
+            commands::list_audio_devices,
+            commands::set_capture_audio,
+            commands::set_mic_check,
+            commands::audio_levels,
+            commands::audio_track,
+            commands::set_audio_track,
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,

@@ -2,7 +2,7 @@ import { batch, createEffect, createSignal, onCleanup, Show, type JSX } from "so
 import { invoke, listen, save, revealItemInDir } from "./bridge";
 import { Icon } from "./icons";
 import { prefs } from "./prefs";
-import { Field, Slider, toast } from "./ui";
+import { Field, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
@@ -18,6 +18,8 @@ export function ExportDialog(props: {
   trim: Trim | null;
   speed: SpeedRegion[];
   cuts: Trim[];
+  /** The clip has at least one unmuted audio track. */
+  hasAudio: boolean;
   onClose: () => void;
   onStatus: (s: string) => void;
   onExported: () => void;
@@ -35,6 +37,8 @@ export function ExportDialog(props: {
   const [errMsg, setErrMsg] = createSignal("");
   const [budgetMb, setBudgetMb] = createSignal("");
   const [fitting, setFitting] = createSignal(false);
+  const [withAudio, setWithAudio] = createSignal(true);
+  const audioOn = () => props.hasAudio && withAudio();
 
   let dialogEl: HTMLDivElement | undefined;
   let exportStarted = false;
@@ -48,7 +52,9 @@ export function ExportDialog(props: {
     const bpp = 0.04 + ((q - 40) / 60) * 0.16;
     const h = Math.round(width() / Math.max(props.aspect || 16 / 9, 0.2));
     const bits = width() * h * fps() * bpp;
-    return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8);
+    // Plus the AAC soundtrack (192 kbps) when it's included.
+    const audioBytes = audioOn() ? 24_000 * outDur() : 0;
+    return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8) + audioBytes;
   };
 
   // Live size estimate: GIF samples-and-extrapolates (debounced); MP4 is closed-form.
@@ -194,6 +200,7 @@ export function ExportDialog(props: {
           fps: fps(),
           width: width(),
           quality: quality(),
+          ...(f === "mp4" ? { audio: audioOn() } : {}),
         });
         setOutPath(path);
         setPhase("done");
@@ -408,6 +415,20 @@ export function ExportDialog(props: {
                 }}
               />
             </Field>
+            <Show when={props.hasAudio}>
+              <Show
+                when={format() === "mp4"}
+                fallback={
+                  <p class="note export-audio-note">
+                    <Icon name="volumeOff" size={13} /> GIFs are silent. Pick MP4 to keep the sound.
+                  </p>
+                }
+              >
+                <Field label="Include audio" hint="Narration and system sound, mixed as set in the Audio panel">
+                  <Switch checked={withAudio()} label="Include audio" onChange={setWithAudio} />
+                </Field>
+              </Show>
+            </Show>
             <Show when={format() === "gif"}>
               <div class="export-fit">
                 <Icon name="target" size={14} />

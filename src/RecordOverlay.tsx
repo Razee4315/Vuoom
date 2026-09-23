@@ -4,6 +4,15 @@ import { Icon } from "./icons";
 import { prefs } from "./prefs";
 import { Menu, toast } from "./ui";
 import { createPreviewClient } from "./preview";
+import {
+  audioMenuItems,
+  audioSummary,
+  createAudioDevices,
+  createLevels,
+  LevelMeter,
+  micName,
+  useMicCheck,
+} from "./components/AudioControls";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -77,6 +86,12 @@ export default function RecordOverlay(props: {
   const [count, setCount] = createSignal(prefs.countdown());
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
+  // Audio: the mic check feeds the HUD meter while framing; during the take the engine's
+  // own capture feeds the live panel's meters.
+  const audioDevices = createAudioDevices();
+  const framing = () => phase() === "select" || phase() === "countdown";
+  useMicCheck(() => framing() && prefs.recordMic());
+  const levels = createLevels(() => (framing() && prefs.recordMic()) || phase() === "recording");
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
   // resize a given edge). Applied inline so it overrides the base crosshair.
   const [cursor, setCursor] = createSignal("crosshair");
@@ -595,6 +610,22 @@ export default function RecordOverlay(props: {
               <Show when={phase() === "recording" && props.zoom > 1}>
                 <span class="rec-previewtag">Zoom {props.zoom.toFixed(1)}×</span>
               </Show>
+              <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
+                <div class="rec-audio">
+                  <Show when={prefs.recordMic()}>
+                    <span class="rec-audio-row" data-tip="Microphone level">
+                      <Icon name="mic" size={11} />
+                      <LevelMeter level={paused() ? 0 : levels.mic()} />
+                    </span>
+                  </Show>
+                  <Show when={prefs.recordSystem()}>
+                    <span class="rec-audio-row" data-tip="System sound level">
+                      <Icon name="volume" size={11} />
+                      <LevelMeter level={paused() ? 0 : levels.system()} />
+                    </span>
+                  </Show>
+                </div>
+              </Show>
             </div>
             <div class="rec-controls">
               <Show
@@ -745,6 +776,27 @@ export default function RecordOverlay(props: {
             </div>
           </div>
           <span class="hud-sep" />
+          <Menu
+            class="hud-menu"
+            items={() => audioMenuItems(audioDevices())}
+            trigger={(m) => (
+              <button
+                type="button"
+                class="hud-options hud-audio"
+                classList={{ on: m.open, off: !prefs.recordMic() && !prefs.recordSystem() }}
+                ref={m.ref}
+                data-tip={prefs.recordMic() ? micName(audioDevices()) : "Record your voice or the computer's sound"}
+                onClick={m.toggle}
+              >
+                <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />
+                <span>{audioSummary()}</span>
+                <Show when={prefs.recordMic()}>
+                  <LevelMeter level={levels.mic()} class="hud-meter" />
+                </Show>
+                <Icon name="chevronUp" size={12} />
+              </button>
+            )}
+          />
           <Menu
             class="hud-menu"
             items={() => [

@@ -5,6 +5,9 @@
 //! writer inserts the color converter the encoder needs. The sink writer only considers
 //! hardware encoders (NVENC, Quick Sync, AMF) when the hardware-transforms attribute is set,
 //! so it is, with a software-encoder fallback for GPUs whose MFT rejects the setup.
+//! With a soundtrack, an AAC stream (48 kHz stereo, 192 kbps, the OS encoder again) is fed
+//! 16-bit PCM interleaved with the video; if the AAC encoder is unavailable the file is
+//! written without audio rather than failing.
 //! Compile-verified on CI; the encode path needs a real Windows session to run.
 
 #[cfg(windows)]
@@ -13,15 +16,51 @@ mod imp {
     use std::sync::OnceLock;
     use windows::core::PCWSTR;
     use windows::Win32::Media::MediaFoundation::{
-        IMFAttributes, IMFByteStream, IMFSinkWriter, MFCreateAttributes, MFCreateMediaType,
-        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Video,
-        MFStartup, MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive,
-        MFSTARTUP_FULL, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
-        MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO,
-        MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING,
-        MF_VERSION,
+        IMFAttributes, IMFByteStream, IMFSinkWriter, MFAudioFormat_AAC, MFAudioFormat_PCM,
+        MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
+        MFCreateSinkWriterFromURL, MFMediaType_Audio, MFMediaType_Video, MFStartup,
+        MFVideoFormat_H264, MFVideoFormat_RGB32, MFVideoInterlace_Progressive, MFSTARTUP_FULL,
+        MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT,
+        MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE,
+        MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
+        MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
+        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING, MF_VERSION,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+
+    /// Soundtrack sample rate (the mixer renders at this rate).
+    const AUDIO_RATE: u32 = vuoom_audio::OUTPUT_RATE;
+    /// AAC bitrate in bytes per second (192 kbps; the encoder accepts 12/16/20/24 k).
+    const AAC_BYTES_PER_SEC: u32 = 24_000;
+
+    /// Add an AAC output stream fed 16-bit stereo PCM. Returns its stream index.
+    ///
+    /// # Safety
+    /// `writer` must be a sink writer that has not begun writing.
+    unsafe fn add_audio_stream(writer: &IMFSinkWriter) -> windows::core::Result<u32> {
+        // SAFETY: guaranteed by the caller; the media types are fresh and owned here.
+        unsafe {
+            let out = MFCreateMediaType()?;
+            out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
+            out.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_AAC)?;
+            out.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 16)?;
+            out.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, AUDIO_RATE)?;
+            out.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, 2)?;
+            out.SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, AAC_BYTES_PER_SEC)?;
+            let stream = writer.AddStream(&out)?;
+
+            let inp = MFCreateMediaType()?;
+            inp.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)?;
+            inp.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_PCM)?;
+            inp.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 16)?;
+            inp.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, AUDIO_RATE)?;
+            inp.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, 2)?;
+            inp.SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, 4)?;
+            inp.SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, AUDIO_RATE * 4)?;
+            writer.SetInputMediaType(stream, &inp, None::<&IMFAttributes>)?;
+            Ok(stream)
+        }
+    }
 
     /// `MF_MT_FRAME_SIZE` / `MF_MT_FRAME_RATE` pack two u32s into one u64 attribute.
     fn pack2(hi: u32, lo: u32) -> u64 {
@@ -57,6 +96,8 @@ mod imp {
     pub struct Mp4Encoder {
         writer: IMFSinkWriter,
         stream: u32,
+        /// The AAC stream, when the file carries a soundtrack.
+        audio: Option<u32>,
         w: u32,
         h: u32,
         /// Per-frame duration in 100ns units.
@@ -65,17 +106,43 @@ mod imp {
 
     impl Mp4Encoder {
         /// Create the sink writer for `path` and configure H.264 out / RGB32 in, preferring a
-        /// hardware encoder and falling back to Microsoft's software one.
-        pub fn new(path: &Path, w: u32, h: u32, fps: u32, quality: u8) -> Result<Self, String> {
+        /// hardware encoder and falling back to Microsoft's software one. With `audio`, an
+        /// AAC stream is added too; if no setup accepts it, the file is video-only (see
+        /// [`Self::has_audio`]).
+        pub fn new(
+            path: &Path,
+            w: u32,
+            h: u32,
+            fps: u32,
+            quality: u8,
+            audio: bool,
+        ) -> Result<Self, String> {
             ensure_mf()?;
-            match Self::with_hardware(path, w, h, fps, quality, true) {
-                Ok(enc) => Ok(enc),
-                Err(e) => {
-                    tracing::warn!("hardware H.264 setup failed ({e}), using software");
+            let attempt = |hardware: bool, audio: bool| {
+                let r = Self::with_hardware(path, w, h, fps, quality, hardware, audio);
+                if r.is_err() {
                     let _ = std::fs::remove_file(path);
-                    Self::with_hardware(path, w, h, fps, quality, false)
                 }
+                r
+            };
+            let first = match attempt(true, audio) {
+                Ok(enc) => return Ok(enc),
+                Err(e) => e,
+            };
+            tracing::warn!("hardware H.264 setup failed ({first}), using software");
+            match attempt(false, audio) {
+                Ok(enc) => Ok(enc),
+                Err(e) if audio => {
+                    tracing::warn!("MP4 with audio failed ({e}), writing video only");
+                    attempt(false, false)
+                }
+                Err(e) => Err(e),
             }
+        }
+
+        /// Whether the file carries a soundtrack.
+        pub fn has_audio(&self) -> bool {
+            self.audio.is_some()
         }
 
         fn with_hardware(
@@ -85,6 +152,7 @@ mod imp {
             fps: u32,
             quality: u8,
             hardware: bool,
+            audio: bool,
         ) -> Result<Self, String> {
             let wide: Vec<u16> = path
                 .as_os_str()
@@ -154,11 +222,18 @@ mod imp {
                 writer
                     .SetInputMediaType(stream, &inp, None::<&IMFAttributes>)
                     .map_err(|e| format!("RGB32 input not accepted: {e}"))?;
+                let audio = if audio {
+                    let added = add_audio_stream(&writer);
+                    Some(added.map_err(|e| format!("AAC stream: {e}"))?)
+                } else {
+                    None
+                };
 
                 writer.BeginWriting().map_err(|e| e.to_string())?;
                 Ok(Self {
                     writer,
                     stream,
+                    audio,
                     w,
                     h,
                     frame_hns: (10_000_000 / i64::from(fps.max(1))).max(1),
@@ -216,6 +291,51 @@ mod imp {
             Ok(())
         }
 
+        /// Encode interleaved 16-bit stereo samples (48 kHz) starting at output sample frame
+        /// `start`. A no-op when the file has no soundtrack.
+        pub fn write_audio(&self, samples: &[i16], start: u64) -> Result<(), String> {
+            let Some(stream) = self.audio else {
+                return Ok(());
+            };
+            if samples.is_empty() {
+                return Ok(());
+            }
+            let Ok(len) = u32::try_from(samples.len() * 2) else {
+                return Err("audio chunk too large".into());
+            };
+            let rate = i64::from(AUDIO_RATE);
+            let hns = |frames: i64| frames * 10_000_000 / rate;
+            let first = start as i64;
+            let count = (samples.len() / 2) as i64;
+            // SAFETY: buffer is locked, filled within bounds, unlocked before use.
+            unsafe {
+                let buffer = MFCreateMemoryBuffer(len).map_err(|e| e.to_string())?;
+                let mut ptr: *mut u8 = std::ptr::null_mut();
+                buffer
+                    .Lock(&mut ptr, None, None)
+                    .map_err(|e| e.to_string())?;
+                let dst = std::slice::from_raw_parts_mut(ptr, len as usize);
+                for (d, s) in dst.as_chunks_mut::<2>().0.iter_mut().zip(samples) {
+                    *d = s.to_le_bytes();
+                }
+                buffer.Unlock().map_err(|e| e.to_string())?;
+                buffer.SetCurrentLength(len).map_err(|e| e.to_string())?;
+
+                let sample = MFCreateSample().map_err(|e| e.to_string())?;
+                sample.AddBuffer(&buffer).map_err(|e| e.to_string())?;
+                sample
+                    .SetSampleTime(hns(first))
+                    .map_err(|e| e.to_string())?;
+                sample
+                    .SetSampleDuration(hns(first + count) - hns(first))
+                    .map_err(|e| e.to_string())?;
+                self.writer
+                    .WriteSample(stream, &sample)
+                    .map_err(|e| format!("encode audio: {e}"))?;
+            }
+            Ok(())
+        }
+
         /// Flush the encoder and finalize the MP4 container.
         pub fn finish(self) -> Result<(), String> {
             // SAFETY: finalizing a writer we began writing on.
@@ -239,7 +359,14 @@ impl Mp4Encoder {
         _h: u32,
         _fps: u32,
         _quality: u8,
+        _audio: bool,
     ) -> Result<Self, String> {
+        Err("MP4 export is Windows-only".into())
+    }
+    pub fn has_audio(&self) -> bool {
+        false
+    }
+    pub fn write_audio(&self, _samples: &[i16], _start: u64) -> Result<(), String> {
         Err("MP4 export is Windows-only".into())
     }
     pub fn write_rgba(&self, _rgba: &[u8], _w: u32, _h: u32, _i: u32) -> Result<(), String> {

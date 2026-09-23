@@ -11,6 +11,7 @@ import { layout, prefs, resetLayout } from "../prefs";
 import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
 import { Field, Seg, Switch } from "../ui";
+import { AudioPicker } from "./AudioControls";
 
 type Tab = "general" | "recording" | "editing" | "storage" | "shortcuts" | "about";
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -134,6 +135,9 @@ export default function Settings() {
                   { value: "hide", label: "Hide" },
                 ]}
               />
+            </Field>
+            <Field label="Audio" hint="Microphone narration and computer sound, each on its own track">
+              <AudioPicker />
             </Field>
             <Field label="Countdown">
               <Seg

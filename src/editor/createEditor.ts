@@ -10,6 +10,7 @@ import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { pushAudioChoice } from "../components/AudioControls";
+import { pushCursorMode } from "../cursorMode";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -22,6 +23,7 @@ import type {
   BoxAnn,
   ClipState,
   CropRect,
+  CursorStyle,
   FrameInfo,
   DisplayInfo,
   Color,
@@ -678,6 +680,8 @@ export function createEditor() {
       setBgPreset(cs.background_preset);
       setFrameInfo(cs.frame ?? null);
       audio.adopt(cs.audio ?? []);
+      setCursorStyle(cs.cursor ?? null);
+      setPointerCaptured(cs.pointer_captured ?? true);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -1940,7 +1944,7 @@ export function createEditor() {
     setRecordTarget(target);
     // The capture rate is a preference; older engines without the command just keep theirs.
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
-    void invoke("set_capture_cursor", { show: prefs.captureCursor() }).catch(() => undefined);
+    pushCursorMode();
     pushAudioChoice();
     try {
       setStatus("Choose the area to record…");
@@ -2509,6 +2513,32 @@ export function createEditor() {
       }
     });
   };
+
+  // ── re-drawn pointer ────────────────────────────────────────────────────────────
+  const DEFAULT_CURSOR: CursorStyle = { size: 1.5, smoothing: 0.05 };
+  const [cursorStyle, setCursorStyle] = createSignal<CursorStyle | null>(null);
+  const [pointerCaptured, setPointerCaptured] = createSignal(true);
+  // Remembered while the pointer is off, so switching it back on restores the last look.
+  let lastCursor: CursorStyle = DEFAULT_CURSOR;
+  const cursorSync = createSyncSlot<{ style: CursorStyle | null }>();
+  const applyCursor = (style: CursorStyle | null) => {
+    if (!hasClip()) return;
+    if (style) lastCursor = style;
+    setCursorStyle(style);
+    setDirty(true);
+    cursorSync.push({ style }, async (val, superseded) => {
+      try {
+        const s = val.style ?? lastCursor;
+        await invoke("set_cursor_style", { enabled: val.style !== null, size: s.size, smoothing: s.smoothing });
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) toast(`Pointer change failed: ${friendlyError(e)}`, "error");
+      }
+    });
+  };
+  const toggleCursor = () => applyCursor(cursorStyle() ? null : lastCursor);
+  const setCursorSize = (size: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), size });
+  const setCursorSmoothing = (smoothing: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), smoothing });
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
   const keysSync = createSyncSlot<boolean>();
@@ -3495,6 +3525,11 @@ export function createEditor() {
     playing,
     setPlaying,
     audio,
+    cursorStyle,
+    pointerCaptured,
+    toggleCursor,
+    setCursorSize,
+    setCursorSmoothing,
     looping,
     setLooping,
     anns,

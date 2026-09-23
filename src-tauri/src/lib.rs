@@ -287,6 +287,7 @@ pub fn run() {
             commands::thumbnails,
             commands::set_capture_fps,
             commands::set_capture_cursor,
+            commands::set_cursor_style,
             commands::list_audio_devices,
             commands::set_capture_audio,
             commands::set_mic_check,

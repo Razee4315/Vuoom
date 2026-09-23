@@ -9,6 +9,7 @@ import type {
   AudioKind,
   AudioTrack,
   BoxAnn,
+  CursorStyle,
   ClipState,
   Color,
   FrameInfo,
@@ -108,6 +109,12 @@ class MockEngine {
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
   audio: AudioTrack[] = [];
+  /** The re-drawn pointer (mirrors Project::cursor) and whether the real one was captured. */
+  cursor: CursorStyle | null = null;
+  pointerCaptured = true;
+  /** Pointer handling for the next mock take (set_capture_cursor). */
+  captureShow = true;
+  captureSmooth = false;
   /** Audio the next mock recording "captures" (set_capture_audio). */
   audioChoice = { mic: false, system: false };
   micCheck = false;
@@ -142,6 +149,11 @@ class MockEngine {
     this.sceneVersion++;
     for (const cb of this.dirtyCbs) cb();
   }
+  /** Move the playhead; preview clients repaint the new moment. */
+  seek(t: number) {
+    this.playhead = Math.max(0, Math.min(this.duration || 0, t));
+    this.markDirty();
+  }
 
   // ── state helpers ────────────────────────────────────────────────────────────
   private snap(): Snapshot {
@@ -159,6 +171,7 @@ class MockEngine {
       frame: this.frame,
       duration: this.duration,
       audio: this.audio,
+      cursor: this.cursor,
     });
   }
   private mutate(tag?: string, fn?: () => void) {
@@ -189,6 +202,7 @@ class MockEngine {
     this.frame = st.frame;
     this.duration = st.duration;
     this.audio = st.audio ?? [];
+    this.cursor = st.cursor ?? null;
   }
 
   private loadDemo() {
@@ -205,6 +219,8 @@ class MockEngine {
     this.bgPreset = "graphite";
     this.frame = { ...FRAME_SUBTLE, ...bgInfo("graphite") };
     this.audio = [track("mic"), track("system")];
+    this.cursor = { size: 1.5, smoothing: 0.05 };
+    this.pointerCaptured = false;
     this.playhead = 0;
     this.undoStack = [];
     this.redoStack = [];
@@ -238,7 +254,15 @@ class MockEngine {
       background_preset: this.bgPreset,
       frame: structuredClone(this.frame),
       audio: structuredClone(this.audio),
+      cursor: this.cursor ? { ...this.cursor } : null,
+      pointer_captured: this.pointerCaptured,
     };
+  }
+
+  setCursorStyle(enabled: boolean, size: number, smoothing: number) {
+    this.mutate("cursor-style", () => {
+      this.cursor = enabled ? { size: Math.max(0.5, Math.min(3, size)), smoothing: Math.max(0, Math.min(0.2, smoothing)) } : null;
+    });
   }
 
   setAudioTrack(kind: AudioKind, gain: number, muted: boolean) {
@@ -378,6 +402,8 @@ class MockEngine {
       ...(this.audioChoice.mic ? [track("mic")] : []),
       ...(this.audioChoice.system ? [track("system")] : []),
     ];
+    this.pointerCaptured = this.captureShow;
+    this.cursor = this.captureSmooth ? { size: 1.5, smoothing: 0.05 } : null;
     return this.summary();
   }
   recoverSession(): RecordingSummary {
@@ -884,27 +910,57 @@ function paintDesktop(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
     }
   }
 
-  // cursor at time t
+  // The pointer: the real one when the take captured it, the re-drawn one on top when the
+  // project has it (sized like the engine's: 2.1% of the screen height per size unit).
   const c = cursorAt(Math.max(0, t));
   const cx = c.x * w;
   const cy = c.y * h;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(1.15, 1.15);
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = "#111111";
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(0, 16);
-  ctx.lineTo(4.4, 12.4);
-  ctx.lineTo(7.4, 18.6);
-  ctx.lineTo(10.2, 17.2);
-  ctx.lineTo(7.2, 11.2);
-  ctx.lineTo(12.4, 10.6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
+  if (opts.live || mockEngine.pointerCaptured) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1.15, 1.15);
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#111111";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 16);
+    ctx.lineTo(4.4, 12.4);
+    ctx.lineTo(7.4, 18.6);
+    ctx.lineTo(10.2, 17.2);
+    ctx.lineTo(7.2, 11.2);
+    ctx.lineTo(12.4, 10.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  const style = mockEngine.cursor;
+  if (!opts.live && style) {
+    const press = CLICK_TIMES.some((ct) => t - ct >= 0 && t - ct < 0.28) ? 0.86 : 1;
+    const s = (style.size * 0.021 * h * press) / 17.3;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(s, s);
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#0a0a0d";
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 14.9);
+    ctx.lineTo(3.6, 11.6);
+    ctx.lineTo(6.2, 17.3);
+    ctx.lineTo(8.6, 16.3);
+    ctx.lineTo(6, 10.7);
+    ctx.lineTo(10.7, 10.5);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 let backdropCanvas: HTMLCanvasElement | null = null;

@@ -814,6 +814,7 @@ mod tests {
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),
+            cursor: None,
         };
         let px = compositor.composite_scene(
             &source,

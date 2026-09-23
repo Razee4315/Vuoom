@@ -12,6 +12,7 @@ import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
 import { Field, Seg, Switch } from "../ui";
 import { AudioPicker } from "./AudioControls";
+import { CURSOR_MODES } from "../cursorMode";
 
 type Tab = "general" | "recording" | "editing" | "storage" | "shortcuts" | "about";
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -126,14 +127,14 @@ export default function Settings() {
                 ]}
               />
             </Field>
-            <Field label="Mouse cursor" hint="Hide the pointer in the video; zooms still follow it">
+            <Field
+              label="Mouse pointer"
+              hint="Smooth hides the real pointer and draws a clean one that glides, sized in the editor. Zooms follow it either way"
+            >
               <Seg
-                value={prefs.captureCursor() ? "show" : "hide"}
-                onChange={(v) => prefs.captureCursor.set(v === "show")}
-                options={[
-                  { value: "show", label: "Show" },
-                  { value: "hide", label: "Hide" },
-                ]}
+                value={prefs.cursorMode()}
+                onChange={(v) => prefs.cursorMode.set(v)}
+                options={CURSOR_MODES.map((c) => ({ value: c.value, label: c.label }))}
               />
             </Field>
             <Field label="Audio" hint="Microphone narration and computer sound, each on its own track">

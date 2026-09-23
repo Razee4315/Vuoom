@@ -13,6 +13,7 @@ import {
   micName,
   useMicCheck,
 } from "./components/AudioControls";
+import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -809,13 +810,13 @@ export default function RecordOverlay(props: {
                   void invoke("set_capture_fps", { fps: f }).catch(() => undefined);
                 },
               })),
-              { heading: "Mouse cursor" },
-              ...[true, false].map((show) => ({
-                label: show ? "Show the pointer" : "Hide the pointer",
-                checked: prefs.captureCursor() === show,
+              { heading: "Mouse pointer" },
+              ...CURSOR_MODES.map((c) => ({
+                label: c.menu,
+                checked: prefs.cursorMode() === c.value,
                 onSelect: () => {
-                  prefs.captureCursor.set(show);
-                  void invoke("set_capture_cursor", { show }).catch(() => undefined);
+                  prefs.cursorMode.set(c.value);
+                  pushCursorMode(c.value);
                 },
               })),
               { heading: "Countdown" },
@@ -836,7 +837,7 @@ export default function RecordOverlay(props: {
               >
                 <Icon name="sliders" size={14} />
                 <span>
-                  {prefs.captureFps()} fps · {prefs.captureCursor() ? "cursor" : "no cursor"} ·{" "}
+                  {prefs.captureFps()} fps · {cursorSummary()} ·{" "}
                   {prefs.countdown() === 0 ? "no timer" : `${prefs.countdown()}s`}
                 </span>
                 <Icon name="chevronUp" size={12} />

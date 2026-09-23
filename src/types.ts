@@ -119,7 +119,22 @@ export interface ClipState {
   frame: FrameInfo;
   /** Recorded audio tracks (absent from engines that predate audio). */
   audio?: AudioTrack[];
+  /** The re-drawn pointer, if on. */
+  cursor?: CursorStyle | null;
+  /** Whether the real pointer is in the recorded frames. */
+  pointer_captured?: boolean;
 }
+
+/** Mirrors vuoom_project::CursorStyle. */
+export interface CursorStyle {
+  /** Size multiplier, 0.5..3. */
+  size: number;
+  /** Path smoothing in seconds, 0..0.2. */
+  smoothing: number;
+}
+
+/** How new takes handle the mouse pointer. */
+export type CursorMode = "smooth" | "show" | "hide";
 
 /** Where an audio track was recorded from. */
 export type AudioKind = "mic" | "system";

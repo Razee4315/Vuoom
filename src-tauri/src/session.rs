@@ -466,6 +466,35 @@ impl Session {
         Ok(format!("data:image/png;base64,{b64}"))
     }
 
+    /// `count` evenly spaced thumbnails of the recorded frames (not composited), each
+    /// `width` px wide, as PNG data URLs, for the timeline filmstrip. Frames are read in
+    /// time order, so the delta-compressed store decodes each one incrementally.
+    pub fn thumbnails(&self, count: u32, width: u32) -> Result<Vec<String>, String> {
+        let (store, start_qpc, duration) = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            let project = edited.project.as_ref().ok_or("no recording")?;
+            (
+                Arc::clone(edited.frames.as_ref().ok_or("no recording")?),
+                edited.start_qpc,
+                project.source.duration,
+            )
+        };
+        let count = count.clamp(1, 120);
+        let width = width.clamp(16, 480);
+        let mut out = Vec::with_capacity(count as usize);
+        for k in 0..count {
+            let t = (f64::from(k) + 0.5) / f64::from(count) * duration;
+            let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
+            let frame = store.frame(idx)?;
+            let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
+            let small = downscale_rgba(&img, width);
+            let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+            out.push(format!("data:image/png;base64,{b64}"));
+        }
+        Ok(out)
+    }
+
     /// The localhost port the webview connects to for the live preview.
     #[must_use]
     pub fn preview_port(&self) -> u16 {

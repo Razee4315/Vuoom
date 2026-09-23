@@ -444,6 +444,16 @@ pub async fn screenshot(engine: tauri::State<'_, Engine>) -> Result<String, Stri
     engine.session()?.screenshot()
 }
 
+/// Evenly spaced frame thumbnails (PNG data URLs) for the timeline filmstrip.
+#[tauri::command]
+pub async fn thumbnails(
+    engine: tauri::State<'_, Engine>,
+    count: u32,
+    width: u32,
+) -> Result<Vec<String>, String> {
+    engine.session()?.thumbnails(count, width)
+}
+
 /// Set the zoom multiplier (1.0 = no zoom) applied to the next recording.
 #[tauri::command]
 pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<(), String> {

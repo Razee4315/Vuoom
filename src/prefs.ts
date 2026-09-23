@@ -81,11 +81,13 @@ export const layout = {
   inspectorOpen: persisted<boolean>("inspector-open", true),
   inspectorW: persisted<number>("inspector-w", 312),
   timelineOpen: persisted<boolean>("timeline-open", true),
-  timelineH: persisted<number>("timeline-h", 236),
+  timelineH: persisted<number>("timeline-h", 268),
   /** All annotation bars on one lane instead of one lane each. */
   compactNotes: persisted<boolean>("compact-notes", false),
   /** Rule-of-thirds + center guides over the stage (G). */
   guides: persisted<boolean>("guides", false),
+  /** Frame thumbnails along the top of the timeline. */
+  filmstrip: persisted<boolean>("filmstrip", true),
 };
 
 export const INSPECTOR_MIN = 260;

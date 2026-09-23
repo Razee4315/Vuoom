@@ -18,16 +18,27 @@ export default function WindowControls() {
   const appWindow = isMock ? mockWindow() : getCurrentWindow();
   const [maximized, setMaximized] = createSignal(false);
 
-  onMount(async () => {
-    try {
-      setMaximized(await appWindow.isMaximized());
-      const unlisten = await appWindow.onResized(async () => {
+  onMount(() => {
+    // Register the cleanup synchronously: after an `await` the component owner is gone and
+    // the listener would never be removed.
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    onCleanup(() => {
+      disposed = true;
+      unlisten?.();
+    });
+    void (async () => {
+      try {
         setMaximized(await appWindow.isMaximized());
-      });
-      onCleanup(unlisten);
-    } catch {
-      // Not running inside a Tauri window (e.g. browser dev), ignore.
-    }
+        const un = await appWindow.onResized(async () => {
+          setMaximized(await appWindow.isMaximized());
+        });
+        if (disposed) un();
+        else unlisten = un;
+      } catch {
+        // Not running inside a Tauri window (e.g. browser dev), ignore.
+      }
+    })();
   });
 
   return (

@@ -253,6 +253,30 @@ function TimingSection(props: { id: string }) {
       <Field label="On screen">
         <span class="readout">{(r().end - r().start).toFixed(2)}s</span>
       </Field>
+      <Field label="Fade in" hint="0 pops in instantly">
+        <ScrubField
+          value={Number(r().fade_in.toFixed(2))}
+          min={0}
+          max={2}
+          step={0.05}
+          suffix="s"
+          title="Fade-in length. Drag to scrub, click to type"
+          onInput={(v) => ed.editFades(v, r().fade_out)}
+          onCommit={(v) => ed.editFades(v, r().fade_out)}
+        />
+      </Field>
+      <Field label="Fade out" hint="0 disappears instantly">
+        <ScrubField
+          value={Number(r().fade_out.toFixed(2))}
+          min={0}
+          max={2}
+          step={0.05}
+          suffix="s"
+          title="Fade-out length. Drag to scrub, click to type"
+          onInput={(v) => ed.editFades(r().fade_in, v)}
+          onCommit={(v) => ed.editFades(r().fade_in, v)}
+        />
+      </Field>
       <div class="btn-row">
         <button type="button" class="btn sm" data-tip="Start at the playhead" onClick={() => {
           const len = r().end - r().start;

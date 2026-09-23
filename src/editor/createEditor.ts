@@ -1635,6 +1635,24 @@ export function createEditor() {
       },
     );
   };
+  const editFades = (fadeIn: number, fadeOut: number) => {
+    const s = selected();
+    if (!s || Number.isNaN(fadeIn) || Number.isNaN(fadeOut)) return;
+    const { id, kind } = s;
+    pushEdit(
+      `fades:${id}`,
+      () =>
+        patchAnn(kind, id, (a) => {
+          const r = (a as TextAnn).range;
+          (a as TextAnn).range = { ...r, fade_in: fadeIn, fade_out: fadeOut };
+        }),
+      async () => {
+        await invoke("set_annotation_fades", { id, fadeIn, fadeOut });
+        await refresh();
+        await pushSeek(playhead());
+      },
+    );
+  };
   // Delete the whole selection (primary + extras). A lone delete keeps today's behaviour
   // (empty, non-coalescing undo tag). A group delete passes ONE shared non-empty tag for the
   // run so the backend's snapshot() coalesces every removal into a single undo step.
@@ -3292,6 +3310,7 @@ export function createEditor() {
   };
 
   return {
+    editFades,
     cropEdit,
     cropDraft,
     setCropDraft,

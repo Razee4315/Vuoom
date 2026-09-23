@@ -1094,6 +1094,17 @@ pub fn set_arrow_style(
     engine.session()?.set_arrow_style(id, &style)
 }
 
+/// Set an annotation's fade-in / fade-out lengths in seconds.
+#[tauri::command]
+pub fn set_annotation_fades(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    fade_in: f64,
+    fade_out: f64,
+) -> Result<(), String> {
+    engine.session()?.set_annotation_fades(id, fade_in, fade_out)
+}
+
 /// Retime an annotation (text, arrow, or box): when it appears / disappears.
 #[tauri::command]
 pub fn update_annotation_range(

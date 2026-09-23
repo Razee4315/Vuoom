@@ -186,6 +186,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "update_annotation_range":
       m.updateAnnRange(a.id as number, a.start as number, a.end as number);
       return null;
+    case "set_annotation_fades":
+      m.setAnnFades(a.id as number, a.fadeIn as number, a.fadeOut as number);
+      return null;
     case "duplicate_annotation":
       return m.duplicateAnn(a.id as number);
     case "paste_annotations":

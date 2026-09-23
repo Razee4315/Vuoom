@@ -825,6 +825,12 @@ export function createEditor() {
       e.preventDefault();
       const dir = e.key === "ArrowDown" ? 1 : -1;
       void nudgeSelected(0, dir * (e.shiftKey ? 0.02 : 0.005));
+    } else if ((e.code === "Comma" || e.code === "Period") && hasClip() && !e.ctrlKey && !e.altKey) {
+      // Frame step (1/30 s; Shift = 10 frames), pausing playback like any precise seek.
+      e.preventDefault();
+      if (playing()) togglePlay();
+      const step = (e.shiftKey ? 10 : 1) / 30;
+      scrub(Math.min(Math.max(playhead() + (e.code === "Period" ? step : -step), tStart()), tEnd()));
     } else if (e.key === "Home" && hasClip()) {
       e.preventDefault();
       scrub(tStart());

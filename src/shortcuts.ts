@@ -30,6 +30,7 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
     items: [
       { keys: ["Space"], label: "Play / pause" },
       { keys: ["←", "→"], label: "Scrub (Shift = 1s)" },
+      { keys: [",", "."], label: "Step one frame (Shift = 10)" },
       { keys: ["Home"], label: "Jump to start" },
       { keys: ["End"], label: "Jump to end" },
       { keys: ["I"], label: "Trim start at playhead (Shift clears)" },

@@ -1108,7 +1108,9 @@ pub fn set_annotation_fades(
     fade_in: f64,
     fade_out: f64,
 ) -> Result<(), String> {
-    engine.session()?.set_annotation_fades(id, fade_in, fade_out)
+    engine
+        .session()?
+        .set_annotation_fades(id, fade_in, fade_out)
 }
 
 /// Retime an annotation (text, arrow, or box): when it appears / disappears.

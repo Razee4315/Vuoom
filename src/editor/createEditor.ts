@@ -3216,6 +3216,8 @@ export function createEditor() {
     },
     contentInput: (el: HTMLInputElement) => {
       contentInput = el;
+      // The field mounts after the selection changed, so seed it now.
+      el.value = selectedText()?.text ?? "";
     },
   };
 

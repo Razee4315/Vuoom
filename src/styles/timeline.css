@@ -329,7 +329,8 @@
 }
 .tl-seg.selected {
   background: color-mix(in srgb, var(--c) 42%, var(--panel));
-  box-shadow: 0 0 0 1.5px var(--sel), 0 4px 14px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 2px var(--sel), 0 4px 14px rgba(0, 0, 0, 0.35);
+  color: var(--text);
   z-index: 3;
 }
 .tl-seg.swallowed {

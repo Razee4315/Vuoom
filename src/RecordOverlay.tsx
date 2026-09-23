@@ -1,5 +1,7 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
+import { Icon } from "./icons";
+import { prefs } from "./prefs";
 import { toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import "./RecordOverlay.css";
@@ -58,8 +60,6 @@ export default function RecordOverlay(props: {
   target: RecordTarget;
   /** Which framing the selector opens on: the whole display or a drawn region. */
   initialMode?: "full" | "region";
-  /** Seconds of 3-2-1 before capture starts (0 starts immediately). */
-  countdown?: number;
   onZoomChange: (v: number) => void;
   onFinished: (s: Summary) => void;
   onCancel: () => void;
@@ -75,7 +75,7 @@ export default function RecordOverlay(props: {
     PRESETS.find((p) => p.id === (props.initialMode === "full" ? "full" : "free")) ?? PRESETS[0],
   );
   const [sel, setSel] = createSignal<Rect | null>(null);
-  const [count, setCount] = createSignal(Math.max(0, props.countdown ?? 3));
+  const [count, setCount] = createSignal(prefs.countdown());
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
@@ -130,6 +130,7 @@ export default function RecordOverlay(props: {
     // record full screen.
     if (!windowMode && p.ratio !== "full" && (!r || r.w < 8 || r.h < 8)) return;
     stillRegion = null; // recomputed below; never reuse a previous attempt's rect
+    setCount(prefs.countdown());
     setPhase("preparing"); // instant acknowledgment: no dead click while the engine sets up
     try {
       if (windowMode) {
@@ -548,51 +549,52 @@ export default function RecordOverlay(props: {
   const dims = () => {
     const r = sel();
     if (preset().ratio === "full") return "Full screen";
-    if (!r) return "Drag to mark the area";
+    if (!r) return "No area yet";
     const { sx, sy } = toPhysical();
     return `${Math.round(r.w * sx)} × ${Math.round(r.h * sy)} px`;
   };
+
+  const windowMode = () => props.target?.kind === "window";
+  const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
 
   return (
     <Show
       when={phase() === "select"}
       fallback={
         <div class="rec-panel-root">
-          <div class="rec-panel">
+          <div class="rec-panel" classList={{ live: phase() === "recording", paused: paused() }}>
             <div class="rec-drag" data-tauri-drag-region>
-              <span class="rec-grip" data-tauri-drag-region>
-                ⠿
+              <span class="rec-state" data-tauri-drag-region>
+                <Show
+                  when={phase() === "recording"}
+                  fallback={
+                    <span data-tauri-drag-region>
+                      {phase() === "finalizing" ? "Saving take…" : phase() === "preparing" ? "Preparing…" : "Get ready"}
+                    </span>
+                  }
+                >
+                  <span class="live-dot" />
+                  <span data-tauri-drag-region>{paused() ? "Paused" : "Recording"}</span>
+                </Show>
               </span>
-              <span data-tauri-drag-region>Live preview · drag to move</span>
+              <span class="rec-grip" data-tauri-drag-region>
+                <Icon name="more" size={14} />
+              </span>
             </div>
             <div class="rec-screen">
               <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
               <Show when={phase() === "countdown"}>
                 <div class="rec-countdown">
-                  <div class="rec-ring">
-                    <Show when={count() > 0} fallback={<span class="rec-num">Go</span>}>
-                      <span class="rec-num">{count()}</span>
-                    </Show>
+                  <div class="rec-ring" style={{ "--total": String(Math.max(1, prefs.countdown())) }}>
+                    <span class="rec-num">{count() > 0 ? count() : "Go"}</span>
                   </div>
                   <span class="rec-sub">
-                    {preset().ratio === "full"
-                      ? "Vuoom minimizes while recording · Ctrl+Shift+X stops"
-                      : "Recording starts…"}
+                    {preset().ratio === "full" ? "Vuoom hides from the recording" : "Recording starts…"}
                   </span>
                 </div>
               </Show>
-              <Show when={phase() === "recording"}>
-                <Show
-                  when={paused()}
-                  fallback={
-                    <span class="rec-live">
-                      <span class="rec-dot" /> LIVE
-                    </span>
-                  }
-                >
-                  <span class="rec-live paused">⏸ PAUSED</span>
-                </Show>
-                <span class="rec-previewtag">Zoom preview</span>
+              <Show when={phase() === "recording" && props.zoom > 1}>
+                <span class="rec-previewtag">Zoom {props.zoom.toFixed(1)}×</span>
               </Show>
             </div>
             <div class="rec-controls">
@@ -602,28 +604,41 @@ export default function RecordOverlay(props: {
                   <Show
                     when={phase() === "finalizing"}
                     fallback={
-                      <button class="rec-cancel" disabled={phase() === "preparing"} onClick={cancel}>
-                        {phase() === "preparing" ? "Preparing..." : "Cancel"}
+                      <button type="button" class="rec-cancel" disabled={phase() === "preparing"} onClick={cancel}>
+                        Cancel
                       </button>
                     }
                   >
-                    <span class="rec-hint">Writing the take and opening the editor...</span>
+                    <span class="rec-hint">Writing the take and opening the editor…</span>
                   </Show>
                 }
               >
-                <span class="rec-time">{fmt(elapsed())}</span>
-                <span class="rec-hint">
-                  <kbd>Ctrl+Shift+Z</kbd> zoom · <kbd>Ctrl+Shift+X</kbd> stop
-                </span>
                 <button
+                  type="button"
+                  class="rec-stop"
+                  aria-label="Stop recording"
+                  data-tip="Stop recording"
+                  data-kbd="Ctrl+Shift+X"
+                  onClick={() => void stop()}
+                >
+                  <span />
+                </button>
+                <div class="rec-timebox">
+                  <span class="rec-time">{fmt(elapsed())}</span>
+                  <span class="rec-hint">
+                    <kbd>Ctrl</kbd>
+                    <kbd>Shift</kbd>
+                    <kbd>Z</kbd> zoom
+                  </span>
+                </div>
+                <button
+                  type="button"
                   class="rec-pause"
-                  title={paused() ? "Resume recording" : "Pause — the gap is cut from the GIF"}
+                  aria-label={paused() ? "Resume recording" : "Pause recording"}
+                  data-tip={paused() ? "Resume" : "Pause. The gap is cut from the take"}
                   onClick={() => void togglePause()}
                 >
-                  {paused() ? "Resume" : "Pause"}
-                </button>
-                <button class="rec-stop" onClick={() => void stop()}>
-                  Stop
+                  <Icon name={paused() ? "play" : "pause"} size={14} />
                 </button>
               </Show>
             </div>
@@ -633,7 +648,7 @@ export default function RecordOverlay(props: {
     >
       <div
         class="sel-root"
-        classList={{ full: preset().ratio === "full" }}
+        classList={{ full: preset().ratio === "full" || windowMode() }}
         style={preset().ratio === "full" ? undefined : { cursor: cursor() }}
         onPointerDown={onDown}
         onPointerMove={onMove}
@@ -643,29 +658,20 @@ export default function RecordOverlay(props: {
         }}
       >
         <Show when={props.backdrop}>
-          <img
-            class="sel-shot"
-            ref={(el) => (shotEl = el)}
-            src={props.backdrop!}
-            alt=""
-            draggable={false}
-          />
+          <img class="sel-shot" ref={(el) => (shotEl = el)} src={props.backdrop!} alt="" draggable={false} />
         </Show>
 
         {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow.
             The 8 handles + dims tag ride on top for adjustment (hit-tested in JS, so they
             stay pointer-events:none and never block a drag). */}
-        <Show when={preset().ratio !== "full" && sel()}>
+        <Show when={preset().ratio !== "full" && !windowMode() && sel()}>
           {(r) => (
             <>
               <div
                 class="sel-rect"
                 style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
               />
-              <div
-                class="sel-dimtag"
-                style={{ left: `${Math.max(4, r().x)}px`, top: `${Math.max(4, r().y - 26)}px` }}
-              >
+              <div class="sel-dimtag" style={{ left: `${Math.max(4, r().x)}px`, top: `${Math.max(4, r().y - 30)}px` }}>
                 {dims()}
               </div>
               <For each={HANDLES}>
@@ -682,43 +688,55 @@ export default function RecordOverlay(props: {
             </>
           )}
         </Show>
-        <Show when={preset().ratio === "full"}>
-          <div class="sel-fullhint">Recording the whole display</div>
+        <Show when={preset().ratio === "full" || windowMode()}>
+          <div class="sel-fullhint">
+            <Icon name={windowMode() ? "window" : "fullscreen"} size={18} />
+            {windowMode()
+              ? `Recording window: ${props.target?.kind === "window" ? props.target.label : ""}`
+              : "Recording the whole display"}
+          </div>
+        </Show>
+        <Show when={!windowMode() && preset().ratio !== "full" && !sel()}>
+          <div class="sel-drawhint">
+            <Icon name="region" size={16} />
+            Drag to frame the area you want to record
+          </div>
         </Show>
 
-        <div class="sel-bar" onPointerDown={(e) => e.stopPropagation()}>
-          <Show when={props.target?.kind === "window"}>
-            <div class="sel-windowtag">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <path d="M3 9h18" />
-              </svg>
-              Recording window: {props.target?.kind === "window" ? props.target.label : ""}
+        <div class="hud" onPointerDown={(e) => e.stopPropagation()}>
+          <Show when={!windowMode()}>
+            <div class="hud-group">
+              <span class="hud-label">Frame</span>
+              <div class="hud-seg">
+                <For each={PRESETS}>
+                  {(p) => (
+                    <button
+                      type="button"
+                      class="hud-chip"
+                      classList={{ on: preset().id === p.id }}
+                      aria-pressed={preset().id === p.id}
+                      data-tip={p.hint}
+                      onClick={() => pickPreset(p)}
+                    >
+                      {p.id === "full" ? "Full" : p.id === "free" ? "Free" : p.label}
+                    </button>
+                  )}
+                </For>
+              </div>
             </div>
+            <span class="hud-sep" />
           </Show>
-          <div class="sel-presets" classList={{ hidden: props.target?.kind === "window" }}>
-            <For each={PRESETS}>
-              {(p) => (
-                <button
-                  classList={{ "sel-chip": true, active: preset().id === p.id }}
-                  title={p.hint}
-                  onClick={() => pickPreset(p)}
-                >
-                  <strong>{p.label}</strong>
-                  <small>{p.hint}</small>
-                </button>
-              )}
-            </For>
-          </div>
-          <div class="sel-zoomrow" classList={{ hidden: props.target?.kind === "window" }}>
-            <span class="sel-zoomlabel">Zoom level</span>
-            <div class="sel-zooms">
+          <div class="hud-group">
+            <span class="hud-label">Zoom</span>
+            <div class="hud-seg">
               <For each={ZOOM_LEVELS}>
                 {(z) => (
                   <button
-                    classList={{ "sel-zoom": true, active: Math.abs(props.zoom - z.v) < 0.001 }}
+                    type="button"
+                    class="hud-chip"
+                    classList={{ on: Math.abs(props.zoom - z.v) < 0.001 }}
                     aria-pressed={Math.abs(props.zoom - z.v) < 0.001}
-                    title={z.v === 1 ? "No zoom" : `Zoom to ${z.label} on Ctrl+Shift+Z`}
+                    data-tip={z.v === 1 ? "No zoom" : `Ctrl+Shift+Z zooms to ${z.label}`}
                     onClick={() => props.onZoomChange(z.v)}
                   >
                     {z.label}
@@ -727,29 +745,66 @@ export default function RecordOverlay(props: {
               </For>
             </div>
           </div>
-          <div class="sel-actions">
-            <span class="sel-dims">{dims()}</span>
-            <button class="sel-btn ghost" disabled={phase() === "preparing"} onClick={cancel}>
-              Cancel
+          <span class="hud-sep" />
+          <div class="hud-group">
+            <span class="hud-label">FPS</span>
+            <div class="hud-seg">
+              <For each={[30, 60]}>
+                {(f) => (
+                  <button
+                    type="button"
+                    class="hud-chip"
+                    classList={{ on: prefs.captureFps() === f }}
+                    aria-pressed={prefs.captureFps() === f}
+                    onClick={() => {
+                      prefs.captureFps.set(f);
+                      void invoke("set_capture_fps", { fps: f }).catch(() => undefined);
+                    }}
+                  >
+                    {f}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+          <span class="hud-sep" />
+          <div class="hud-group">
+            <span class="hud-label">Timer</span>
+            <div class="hud-seg">
+              <For each={[0, 3, 5]}>
+                {(c) => (
+                  <button
+                    type="button"
+                    class="hud-chip"
+                    classList={{ on: prefs.countdown() === c }}
+                    aria-pressed={prefs.countdown() === c}
+                    onClick={() => prefs.countdown.set(c)}
+                  >
+                    {c === 0 ? "Off" : `${c}s`}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+          <span class="hud-sep" />
+          <div class="hud-actions">
+            <span class="hud-dims">{windowMode() ? "Window" : dims()}</span>
+            <button type="button" class="hud-cancel" disabled={phase() === "preparing"} onClick={cancel} data-tip="Cancel" data-kbd="Esc">
+              <Icon name="close" size={14} />
             </button>
             <button
-              class="sel-btn primary"
-              disabled={phase() === "preparing" || (preset().ratio !== "full" && !sel())}
-              title={
-                preset().ratio !== "full" && !sel()
-                  ? "Drag on the screen to mark the area first"
-                  : undefined
-              }
+              type="button"
+              class="hud-record"
+              disabled={phase() === "preparing" || !canStart()}
+              data-tip={canStart() ? "Start recording" : "Drag on the screen to frame an area first"}
+              data-kbd="Enter"
               onClick={() => void beginCountdown()}
             >
-              {phase() === "preparing" ? "Preparing..." : "Start →"}
+              <span class="hud-record-dot" />
+              {phase() === "preparing" ? "Preparing…" : "Record"}
             </button>
           </div>
         </div>
-
-        <Show when={props.target?.kind !== "window" && preset().ratio !== "full" && !sel()}>
-          <div class="sel-drawhint">Drag to mark the area · Esc to cancel</div>
-        </Show>
       </div>
     </Show>
   );

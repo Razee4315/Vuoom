@@ -31,7 +31,8 @@ function score(text: string, q: string): number {
     gaps += at - ti;
     ti = at + 1;
   }
-  return 100 + gaps;
+  // Scattered letters across the whole label are noise, not a match.
+  return gaps <= q.length * 2 ? 100 + gaps : -1;
 }
 
 export default function CommandPalette() {

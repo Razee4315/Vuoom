@@ -720,7 +720,7 @@ select.input {
 
 .tooltip {
   position: fixed;
-  z-index: 1000;
+  z-index: 10001;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -761,7 +761,7 @@ select.input {
   position: fixed;
   right: 16px;
   bottom: calc(var(--status-h) + 14px);
-  z-index: 950;
+  z-index: 10000;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

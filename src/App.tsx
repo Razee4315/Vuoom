@@ -124,7 +124,6 @@ export default function App() {
           zoom={ed.zoomAmount()}
           target={ed.recordTarget()}
           initialMode={ed.recordMode() === "full" ? "full" : "region"}
-          countdown={prefs.countdown()}
           onZoomChange={ed.setZoomAmount}
           onFinished={(s) => void ed.onRecordFinished(s)}
           onCancel={ed.onRecordCancel}

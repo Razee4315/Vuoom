@@ -90,6 +90,7 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
       { keys: ["Ctrl", "2"], label: "Show / hide inspector" },
       { keys: ["Ctrl", "3"], label: "Show / hide timeline" },
       { keys: ["Ctrl", "0"], label: "Reset layout" },
+      { keys: ["G"], label: "Composition guides" },
       { keys: ["Ctrl", "Wheel"], label: "Zoom the timeline" },
       { keys: ["Alt"], label: "Hold while dragging to skip snapping" },
     ],

@@ -314,3 +314,49 @@
   background: var(--ink);
   color: var(--ink-text);
 }
+
+/* Composition guides (G): rule of thirds + a faint center cross. */
+.stage-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.stage-guides .g {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+}
+.stage-guides .v1,
+.stage-guides .v2,
+.stage-guides .cx {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.stage-guides .h1,
+.stage-guides .h2,
+.stage-guides .cy {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.stage-guides .v1 {
+  left: 33.333%;
+}
+.stage-guides .v2 {
+  left: 66.666%;
+}
+.stage-guides .h1 {
+  top: 33.333%;
+}
+.stage-guides .h2 {
+  top: 66.666%;
+}
+.stage-guides .cx {
+  left: 50%;
+  opacity: 0.45;
+}
+.stage-guides .cy {
+  top: 50%;
+  opacity: 0.45;
+}

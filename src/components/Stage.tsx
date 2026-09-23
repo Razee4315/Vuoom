@@ -8,6 +8,7 @@ import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
 import { arrowHeads, v2 } from "../geometry";
 import { Icon } from "../icons";
+import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
 import { stageMenu } from "./contextMenus";
 import CropEditor, { CropBar } from "./CropEditor";
@@ -29,6 +30,16 @@ export default function Stage() {
       </Show>
       <div class="stage" ref={ed.refs.stage} style={{ "aspect-ratio": String(ed.frameAspect()), "--ar": String(ed.frameAspect()) }}>
         <canvas ref={ed.refs.canvas} class="stage-canvas" />
+        <Show when={layout.guides() && !ed.cropEdit()}>
+          <div class="stage-guides" aria-hidden="true">
+            <i class="g v1" />
+            <i class="g v2" />
+            <i class="g h1" />
+            <i class="g h2" />
+            <i class="g cx" />
+            <i class="g cy" />
+          </div>
+        </Show>
       <svg
         class="overlay"
         classList={{

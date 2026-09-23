@@ -13,7 +13,7 @@ import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
 import { fmtBytes, friendlyError, hexRgb } from "../format";
 import { TOOL_KEYS } from "../shortcuts";
-import { prefs } from "../prefs";
+import { layout, prefs } from "../prefs";
 import type {
   AnnotationSet,
   ArrowAnn,
@@ -693,7 +693,7 @@ export function createEditor() {
   const tick = (ts: number) => {
     if (!playing()) return;
     if (lastTs) {
-      let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead());
+      let t = playhead() + ((ts - lastTs) / 1000) * factorAt(playhead()) * prefs.previewRate();
       // Cut sections are removed from the output, playback jumps over them.
       const cut = cuts().find((c) => t >= c.start && t < c.end);
       if (cut) t = cut.end;
@@ -841,6 +841,10 @@ export function createEditor() {
     } else if (e.key === "End" && hasClip()) {
       e.preventDefault();
       scrub(tEnd());
+    } else if (hasClip() && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "KeyG" && editingText() === null) {
+      // G toggles the composition guides over the stage.
+      e.preventDefault();
+      layout.guides.set(!layout.guides());
     } else if (
       hasClip() &&
       !e.ctrlKey &&

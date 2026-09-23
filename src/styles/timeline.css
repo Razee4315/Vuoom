@@ -53,6 +53,26 @@
 .tl-play:active {
   transform: scale(0.95);
 }
+.tl-rate {
+  height: 26px;
+  min-width: 38px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.tl-rate:hover,
+.tl-rate.on {
+  background: var(--hover);
+  color: var(--text);
+}
+.tl-rate.off {
+  color: var(--warn);
+}
 .tl-time {
   display: flex;
   align-items: baseline;

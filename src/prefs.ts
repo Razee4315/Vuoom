@@ -11,6 +11,7 @@ function read<T>(key: string, fallback: T): T {
     const raw = localStorage.getItem(PREFIX + key);
     if (raw === null) return fallback;
     const v = JSON.parse(raw) as T;
+    if (fallback === null) return v;
     return typeof v === typeof fallback ? v : fallback;
   } catch {
     return fallback;
@@ -58,7 +59,19 @@ export const prefs = {
   exportFormat: persisted<"gif" | "mp4">("export-format", "gif"),
   /** Loop playback by default (GIFs loop). */
   loop: persisted<boolean>("loop", false),
+  /** Preview playback speed (does not affect the export). */
+  previewRate: persisted<number>("preview-rate", 1),
+  /** Last export settings per format, restored the next time the dialog opens. */
+  exportGif: persisted<ExportSettings | null>("export-gif", null),
+  exportMp4: persisted<ExportSettings | null>("export-mp4", null),
 };
+
+export interface ExportSettings {
+  preset: "readme" | "hq" | "custom";
+  fps: number;
+  width: number;
+  quality: number;
+}
 
 /** Workspace layout: which panels are open and how large they are. */
 export const layout = {
@@ -71,6 +84,8 @@ export const layout = {
   timelineH: persisted<number>("timeline-h", 236),
   /** All annotation bars on one lane instead of one lane each. */
   compactNotes: persisted<boolean>("compact-notes", false),
+  /** Rule-of-thirds + center guides over the stage (G). */
+  guides: persisted<boolean>("guides", false),
 };
 
 export const INSPECTOR_MIN = 260;

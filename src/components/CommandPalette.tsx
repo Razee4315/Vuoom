@@ -87,6 +87,16 @@ export default function CommandPalette() {
     { id: "v-insp", label: "Toggle inspector", group: "View", icon: "panelRight", kbd: "Ctrl+2", run: () => layout.inspectorOpen.set(!layout.inspectorOpen()) },
     { id: "v-tl", label: "Toggle timeline", group: "View", icon: "panelBottom", kbd: "Ctrl+3", run: () => layout.timelineOpen.set(!layout.timelineOpen()) },
     { id: "v-reset", label: "Reset layout", group: "View", icon: "reset", kbd: "Ctrl+0", run: resetLayout },
+    { id: "v-guides", label: "Toggle composition guides", group: "View", icon: "grid", kbd: "G", run: () => layout.guides.set(!layout.guides()) },
+    ...[0.5, 1, 2].map(
+      (r): Command => ({
+        id: `rate-${r}`,
+        label: `Preview at ${r === 1 ? "normal speed" : `${r}×`}`,
+        group: "Playback",
+        icon: "play",
+        run: () => prefs.previewRate.set(r),
+      }),
+    ),
     { id: "v-snap", label: "Toggle timeline snapping", group: "View", icon: "magnet", run: () => prefs.snapping.set(!prefs.snapping()) },
     ...THEMES.map(
       (t): Command => ({

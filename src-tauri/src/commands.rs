@@ -450,6 +450,12 @@ pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<
     engine.session()?.set_zoom_amount(amount)
 }
 
+/// Cap the next recording's capture frame rate (10-120 fps).
+#[tauri::command]
+pub fn set_capture_fps(engine: tauri::State<'_, Engine>, fps: u32) -> Result<(), String> {
+    engine.session()?.set_capture_fps(fps)
+}
+
 /// Save the current recording as a `.vuoom` bundle (manifest + frames) at `dir`.
 #[tauri::command]
 pub async fn save_project_bundle(

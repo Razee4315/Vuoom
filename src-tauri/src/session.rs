@@ -9,7 +9,7 @@
 //! CI verifies it compiles.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -26,7 +26,7 @@ use vuoom_capture::{
 };
 use vuoom_encode::{
     downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
-    export_gif_native_streaming, read_png, swizzle_rb, write_png, GifSettings, RgbaImage,
+    export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
@@ -191,9 +191,26 @@ fn snapshot(edited: &mut Edited, tag: &str) {
     }
 }
 
-/// One entry in a saved bundle's `frames/index.json`: frame number, time from start
-/// (seconds), and dimensions. The QPC epoch isn't portable, so time is stored instead.
-#[derive(Serialize, Deserialize)]
+/// Timestamp unit of a saved bundle's frame index (ticks per second). The QPC epoch and
+/// frequency are machine-specific, so bundles store time from the first frame at 10 MHz.
+const BUNDLE_TIMEBASE: i64 = 10_000_000;
+
+/// Delete the per-frame PNGs (and their JSON index) an older build saved into `frames_dir`.
+fn remove_legacy_frames(frames_dir: &Path) {
+    let _ = std::fs::remove_file(frames_dir.join("index.json"));
+    if let Ok(entries) = std::fs::read_dir(frames_dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("png")) {
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+}
+
+/// Legacy bundle format (read-only): one entry in `frames/index.json`, giving the frame
+/// number, time from start in seconds, and dimensions of one PNG frame.
+#[derive(Deserialize)]
 struct FrameIndex {
     n: usize,
     t: f64,
@@ -219,6 +236,8 @@ pub struct Session {
     pending_window: Mutex<Option<WindowTarget>>,
     /// The zoom multiplier chosen for the next recording (1.0 = no zoom).
     pending_zoom: Mutex<f64>,
+    /// Frame-rate cap for the next recording (see [`Session::set_capture_fps`]).
+    pending_fps: AtomicU32,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
     /// *previous* unsaved session rather than the one already in the editor.
@@ -261,6 +280,7 @@ impl Session {
             pending_monitor: Mutex::new(None),
             pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
+            pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
         })
@@ -366,6 +386,15 @@ impl Session {
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
     pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
         *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner()) = amount.clamp(1.0, 4.0);
+        Ok(())
+    }
+
+    /// Cap the next recording's capture rate. 30 keeps disks and GIFs lean, 60 is smooth
+    /// for MP4, and without a cap a 144 Hz display would deliver (and store) 144 frames a
+    /// second of mostly identical content.
+    pub fn set_capture_fps(&self, fps: u32) -> Result<(), String> {
+        self.pending_fps
+            .store(fps.clamp(10, 120), Ordering::Relaxed);
         Ok(())
     }
 
@@ -505,7 +534,8 @@ impl Session {
         // arrives during startup can be stamped earlier than the epoch (a negative time would
         // otherwise slip into normalization / zoom planning).
         let start_qpc = self.clock.now();
-        let (frames_rx, capture) = spawn_capture(region, &source);
+        let fps = self.pending_fps.load(Ordering::Relaxed);
+        let (frames_rx, capture) = spawn_capture(region, &source, fps);
         let (recorder, events_rx) = InputRecorder::start();
         // Independent live preview, its own capture, so it can never disturb the recording.
         let preview = LivePreview::start(region, source, mon_origin, amount, self.preview.sink());
@@ -2142,8 +2172,9 @@ impl Session {
         })
     }
 
-    /// Save the recording as a `dir.vuoom` bundle: the project manifest plus every frame
-    /// as a lossless PNG and a time index. Reopenable with [`Self::open_bundle`].
+    /// Save the recording as a `dir.vuoom` bundle: the project manifest plus the lossless,
+    /// compressed frame store (`frames/frames.raw` + `frames/index.bin`). Reopenable with
+    /// [`Self::open_bundle`], which also still reads the older one-PNG-per-frame bundles.
     pub fn save_bundle(&self, dir: &Path) -> Result<(), String> {
         self.save_bundle_impl(dir).map_err(|e| {
             tracing::error!(dir = %dir.display(), "saving bundle failed: {e}");
@@ -2152,39 +2183,34 @@ impl Session {
     }
 
     fn save_bundle_impl(&self, dir: &Path) -> Result<(), String> {
-        // Snapshot the project + frame-store handle under a short lock, then release it so the
-        // per-frame disk read + PNG encode below (minutes for a long clip) never freezes
-        // scrubbing/editing/recording. An edit that lands mid-save just means the bundle captures
-        // the pre-edit project, an acceptable, self-consistent snapshot of that instant.
-        let (project, store, start_qpc) = {
+        // Snapshot the project + the store's location under a short lock, then release it so
+        // the file copy below never freezes scrubbing/editing. An edit that lands mid-save just
+        // means the bundle captures the pre-edit project, a self-consistent snapshot.
+        let (project, start_qpc) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            edited.frames.as_ref().ok_or("no recording")?;
             (
                 edited.project.as_ref().ok_or("no recording")?.clone(),
-                Arc::clone(edited.frames.as_ref().ok_or("no recording")?),
                 edited.start_qpc,
             )
         };
+        let src = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("no recording")?;
         let frames_dir = dir.join("frames");
         std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
-
-        let mut index = Vec::with_capacity(store.len());
-        for n in 0..store.len() {
-            let f = store.frame(n)?;
-            // Stored as RGBA (write_png's format); capture buffers are BGRA.
-            let img = RgbaImage::new(f.width, f.height, swizzle_rb(&f.bgra));
-            write_png(&frames_dir.join(format!("{n:05}.png")), &img).map_err(|e| e.to_string())?;
-            index.push(FrameIndex {
-                n,
-                t: self.clock.seconds_between(start_qpc, f.qpc),
-                w: f.width,
-                h: f.height,
-            });
-        }
-        std::fs::write(
-            frames_dir.join("index.json"),
-            serde_json::to_string(&index).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        // Bundles used to hold one PNG per frame (minutes to write, gigabytes on disk). They
+        // now hold the compressed frame store itself, copied byte-for-byte, with timestamps
+        // rebased to a portable 10 MHz timebase. Remove an older save's PNGs so the folder
+        // doesn't keep both.
+        remove_legacy_frames(&frames_dir);
+        let freq = i128::from(self.clock.freq().max(1));
+        frame_store::copy_store(&src, &frames_dir, |q| {
+            (i128::from(q - start_qpc) * i128::from(BUNDLE_TIMEBASE) / freq) as i64
+        })?;
         std::fs::write(
             dir.join("project.json"),
             project.to_json().map_err(|e| e.to_string())?,
@@ -2208,6 +2234,9 @@ impl Session {
         )
         .map_err(|e| e.to_string())?;
         let frames_dir = dir.join("frames");
+        if frame_store::has_store(&frames_dir) {
+            return self.open_store_bundle(project, &frames_dir);
+        }
         let index: Vec<FrameIndex> = serde_json::from_str(
             &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,
         )
@@ -2237,11 +2266,44 @@ impl Session {
         if let Ok(json) = project.to_json() {
             let _ = std::fs::write(frame_store::project_path(&scratch), json);
         }
+        self.install_opened(project, store, scratch, base)
+    }
+
+    /// Open a bundle whose frames are a compressed store (see [`Self::save_bundle`]): one
+    /// file copy into the scratch dir, timestamps rebased onto this run's clock.
+    fn open_store_bundle(
+        &self,
+        project: Project,
+        frames_dir: &Path,
+    ) -> Result<RecordingSummary, String> {
+        let freq = i128::from(self.clock.freq());
+        let base = self.clock.now();
+        let scratch = frame_store::scratch_dir();
+        // Drop the current clip first: its store handles may point at the scratch files.
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
+        let _ = std::fs::remove_dir_all(&scratch);
+        frame_store::copy_store(frames_dir, &scratch, |t| {
+            base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
+        })?;
+        let store = FrameStore::open(&scratch)?;
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(&scratch), json);
+        }
+        self.install_opened(project, store, scratch, base)
+    }
+
+    /// Make an opened bundle's frames + project the current clip.
+    fn install_opened(
+        &self,
+        project: Project,
+        store: FrameStore,
+        dir: PathBuf,
+        base: i64,
+    ) -> Result<RecordingSummary, String> {
         *self
             .current_recovery
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(scratch);
-
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
         let track = simulate(
             &project.events,
             &project.zooms,
@@ -2754,14 +2816,21 @@ fn default_end(t: f64, duration: f64) -> f64 {
 }
 
 // ── disk free-space guard ───────────────────────────────────────────────────────
-// Raw uncompressed BGRA streams straight to disk, so the store grows at `w*h*4` bytes per
-// captured frame. Without a guard a full-screen/4K take can silently fill a system disk in
-// minutes, so `start_recording` checks free space up front and the drain re-checks while
+// Frames stream straight to disk. The store compresses (XOR deltas + LZ4, see frame_store),
+// usually by 20x or more, but a busy screen (video playback, fast scrolling) compresses far
+// less, so the guard plans for a pessimistic ratio. Without it a full-screen/4K take could
+// still fill a system disk, so `start_recording` checks free space up front and the drain re-checks while
 // recording (see `frame_store::free_space_bytes`).
 
-/// Conservative capture rate (fps) used to size the raw-BGRA write estimate. Real capture is
+/// Default capture-rate cap for a recording (the UI can pick another, see `set_capture_fps`).
+const DEFAULT_CAPTURE_FPS: u32 = 60;
+
+/// Conservative capture rate (fps) used to size the write estimate. Real capture is
 /// usually 30-60 fps; picking the low end keeps the estimate from over-reserving space.
 const ESTIMATE_FPS: u64 = 30;
+/// Pessimistic compression ratio for the estimate: typical screen content does far better,
+/// busy full-motion content can do worse, and the drain's live floor check covers that tail.
+const ESTIMATE_COMPRESSION: u64 = 4;
 /// Absolute minimum free space to start any recording, regardless of dimensions, leaves
 /// headroom so even a tiny capture can't creep a nearly-full disk to zero.
 const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -2776,11 +2845,11 @@ const DISK_CHECK_EVERY: u32 = 60;
 /// raw stream can't fully fill the volume before an actual write error would hit.
 const DRAIN_STOP_FLOOR_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Bytes per second the raw-BGRA store grows at for a `w`×`h` capture (`w*h*4` × a
-/// conservative fps). Enormous by design, ~250 MB/s at 1080p, ~1 GB/s at 4K, which is
-/// exactly why free space is guarded before and during recording.
-fn raw_write_rate_bps(w: u32, h: u32) -> u64 {
-    u64::from(w) * u64::from(h) * 4 * ESTIMATE_FPS
+/// Bytes per second the store is planned to grow at for a `w`×`h` capture: raw BGRA
+/// (`w*h*4` × a conservative fps) over a pessimistic compression ratio, ~62 MB/s at 1080p
+/// and ~250 MB/s at 4K.
+fn write_rate_bps(w: u32, h: u32) -> u64 {
+    u64::from(w) * u64::from(h) * 4 * ESTIMATE_FPS / ESTIMATE_COMPRESSION
 }
 
 /// A dropped frame is only worth warning about once it's a material fraction of the take: more
@@ -2817,7 +2886,7 @@ fn dropped_frames_warning(dropped: u64, kept: usize) -> Option<String> {
 /// capture dimensions. `Err` blocks the take (not enough space); `Ok(Some(_))` starts it but
 /// carries a heads-up warning; `Ok(None)` is plenty of space.
 fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, String> {
-    let rate = raw_write_rate_bps(w, h).max(1);
+    let rate = write_rate_bps(w, h).max(1);
     let floor = MIN_FREE_BYTES.max(rate.saturating_mul(MIN_FREE_SECONDS));
     let free_gb = free_bytes as f64 / 1e9;
     if free_bytes < floor {
@@ -2825,7 +2894,7 @@ fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, S
         let mbps = rate / (1024 * 1024);
         return Err(format!(
             "Not enough disk space to record: only {free_gb:.1} GB free, need at least {need_gb:.1} GB. \
-             Vuoom records raw video (~{mbps} MB/s at this size), free up space and try again."
+             A busy screen can write up to ~{mbps} MB/s at this size, free up space and try again."
         ));
     }
     if free_bytes < rate.saturating_mul(LOW_FREE_SECONDS) {
@@ -2920,6 +2989,7 @@ mod tests {
             h: 2,
             offset: 0,
             len: 16,
+            flags: 0,
         }
     }
 
@@ -3158,14 +3228,11 @@ mod tests {
     const GB: u64 = 1_000_000_000;
 
     #[test]
-    fn raw_write_rate_scales_with_pixel_area() {
+    fn write_rate_scales_with_pixel_area() {
         // 4K has 4× the pixels of 1080p, so 4× the byte rate.
-        assert_eq!(
-            raw_write_rate_bps(3840, 2160),
-            4 * raw_write_rate_bps(1920, 1080)
-        );
-        // 1080p at 30 fps: 1920*1080*4*30 bytes/s.
-        assert_eq!(raw_write_rate_bps(1920, 1080), 1920 * 1080 * 4 * 30);
+        assert_eq!(write_rate_bps(3840, 2160), 4 * write_rate_bps(1920, 1080));
+        // 1080p at 30 fps over the pessimistic 4x ratio.
+        assert_eq!(write_rate_bps(1920, 1080), 1920 * 1080 * 4 * 30 / 4);
     }
 
     #[test]
@@ -3177,14 +3244,14 @@ mod tests {
 
     #[test]
     fn free_space_blocks_when_under_thirty_seconds_of_capture() {
-        // 5 GB clears the 2 GB floor, but 1080p burns ~250 MB/s, so 30 s needs ~7.5 GB.
-        assert!(check_free_space(5 * GB, 1920, 1080).is_err());
+        // 5 GB clears the 2 GB floor, but 4K is planned at ~250 MB/s, so 30 s needs ~7.5 GB.
+        assert!(check_free_space(5 * GB, 3840, 2160).is_err());
     }
 
     #[test]
     fn free_space_warns_when_low_but_sufficient() {
-        // 20 GB at 1080p: above the ~7.5 GB / 30 s floor but below the ~75 GB / 5 min warn line.
-        let warn = check_free_space(20 * GB, 1920, 1080)
+        // 10 GB at 1080p: above the 2 GB floor but below the ~18.7 GB / 5 min warn line.
+        let warn = check_free_space(10 * GB, 1920, 1080)
             .expect("should start")
             .expect("should warn");
         assert!(warn.contains("low on space"));

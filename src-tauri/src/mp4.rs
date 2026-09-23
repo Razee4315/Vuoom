@@ -315,8 +315,8 @@ mod imp {
                     .Lock(&mut ptr, None, None)
                     .map_err(|e| e.to_string())?;
                 let dst = std::slice::from_raw_parts_mut(ptr, len as usize);
-                for (d, s) in dst.chunks_exact_mut(2).zip(samples) {
-                    d.copy_from_slice(&s.to_le_bytes());
+                for (d, s) in dst.as_chunks_mut::<2>().0.iter_mut().zip(samples) {
+                    *d = s.to_le_bytes();
                 }
                 buffer.Unlock().map_err(|e| e.to_string())?;
                 buffer.SetCurrentLength(len).map_err(|e| e.to_string())?;

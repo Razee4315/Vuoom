@@ -624,6 +624,31 @@ select.input {
   flex: 1;
   min-width: 0;
 }
+/* Input level meter (recording audio): teal, warming to amber near the top, red at clip. */
+.meter {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 64px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.28);
+}
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--t-audio);
+  transition: width 60ms linear;
+}
+.meter.hot .meter-fill {
+  background: linear-gradient(90deg, var(--t-audio) 60%, var(--warn));
+}
+.meter.clip .meter-fill {
+  background: linear-gradient(90deg, var(--t-audio) 55%, var(--warn) 80%, var(--record));
+}
+
 .note {
   margin: 0;
   color: var(--muted);

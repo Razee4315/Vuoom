@@ -9,6 +9,7 @@ import { invoke, isMock, save, open, ask, check, relaunch, type Update } from ".
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
+import { pushAudioChoice } from "../components/AudioControls";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -1939,6 +1940,7 @@ export function createEditor() {
     // The capture rate is a preference; older engines without the command just keep theirs.
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
     void invoke("set_capture_cursor", { show: prefs.captureCursor() }).catch(() => undefined);
+    pushAudioChoice();
     try {
       setStatus("Choose the area to record…");
       setBackdrop(null);

@@ -218,6 +218,18 @@
 .hud-options > svg:first-child {
   color: rgba(255, 255, 255, 0.6);
 }
+.hud-audio > svg:first-child {
+  color: var(--t-audio);
+}
+.hud-audio.off > svg:first-child {
+  color: rgba(255, 255, 255, 0.45);
+}
+.hud-audio.off > span {
+  color: rgba(255, 255, 255, 0.6);
+}
+.hud-meter {
+  width: 38px;
+}
 .hud-actions {
   display: flex;
   align-items: center;
@@ -376,6 +388,26 @@
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.04em;
+}
+.rec-audio {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.rec-audio-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.rec-audio .meter {
+  width: 56px;
 }
 .rec-countdown {
   position: absolute;

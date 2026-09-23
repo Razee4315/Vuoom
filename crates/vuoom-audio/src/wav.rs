@@ -201,8 +201,10 @@ pub fn parse(bytes: &[u8]) -> Result<Pcm, String> {
             let block = usize::from(channels) * 2;
             let len = len - len % block;
             let samples = bytes[body..body + len]
-                .chunks_exact(2)
-                .map(|c| i16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| i16::from_le_bytes(*c))
                 .collect();
             return Ok(Pcm {
                 rate,

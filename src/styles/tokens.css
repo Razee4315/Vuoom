@@ -1,0 +1,208 @@
+/* ============================================================
+   Vuoom design tokens (v3).
+
+   - Every color, radius, shadow and duration comes from here; components never
+     hardcode a themeable value.
+   - Surfaces climb an elevation ramp: backdrop -> panel -> raised -> overlay.
+   - Record red is the only saturated accent. Selection is ink (white on dark,
+     black on light): black-and-white first, no purple anywhere.
+   - Track colors are the one exception to "monochrome": each timeline track type
+     owns a hue so a glance tells zoom from note from speed from cut.
+   ============================================================ */
+
+:root,
+:root[data-theme="mono-dark"] {
+  color-scheme: dark;
+  --backdrop: #08080a;
+  --panel: #111114;
+  --panel-2: #16161a;
+  --raised: #1c1c21;
+  --hover: #24242a;
+  --active: #2c2c33;
+  --line: #222228;
+  --line-2: #2e2e36;
+  --line-strong: #3b3b45;
+  --text: #f5f5f6;
+  --text-2: #c9c9cf;
+  --muted: #8b8b95;
+  --faint: #5c5c66;
+  --ink: #f5f5f6;
+  --ink-text: #0e0e11;
+  --stage-a: #19191d;
+  --stage-b: #0d0d10;
+  --overlay: rgba(4, 4, 6, 0.66);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.55);
+  --glass: rgba(22, 22, 26, 0.82);
+}
+
+:root[data-theme="mono-light"] {
+  color-scheme: light;
+  --backdrop: #ececf0;
+  --panel: #ffffff;
+  --panel-2: #fafafb;
+  --raised: #f4f4f6;
+  --hover: #ececf0;
+  --active: #e2e2e8;
+  --line: #e6e6eb;
+  --line-2: #dadae1;
+  --line-strong: #c4c4cd;
+  --text: #141417;
+  --text-2: #3e3e46;
+  --muted: #6d6d77;
+  --faint: #a2a2ad;
+  --ink: #141417;
+  --ink-text: #ffffff;
+  --stage-a: #e1e1e7;
+  --stage-b: #d4d4dc;
+  --overlay: rgba(20, 20, 28, 0.32);
+  --shadow-panel: 0 1px 2px rgba(20, 20, 28, 0.06), 0 8px 24px rgba(20, 20, 28, 0.06);
+  --shadow-pop: 0 16px 44px rgba(20, 20, 28, 0.18), 0 0 0 1px rgba(20, 20, 28, 0.06);
+  --shadow-stage: 0 18px 50px rgba(20, 20, 28, 0.2);
+  --glass: rgba(255, 255, 255, 0.86);
+}
+
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --backdrop: #0f1215;
+  --panel: #171b1f;
+  --panel-2: #1b2025;
+  --raised: #21272d;
+  --hover: #293037;
+  --active: #323a42;
+  --line: #262d33;
+  --line-2: #313940;
+  --line-strong: #3f4850;
+  --text: #eaedf0;
+  --text-2: #c2c8cd;
+  --muted: #8b959e;
+  --faint: #5f6972;
+  --ink: #eaedf0;
+  --ink-text: #14181b;
+  --stage-a: #1e2429;
+  --stage-b: #121619;
+  --overlay: rgba(6, 8, 10, 0.62);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.32);
+  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.5);
+  --glass: rgba(27, 32, 37, 0.84);
+}
+
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --backdrop: #e9e5dc;
+  --panel: #f7f5f0;
+  --panel-2: #f3f0e9;
+  --raised: #efebe2;
+  --hover: #e7e2d6;
+  --active: #ddd7c8;
+  --line: #e0dacd;
+  --line-2: #d4cdbe;
+  --line-strong: #bfb7a5;
+  --text: #28261f;
+  --text-2: #4a473d;
+  --muted: #6f6b5e;
+  --faint: #9c9788;
+  --ink: #28261f;
+  --ink-text: #f7f5f0;
+  --stage-a: #ddd7ca;
+  --stage-b: #d1cab9;
+  --overlay: rgba(40, 38, 31, 0.3);
+  --shadow-panel: 0 1px 2px rgba(40, 38, 31, 0.06), 0 8px 24px rgba(40, 38, 31, 0.07);
+  --shadow-pop: 0 16px 44px rgba(40, 38, 31, 0.2), 0 0 0 1px rgba(40, 38, 31, 0.06);
+  --shadow-stage: 0 18px 50px rgba(40, 38, 31, 0.22);
+  --glass: rgba(247, 245, 240, 0.88);
+}
+
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --backdrop: #060910;
+  --panel: #0d121b;
+  --panel-2: #111722;
+  --raised: #161e2b;
+  --hover: #1d2737;
+  --active: #253145;
+  --line: #1a2231;
+  --line-2: #243044;
+  --line-strong: #324058;
+  --text: #e8edf5;
+  --text-2: #b8c2d1;
+  --muted: #8490a3;
+  --faint: #566174;
+  --ink: #e8edf5;
+  --ink-text: #0a0f17;
+  --stage-a: #121a27;
+  --stage-b: #090d14;
+  --overlay: rgba(3, 5, 9, 0.66);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.6);
+  --glass: rgba(17, 23, 34, 0.84);
+}
+
+:root {
+  /* Record red: the one saturated accent. */
+  --record: #e5484d;
+  --record-hover: #f25f63;
+  --record-soft: rgba(229, 72, 77, 0.14);
+  --record-ring: rgba(229, 72, 77, 0.35);
+  --ok: #3fb66b;
+  --ok-soft: rgba(63, 182, 107, 0.14);
+  --warn: #f0b429;
+  --warn-soft: rgba(240, 180, 41, 0.14);
+
+  /* Track hues (timeline + canvas creation drafts). */
+  --t-zoom: #ef6b61;
+  --t-note: #6ea8ff;
+  --t-speed: #f0b429;
+  --t-cut: #9a4a4f;
+  --t-box: #ffd23f;
+
+  /* Selection = ink. */
+  --sel: var(--ink);
+  --focus: 0 0 0 2px var(--panel), 0 0 0 4px color-mix(in srgb, var(--ink) 55%, transparent);
+
+  --r-xs: 5px;
+  --r-sm: 7px;
+  --r: 9px;
+  --r-md: 11px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-full: 999px;
+
+  --fs-2xl: 28px;
+  --fs-xl: 20px;
+  --fs-lg: 15px;
+  --fs-md: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-2xs: 10px;
+
+  --dur-1: 0.12s;
+  --dur-2: 0.2s;
+  --dur-3: 0.32s;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.3, 1.35, 0.45, 1);
+
+  --titlebar-h: 44px;
+  --status-h: 26px;
+  --gutter: 8px;
+
+  font-family: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01", "tnum" 0;
+  color: var(--text);
+}
+
+:root[data-motion="reduced"] {
+  --dur-1: 0s;
+  --dur-2: 0s;
+  --dur-3: 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0s;
+    --dur-2: 0s;
+    --dur-3: 0s;
+  }
+}

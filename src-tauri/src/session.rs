@@ -1989,6 +1989,35 @@ impl Session {
         })
     }
 
+    /// Set how long an annotation takes to fade in and out (seconds, clamped to half its
+    /// on-screen window each). `0` is a hard cut.
+    pub fn set_annotation_fades(&self, id: u32, fade_in: f64, fade_out: f64) -> Result<(), String> {
+        self.with_project(&format!("fades:{id}"), |p| {
+            let range = p
+                .texts
+                .iter_mut()
+                .find(|a| a.id == id)
+                .map(|a| &mut a.range)
+                .or_else(|| {
+                    p.arrows
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .or_else(|| {
+                    p.highlights
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .ok_or("no such annotation")?;
+            let half = ((range.end - range.start) / 2.0).max(0.0);
+            range.fade_in = fade_in.clamp(0.0, half);
+            range.fade_out = fade_out.clamp(0.0, half);
+            Ok(())
+        })
+    }
+
     /// Duplicate any annotation: same style and timing, nudged down-right so the copy is
     /// visible next to the original. Returns the new id.
     pub fn duplicate_annotation(&self, id: u32) -> Result<u32, String> {
@@ -2327,6 +2356,27 @@ impl Session {
             ..Edited::default()
         };
         Ok(summary)
+    }
+
+    /// Write the current project, edits included, next to its frames so crash recovery
+    /// brings back the edits and not just the raw take. Written to a temp file and renamed
+    /// over the manifest, so a crash mid-write never leaves a torn one.
+    pub fn persist_edits(&self) -> Result<(), String> {
+        let json = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            let project = edited.project.as_ref().ok_or("no recording")?;
+            project.to_json().map_err(|e| e.to_string())?
+        };
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("no recording")?;
+        let path = frame_store::project_path(&dir);
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, json).map_err(|e| format!("autosave: {e}"))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("autosave: {e}"))
     }
 
     /// Whether a recoverable session (frames + manifest from a crash or accidental close)

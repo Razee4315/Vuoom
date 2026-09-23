@@ -477,6 +477,20 @@ class MockEngine {
       if (ann) ann.range = { ...ann.range, start, end };
     });
   }
+  setAnnFades(id: number, fadeIn: number, fadeOut: number) {
+    this.mutate(`fades:${id}`, () => {
+      const ann = ["text", "arrow", "box"]
+        .map((k) => this.findAnn(k, id))
+        .find((x) => x !== undefined) as { range: { start: number; end: number; fade_in: number; fade_out: number } } | undefined;
+      if (!ann) return;
+      const half = Math.max(0, (ann.range.end - ann.range.start) / 2);
+      ann.range = {
+        ...ann.range,
+        fade_in: Math.min(Math.max(0, fadeIn), half),
+        fade_out: Math.min(Math.max(0, fadeOut), half),
+      };
+    });
+  }
   duplicateAnn(id: number): number {
     const newId = this.nextAnnId();
     this.mutate(undefined, () => {

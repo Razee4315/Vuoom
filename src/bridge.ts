@@ -23,7 +23,9 @@ const VIDEOS = "C:\\Users\\demo\\Videos";
 
 export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isMock) return tauriInvoke<T>(cmd, args);
-  return Promise.resolve(handleMock(cmd, args ?? {}) as T);
+  // Clone like real IPC would: the mock keeps and mutates its own objects, and handing
+  // those references to the UI would defeat Solid's reference-based list diffing.
+  return Promise.resolve(handleMock(cmd, args ?? {})).then((r) => structuredClone(r) as T);
 }
 
 export function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
@@ -140,6 +142,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "plan_zoom_auto":
       return m.planZoomAuto(a.amount as number);
     case "list_displays":
+      // `&onedisplay` skips the display picker (screenshots of the region HUD).
+      if (params.has("onedisplay"))
+        return [{ name: "\\.DISPLAY1", index: 1, x: 0, y: 0, w: 1920, h: 1080, primary: true }];
       return [
         { name: "\\.DISPLAY1", index: 1, x: 0, y: 0, w: 1920, h: 1080, primary: true },
         { name: "\\.DISPLAY2", index: 2, x: 1920, y: 0, w: 2560, h: 1440, primary: false },
@@ -184,6 +189,11 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "update_annotation_range":
       m.updateAnnRange(a.id as number, a.start as number, a.end as number);
       return null;
+    case "persist_edits":
+      return null;
+    case "set_annotation_fades":
+      m.setAnnFades(a.id as number, a.fadeIn as number, a.fadeOut as number);
+      return null;
     case "duplicate_annotation":
       return m.duplicateAnn(a.id as number);
     case "paste_annotations":
@@ -211,6 +221,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.setZoomStyle(a.index as number, a.style as ZoomStyle);
     case "delete_zoom":
       return m.deleteZoom(a.index as number);
+    case "set_capture_fps":
+      return null;
     case "set_zoom_amount":
       m.zoomAmount = a.amount as number;
       return null;

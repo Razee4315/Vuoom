@@ -2,7 +2,7 @@ name: Lockfile update
 
 # Maintenance task for when a `cargo-deny` advisory (or a fresh patch release) calls for
 # bumping a locked crate and there is no local Rust toolchain at hand. Runs
-# `cargo update -p <packages>` and commits the updated Cargo.lock to a branch, which
+# `cargo update <packages>` and commits the updated Cargo.lock to a branch, which
 # re-runs CI on any open PR for that branch.
 #
 # Trigger from the Actions tab (or `gh workflow run lockfile-update`), then merge the
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: "Space-separated crate names passed to `cargo update -p`"
+        description: "Space-separated crate names passed to `cargo update`"
         required: true
         default: "rustls"
       branch:

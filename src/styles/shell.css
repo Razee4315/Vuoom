@@ -1,0 +1,420 @@
+/* App shell: title bar, the floating-panel workspace, resizers, status bar. */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--titlebar-h) auto 1fr var(--status-h);
+  height: 100%;
+  background: var(--backdrop);
+  color: var(--text);
+}
+
+/* ── title bar ──────────────────────────────────────────────────────────── */
+
+.titlebar {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  min-width: 0;
+  background: var(--backdrop);
+}
+.tb-brand {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--text);
+}
+.tb-record {
+  margin-left: 2px;
+  height: 26px;
+  padding: 0 10px 0 9px;
+  gap: 6px;
+  border-radius: var(--r-full);
+}
+.tb-menus {
+  display: flex;
+  gap: 1px;
+  margin-left: 6px;
+}
+.tb-menu {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+}
+.tb-menu:hover,
+.tb-menu.on {
+  background: var(--hover);
+  color: var(--text);
+}
+.tb-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-2);
+  min-width: 0;
+}
+.tb-name {
+  width: clamp(80px, 20vw, 260px);
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.tb-name:hover {
+  background: var(--hover);
+}
+.tb-name:focus {
+  background: var(--raised);
+  border-color: var(--line-strong);
+}
+.tb-dirty {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+.tb-drag {
+  flex: 1;
+  align-self: stretch;
+  min-width: 20px;
+}
+.tb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  width: clamp(150px, 18vw, 240px);
+  padding: 0 6px 0 10px;
+  border-radius: var(--r);
+  border: 1px solid var(--line-2);
+  background: var(--panel);
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease);
+}
+.tb-search span {
+  flex: 1;
+  text-align: left;
+}
+.tb-search:hover {
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
+.tb-group {
+  display: flex;
+  gap: 1px;
+  padding: 0 4px;
+  border-right: 1px solid var(--line-2);
+}
+.tb-export {
+  margin-left: 4px;
+  height: 28px;
+}
+.tb-update {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+@media (max-width: 1080px) {
+  .tb-search span,
+  .tb-search kbd {
+    display: none;
+  }
+  .tb-search {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 6px;
+}
+.winbtn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+}
+.winbtn svg {
+  stroke: currentColor;
+  stroke-width: 1;
+  fill: none;
+}
+.winbtn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.winbtn.close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.banner {
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 var(--gutter) var(--gutter);
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.banner > svg {
+  color: var(--warn);
+  flex: none;
+}
+.banner span {
+  flex: 1;
+}
+
+/* ── workspace (floating panels) ─────────────────────────────────────────── */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel);
+}
+
+.workspace {
+  grid-row: 3;
+  display: flex;
+  gap: var(--gutter);
+  min-height: 0;
+  padding: 0 var(--gutter);
+}
+.center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gutter);
+}
+.upper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--gutter);
+}
+
+/* Resize handles: a wide invisible hit strip over the gutter with a line that lights up. */
+.resizer {
+  position: absolute;
+  z-index: 20;
+  touch-action: none;
+}
+.resizer::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease);
+}
+.resizer:hover::after,
+.resizer:active::after {
+  opacity: 1;
+}
+.resizer-x {
+  top: 12px;
+  bottom: 12px;
+  left: -9px;
+  width: 10px;
+  cursor: col-resize;
+}
+.resizer-x::after {
+  top: 30%;
+  bottom: 30%;
+  left: 4px;
+  width: 3px;
+}
+.resizer-y {
+  left: 12px;
+  right: 12px;
+  top: -9px;
+  height: 10px;
+  cursor: row-resize;
+}
+.resizer-y::after {
+  left: 40%;
+  right: 40%;
+  top: 4px;
+  height: 3px;
+}
+body.resizing-x,
+body.resizing-x * {
+  cursor: col-resize !important;
+}
+body.resizing-y,
+body.resizing-y * {
+  cursor: row-resize !important;
+}
+
+/* ── tool rail ─────────────────────────────────────────────────────────── */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 64px;
+  flex: none;
+  padding: 6px;
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-panel);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.rail.compact {
+  width: 46px;
+}
+.rail-tool {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 50px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.rail.compact .rail-tool {
+  height: 34px;
+}
+.rail.compact .rail-label {
+  display: none;
+}
+.rail-tool:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.rail-tool:active {
+  transform: scale(0.95);
+}
+.rail-tool.on {
+  background: var(--ink);
+  color: var(--ink-text);
+}
+.rail-label {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.rail-lockdot {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--record);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.rail-sep {
+  height: 1px;
+  margin: 4px 8px;
+  flex: none;
+  background: var(--line-2);
+}
+.rail-spacer {
+  flex: 1;
+  min-height: 6px;
+}
+.rail-lock.on {
+  background: var(--record-soft);
+  color: var(--record);
+}
+.rail-collapse {
+  height: 26px !important;
+  color: var(--faint);
+}
+
+/* ── status bar ─────────────────────────────────────────────────────────── */
+
+.statusbar {
+  grid-row: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.sb-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sb-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.sb-dot.busy {
+  animation: pulse 1s ease-in-out infinite;
+}
+.sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-xs);
+  white-space: nowrap;
+}
+.sb-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+.sb-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

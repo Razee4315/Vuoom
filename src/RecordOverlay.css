@@ -1,310 +1,342 @@
-/* The record overlay lives INSIDE the main window (no separate webview window). It sits
-   above the editor and paints its own opaque surface, so the editor never shows through.
-   The overlay is intentionally always-dark (it paints over the frozen desktop), so it
-   keeps its own surface colors; the record accent matches App.css's --record. */
+/* The record flow lives INSIDE the main window (no extra webviews): a fullscreen region
+   selector over the frozen desktop, then the small live panel the window shrinks to. It is
+   always dark (it paints over arbitrary desktop content), so it carries its own palette. */
 
 .sel-root,
 .rec-panel-root {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: #0a0a0c;
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #fff;
+  background: #09090b;
+  color: #f5f5f6;
+  font-family: "Inter Variable", Inter, system-ui, "Segoe UI", sans-serif;
   user-select: none;
-  --record: #e5484d;
-  --record-hover: #f05e62;
-  --glass: rgba(16, 16, 19, 0.86);
-  --glass-line: rgba(255, 255, 255, 0.12);
+  --rec: #e5484d;
+  --rec-hover: #f25f63;
+  --glass: rgba(18, 18, 22, 0.84);
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --chip: rgba(255, 255, 255, 0.06);
+  --chip-on: #f5f5f6;
+  --muted: rgba(255, 255, 255, 0.55);
 }
-
 .sel-root kbd,
 .rec-panel-root kbd {
-  font-family: inherit;
-  font-size: 0.9em;
-  padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.8);
 }
 
-/* ── Region selector (fullscreen phase) ───────────────────────────────────────── */
+/* ── region selector ─────────────────────────────────────────────────────── */
+
 .sel-root {
   cursor: crosshair;
   overflow: hidden;
-  animation: sel-fade-in 0.18s ease;
+  animation: sel-in 0.2s ease;
 }
 .sel-root.full {
   cursor: default;
 }
-@keyframes sel-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+@keyframes sel-in {
+  from {
+    opacity: 0;
+  }
 }
-
-/* Frozen desktop screenshot the user draws on. */
 .sel-shot {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: fill;
-  user-select: none;
-  -webkit-user-drag: none;
   pointer-events: none;
+  -webkit-user-drag: none;
 }
-
+.sel-root.full .sel-shot {
+  filter: brightness(0.62);
+}
 .sel-rect {
   position: absolute;
-  border: 2px solid var(--record);
-  border-radius: 4px;
+  border: 1.5px solid var(--rec);
+  border-radius: 3px;
   box-shadow:
-    0 0 0 100vmax rgba(5, 5, 6, 0.55),
-    0 0 24px rgba(229, 72, 77, 0.25);
+    0 0 0 100vmax rgba(4, 4, 6, 0.58),
+    0 0 0 4px rgba(229, 72, 77, 0.18);
   pointer-events: none;
 }
-
-/* Resize handles: crisp light squares with a dark ring so they read on any backdrop.
-   Hit-testing is done in JS against the pointer, so these stay visual-only. */
 .sel-handle {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  background: #fff;
-  border: 1px solid #0a0a0c;
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-  pointer-events: none;
   z-index: 2;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 3px;
+  background: #fff;
+  border: 1.5px solid var(--rec);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
-
-/* Live dimensions tag pinned above the selection while drawing/adjusting. */
 .sel-dimtag {
   position: absolute;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgba(10, 10, 12, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  z-index: 2;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: var(--rec);
+  color: #fff;
   font-size: 11px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
-  z-index: 2;
 }
-
 .sel-drawhint,
 .sel-fullhint {
   position: absolute;
   left: 50%;
-  top: 38%;
-  transform: translateX(-50%);
-  padding: 9px 18px;
+  top: 40%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 13px;
-  pointer-events: none;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  font-weight: 560;
   white-space: nowrap;
-  backdrop-filter: blur(6px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: hint-pop 0.35s cubic-bezier(0.3, 1.35, 0.45, 1);
+}
+.sel-drawhint svg,
+.sel-fullhint svg {
+  color: var(--rec);
+}
+@keyframes hint-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.97);
+  }
 }
 
-/* ── Floating preset/action bar (glass) ───────────────────────────────────────── */
-.sel-bar {
+/* The HUD: one glass bar holding every pre-flight choice and the Record button. */
+.hud {
   position: absolute;
   left: 50%;
-  bottom: 44px;
-  transform: translateX(-50%);
+  bottom: 36px;
+  z-index: 5;
   display: flex;
-  flex-direction: column;
-  gap: 13px;
-  padding: 15px 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px;
   border-radius: 20px;
   background: var(--glass);
   border: 1px solid var(--glass-line);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  backdrop-filter: blur(18px) saturate(1.2);
   cursor: default;
-  animation: bar-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(-50%);
+  animation: hud-in 0.4s cubic-bezier(0.3, 1.35, 0.45, 1);
 }
-@keyframes bar-rise {
+@keyframes hud-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translate(-50%, 14px);
   }
 }
-.sel-presets {
+.hud-group {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
-.sel-chip {
+.hud-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hud-seg {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-width: 84px;
-  padding: 9px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.045);
-  color: #fff;
-  cursor: pointer;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 11px;
+  background: var(--chip);
+}
+.hud-chip {
+  height: 28px;
+  min-width: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 600;
   transition:
     background 0.12s ease,
-    border-color 0.12s ease,
-    transform 0.12s ease;
+    color 0.12s ease;
 }
-.sel-chip:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: translateY(-1px);
-}
-.sel-chip.active {
-  border-color: var(--record);
-  background: rgba(229, 72, 77, 0.16);
-}
-.sel-chip strong {
-  font-size: 13px;
-  font-weight: 650;
-}
-.sel-chip small {
-  font-size: 11px;
-  opacity: 0.6;
-}
-.sel-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 13px;
-}
-.sel-zoomrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.sel-zoomlabel {
-  font-size: 12px;
-  opacity: 0.7;
-}
-.sel-zooms {
-  display: flex;
-  gap: 5px;
-  padding: 3px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-}
-.sel-zoom {
-  min-width: 42px;
-  padding: 5px 9px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 12px;
-  font-weight: 550;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.sel-zoom:hover {
+.hud-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
-.sel-zoom.active {
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-  font-weight: 650;
+.hud-chip.on {
+  background: var(--chip-on);
+  color: #0e0e11;
 }
-.sel-dims {
-  flex: 1;
+.hud-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--glass-line);
+}
+.hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hud-dims {
+  min-width: 96px;
+  color: var(--muted);
   font-size: 12px;
-  opacity: 0.7;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
-.sel-btn {
-  padding: 9px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: transparent;
+.hud-cancel {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--chip);
+  color: rgba(255, 255, 255, 0.8);
+}
+.hud-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
-.sel-btn:active {
+.hud-record {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 20px 0 16px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--rec);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 22px rgba(229, 72, 77, 0.4);
+  transition:
+    background 0.12s ease,
+    transform 0.12s ease,
+    box-shadow 0.2s ease;
+}
+.hud-record:hover:not(:disabled) {
+  background: var(--rec-hover);
+  box-shadow:
+    0 0 0 5px rgba(229, 72, 77, 0.22),
+    0 6px 22px rgba(229, 72, 77, 0.45);
+}
+.hud-record:active:not(:disabled) {
   transform: scale(0.97);
 }
-.sel-btn.ghost:hover {
-  background: rgba(255, 255, 255, 0.1);
+.hud-record:disabled {
+  opacity: 0.45;
+  box-shadow: none;
 }
-.sel-btn.primary {
-  background: var(--record);
-  color: #fff;
-  border-color: transparent;
-  font-weight: 650;
-  padding: 9px 22px;
-}
-.sel-btn.primary:hover:not(:disabled) {
-  background: var(--record-hover);
-  box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
-}
-.sel-btn:disabled,
-.rec-cancel:disabled {
-  opacity: 0.55;
-  cursor: default;
-  pointer-events: none;
+.hud-record-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
 }
 
-/* ── Recording panel: live zoom preview + controls ────────────────────────────── */
+/* ── live panel (the window shrinks to ~384×300 around this) ──────────────── */
+
 .rec-panel-root {
   display: grid;
   place-items: center;
-  padding: 12px;
+  padding: 0;
 }
 .rec-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* Compact "director's monitor" card. In the real flow the host window shrinks to fit
-     the bar, so this also fills that small window; in the browser mock it stays a card. */
-  width: min(460px, calc(100vw - 24px));
-  padding: 12px;
+  width: min(420px, 100%);
+  height: min(320px, 100%);
+  padding: 8px;
   border-radius: 18px;
-  background: var(--glass);
+  background: #121215;
   border: 1px solid var(--glass-line);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
-
-/* Drag handle, moves the whole preview window out of the way. */
 .rec-drag {
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 20px;
-  padding: 0 4px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  justify-content: space-between;
+  height: 22px;
+  padding: 0 4px 0 6px;
   cursor: move;
-  user-select: none;
+}
+.rec-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rec-panel.live .rec-state {
+  color: #fff;
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rec);
+  animation: live-blink 1.2s ease-in-out infinite;
+}
+.rec-panel.paused .live-dot {
+  background: #f0b429;
+  animation: none;
+}
+@keyframes live-blink {
+  50% {
+    opacity: 0.35;
+  }
 }
 .rec-grip {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.35);
-}
-
-/* The live preview "screen". */
-.rec-screen {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   display: grid;
   place-items: center;
+  color: rgba(255, 255, 255, 0.35);
+}
+.rec-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 11px;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rec-panel.live .rec-screen {
+  border-color: rgba(229, 72, 77, 0.45);
+}
+.rec-panel.paused .rec-screen {
+  border-color: rgba(240, 180, 41, 0.45);
 }
 .rec-canvas {
   width: 100%;
@@ -312,46 +344,17 @@
   object-fit: contain;
   display: block;
 }
-
-.rec-live {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(229, 72, 77, 0.5);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
 .rec-previewtag {
   position: absolute;
-  bottom: 8px;
+  top: 8px;
   right: 8px;
-  padding: 3px 9px;
+  padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  font-size: 11px;
-  opacity: 0.8;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
 }
-.rec-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--record);
-  animation: rec-pulse 1.2s ease-in-out infinite;
-}
-@keyframes rec-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* Countdown overlay sits over the (still dark) screen, a ring with the count. */
 .rec-countdown {
   position: absolute;
   inset: 0;
@@ -359,151 +362,120 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.35);
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
 }
 .rec-ring {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
   display: grid;
   place-items: center;
-  border: 2px solid rgba(229, 72, 77, 0.55);
-  background: rgba(229, 72, 77, 0.08);
-  box-shadow: 0 0 24px rgba(229, 72, 77, 0.25);
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--rec);
+  animation: ring-spin 1s linear infinite;
 }
 .rec-num {
-  font-size: 34px;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 32px;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
-  animation: rec-pop 1s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: ring-counter-spin 1s linear infinite;
 }
-@keyframes rec-pop {
-  0% {
-    transform: scale(0.7);
-    opacity: 0.4;
-  }
-  35% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-.rec-sub {
-  font-size: 12px;
-  opacity: 0.65;
-  letter-spacing: 0.02em;
-}
-
-/* Control row beneath the screen. */
-.rec-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 36px;
-}
-.rec-time {
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  min-width: 42px;
-  font-size: 15px;
-}
-.rec-hint {
-  flex: 1;
-  font-size: 11px;
-  opacity: 0.7;
-  line-height: 1.3;
-}
-.rec-stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 18px;
-  border: none;
-  border-radius: 999px;
-  background: var(--record);
-  color: #fff;
-  font-weight: 650;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
-}
-.rec-stop::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: #fff;
-}
-.rec-stop:hover {
-  background: var(--record-hover);
-  box-shadow: 0 0 0 5px rgba(229, 72, 77, 0.22);
-}
-.rec-stop:active {
-  transform: scale(0.97);
-}
-.rec-live.paused {
-  border-color: rgba(255, 210, 63, 0.6);
-  color: #ffd23f;
-}
-.rec-finishing {
-  border-color: rgba(255, 255, 255, 0.4);
-}
-.rec-spin {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #fff;
-  animation: rec-spin 0.8s linear infinite;
-}
-@keyframes rec-spin {
+@keyframes ring-spin {
   to {
     transform: rotate(360deg);
   }
 }
+@keyframes ring-counter-spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.rec-sub {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+}
+.rec-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 4px;
+}
+.rec-stop {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--rec);
+  box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.2);
+  transition:
+    transform 0.12s ease,
+    background 0.12s ease;
+}
+.rec-stop span {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #fff;
+}
+.rec-stop:hover {
+  background: var(--rec-hover);
+  transform: scale(1.05);
+}
+.rec-timebox {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.rec-time {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.rec-hint {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .rec-pause {
-  padding: 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border: 0;
+  border-radius: 12px;
+  background: var(--chip);
   color: #fff;
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.12s ease;
 }
 .rec-pause:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.14);
 }
 .rec-cancel {
   margin-left: auto;
-  padding: 8px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background: transparent;
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--chip);
   color: #fff;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s ease;
+  font-size: 13px;
+  font-weight: 600;
 }
-.rec-cancel:hover {
-  background: rgba(255, 255, 255, 0.1);
+.rec-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
 }
-/* Reduced motion: settle instantly, keep the LIVE dot (informational, not decorative). */
-@media (prefers-reduced-motion: reduce) {
-  .sel-root,
-  .sel-bar,
-  .rec-panel,
-  .rec-countdown .rec-num {
-    animation: none !important;
-  }
-  .rec-stop,
-  .rec-pause,
-  .rec-cancel,
-  .sel-btn,
-  .sel-chip,
-  .sel-zoom {
-    transition: none !important;
-  }
+.rec-cancel:disabled {
+  opacity: 0.5;
 }

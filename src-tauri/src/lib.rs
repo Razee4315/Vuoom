@@ -264,6 +264,8 @@ pub fn run() {
             commands::set_highlight_shape,
             commands::set_arrow_style,
             commands::update_annotation_range,
+            commands::set_annotation_fades,
+            commands::persist_edits,
             commands::duplicate_annotation,
             commands::paste_annotations,
             commands::reorder_annotation,

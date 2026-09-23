@@ -15,8 +15,8 @@ mod timing;
 
 pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
 pub use audio::{AudioKind, AudioTrack};
-pub use cursor::CursorStyle;
 pub use color::{Color, Rect};
+pub use cursor::CursorStyle;
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
 pub use timeline::{output_duration, output_segments, output_to_source};
 pub use timing::TimeRange;

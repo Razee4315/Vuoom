@@ -166,7 +166,11 @@ mod tests {
 
     #[test]
     fn events_without_positions_are_skipped() {
-        let ev = [mv(0.0, 0.3, 0.3), E::KeyType { t: 0.01 }, mv(0.03, 0.6, 0.3)];
+        let ev = [
+            mv(0.0, 0.3, 0.3),
+            E::KeyType { t: 0.01 },
+            mv(0.03, 0.6, 0.3),
+        ];
         assert!((raw_pos(&ev, 0.015).unwrap().x - 0.45).abs() < 1e-9);
         assert!(raw_pos(&[E::KeyType { t: 0.0 }], 0.0).is_none());
     }

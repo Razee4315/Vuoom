@@ -160,11 +160,14 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
 /// slightly smaller toward its tip.
 fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
     let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0));
+    const SHADOW: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
+    const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
+    const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
     let shadow = offset_polygon(&ARROW, 0.09);
     let outline = offset_polygon(&ARROW, 0.06);
-    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], [0.0, 0.0, 0.0, 0.22]);
-    fill_arrow(out, c, scale, &outline, [0.0, 0.0], [0.04, 0.04, 0.05, 0.95]);
-    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], [1.0, 1.0, 1.0, 1.0]);
+    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], SHADOW);
+    fill_arrow(out, c, scale, &outline, [0.0, 0.0], OUTLINE);
+    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], BODY);
 }
 
 /// Fill an arrow-shaped polygon (pointer units, tip at the origin, vertices matching

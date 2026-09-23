@@ -234,10 +234,8 @@ pub fn build_scene(
         let pos = smooth_pos(&project.events, t, f64::from(style.smoothing))?;
         let src = layout.src_rect;
         let dst = layout.dst_rect;
-        let inside = pos.x >= src.x
-            && pos.y >= src.y
-            && pos.x <= src.x + src.w
-            && pos.y <= src.y + src.h;
+        let inside =
+            pos.x >= src.x && pos.y >= src.y && pos.x <= src.x + src.w && pos.y <= src.y + src.h;
         inside.then(|| ResolvedCursor {
             x: dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w,
             y: dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h,

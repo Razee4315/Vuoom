@@ -729,6 +729,7 @@ export function createEditor() {
       cancelAnimationFrame(raf);
     } else {
       if (playhead() >= tEnd() - 1e-3 || playhead() < tStart()) scrub(tStart());
+      audio.prime();
       setPlaying(true);
       lastTs = 0;
       raf = requestAnimationFrame(tick);

@@ -3,9 +3,10 @@
 // picks a microphone and system sound.
 import { createEffect, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { invoke } from "../bridge";
+import { Icon } from "../icons";
 import { prefs } from "../prefs";
 import type { AudioDevices } from "../types";
-import type { MenuItem } from "../ui";
+import { Menu, type MenuItem } from "../ui";
 
 const NO_DEVICES: AudioDevices = { inputs: [], has_output: false };
 let devicesCache: Promise<AudioDevices> | null = null;
@@ -136,6 +137,31 @@ export function useMicCheck(on: () => boolean): void {
   onCleanup(() => {
     void invoke("set_mic_check", { on: false, device: null }).catch(() => undefined);
   });
+}
+
+/** A compact button that opens the audio menu, showing what the next take records. */
+export function AudioPicker(props: { class?: string }): JSX.Element {
+  const devices = createAudioDevices();
+  const off = () => !prefs.recordMic() && !prefs.recordSystem();
+  return (
+    <Menu
+      items={() => audioMenuItems(devices())}
+      trigger={(m) => (
+        <button
+          type="button"
+          class={`audio-picker ${props.class ?? ""}`}
+          classList={{ on: m.open, off: off() }}
+          ref={m.ref}
+          data-tip={prefs.recordMic() ? micName(devices()) : "Record your voice or the computer's sound"}
+          onClick={m.toggle}
+        >
+          <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />
+          <span>{audioSummary()}</span>
+          <Icon name="chevronDown" size={12} />
+        </button>
+      )}
+    />
+  );
 }
 
 /** A horizontal level bar: teal, warming to amber near the top and red when clipping.

@@ -133,7 +133,12 @@ export function createAudio(opts: { onEdit: () => void }) {
     }
     const c = context();
     if (!c) return;
-    if (c.state === "suspended") void c.resume();
+    // A suspended context's clock stands still; scheduling against it would restart every
+    // track each frame. Ask it to run and pick up on a later tick.
+    if (c.state !== "running") {
+      void c.resume();
+      return;
+    }
     for (const tr of tracks()) {
       const d = data()[tr.kind];
       if (!d) continue;
@@ -188,6 +193,10 @@ export function createAudio(opts: { onEdit: () => void }) {
     adopt,
     sync,
     stop,
+    /** Wake the audio output from a user gesture (the Play click), per autoplay rules. */
+    prime: () => {
+      if (tracks().length > 0) void context()?.resume();
+    },
     setGain: (kind: AudioKind, gain: number) => update(kind, { gain }),
     toggleMute: (kind: AudioKind) => {
       const t = tracks().find((x) => x.kind === kind);

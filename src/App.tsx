@@ -112,6 +112,7 @@ export default function App() {
           trim={ed.trim()}
           speed={ed.speed()}
           cuts={ed.cuts()}
+          hasAudio={ed.audio.tracks().some((t) => !t.muted)}
           onClose={() => ed.setShowExport(false)}
           onStatus={ed.setStatus}
           onExported={() => ed.setDirty(false)}

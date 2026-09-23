@@ -363,3 +363,37 @@
   opacity: 0;
   cursor: pointer;
 }
+
+/* Audio tracks (Clip > Audio): icon + name + mute, then the volume slider. */
+.audio-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.audio-row + .audio-row {
+  margin-top: 8px;
+}
+.audio-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 560;
+}
+.audio-row-head > svg {
+  flex: none;
+  color: var(--t-audio);
+}
+.audio-row-head > span {
+  flex: 1;
+  min-width: 0;
+}
+.audio-row.muted .audio-row-head > svg {
+  color: var(--faint);
+}
+.audio-row.muted .audio-row-head > span {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}

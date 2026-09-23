@@ -615,6 +615,11 @@
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
+.export-audio-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
 .export-fit {
   display: flex;
   align-items: center;

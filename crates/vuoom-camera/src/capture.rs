@@ -629,7 +629,7 @@ mod tests {
         assert_eq!(fit(1920, 1080), (960, 540));
         let (w, h) = fit(1000, 751);
         assert_eq!(w, MAX_WIDTH);
-        assert_eq!(h % 2, 0);
+        assert!(h.is_multiple_of(2));
     }
 
     #[test]

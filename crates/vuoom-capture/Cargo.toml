@@ -13,10 +13,12 @@ tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2"
-# DXGI types for Desktop Duplication's pointer shape and rotation. Pinned to the version
-# windows-capture uses (0.62), so no second `windows` tree is compiled.
+# DXGI and D3D11 for Desktop Duplication (pointer shape, rotation, reading back only the
+# changed rows). Pinned to the version windows-capture uses (0.62), which already builds these
+# modules, so no second `windows` tree is compiled.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
 ] }

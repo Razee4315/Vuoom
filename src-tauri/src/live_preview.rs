@@ -2,10 +2,13 @@
 //! time while recording.
 //!
 //! It is fed a small copy of the recorded frames (see [`sample`]; the recording's drain hands
-//! one over about 20 times a second and never waits on it), polls the cursor and the
-//! Ctrl+Shift+Z hotkey, drives an online camera (the same critically damped springs the final
-//! render uses), crops and downscales each frame to the camera viewport, and publishes it to
-//! the preview WebSocket. Sharing the recording's frames rather than running a second capture
+//! one over up to 60 times a second and never waits on it). On its own clock, about 120 times
+//! a second whether or not the screen changed, it polls the cursor and the Ctrl+Shift+Z
+//! hotkey and steps an online camera (the same critically damped springs the final render
+//! uses), so a zoom starts the moment the keys go down. Whenever the picture changed (a new
+//! frame, the camera moving, the pointer marker moving) it crops the newest frame to the
+//! camera viewport and downscales it in one pass, up to 60 times a second, and publishes it
+//! to the preview WebSocket. Sharing the recording's frames rather than running a second capture
 //! halves the capture work, and matters for Desktop Duplication, which allows one capture of a
 //! display per process. When the take leaves the pointer out of the frames (the smooth
 //! pointer), a small marker shows where it is. The panel showing the preview is excluded from
@@ -19,7 +22,7 @@ use std::time::Duration;
 
 use glam::DVec2;
 use vuoom_capture::{CapturedFrame, CropRegion};
-use vuoom_encode::{downscale_rgba, swizzle_rb, RgbaImage};
+use vuoom_encode::RgbaImage;
 use vuoom_input::Clock;
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
 use vuoom_zoom::{CameraFilter, CameraState, CameraTarget, ZoomConfig};
@@ -28,12 +31,14 @@ use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-/// Downscaled preview width (px), small enough to be cheap, big enough to read.
-const PREVIEW_WIDTH: u32 = 480;
-/// Preview cadence (~20 fps), independent of the capture rate so it never steals throughput.
-const EMIT_INTERVAL: f64 = 0.05;
-/// How often the recording's drain hands the preview a frame.
-pub const TAP_EVERY: Duration = Duration::from_millis(45);
+/// Downscaled preview width (px): sharp in the large panel, still cheap to make.
+const PREVIEW_WIDTH: u32 = 640;
+/// Fastest the preview repaints (60 fps). It repaints only when the picture changed.
+const EMIT_INTERVAL: f64 = 1.0 / 60.0;
+/// How often the camera and the zoom hotkey are checked, whether or not a frame arrived.
+const TICK: Duration = Duration::from_millis(8);
+/// How often the recording's drain hands the preview a frame (60 fps).
+pub const TAP_EVERY: Duration = Duration::from_millis(16);
 /// The widest copy handed over: enough for a 2× zoom into a 480 px preview.
 const TAP_MAX_WIDTH: u32 = 1280;
 
@@ -136,6 +141,26 @@ struct Feed {
     mark_pointer: bool,
 }
 
+/// What the last published preview showed, to skip repainting an unchanged picture.
+#[derive(Clone, Copy, PartialEq)]
+struct Shown {
+    cam: CameraState,
+    marker: Option<DVec2>,
+}
+
+impl Shown {
+    /// Whether `other` looks different on screen.
+    fn differs(self, other: Self) -> bool {
+        let moved = (self.cam.center - other.cam.center).length() > 1e-5;
+        let zoomed = (self.cam.zoom - other.cam.zoom).abs() > 1e-4;
+        let marker = match (self.marker, other.marker) {
+            (Some(a), Some(b)) => (a - b).length() > 1e-4,
+            (a, b) => a.is_some() != b.is_some(),
+        };
+        moved || zoomed || marker
+    }
+}
+
 fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &AtomicBool) {
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, feed.amount);
@@ -143,14 +168,25 @@ fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &At
     let start = clock.now();
     let mut last_emit = -1.0_f64;
     let mut prev_chord = false;
+    let mut latest: Option<PreviewFrame> = None;
+    let mut fresh = false;
+    let mut shown: Option<Shown> = None;
 
     while !stop.load(Ordering::Relaxed) {
-        let sampled = match frames.recv_timeout(Duration::from_millis(100)) {
-            Ok(f) => f,
-            Err(RecvTimeoutError::Timeout) => continue,
+        // The newest frame, waiting at most one tick for it.
+        match frames.recv_timeout(TICK) {
+            Ok(f) => {
+                latest = Some(f);
+                fresh = true;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
             // The recording ended (or its drain stopped): nothing more to show.
             Err(RecvTimeoutError::Disconnected) => break,
-        };
+        }
+        while let Ok(f) = frames.try_recv() {
+            latest = Some(f);
+            fresh = true;
+        }
         let t = clock.seconds_between(start, clock.now());
 
         // Rising edge of Ctrl+Shift+Z toggles the zoom (mirrors the real recorder's hotkey).
@@ -160,17 +196,22 @@ fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &At
         }
         prev_chord = chord;
 
-        let cursor = cursor_norm(feed.region, feed.origin, sampled.full_w, sampled.full_h);
-        let cam = camera.step(t, cursor);
-
-        // Throttle the actual pixel work to the preview cadence.
-        if t - last_emit < EMIT_INTERVAL {
+        let Some(frame) = latest.as_ref() else {
+            continue;
+        };
+        let cursor = cursor_norm(feed.region, feed.origin, frame.full_w, frame.full_h);
+        let now = Shown {
+            cam: camera.step(t, cursor),
+            marker: feed.mark_pointer.then_some(cursor),
+        };
+        let changed = fresh || shown.is_none_or(|s| s.differs(now));
+        if !changed || t - last_emit < EMIT_INTERVAL {
             continue;
         }
         last_emit = t;
-
-        let marker = feed.mark_pointer.then_some(cursor);
-        if let Some(packed) = render_preview(&sampled.frame, cam, marker) {
+        fresh = false;
+        shown = Some(now);
+        if let Some(packed) = render_preview(&frame.frame, now.cam, now.marker) {
             sink.publish(packed);
         }
     }
@@ -196,16 +237,8 @@ fn render_preview(
     let x0 = (cx - i64::from(vw) / 2).clamp(0, i64::from(fw - vw)) as u32;
     let y0 = (cy - i64::from(vh) / 2).clamp(0, i64::from(fh - vh)) as u32;
 
-    // Crop the tightly-packed BGRA viewport, swizzle to RGBA, downscale to the preview width.
-    let row = (vw * 4) as usize;
-    let mut cropped = Vec::with_capacity(row * vh as usize);
-    for y in y0..y0 + vh {
-        let s = ((y * fw + x0) * 4) as usize;
-        cropped.extend_from_slice(&frame.bgra[s..s + row]);
-    }
-    let rgba = RgbaImage::new(vw, vh, swizzle_rb(&cropped));
-    let target = PREVIEW_WIDTH.min(vw);
-    let mut small = downscale_rgba(&rgba, target);
+    let viewport = (x0, y0, vw, vh);
+    let mut small = shrink(frame, viewport, PREVIEW_WIDTH.min(vw));
     if let Some(p) = marker {
         // The pointer in viewport terms, then preview pixels.
         let px = (p.x * f64::from(fw) - f64::from(x0)) / f64::from(vw) * f64::from(small.width);
@@ -221,6 +254,46 @@ fn render_preview(
         target_time_ns: 0,
     };
     Some(pack_frame(&small.pixels, meta))
+}
+
+/// The `viewport` (x, y, w, h) of `frame` (BGRA) as an RGBA image `width` px wide, in one
+/// pass: each output pixel is the average of the source pixels it covers.
+fn shrink(frame: &CapturedFrame, viewport: (u32, u32, u32, u32), width: u32) -> RgbaImage {
+    let (x0, y0, vw, vh) = viewport;
+    let (dw, stride) = (width.max(1) as usize, frame.width as usize);
+    let dh = ((u64::from(vh) * dw as u64) / u64::from(vw.max(1))).max(1) as usize;
+    let (vw, vh) = (vw as usize, vh as usize);
+    // Each output column's source span, worked out once for all rows.
+    let cols: Vec<(usize, usize)> = (0..dw)
+        .map(|dx| {
+            let a = dx * vw / dw;
+            (a, ((dx + 1) * vw / dw).clamp(a + 1, vw))
+        })
+        .collect();
+    let mut out = vec![0u8; dw * dh * 4];
+    for (dy, out_row) in out.chunks_mut(dw * 4).enumerate() {
+        let a = dy * vh / dh;
+        let b = ((dy + 1) * vh / dh).clamp(a + 1, vh);
+        let (out_px, _) = out_row.as_chunks_mut::<4>();
+        for (&(c0, c1), px) in cols.iter().zip(out_px) {
+            let mut sum = [0u32; 3];
+            for sy in a..b {
+                let row = (y0 as usize + sy) * stride + x0 as usize;
+                let span = &frame.bgra[(row + c0) * 4..(row + c1) * 4];
+                let (src, _) = span.as_chunks::<4>();
+                for p in src {
+                    sum[0] += u32::from(p[0]);
+                    sum[1] += u32::from(p[1]);
+                    sum[2] += u32::from(p[2]);
+                }
+            }
+            let n = ((b - a) * (c1 - c0)) as u32;
+            let avg = |c: u32| (c / n) as u8;
+            // BGRA in, RGBA out.
+            *px = [avg(sum[2]), avg(sum[1]), avg(sum[0]), 255];
+        }
+    }
+    RgbaImage::new(dw as u32, dh as u32, out)
 }
 
 /// A small pointer marker: a white dot in a dark ring, centered on (`x`, `y`) (preview px).
@@ -353,6 +426,27 @@ mod tests {
         assert_eq!(big.frame.qpc, 7);
         // Pixel (1, 0) of the copy is pixel (2, 0) of the original.
         assert_eq!(big.frame.bgra[4], 2);
+    }
+
+    #[test]
+    fn shrink_averages_and_swaps_to_rgba() {
+        // 4×2 BGRA: the left half blue, the right half red.
+        let mut f = frame(4, 2);
+        let (pixels, _) = f.bgra.as_chunks_mut::<4>();
+        for (i, px) in pixels.iter_mut().enumerate() {
+            *px = if i % 4 < 2 {
+                [200, 0, 0, 255]
+            } else {
+                [0, 0, 100, 255]
+            };
+        }
+        let img = shrink(&f, (0, 0, 4, 2), 2);
+        assert_eq!((img.width, img.height), (2, 1));
+        assert_eq!(img.pixels[..4], [0, 0, 200, 255]);
+        assert_eq!(img.pixels[4..], [100, 0, 0, 255]);
+        // A viewport: only the right half, one output pixel.
+        let img = shrink(&f, (2, 0, 2, 2), 1);
+        assert_eq!(img.pixels, [100, 0, 0, 255]);
     }
 
     #[test]

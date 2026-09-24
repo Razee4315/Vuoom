@@ -53,6 +53,7 @@ vuoom-capture.workspace = true
 vuoom-render.workspace = true
 vuoom-preview.workspace = true
 vuoom-audio.workspace = true
+vuoom-camera.workspace = true
 
 # Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
 # hotkey polling. Pinned to the version windows-capture pulls in (0.62) so vuoom-input

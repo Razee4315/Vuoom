@@ -5584,6 +5584,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "vuoom-audio",
+ "vuoom-camera",
  "vuoom-capture",
  "vuoom-encode",
  "vuoom-input",

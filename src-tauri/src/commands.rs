@@ -15,7 +15,9 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{AudioKind, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
+use vuoom_project::{
+    AudioKind, CameraOverlay, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
+};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -547,6 +549,55 @@ pub fn set_audio_track(
     muted: bool,
 ) -> Result<(), String> {
     engine.session()?.set_audio_track(kind, gain, muted)
+}
+
+/// Connected webcams.
+#[tauri::command]
+pub async fn list_cameras() -> Result<Vec<crate::camera::CameraDevice>, String> {
+    tauri::async_runtime::spawn_blocking(crate::camera::devices)
+        .await
+        .map_err(|e| format!("camera: {e}"))?
+}
+
+/// Choose the webcam the next recording captures (`on` false: none; no `device`: the first).
+#[tauri::command]
+pub fn set_capture_camera(
+    engine: tauri::State<'_, Engine>,
+    on: bool,
+    device: Option<String>,
+) -> Result<(), String> {
+    engine.session()?.set_capture_camera(on, device)
+}
+
+/// Open (or close) the chosen webcam for the recording UI's live bubble. Opening takes a
+/// moment, so it runs on a blocking thread.
+#[tauri::command]
+pub async fn set_camera_preview(app: AppHandle, on: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Engine>().session()?.set_camera_preview(on)
+    })
+    .await
+    .map_err(|e| format!("camera: {e}"))?
+}
+
+/// The live bubble's latest frame as JPEG bytes (empty until the camera sends one).
+#[tauri::command]
+pub fn camera_preview_frame(
+    engine: tauri::State<'_, Engine>,
+) -> Result<tauri::ipc::Response, String> {
+    let frame = engine.session()?.camera_preview_frame();
+    Ok(tauri::ipc::Response::new(
+        frame.map_or_else(Vec::new, |f| f.to_vec()),
+    ))
+}
+
+/// Set how the webcam bubble looks: shown, corner, size, shape, mirror.
+#[tauri::command]
+pub fn set_camera_overlay(
+    engine: tauri::State<'_, Engine>,
+    overlay: CameraOverlay,
+) -> Result<(), String> {
+    engine.session()?.set_camera_overlay(overlay)
 }
 
 /// Turn a recorded track's voice clean-up (noise removal, even volume) on or off.

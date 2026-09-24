@@ -12,11 +12,12 @@ mod layout;
 mod scene;
 mod shapes;
 
-pub use compositor::{BgFill, Compositor};
+pub use compositor::{BgFill, CameraImage, Compositor};
 
 pub use layout::{
     camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,
 };
 pub use scene::{
-    build_scene, ResolvedArrow, ResolvedCursor, ResolvedHighlight, ResolvedText, Scene,
+    build_scene, ResolvedArrow, ResolvedCamera, ResolvedCursor, ResolvedHighlight, ResolvedText,
+    Scene,
 };

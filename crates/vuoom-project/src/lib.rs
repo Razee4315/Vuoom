@@ -7,6 +7,7 @@
 
 mod annotation;
 mod audio;
+mod camera;
 mod color;
 mod cursor;
 mod frame;
@@ -15,6 +16,7 @@ mod timing;
 
 pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
 pub use audio::{AudioKind, AudioTrack};
+pub use camera::{CameraOverlay, CameraShape, Corner};
 pub use color::{Color, Rect};
 pub use cursor::CursorStyle;
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
@@ -114,6 +116,9 @@ pub struct Project {
     /// camera's shutter.
     #[serde(default = "yes")]
     pub motion_blur: bool,
+    /// The webcam bubble, when the take recorded the camera.
+    #[serde(default)]
+    pub camera: Option<CameraOverlay>,
 }
 
 fn yes() -> bool {
@@ -192,6 +197,7 @@ impl Project {
             pointer_captured: true,
             cursor: None,
             motion_blur: true,
+            camera: None,
         }
     }
 

@@ -53,6 +53,30 @@ frame is about 50 KB: roughly 1.5 MB per second of recording.
 `TrackReader::index_at(t)` returns the frame showing at `t` (the latest at or before it),
 which is what preview and export draw.
 
+## The bubble
+
+`Project.camera: Option<CameraOverlay>` exists when the take recorded frames: `visible`,
+`corner` (default bottom right), `size` (height as a fraction of the output, 0.12 to 0.6,
+default 0.28), `shape` (circle, rounded square, rounded 16:9) and `mirror` (on by default,
+since people expect to see themselves mirrored). It also holds `offset`: the source time of
+the track's clock zero. That is 0 for a normal take and negative for a recovered one,
+whose timeline starts at the first surviving frame, exactly like audio.
+
+- **Placement** (`scene::place_camera`): the bubble sits in its corner of the framed
+  recording, 3.5% of the output height in from the edges. It does not follow the zoom.
+  The scene carries the camera-track time to show (`t - offset`).
+- **Drawing** (`shaders/camera.wgsl`): a quad around the bubble plus its shadow. The frame
+  is center-cropped to the bubble's aspect (mirroring is a right-to-left crop), clipped by
+  the same rounded-box SDF as the recording (a circle at half the height), anti-aliased,
+  with a soft drop shadow and a thin light rim so it separates from dark content. It's
+  blended premultiplied, after the recording and before annotations and the pointer.
+- **Frames**: preview and export look up the frame showing at that time
+  (`TrackReader::index_at`), decode it through WIC, and keep the last decoded frame, since
+  consecutive output frames usually show the same camera frame. The preview's reader lives
+  with the loaded clip and is dropped with it, so no file handle outlives the clip.
+- **Takes and projects**: recording writes `camera.json` (the clock origin) beside the
+  track for crash recovery. Bundles carry the track in a `camera` folder.
+
 ## Tests
 
 CI runs the format choice, sizing, downscaling, clock tie, the track format (round trip,

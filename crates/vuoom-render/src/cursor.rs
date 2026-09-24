@@ -16,8 +16,11 @@ const MOTION_GAP: f64 = 0.06;
 const PRESS_DOWN: f64 = 0.06;
 const PRESS_UP: f64 = 0.22;
 
+/// A logged pointer position: (time, position).
+type Sample = (f64, DVec2);
+
 /// The nearest positioned event at or before index `i` (walking back) and at or after it.
-fn neighbors(events: &[InputEvent], i: usize) -> (Option<(f64, DVec2)>, Option<(f64, DVec2)>) {
+fn neighbors(events: &[InputEvent], i: usize) -> (Option<Sample>, Option<Sample>) {
     let before = events[..i]
         .iter()
         .rev()

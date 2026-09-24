@@ -28,8 +28,11 @@ platform stack MP4 export already uses, so there is nothing new to bundle.
   a driver hiccup) would block the reader thread, so `finish` waits at most 3 s, then
   keeps the frames already on disk and lets the thread end on its own. Shutting the media
   source down releases the device and turns its light off.
-- **Live preview.** The latest frame is kept as a JPEG for the recording UI's bubble. A
-  recorder started without a file does only that.
+- **Open early, record instantly.** Opening a camera takes a moment (sometimes a second
+  or two), so `CameraRecorder::open` runs while the user frames the shot, feeding the
+  recording UI's live bubble with the latest frame as a JPEG. `record(path, clock)` then
+  starts writing frames to a track from the very next frame: the recording never waits
+  for the device.
 
 ## Storage
 

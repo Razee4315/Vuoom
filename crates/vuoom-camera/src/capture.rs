@@ -3,19 +3,24 @@
 //! One thread per camera. It opens the device, picks a native format ([`choose_format`]:
 //! the widest at most [`MAX_WIDTH`] wide at 24 fps or better, nearest 30 fps), and asks the
 //! reader for RGB32, which Media Foundation converts to from whatever the camera sends
-//! (MJPG, NV12, YUY2). Every frame is scaled down if needed, encoded as a JPEG, appended to
-//! the track with its time on the recording clock, and kept as the latest frame for the
-//! live preview bubble.
+//! (MJPG, NV12, YUY2). Every frame is scaled down if needed, encoded as a JPEG and kept as
+//! the latest frame for the live preview bubble.
+//!
+//! Opening a camera takes a moment, so it's opened while the user frames the shot (the
+//! preview needs it anyway) and [`CameraRecorder::record`] then starts writing frames to a
+//! track on the spot: the recording never waits for the device.
 //!
 //! Times: the reader's sample timestamps are steady but count from when the camera
 //! started, so [`Pin`] ties them to the recording clock by the first frame's arrival, and
 //! re-ties them if they ever drift more than [`REPIN_SECS`] from arrival time.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use crate::store::TrackWriter;
 
 /// Widest frame stored; larger camera formats are scaled down to this.
 pub const MAX_WIDTH: u32 = 960;
@@ -44,6 +49,14 @@ pub struct Camera {
 pub struct Clock {
     pub start_qpc: i64,
     pub freq: i64,
+}
+
+impl Clock {
+    /// Seconds from the origin to the counter value `qpc`.
+    #[must_use]
+    pub fn seconds(&self, qpc: i64) -> f64 {
+        (qpc - self.start_qpc) as f64 / self.freq.max(1) as f64
+    }
 }
 
 /// A native format a camera offers.
@@ -132,31 +145,79 @@ impl Pin {
     }
 }
 
+/// Where recorded frames go: the track, the clock that times them, and the tie from the
+/// camera's timestamps to that clock.
+struct Sink {
+    writer: TrackWriter,
+    clock: Clock,
+    pin: Pin,
+}
+
+impl Sink {
+    /// Append a frame stamped `stamp` that arrived at counter value `arrived_qpc`. Returns
+    /// whether it was written.
+    fn push(&mut self, stamp: i64, arrived_qpc: i64, jpeg: &[u8]) -> Result<bool, String> {
+        let arrived = self.clock.seconds(arrived_qpc);
+        let t = self.pin.place(stamp, arrived);
+        self.writer.push(t, jpeg)
+    }
+}
+
 /// What the capture thread shares with its owner.
 struct Shared {
     stop: AtomicBool,
+    /// Frames written to the current track.
     frames: AtomicU64,
     latest: Mutex<Option<Arc<Vec<u8>>>>,
+    /// Set by [`CameraRecorder::record`]; frames only reach the preview until then.
+    sink: Mutex<Option<Sink>>,
+}
+
+impl Shared {
+    fn sink(&self) -> std::sync::MutexGuard<'_, Option<Sink>> {
+        self.sink.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Record one encoded frame: into the track when recording, and as the latest preview.
+    fn deliver(&self, stamp: i64, arrived_qpc: i64, jpeg: Vec<u8>) -> Result<(), String> {
+        if let Some(sink) = self.sink().as_mut() {
+            if sink.push(stamp, arrived_qpc, &jpeg)? {
+                let n = self.frames.fetch_add(1, Ordering::Relaxed) + 1;
+                if n.is_multiple_of(FLUSH_EVERY) {
+                    sink.writer.flush()?;
+                }
+            }
+        }
+        let mut latest = self.latest.lock().unwrap_or_else(|e| e.into_inner());
+        *latest = Some(Arc::new(jpeg));
+        Ok(())
+    }
+
+    /// Close the track, if one is being written. Returns its frame count.
+    fn close(&self) -> Result<u64, String> {
+        self.sink().take().map_or(Ok(0), |s| s.writer.finish())
+    }
 }
 
 /// A running camera. Stop it with [`CameraRecorder::finish`]; dropping it stops it too.
 pub struct CameraRecorder {
     shared: Arc<Shared>,
-    done: Option<Receiver<Result<u64, String>>>,
+    done: Option<Receiver<Result<(), String>>>,
     size: (u32, u32),
 }
 
 impl CameraRecorder {
-    /// Start the camera `id` (`None`: the first one). With `out`, frames are recorded there
-    /// as a track timed by `clock`; without, only the live preview runs.
+    /// Open the camera `id` (`None`: the first one) and start its live preview. Blocks
+    /// until the camera delivers its format (a moment, sometimes a second or two).
     ///
     /// # Errors
     /// Returns a message if the camera can't be opened.
-    pub fn start(id: Option<String>, out: Option<PathBuf>, clock: Clock) -> Result<Self, String> {
+    pub fn open(id: Option<String>) -> Result<Self, String> {
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
             frames: AtomicU64::new(0),
             latest: Mutex::new(None),
+            sink: Mutex::new(None),
         });
         let (ready_tx, ready_rx) = mpsc::channel();
         let (done_tx, done_rx) = mpsc::channel();
@@ -164,7 +225,7 @@ impl CameraRecorder {
         std::thread::Builder::new()
             .name("vuoom-camera".into())
             .spawn(move || {
-                let r = imp::run(id.as_deref(), out, clock, &thread_shared, &ready_tx);
+                let r = imp::run(id.as_deref(), &thread_shared, &ready_tx);
                 let _ = done_tx.send(r);
             })
             .map_err(|e| format!("camera thread: {e}"))?;
@@ -182,6 +243,25 @@ impl CameraRecorder {
         }
     }
 
+    /// Start writing frames to a new track at `path`, timed by `clock`, from the next frame
+    /// on. A track already being written is closed first.
+    ///
+    /// # Errors
+    /// Returns a message if the track file can't be created.
+    pub fn record(&self, path: &Path, clock: Clock) -> Result<(), String> {
+        let writer = TrackWriter::create(path)?;
+        let old = self.shared.sink().replace(Sink {
+            writer,
+            clock,
+            pin: Pin::default(),
+        });
+        self.shared.frames.store(0, Ordering::Relaxed);
+        if let Some(old) = old {
+            old.writer.finish()?;
+        }
+        Ok(())
+    }
+
     /// The stored frame size.
     #[must_use]
     pub fn size(&self) -> (u32, u32) {
@@ -196,23 +276,23 @@ impl CameraRecorder {
     }
 
     /// Stop the camera and close the track. Returns the frames recorded. A camera that
-    /// hangs doesn't hold the recording up: after a few seconds the frames already on disk
-    /// are kept and the thread is left to finish on its own.
+    /// hangs doesn't hold the recording up: after a few seconds the track is closed with
+    /// the frames already written and the thread is left to end on its own.
     ///
     /// # Errors
     /// Returns a message if capture failed or the track couldn't be closed.
     pub fn finish(mut self) -> Result<u64, String> {
         self.shared.stop.store(true, Ordering::Relaxed);
-        let Some(done) = self.done.take() else {
-            return Ok(0);
-        };
-        match done.recv_timeout(STOP_TIMEOUT) {
-            Ok(result) => result,
-            Err(_) => {
+        let captured = match self.done.take().map(|d| d.recv_timeout(STOP_TIMEOUT)) {
+            Some(Ok(result)) => result,
+            Some(Err(_)) => {
                 tracing::warn!("the camera did not stop in time; keeping the frames written");
-                Ok(self.shared.frames.load(Ordering::Relaxed))
+                Ok(())
             }
-        }
+            None => Ok(()),
+        };
+        let frames = self.shared.close()?;
+        captured.map(|()| frames)
     }
 }
 
@@ -232,14 +312,11 @@ pub fn list_cameras() -> Result<Vec<Camera>, String> {
 
 #[cfg(windows)]
 mod imp {
-    use super::{choose_format, downscale, fit, Camera, Clock, Format, Pin, Shared, FLUSH_EVERY};
+    use super::{choose_format, downscale, fit, Camera, Format, Shared};
     use crate::jpeg;
-    use crate::store::TrackWriter;
-    use std::path::PathBuf;
     use std::ptr::addr_of_mut;
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::Sender;
-    use std::sync::Arc;
     use windows::core::{Error, Interface, GUID, PWSTR};
     use windows::Win32::Foundation::E_FAIL;
     use windows::Win32::Media::MediaFoundation::*;
@@ -268,12 +345,12 @@ mod imp {
         }
     }
 
-    /// Seconds from the recording's start to now.
-    fn now(clock: Clock) -> f64 {
+    /// The performance counter now.
+    fn qpc_now() -> i64 {
         let mut q = 0i64;
         // SAFETY: writes the counter into a local.
         let _ = unsafe { QueryPerformanceCounter(&mut q) };
-        (q - clock.start_qpc) as f64 / clock.freq.max(1) as f64
+        q
     }
 
     /// A string attribute of a device, or "" when it has none.
@@ -475,16 +552,9 @@ mod imp {
     }
 
     /// Read frames until asked to stop.
-    fn pump(
-        cam: &Opened,
-        writer: &mut Option<TrackWriter>,
-        clock: Clock,
-        shared: &Shared,
-        size: (u32, u32),
-    ) -> Result<(), String> {
+    fn pump(cam: &Opened, shared: &Shared, size: (u32, u32)) -> Result<(), String> {
         let stream = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
         let ended = (MF_SOURCE_READERF_ERROR.0 | MF_SOURCE_READERF_ENDOFSTREAM.0) as u32;
-        let mut pin = Pin::default();
         while !shared.stop.load(Ordering::Relaxed) {
             let mut flags = 0u32;
             let mut stamp = 0i64;
@@ -508,7 +578,7 @@ mod imp {
             let Some(sample) = sample else {
                 continue;
             };
-            let arrived = now(clock);
+            let arrived = qpc_now();
             let Ok(px) = pixels(&sample, cam) else {
                 continue;
             };
@@ -524,28 +594,16 @@ mod imp {
                     continue;
                 }
             };
-            let t = pin.place(stamp, arrived);
-            if let Some(w) = writer.as_mut() {
-                if w.push(t, &encoded)? {
-                    let n = shared.frames.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n.is_multiple_of(FLUSH_EVERY) {
-                        w.flush()?;
-                    }
-                }
-            }
-            let mut latest = shared.latest.lock().unwrap_or_else(|e| e.into_inner());
-            *latest = Some(Arc::new(encoded));
+            shared.deliver(stamp, arrived, encoded)?;
         }
         Ok(())
     }
 
     pub fn run(
         id: Option<&str>,
-        out: Option<PathBuf>,
-        clock: Clock,
         shared: &Shared,
         ready: &Sender<Result<(u32, u32), String>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         let fail = |e: String| {
             let _ = ready.send(Err(e.clone()));
             Err(e)
@@ -557,23 +615,15 @@ mod imp {
             Ok(c) => c,
             Err(e) => return fail(e),
         };
-        let mut writer = match out.map(|p| TrackWriter::create(&p)).transpose() {
-            Ok(w) => w,
-            Err(e) => return fail(e),
-        };
         let size = fit(cam.width, cam.height);
         let _ = ready.send(Ok(size));
-        let pumped = pump(&cam, &mut writer, clock, shared, size);
-        drop(cam);
-        let closed = writer.map_or(Ok(0), TrackWriter::finish);
-        pumped.and(closed)
+        pump(&cam, shared, size)
     }
 }
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{Camera, Clock, Shared};
-    use std::path::PathBuf;
+    use super::{Camera, Shared};
     use std::sync::mpsc::Sender;
 
     pub fn list() -> Result<Vec<Camera>, String> {
@@ -582,11 +632,9 @@ mod imp {
 
     pub fn run(
         _id: Option<&str>,
-        _out: Option<PathBuf>,
-        _clock: Clock,
         _shared: &Shared,
         ready: &Sender<Result<(u32, u32), String>>,
-    ) -> Result<u64, String> {
+    ) -> Result<(), String> {
         let e = "camera capture is Windows-only".to_string();
         let _ = ready.send(Err(e.clone()));
         Err(e)
@@ -647,6 +695,41 @@ mod tests {
             downscale(&row, 4, 1, 2, 1),
             vec![20, 20, 20, 255, 150, 0, 0, 255]
         );
+    }
+
+    #[test]
+    fn frames_reach_the_track_only_once_recording() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("camera.vcam");
+        let shared = Shared {
+            stop: AtomicBool::new(false),
+            frames: AtomicU64::new(0),
+            latest: Mutex::new(None),
+            sink: Mutex::new(None),
+        };
+        // Previewing: the frame is the latest, nothing is written.
+        shared.deliver(0, 0, b"a".to_vec()).unwrap();
+        let latest = shared.latest.lock().unwrap().clone();
+        assert_eq!(latest.unwrap().as_slice(), b"a");
+        assert_eq!(shared.close().unwrap(), 0);
+        // Recording, on a clock that started at counter 1000 ticking 1000/s: a frame
+        // arriving at counter 1500 lands at 0.5 s.
+        let clock = Clock {
+            start_qpc: 1_000,
+            freq: 1_000,
+        };
+        *shared.sink() = Some(Sink {
+            writer: TrackWriter::create(&path).unwrap(),
+            clock,
+            pin: Pin::default(),
+        });
+        shared.deliver(5_000_000, 1_500, b"b".to_vec()).unwrap();
+        shared.deliver(5_333_333, 1_533, b"c".to_vec()).unwrap();
+        assert_eq!(shared.close().unwrap(), 2);
+        let track = crate::TrackReader::open(&path).unwrap();
+        assert_eq!(track.len(), 2);
+        assert!((track.time(0).unwrap() - 0.5).abs() < 1e-9);
+        assert_eq!(track.read(1).unwrap(), b"c");
     }
 
     #[test]

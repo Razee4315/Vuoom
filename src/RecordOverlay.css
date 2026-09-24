@@ -162,6 +162,13 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/* On narrower screens the chips speak for themselves: dropping the group captions keeps
+   the HUD to one row. */
+@media (max-width: 1400px) {
+  .hud-label {
+    display: none;
+  }
+}
 .hud-seg {
   display: flex;
   gap: 2px;
@@ -532,4 +539,48 @@
 }
 .rec-cancel:disabled {
   opacity: 0.5;
+}
+
+/* The webcam bubble previewed where the take will put it. It never takes the pointer, so
+   the selection underneath stays draggable. */
+.cam-bubble {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+  background: #16171b;
+  color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.85),
+    0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.cam-bubble img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* New takes are mirrored, the way people see themselves. */
+  transform: scaleX(-1);
+}
+.cam-bubble.empty > svg {
+  animation: cam-wait 1.4s ease-in-out infinite;
+}
+@keyframes cam-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+:root[data-motion="reduced"] .cam-bubble.empty > svg {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cam-bubble.empty > svg {
+    animation: none;
+  }
+}
+.hud-camera {
+  padding-inline: 8px;
+  gap: 4px;
 }

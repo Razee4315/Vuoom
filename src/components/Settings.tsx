@@ -12,6 +12,7 @@ import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
 import { Field, Seg, Switch } from "../ui";
 import { AudioPicker } from "./AudioControls";
+import { CameraPicker } from "./CameraControls";
 import { CURSOR_MODES } from "../cursorMode";
 
 type Tab = "general" | "recording" | "editing" | "storage" | "shortcuts" | "about";
@@ -139,6 +140,9 @@ export default function Settings() {
             </Field>
             <Field label="Audio" hint="Microphone narration and computer sound, each on its own track">
               <AudioPicker />
+            </Field>
+            <Field label="Camera" hint="Your webcam as a bubble over the recording, placed and shaped in the editor">
+              <CameraPicker />
             </Field>
             <Field label="Countdown">
               <Seg

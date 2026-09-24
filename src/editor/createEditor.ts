@@ -10,6 +10,7 @@ import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { pushAudioChoice } from "../components/AudioControls";
+import { pushCameraChoice } from "../components/CameraControls";
 import { pushCursorMode } from "../cursorMode";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
@@ -21,6 +22,7 @@ import type {
   AnnotationSet,
   ArrowAnn,
   BoxAnn,
+  CameraOverlay,
   ClipState,
   CropRect,
   CursorStyle,
@@ -684,6 +686,7 @@ export function createEditor() {
       audio.adopt(cs.audio ?? []);
       setCursorStyle(cs.cursor ?? null);
       setPointerCaptured(cs.pointer_captured ?? true);
+      setCameraOverlay(cs.camera ?? null);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -1948,6 +1951,7 @@ export function createEditor() {
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
     pushCursorMode();
     pushAudioChoice();
+    pushCameraChoice();
     try {
       setStatus("Choose the area to record…");
       setBackdrop(null);
@@ -2541,6 +2545,26 @@ export function createEditor() {
   const [pointerCaptured, setPointerCaptured] = createSignal(true);
   // Remembered while the pointer is off, so switching it back on restores the last look.
   let lastCursor: CursorStyle = DEFAULT_CURSOR;
+  // ── webcam bubble ──────────────────────────────────────────────────────────────
+  const [cameraOverlay, setCameraOverlay] = createSignal<CameraOverlay | null>(null);
+  const cameraSync = createSyncSlot<CameraOverlay>();
+  /** Change the webcam bubble (shown, corner, size, shape, mirror). Slider drags coalesce. */
+  const updateCamera = (patch: Partial<CameraOverlay>) => {
+    const cur = cameraOverlay();
+    if (!hasClip() || !cur) return;
+    const next = { ...cur, ...patch };
+    setCameraOverlay(next);
+    setDirty(true);
+    cameraSync.push(next, async (val, superseded) => {
+      try {
+        await invoke("set_camera_overlay", { overlay: val });
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) toast(`Camera change failed: ${friendlyError(e)}`, "error");
+      }
+    });
+  };
+
   const cursorSync = createSyncSlot<{ style: CursorStyle | null }>();
   const applyCursor = (style: CursorStyle | null) => {
     if (!hasClip()) return;
@@ -3547,6 +3571,8 @@ export function createEditor() {
     setPlaying,
     audio,
     cursorStyle,
+    cameraOverlay,
+    updateCamera,
     pointerCaptured,
     toggleCursor,
     setCursorSize,

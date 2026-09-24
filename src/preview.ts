@@ -4,6 +4,7 @@
 // See docs/05-Compositing-and-Preview.md and crate vuoom-preview::protocol.
 
 import { isMock } from "./bridge";
+import { paintBubble } from "./mock/camera";
 import { mockEngine, paintDesktop } from "./mock/engine";
 
 const META_LEN = 24;
@@ -240,6 +241,10 @@ export class MockPreviewClient {
     this.lastVersion = v;
     this.dirty = false;
     paintDesktop(this.ctx, this.canvas.width, this.canvas.height, t, { live: mockEngine.live });
+    // The webcam bubble is composited over the take, not the live monitor (like the engine).
+    if (!mockEngine.live && mockEngine.camera) {
+      paintBubble(this.ctx, this.canvas.width, this.canvas.height, mockEngine.camera, t);
+    }
   }
 }
 

@@ -63,6 +63,10 @@ export const prefs = {
   micDevice: persisted<string | null>("mic-device", null),
   /** Record everything the computer plays (app sounds, a video being demoed). */
   recordSystem: persisted<boolean>("record-system", false),
+  /** Record the webcam as a bubble over the take. */
+  recordCamera: persisted<boolean>("record-camera", false),
+  /** The chosen camera's id; `null` is the first camera. */
+  cameraDevice: persisted<string | null>("camera-device", null),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */

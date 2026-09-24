@@ -11,11 +11,13 @@ import { check as tauriCheck, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch as tauriRelaunch } from "@tauri-apps/plugin-process";
 import { revealItemInDir as tauriReveal } from "@tauri-apps/plugin-opener";
 import { mockTrackWav, mockLevel } from "./mock/audio";
+import { MOCK_CAMERAS, mockCameraJpeg } from "./mock/camera";
 import { mockEngine, paintDesktop } from "./mock/engine";
 import type {
   AnnotationSet,
   AudioDevices,
   AudioKind,
+  CameraOverlay,
   CursorStyle,
   SpeedRegion,
   Trim,
@@ -263,6 +265,20 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "set_mic_check":
       m.micCheck = a.on as boolean;
+      return null;
+    case "list_cameras":
+      return MOCK_CAMERAS;
+    case "set_capture_camera":
+      m.cameraChoice = { on: a.on as boolean, device: (a.device as string | null) ?? null };
+      return null;
+    case "set_camera_preview":
+      m.cameraPreview = a.on as boolean;
+      // A real camera takes a moment to open.
+      return new Promise((done) => setTimeout(() => done(null), a.on ? 600 : 0));
+    case "camera_preview_frame":
+      return m.cameraPreview ? mockCameraJpeg() : new ArrayBuffer(0);
+    case "set_camera_overlay":
+      m.setCameraOverlay(a.overlay as CameraOverlay);
       return null;
     case "audio_levels":
       return {

@@ -121,6 +121,8 @@ export interface ClipState {
   frame: FrameInfo;
   /** Recorded audio tracks (absent from engines that predate audio). */
   audio?: AudioTrack[];
+  /** The webcam bubble, when the take recorded the camera. */
+  camera?: CameraOverlay | null;
   /** The re-drawn pointer, if on. */
   cursor?: CursorStyle | null;
   /** Whether the real pointer is in the recorded frames. */
@@ -139,6 +141,28 @@ export interface CursorStyle {
 
 /** How new takes handle the mouse pointer. */
 export type CursorMode = "smooth" | "show" | "hide";
+
+/** Which corner of the framed recording the webcam bubble sits in. */
+export type CameraCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type CameraShape = "circle" | "square" | "wide";
+
+/** Mirrors vuoom_project::CameraOverlay. */
+export interface CameraOverlay {
+  visible: boolean;
+  corner: CameraCorner;
+  /** Bubble height as a fraction of the output height, 0.12..0.6. */
+  size: number;
+  shape: CameraShape;
+  mirror: boolean;
+  /** Source time of the camera track's clock zero (engine-managed). */
+  offset: number;
+}
+
+/** Mirrors src-tauri camera::CameraDevice. */
+export interface CameraDevice {
+  id: string;
+  name: string;
+}
 
 /** Where an audio track was recorded from. */
 export type AudioKind = "mic" | "system";

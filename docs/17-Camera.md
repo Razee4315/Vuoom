@@ -77,6 +77,24 @@ whose timeline starts at the first surviving frame, exactly like audio.
 - **Takes and projects**: recording writes `camera.json` (the clock origin) beside the
   track for crash recovery. Bundles carry the track in a `camera` folder.
 
+## The recording UI
+
+- **Choosing a camera**: a Camera picker on Home and in Settings (off, or a device), and
+  a compact camera button in the record HUD beside Audio. The choice is a preference
+  (`recordCamera`, `cameraDevice`) pushed to the engine before every take.
+- **The live bubble**: while the user frames the shot, the HUD opens the chosen camera and
+  shows its picture in a bubble at the bottom right of the selected area, at the size a
+  new take gives it (28% of the height, 3.5% in from the edges), so what you see is where
+  you'll appear. The preview asks the engine for the latest frame about 15 times a second
+  (`camera_preview_frame`, JPEG bytes into an object URL), shows a pulsing camera icon
+  while the device starts, and takes no pointer input, so the selection stays draggable.
+  Picking another device pushes the choice first, then reopens the preview.
+- **The editor**: Clip > Camera shows the bubble's controls when the take has a camera:
+  Show camera, a corner picker (a miniature frame with one cell per corner), Size (12% to
+  60%), Shape (circle, square, wide) and Mirror. Slider drags coalesce into one undo step.
+- **HUD fit**: with the camera button added, the HUD's FRAME and ZOOM captions are hidden
+  below 1400 px wide, which keeps it to one row at 1280 px.
+
 ## Tests
 
 CI runs the format choice, sizing, downscaling, clock tie, the track format (round trip,

@@ -601,9 +601,10 @@ mod tests {
         let scene = build_scene(&p, &track, 1000, 1000, 2.0);
         // Four bands, then the label's plate.
         assert_eq!(scene.highlights.len(), 5);
-        let area: f64 = scene.highlights[..4].iter().map(|b| b.w * b.h).sum();
+        let bands = &scene.highlights[..4];
+        let area: f64 = bands.iter().map(|b| b.w * b.h).sum();
         assert!((area - (1_000_000.0 - 400.0 * 500.0)).abs() < 1e-6);
-        assert!(scene.highlights[..4].iter().all(|b| b.filled && b.color.a > 0.5));
+        assert!(bands.iter().all(|b| b.filled && b.color.a > 0.5));
     }
 
     #[test]

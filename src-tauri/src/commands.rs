@@ -586,7 +586,9 @@ pub fn camera_preview_frame(
     engine: tauri::State<'_, Engine>,
 ) -> Result<tauri::ipc::Response, String> {
     let frame = engine.session()?.camera_preview_frame();
-    Ok(tauri::ipc::Response::new(frame.map_or_else(Vec::new, |f| f.to_vec())))
+    Ok(tauri::ipc::Response::new(
+        frame.map_or_else(Vec::new, |f| f.to_vec()),
+    ))
 }
 
 /// Set how the webcam bubble looks: shown, corner, size, shape, mirror.

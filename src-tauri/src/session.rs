@@ -1802,7 +1802,8 @@ impl Session {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        self.camera.preview((on && choice.on).then_some(choice.device))
+        self.camera
+            .preview((on && choice.on).then_some(choice.device))
     }
 
     /// The live bubble's latest frame as JPEG bytes, if the camera is open.

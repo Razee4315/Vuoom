@@ -6,7 +6,9 @@
 
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
-use vuoom_project::{ArrowStyle, CameraOverlay, Color, Corner, HighlightShape, InputEvent, Project};
+use vuoom_project::{
+    ArrowStyle, CameraOverlay, Color, Corner, HighlightShape, InputEvent, Project,
+};
 use vuoom_zoom::CameraTrack;
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
@@ -91,8 +93,16 @@ fn place_camera(o: CameraOverlay, dst: PxRect, oh: f64, t: f64) -> ResolvedCamer
     let left = matches!(o.corner, Corner::TopLeft | Corner::BottomLeft);
     let top = matches!(o.corner, Corner::TopLeft | Corner::TopRight);
     ResolvedCamera {
-        x: if left { dst.x + m } else { dst.x + dst.w - m - w },
-        y: if top { dst.y + m } else { dst.y + dst.h - m - h },
+        x: if left {
+            dst.x + m
+        } else {
+            dst.x + dst.w - m - w
+        },
+        y: if top {
+            dst.y + m
+        } else {
+            dst.y + dst.h - m - h
+        },
         w,
         h,
         radius: h * o.shape.radius(),

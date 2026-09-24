@@ -2,9 +2,11 @@
 import "@fontsource-variable/inter";
 import { render } from "solid-js/web";
 import App from "./App";
+import { snapRecordPrefs } from "./recordOptions";
 
 // Single window, single surface. The record flow (region selector → countdown → stop bar)
 // runs as an in-window overlay inside App, no separate webview windows to route.
+snapRecordPrefs();
 const root = document.getElementById("root") as HTMLElement;
 try {
   render(() => <App />, root);

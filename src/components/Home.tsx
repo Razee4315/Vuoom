@@ -4,6 +4,7 @@ import { createMemo, For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { Icon, type IconName } from "../icons";
 import { prefs } from "../prefs";
+import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "../recordOptions";
 import { Kbd, Seg } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
@@ -65,10 +66,7 @@ export default function Home() {
                 label="Frame rate"
                 value={prefs.captureFps()}
                 onChange={(v) => prefs.captureFps.set(v)}
-                options={[
-                  { value: 30, label: "30 fps", tip: "Leaner files, ideal for GIFs" },
-                  { value: 60, label: "60 fps", tip: "Silky motion for MP4" },
-                ]}
+                options={FPS_CHOICES}
               />
             </div>
             <div class="home-opt">
@@ -77,12 +75,7 @@ export default function Home() {
                 label="Zoom strength"
                 value={prefs.recordZoom()}
                 onChange={(v) => prefs.recordZoom.set(v)}
-                options={[
-                  { value: 1, label: "Off" },
-                  { value: 1.5, label: "1.5×" },
-                  { value: 1.8, label: "1.8×" },
-                  { value: 2.5, label: "2.5×" },
-                ]}
+                options={ZOOM_CHOICES}
               />
             </div>
             <div class="home-opt">
@@ -99,11 +92,7 @@ export default function Home() {
                 label="Countdown"
                 value={prefs.countdown()}
                 onChange={(v) => prefs.countdown.set(v)}
-                options={[
-                  { value: 0, label: "None" },
-                  { value: 3, label: "3s" },
-                  { value: 5, label: "5s" },
-                ]}
+                options={COUNTDOWN_CHOICES}
               />
             </div>
           </div>

@@ -14,6 +14,7 @@ import { Field, Seg, Switch } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
 import { CURSOR_MODES } from "../cursorMode";
+import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "../recordOptions";
 
 type Tab = "general" | "recording" | "editing" | "storage" | "shortcuts" | "about";
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
@@ -121,11 +122,7 @@ export default function Settings() {
               <Seg
                 value={prefs.captureFps()}
                 onChange={(v) => prefs.captureFps.set(v)}
-                options={[
-                  { value: 24, label: "24" },
-                  { value: 30, label: "30" },
-                  { value: 60, label: "60" },
-                ]}
+                options={FPS_CHOICES}
               />
             </Field>
             <Field
@@ -148,25 +145,14 @@ export default function Settings() {
               <Seg
                 value={prefs.countdown()}
                 onChange={(v) => prefs.countdown.set(v)}
-                options={[
-                  { value: 0, label: "None" },
-                  { value: 3, label: "3s" },
-                  { value: 5, label: "5s" },
-                  { value: 10, label: "10s" },
-                ]}
+                options={COUNTDOWN_CHOICES}
               />
             </Field>
             <Field label="Zoom strength" hint="Used by Ctrl+Shift+Z while recording and by new zoom blocks">
               <Seg
                 value={prefs.recordZoom()}
                 onChange={(v) => prefs.recordZoom.set(v)}
-                options={[
-                  { value: 1, label: "Off" },
-                  { value: 1.5, label: "1.5×" },
-                  { value: 1.8, label: "1.8×" },
-                  { value: 2, label: "2×" },
-                  { value: 2.5, label: "2.5×" },
-                ]}
+                options={ZOOM_CHOICES}
               />
             </Field>
             <h3>Every new take starts with</h3>

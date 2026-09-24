@@ -23,6 +23,7 @@ import {
   useCameraPreview,
 } from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
+import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -58,14 +59,6 @@ const fmt = (t: number) => {
  * 3-2-1 countdown (small bar) → record + Stop. The host window is excluded from the
  * capture, so none of this UI appears in the recording.
  */
-const ZOOM_LEVELS = [
-  { v: 1.0, label: "Off" },
-  { v: 1.5, label: "1.5×" },
-  { v: 1.8, label: "1.8×" },
-  { v: 2.5, label: "2.5×" },
-  { v: 3.0, label: "3×" },
-];
-
 export type RecordTarget =
   | { kind: "display"; name: string; label: string }
   | { kind: "window"; hwnd: number; label: string }
@@ -866,18 +859,18 @@ export default function RecordOverlay(props: {
             class="hud-menu"
             items={() => [
               { heading: "Zoom with Ctrl+Shift+Z" },
-              ...ZOOM_LEVELS.map((z) => ({
-                label: z.v === 1 ? "No zoom" : `Zoom ${z.label}`,
-                checked: Math.abs(props.zoom - z.v) < 0.001,
-                onSelect: () => props.onZoomChange(z.v),
+              ...ZOOM_CHOICES.map((z) => ({
+                label: z.value === 1 ? "No zoom" : `Zoom ${z.label}`,
+                checked: Math.abs(props.zoom - z.value) < 0.001,
+                onSelect: () => props.onZoomChange(z.value),
               })),
               { heading: "Frame rate" },
-              ...[24, 30, 60].map((f) => ({
-                label: `${f} fps`,
-                checked: prefs.captureFps() === f,
+              ...FPS_CHOICES.map((f) => ({
+                label: f.label,
+                checked: prefs.captureFps() === f.value,
                 onSelect: () => {
-                  prefs.captureFps.set(f);
-                  void invoke("set_capture_fps", { fps: f }).catch(() => undefined);
+                  prefs.captureFps.set(f.value);
+                  void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
                 },
               })),
               { heading: "Mouse pointer" },
@@ -890,10 +883,10 @@ export default function RecordOverlay(props: {
                 },
               })),
               { heading: "Countdown" },
-              ...[0, 3, 5, 10].map((c) => ({
-                label: c === 0 ? "Start immediately" : `${c} seconds`,
-                checked: prefs.countdown() === c,
-                onSelect: () => prefs.countdown.set(c),
+              ...COUNTDOWN_CHOICES.map((c) => ({
+                label: c.value === 0 ? "Start immediately" : `${c.value} seconds`,
+                checked: prefs.countdown() === c.value,
+                onSelect: () => prefs.countdown.set(c.value),
               })),
             ]}
             trigger={(m) => (

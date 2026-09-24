@@ -100,6 +100,8 @@ export const layout = {
   /** Tool rail shows labels under icons (wide) or icons only (compact). */
   railCompact: persisted<boolean>("rail-compact", false),
   railOpen: persisted<boolean>("rail-open", true),
+  /** The recording panel's size: the bigger live preview, or compact. */
+  panelLarge: persisted<boolean>("panel-large", false),
   inspectorOpen: persisted<boolean>("inspector-open", true),
   inspectorW: persisted<number>("inspector-w", 312),
   timelineOpen: persisted<boolean>("timeline-open", true),

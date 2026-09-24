@@ -295,6 +295,7 @@ pub fn run() {
             commands::set_camera_preview,
             commands::camera_preview_frame,
             commands::set_camera_overlay,
+            commands::set_panel_size,
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,

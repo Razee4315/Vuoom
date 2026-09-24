@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
 import { Icon } from "./icons";
-import { prefs } from "./prefs";
+import { layout, prefs } from "./prefs";
 import { Menu, toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import {
@@ -194,6 +194,8 @@ export default function RecordOverlay(props: {
         });
       }
       await invoke("enter_stopbar"); // shrink the host window to the bar
+      // The panel remembers its size between takes.
+      if (layout.panelLarge()) await invoke("set_panel_size", { large: true }).catch(() => undefined);
       // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
       // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
       // Best-effort: the command may not exist on older backends, the frame still appears
@@ -587,6 +589,12 @@ export default function RecordOverlay(props: {
 
   const windowMode = () => props.target?.kind === "window";
   const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
+  /** Switch the panel between its compact size and a bigger live preview. */
+  const togglePanelSize = () => {
+    const next = !layout.panelLarge();
+    layout.panelLarge.set(next);
+    void invoke("set_panel_size", { large: next }).catch(() => undefined);
+  };
   /** The bubble's spot: the bottom right of the recorded area, sized like a new take's. */
   const bubbleSpot = () => {
     const whole = windowMode() || preset().ratio === "full";
@@ -602,7 +610,10 @@ export default function RecordOverlay(props: {
       when={phase() === "select"}
       fallback={
         <div class="rec-panel-root">
-          <div class="rec-panel" classList={{ live: phase() === "recording", paused: paused() }}>
+          <div
+            class="rec-panel"
+            classList={{ live: phase() === "recording", paused: paused(), large: layout.panelLarge() }}
+          >
             <div class="rec-drag" data-tauri-drag-region>
               <span class="rec-state" data-tauri-drag-region>
                 <Show
@@ -617,11 +628,22 @@ export default function RecordOverlay(props: {
                   <span data-tauri-drag-region>{paused() ? "Paused" : "Recording"}</span>
                 </Show>
               </span>
-              <span class="rec-grip" data-tauri-drag-region>
-                <Icon name="more" size={14} />
+              <span class="rec-drag-end" data-tauri-drag-region>
+                <button
+                  type="button"
+                  class="rec-size"
+                  aria-label={layout.panelLarge() ? "Make the panel smaller" : "Make the preview bigger"}
+                  data-tip={`${layout.panelLarge() ? "Smaller panel" : "Bigger preview"} (or double-click the preview)`}
+                  onClick={togglePanelSize}
+                >
+                  <Icon name={layout.panelLarge() ? "shrink" : "grow"} size={13} />
+                </button>
+                <span class="rec-grip" data-tauri-drag-region data-tip="Drag to move" aria-hidden="true">
+                  <Icon name="grip" size={14} />
+                </span>
               </span>
             </div>
-            <div class="rec-screen">
+            <div class="rec-screen" onDblClick={togglePanelSize}>
               <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
               <Show when={phase() === "countdown"}>
                 <div class="rec-countdown">
@@ -634,7 +656,11 @@ export default function RecordOverlay(props: {
                 </div>
               </Show>
               <Show when={phase() === "recording" && props.zoom > 1}>
-                <span class="rec-previewtag">Zoom {props.zoom.toFixed(1)}×</span>
+                <span class="rec-previewtag">
+                  <kbd>Ctrl</kbd>
+                  <kbd>Shift</kbd>
+                  <kbd>Z</kbd> zooms {props.zoom.toFixed(1)}×
+                </span>
               </Show>
               <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
                 <div class="rec-audio">
@@ -673,28 +699,33 @@ export default function RecordOverlay(props: {
                   type="button"
                   class="rec-stop"
                   aria-label="Stop recording"
-                  data-tip="Stop recording"
+                  data-tip="Stop and open the editor"
                   data-kbd="Ctrl+Shift+X"
                   onClick={() => void stop()}
                 >
-                  <span />
+                  <span class="rec-stop-square" />
+                  Stop
                 </button>
                 <div class="rec-timebox">
-                  <span class="rec-time">{fmt(elapsed())}</span>
+                  <span class="rec-time" aria-live="off">
+                    {fmt(elapsed())}
+                  </span>
                   <span class="rec-hint">
                     <kbd>Ctrl</kbd>
                     <kbd>Shift</kbd>
-                    <kbd>Z</kbd> zoom
+                    <kbd>X</kbd> stops
                   </span>
                 </div>
                 <button
                   type="button"
                   class="rec-pause"
+                  classList={{ on: paused() }}
                   aria-label={paused() ? "Resume recording" : "Pause recording"}
-                  data-tip={paused() ? "Resume" : "Pause. The gap is cut from the take"}
+                  data-tip={paused() ? "Carry on recording" : "Pause. The gap is cut from the take"}
                   onClick={() => void togglePause()}
                 >
                   <Icon name={paused() ? "play" : "pause"} size={14} />
+                  {paused() ? "Resume" : "Pause"}
                 </button>
               </Show>
             </div>

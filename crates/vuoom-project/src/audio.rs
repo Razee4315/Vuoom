@@ -123,7 +123,10 @@ mod tests {
         t.denoise = true;
         assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.denoise.wav"));
         t.level = true;
-        assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.denoise-level.wav"));
+        assert_eq!(
+            t.cleaned_file_name().as_deref(),
+            Some("mic.denoise-level.wav")
+        );
         t.denoise = false;
         assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.level.wav"));
     }

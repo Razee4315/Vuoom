@@ -171,7 +171,8 @@ fn block_gains(db: &[f32]) -> Option<Vec<f32>> {
     // hold the gain of the closest speech before them (or, at the start, after them).
     let want: Vec<Option<f32>> = (0..n)
         .map(|i| {
-            let (a, b) = (i.saturating_sub(WINDOW_BLOCKS), (i + WINDOW_BLOCKS + 1).min(n));
+            let a = i.saturating_sub(WINDOW_BLOCKS);
+            let b = (i + WINDOW_BLOCKS + 1).min(n);
             let c = count[b] - count[a];
             (c > 0).then(|| {
                 let loud = ((total[b] - total[a]) / f64::from(c)) as f32;
@@ -196,7 +197,8 @@ fn block_gains(db: &[f32]) -> Option<Vec<f32>> {
     Some(
         (0..n)
             .map(|i| {
-                let (a, b) = (i.saturating_sub(EASE_BLOCKS), (i + EASE_BLOCKS + 1).min(n));
+                let a = i.saturating_sub(EASE_BLOCKS);
+                let b = (i + EASE_BLOCKS + 1).min(n);
                 let g_db = ((sum[b] - sum[a]) / (b - a) as f64) as f32;
                 10f32.powf(g_db / 20.0)
             })

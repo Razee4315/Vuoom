@@ -9,7 +9,7 @@ const STEPS: { icon: IconName; title: string; text: string }[] = [
   {
     icon: "region",
     title: "Record",
-    text: "Pick a region, a window or the whole screen. Your clicks drive the zoom.",
+    text: "Pick a region, a window or the whole screen. Press Ctrl+Shift+Z to zoom in while you record.",
   },
   {
     icon: "sparkle",

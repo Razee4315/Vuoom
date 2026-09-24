@@ -109,6 +109,8 @@ class MockEngine {
   cuts: Trim[] = [];
   showClicks = false;
   motionBlur = true;
+  /** What the next mock take starts with (set_take_defaults). */
+  takeDefaults = { clicks: false, keys: false, frame: "none", denoise: false };
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
   audio: AudioTrack[] = [];
@@ -446,6 +448,12 @@ class MockEngine {
     this.pointerCaptured = this.captureShow;
     this.cursor = this.captureSmooth ? { size: 1.5, smoothing: 0.05 } : null;
     this.camera = this.cameraChoice.on ? defaultOverlay() : null;
+    this.showClicks = this.takeDefaults.clicks;
+    this.showKeys = this.takeDefaults.keys;
+    this.framePreset = this.takeDefaults.frame;
+    const frame = this.takeDefaults.frame === "studio" ? FRAME_STUDIO : this.takeDefaults.frame === "subtle" ? FRAME_SUBTLE : FRAME_NONE;
+    this.frame = { ...this.frame, ...frame, ...(frame === FRAME_NONE ? {} : bgInfo("graphite")) };
+    this.audio = this.audio.map((t) => (t.kind === "mic" ? { ...t, denoise: this.takeDefaults.denoise } : t));
     return this.summary();
   }
   recoverSession(): RecordingSummary {

@@ -71,6 +71,11 @@ export const prefs = {
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */
   recordZoom: persisted<number>("record-zoom", 1.8),
+  /** What every new take starts with (each can be changed per clip in the editor). */
+  newClicks: persisted<boolean>("new-clicks", true),
+  newKeys: persisted<boolean>("new-keys", true),
+  newFrame: persisted<"none" | "subtle" | "studio">("new-frame", "subtle"),
+  newDenoise: persisted<boolean>("new-denoise", true),
   /** Magnetic snapping of timeline edges (Alt still bypasses it per drag). */
   snapping: persisted<boolean>("snapping", true),
   /** Hover hints, coachmarks and lane hints for newcomers. */

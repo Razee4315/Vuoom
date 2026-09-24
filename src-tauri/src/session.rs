@@ -43,6 +43,45 @@ use vuoom_project::{
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
 
+/// How a new take starts out (Settings > New recordings), applied when it stops.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TakeDefaults {
+    /// Click ripples.
+    pub clicks: bool,
+    /// The keystroke overlay (shortcut chips; plain typing never shows).
+    pub keys: bool,
+    /// Frame preset: `"none"`, `"subtle"` or `"studio"`.
+    pub frame: String,
+    /// Noise removal on a new microphone track.
+    pub denoise: bool,
+}
+
+impl Default for TakeDefaults {
+    /// What a take got before these were preferences: nothing added.
+    fn default() -> Self {
+        Self {
+            clicks: false,
+            keys: false,
+            frame: "none".into(),
+            denoise: false,
+        }
+    }
+}
+
+impl TakeDefaults {
+    /// Set a fresh project up with these defaults.
+    fn apply(&self, project: &mut Project) {
+        project.show_clicks = self.clicks;
+        project.show_keys = self.keys;
+        project.frame = frame_for_preset(&self.frame, &project.frame.background);
+        for t in &mut project.audio {
+            if t.kind == AudioKind::Mic {
+                t.denoise = self.denoise;
+            }
+        }
+    }
+}
+
 /// Summary returned to the UI when recording stops.
 #[derive(Debug, Clone, Serialize)]
 pub struct RecordingSummary {
@@ -263,6 +302,46 @@ fn snapshot(edited: &mut Edited, tag: &str) {
     }
 }
 
+/// The frame a preset gives: `"none"` (edge-to-edge), `"subtle"` (slim dark mat) or
+/// `"studio"` (generous mat + shadow). The preset owns padding, corners and shadow; the
+/// backdrop is chosen separately, so `current` is kept, except that a frame switched on over
+/// a still-default black backdrop gets a graphite gradient, so the mat doesn't read as a
+/// black void.
+fn frame_for_preset(preset: &str, current: &Background) -> FrameStyle {
+    let black = Background::Solid(Color::BLACK);
+    let bg_for_framed = if *current == black {
+        Background::preset("graphite").unwrap_or(black)
+    } else {
+        current.clone()
+    };
+    match preset {
+        "subtle" => FrameStyle {
+            background: bg_for_framed,
+            padding: 0.04,
+            corner_radius: 0.012,
+            shadow: Shadow {
+                strength: 0.3,
+                ..Shadow::default()
+            },
+        },
+        "studio" => FrameStyle {
+            background: bg_for_framed,
+            padding: 0.075,
+            corner_radius: 0.02,
+            shadow: Shadow {
+                strength: 0.5,
+                ..Shadow::default()
+            },
+        },
+        // No frame: edge-to-edge. Keep the backdrop field for round-tripping, but it's
+        // never visible (zero padding = the recording fills the whole output).
+        _ => FrameStyle {
+            background: current.clone(),
+            ..FrameStyle::default()
+        },
+    }
+}
+
 /// The range the zoom tool's framed zooms are kept to.
 const MIN_AIMED_ZOOM: f64 = 1.2;
 const MAX_AIMED_ZOOM: f64 = 4.0;
@@ -324,6 +403,8 @@ pub struct Session {
     mic_check: Mutex<Option<Recorder>>,
     /// The webcam for the next recording, and the one kept open for the live bubble.
     camera_choice: Mutex<CameraChoice>,
+    /// How the next take starts out (see [`TakeDefaults`]).
+    take_defaults: Mutex<TakeDefaults>,
     camera: crate::camera::Camera,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
@@ -373,6 +454,7 @@ impl Session {
             audio_choice: Mutex::new(AudioChoice::default()),
             mic_check: Mutex::new(None),
             camera_choice: Mutex::new(CameraChoice::default()),
+            take_defaults: Mutex::new(TakeDefaults::default()),
             camera: crate::camera::Camera::default(),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
@@ -802,7 +884,12 @@ impl Session {
             fps: 0.0,
             duration: 0.0,
         });
-        // A recovered take must still know its pointer was hidden and re-drawn.
+        // A recovered take must still know its pointer was hidden and re-drawn, and start out
+        // like a take that stopped normally.
+        self.take_defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply(&mut placeholder);
         placeholder.pointer_captured = self.pending_cursor.load(Ordering::Relaxed);
         placeholder.cursor = self
             .pending_smooth
@@ -1085,6 +1172,10 @@ impl Session {
         project.cuts = pauses_to_cuts(&session.pauses, self.clock, session.start_qpc, duration);
         project.audio = audio_tracks;
         project.camera = camera_overlay;
+        self.take_defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(CursorStyle::default);
 
@@ -1863,6 +1954,12 @@ impl Session {
         })
     }
 
+    /// Set how the next take starts out (click ripples, keystrokes, frame, noise removal).
+    pub fn set_take_defaults(&self, defaults: TakeDefaults) -> Result<(), String> {
+        *self.take_defaults.lock().unwrap_or_else(|e| e.into_inner()) = defaults;
+        Ok(())
+    }
+
     /// Toggle motion blur on zooms and pans (preview and export).
     pub fn set_motion_blur(&self, on: bool) -> Result<(), String> {
         self.with_project("", |p| {
@@ -1892,44 +1989,7 @@ impl Session {
     /// corners and shadow; preview and export both honor it.
     pub fn set_frame_preset(&self, preset: &str) -> Result<(), String> {
         self.with_project("", |p| {
-            // The frame preset owns padding/corners/shadow; the backdrop is chosen separately
-            // (`set_background_preset`). Preserve whatever backdrop the user picked across frame
-            // switches, but when they first enable a frame on a still-default black backdrop,
-            // seed a tasteful graphite gradient so the padded area doesn't read as a black void.
-            let keep_bg = p.frame.background.clone();
-            let default_bg =
-                Background::preset("graphite").unwrap_or(Background::Solid(Color::BLACK));
-            let bg_for_framed = if keep_bg == Background::Solid(Color::BLACK) {
-                default_bg
-            } else {
-                keep_bg.clone()
-            };
-            p.frame = match preset {
-                "subtle" => FrameStyle {
-                    background: bg_for_framed,
-                    padding: 0.04,
-                    corner_radius: 0.012,
-                    shadow: Shadow {
-                        strength: 0.3,
-                        ..Shadow::default()
-                    },
-                },
-                "studio" => FrameStyle {
-                    background: bg_for_framed,
-                    padding: 0.075,
-                    corner_radius: 0.02,
-                    shadow: Shadow {
-                        strength: 0.5,
-                        ..Shadow::default()
-                    },
-                },
-                // No frame: edge-to-edge. Keep the backdrop field for round-tripping, but it's
-                // never visible (zero padding = the recording fills the whole output).
-                _ => FrameStyle {
-                    background: keep_bg,
-                    ..FrameStyle::default()
-                },
-            };
+            p.frame = frame_for_preset(preset, &p.frame.background);
             Ok(())
         })
     }
@@ -3587,6 +3647,38 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
 mod tests {
     use super::*;
     use vuoom_input::RawEventKind;
+
+    #[test]
+    fn a_new_take_gets_the_chosen_defaults() {
+        let mut p = Project::new(SourceInfo {
+            path: String::new(),
+            width: 100,
+            height: 100,
+            fps: 30.0,
+            duration: 4.0,
+        });
+        p.audio = vec![
+            AudioTrack::new(AudioKind::Mic),
+            AudioTrack::new(AudioKind::System),
+        ];
+        let d = TakeDefaults {
+            clicks: true,
+            keys: true,
+            frame: "subtle".into(),
+            denoise: true,
+        };
+        d.apply(&mut p);
+        assert!(p.show_clicks && p.show_keys);
+        assert!(p.frame.padding > 0.0);
+        // A frame over the default black backdrop gets the graphite gradient.
+        assert_ne!(p.frame.background, Background::Solid(Color::BLACK));
+        assert!(p.audio[0].denoise, "the microphone is cleaned");
+        assert!(!p.audio[1].denoise, "system sound is left alone");
+        // The engine's own default adds nothing.
+        let mut plain = Project::new(p.source.clone());
+        TakeDefaults::default().apply(&mut plain);
+        assert!(!plain.show_clicks && plain.frame.padding <= 0.0);
+    }
 
     fn rec(qpc: i64) -> FrameRec {
         FrameRec {

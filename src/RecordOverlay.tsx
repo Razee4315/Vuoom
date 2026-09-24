@@ -802,7 +802,7 @@ export default function RecordOverlay(props: {
         <div class="hud" onPointerDown={(e) => e.stopPropagation()}>
           <Show when={!windowMode()}>
             <div class="hud-group">
-              <span class="hud-label">Frame</span>
+              <span class="hud-label">Area</span>
               <div class="hud-seg">
                 <For each={PRESETS}>
                   {(p) => (
@@ -822,26 +822,6 @@ export default function RecordOverlay(props: {
             </div>
             <span class="hud-sep" />
           </Show>
-          <div class="hud-group">
-            <span class="hud-label">Zoom</span>
-            <div class="hud-seg">
-              <For each={ZOOM_LEVELS}>
-                {(z) => (
-                  <button
-                    type="button"
-                    class="hud-chip"
-                    classList={{ on: Math.abs(props.zoom - z.v) < 0.001 }}
-                    aria-pressed={Math.abs(props.zoom - z.v) < 0.001}
-                    data-tip={z.v === 1 ? "No zoom" : `Ctrl+Shift+Z zooms to ${z.label}`}
-                    onClick={() => props.onZoomChange(z.v)}
-                  >
-                    {z.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-          <span class="hud-sep" />
           <Menu
             class="hud-menu"
             items={() => audioMenuItems(audioDevices())}
@@ -877,6 +857,7 @@ export default function RecordOverlay(props: {
                 onClick={m.toggle}
               >
                 <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
+                <span>{prefs.recordCamera() ? "Camera" : "No camera"}</span>
                 <Icon name="chevronUp" size={12} />
               </button>
             )}
@@ -884,6 +865,12 @@ export default function RecordOverlay(props: {
           <Menu
             class="hud-menu"
             items={() => [
+              { heading: "Zoom with Ctrl+Shift+Z" },
+              ...ZOOM_LEVELS.map((z) => ({
+                label: z.v === 1 ? "No zoom" : `Zoom ${z.label}`,
+                checked: Math.abs(props.zoom - z.v) < 0.001,
+                onSelect: () => props.onZoomChange(z.v),
+              })),
               { heading: "Frame rate" },
               ...[24, 30, 60].map((f) => ({
                 label: `${f} fps`,
@@ -915,14 +902,11 @@ export default function RecordOverlay(props: {
                 class="hud-options"
                 classList={{ on: m.open }}
                 ref={m.ref}
-                data-tip="Frame rate, cursor and countdown"
+                data-tip={`${props.zoom > 1 ? `Ctrl+Shift+Z zooms ${props.zoom}×` : "No zoom"} · ${prefs.captureFps()} fps · ${cursorSummary()} · ${prefs.countdown() === 0 ? "no countdown" : `${prefs.countdown()}s countdown`}`}
                 onClick={m.toggle}
               >
                 <Icon name="sliders" size={14} />
-                <span>
-                  {prefs.captureFps()} fps · {cursorSummary()} ·{" "}
-                  {prefs.countdown() === 0 ? "no timer" : `${prefs.countdown()}s`}
-                </span>
+                <span>Options</span>
                 <Icon name="chevronUp" size={12} />
               </button>
             )}

@@ -164,7 +164,7 @@
 }
 /* On narrower screens the chips speak for themselves: dropping the group captions keeps
    the HUD to one row. */
-@media (max-width: 1400px) {
+@media (max-width: 1100px) {
   .hud-label {
     display: none;
   }

@@ -11,6 +11,7 @@ import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
+import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
@@ -1965,6 +1966,7 @@ export function createEditor() {
     pushCursorMode();
     pushAudioChoice();
     pushCameraChoice();
+    pushTakeDefaults();
     try {
       setStatus("Choose the area to record…");
       setBackdrop(null);

@@ -200,18 +200,10 @@ pub fn run() {
             });
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.maximize();
-                // Exclude the main window from screen capture up front, at creation, so the
-                // affinity is on the top-level HWND long before any recording starts and can
-                // never be missed by a code path. `WDA_EXCLUDEFROMCAPTURE` is a genuine second
-                // line of defense on Windows 11 (an excluded window shows the desktop behind
-                // it in the capture) and harmless on Windows 10. It is NOT sufficient on its
-                // own on Win10, though: there an excluded window that overlaps the recorded
-                // region is captured as a solid BLACK rectangle rather than re-composited. The
-                // panel is therefore kept physically outside the region by the record flow
-                // (park + minimize + the WM_MOVING drag wall, see commands.rs / drag_wall.rs);
-                // the region-border strips avoid the problem by sitting just outside the crop.
-                // The capture flow re-asserts this affinity in `enter_overlay`.
-                let _ = windows_ext::exclude_from_capture(&main);
+                // The editor stays visible to screen capture: excluding it for good made every
+                // screenshot the user took of Vuoom a black rectangle. The record flow hides
+                // it from capture for exactly as long as a recording is being set up or made
+                // (`enter_overlay`), and `restore_editor` lets capture see it again.
             }
             build_tray(app.handle())?;
             Ok(())

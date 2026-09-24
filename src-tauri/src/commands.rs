@@ -9,7 +9,7 @@ use crate::displays::DisplayInfo;
 use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::region_border::RegionBorder;
 use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSummary};
-use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture};
+use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture, include_in_capture};
 use crate::{drag_wall, Engine};
 use serde::Serialize;
 use std::sync::Mutex;
@@ -45,6 +45,8 @@ pub struct BorderState {
 /// bring it back maximized (the editor's default state). Always runs, even on an error path.
 fn restore_editor(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
+        // Back to an ordinary window: the user's own screenshots and screen shares see it.
+        let _ = include_in_capture(&main);
         let _ = main.set_fullscreen(false);
         let _ = main.set_always_on_top(false);
         let _ = main.unminimize();

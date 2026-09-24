@@ -1,0 +1,15 @@
+[package]
+name = "vuoom-captions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Offline speech to text for captions (whisper.cpp), cue timing and SRT output."
+
+[dependencies]
+tracing.workspace = true
+vuoom-audio.workspace = true
+# whisper.cpp, built from source with CMake (bindings: Unlicense, library: MIT). CI builds
+# it with GGML_NATIVE=OFF so the code targets any AVX2 processor, not the runner's own CPU
+# (see `cpu_supported`). `tracing_backend` routes whisper.cpp's log lines into our log.
+whisper-rs = { version = "0.16", features = ["tracing_backend"] }

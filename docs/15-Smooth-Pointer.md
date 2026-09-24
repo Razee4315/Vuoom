@@ -44,8 +44,18 @@ zoom**, because a real pointer is part of the picture. When the camera has moved
 it isn't drawn. Size is relative to the recorded screen: 1.0 is about a real pointer on a
 1080p display, and the default is 1.5 so it stays legible in a scaled-down GIF.
 
+## Hide when still
+
+A pointer parked on the screen while you talk is clutter. With **Hide when still** on
+(`CursorStyle.hide_idle`, off by default), the pointer fades out after 1.5 s without moving
+or clicking, over 0.35 s, shrinking slightly as it goes. Export knows when the next movement
+comes, so the pointer fades back in over the 0.2 s *before* it, and is fully there the moment
+it moves: it never pops in late or starts a gesture invisible. Typing doesn't count as
+movement. Before the first logged event, rest is counted from the start of the take.
+(`idle_opacity` in `cursor.rs`; the opacity rides on `ResolvedCursor` into `shapes.rs`.)
+
 ## Editor
 
-Clip > Pointer toggles it and sets size (0.5 to 3×) and smoothing. The panel explains the two
+Clip > Pointer toggles it and sets size (0.5 to 3×), smoothing and hide when still. The panel explains the two
 confusing cases: a re-drawn pointer on a take that also captured the real one (two pointers),
 and a take with no visible pointer at all.

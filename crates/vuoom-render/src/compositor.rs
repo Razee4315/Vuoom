@@ -48,6 +48,9 @@ pub struct BgFill {
     pub color: [f32; 4],
     pub color2: [f32; 4],
     pub dir: [f32; 2],
+    /// Draw the backdrop picture (see [`Compositor::set_backdrop_image`]) instead of the
+    /// color stops.
+    pub image: bool,
 }
 
 impl BgFill {
@@ -58,6 +61,7 @@ impl BgFill {
             color,
             color2: color,
             dir: [0.0, 1.0],
+            image: false,
         }
     }
 }
@@ -81,8 +85,10 @@ struct Uniforms {
     prev_size: [f32; 2],
     /// 1.0 = smear from `prev_*` to `src_*`; 0.0 = one sample.
     blur: f32,
-    _pad3: f32,
-    _pad4: [f32; 2],
+    /// 1.0 = the backdrop is the picture; 0.0 = the color stops.
+    bg_image: f32,
+    /// The picture's visible UV extent, so it covers the frame (centered).
+    bg_scale: [f32; 2],
 }
 
 /// A webcam frame for the scene's bubble.
@@ -147,8 +153,11 @@ struct CompositeCache {
     out_w: u32,
     out_h: u32,
     src_tex: wgpu::Texture,
+    src_view: wgpu::TextureView,
     ubuf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// The backdrop picture `bind_group` was made with.
+    backdrop_generation: u64,
     shape_ubuf: wgpu::Buffer,
     shape_bind_group: wgpu::BindGroup,
     target: wgpu::Texture,
@@ -181,6 +190,82 @@ pub struct Compositor {
     cache: Mutex<Option<CompositeCache>>,
     /// The webcam bubble's texture, sized to the camera frames.
     camera_cache: Mutex<Option<CameraCache>>,
+    /// The picture behind the framed recording, for picture backdrops.
+    backdrop: Mutex<Backdrop>,
+}
+
+/// A backdrop placeholder: one opaque black pixel.
+const BLANK_BACKDROP: [u8; 4] = [0, 0, 0, 255];
+
+/// The picture behind the framed recording when the backdrop is an image (the black
+/// placeholder otherwise). `generation` changes with each new picture, so the composite
+/// bind group knows to rebind.
+struct Backdrop {
+    _tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+    generation: u64,
+}
+
+/// Upload a BGRA picture (top row first) as the backdrop texture.
+fn make_backdrop(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bgra: &[u8],
+    (width, height): (u32, u32),
+    generation: u64,
+) -> Backdrop {
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("vuoom-backdrop"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Bgra8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &bgra[..width as usize * height as usize * 4],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+    Backdrop {
+        _tex: tex,
+        view,
+        width,
+        height,
+        generation,
+    }
+}
+
+/// The part of a `pic` (width, height) picture that covers a `frame` (width, height) output,
+/// centered and cropped on its long side, as a UV extent.
+fn cover_scale(frame: (u32, u32), pic: (u32, u32)) -> [f32; 2] {
+    let aspect = |(w, h): (u32, u32)| f64::from(w) / f64::from(h.max(1));
+    let (f, p) = (aspect(frame), aspect(pic));
+    if f > p {
+        [1.0, (p / f) as f32]
+    } else {
+        [(f / p) as f32, 1.0]
+    }
 }
 
 impl Compositor {
@@ -233,6 +318,16 @@ impl Compositor {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
             ],
@@ -435,6 +530,7 @@ impl Compositor {
             renderer: text_renderer,
         });
 
+        let backdrop = make_backdrop(&device, &queue, &BLANK_BACKDROP, (1, 1), 0);
         Some(Self {
             device,
             queue,
@@ -448,6 +544,54 @@ impl Compositor {
             text,
             cache: Mutex::new(None),
             camera_cache: Mutex::new(None),
+            backdrop: Mutex::new(backdrop),
+        })
+    }
+
+    /// Set the picture drawn behind the framed recording, for frames whose
+    /// [`BgFill::image`] is on: `(pixels, width, height)`, BGRA, top row first. `None` (or a
+    /// picture of the wrong size) drops it.
+    pub fn set_backdrop_image(&self, image: Option<(&[u8], u32, u32)>) {
+        let max = self.device.limits().max_texture_dimension_2d;
+        let usable = image.filter(|&(px, w, h)| {
+            let sized = (1..=max).contains(&w) && (1..=max).contains(&h);
+            sized && px.len() >= w as usize * h as usize * 4
+        });
+        let (px, w, h) = usable.unwrap_or((&BLANK_BACKDROP[..], 1, 1));
+        let mut slot = self.backdrop.lock().expect("backdrop poisoned");
+        let generation = slot.generation + 1;
+        *slot = make_backdrop(&self.device, &self.queue, px, (w, h), generation);
+    }
+
+    /// The composite pass's bind group: uniforms, the source frame, the sampler and the
+    /// backdrop picture.
+    fn bind_composite(
+        &self,
+        ubuf: &wgpu::Buffer,
+        src: &wgpu::TextureView,
+        backdrop: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-composite-bg"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubuf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(src),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(backdrop),
+                },
+            ],
         })
     }
 
@@ -576,7 +720,14 @@ impl Compositor {
 
     /// Build the size-keyed resources for `composite_scene` at the given dimensions. Per-frame
     /// data (source pixels, uniforms) is streamed into these afterwards via `queue.write_*`.
-    fn build_cache(&self, src_w: u32, src_h: u32, out_w: u32, out_h: u32) -> CompositeCache {
+    fn build_cache(
+        &self,
+        src_w: u32,
+        src_h: u32,
+        out_w: u32,
+        out_h: u32,
+        backdrop: &Backdrop,
+    ) -> CompositeCache {
         let src_tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("vuoom-source"),
             size: wgpu::Extent3d {
@@ -599,24 +750,7 @@ impl Compositor {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vuoom-composite-bg"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: ubuf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
+        let bind_group = self.bind_composite(&ubuf, &src_view, &backdrop.view);
 
         let shape_ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vuoom-shape-uniforms"),
@@ -650,8 +784,10 @@ impl Compositor {
             out_w,
             out_h,
             src_tex,
+            src_view,
             ubuf,
             bind_group,
+            backdrop_generation: backdrop.generation,
             shape_ubuf,
             shape_bind_group,
             target,
@@ -828,13 +964,20 @@ impl Compositor {
         // held for the whole call, serializing composites, matching the pre-existing text
         // Mutex, so the single cached source/target/readback are never used concurrently.
         let mut cache_guard = self.cache.lock().expect("composite cache poisoned");
+        let backdrop = self.backdrop.lock().expect("backdrop poisoned");
         if !cache_guard
             .as_ref()
             .is_some_and(|c| c.matches(src_w, src_h, out_w, out_h))
         {
-            *cache_guard = Some(self.build_cache(src_w, src_h, out_w, out_h));
+            *cache_guard = Some(self.build_cache(src_w, src_h, out_w, out_h, &backdrop));
         }
-        let cache = cache_guard.as_ref().expect("cache just populated");
+        let cache = cache_guard.as_mut().expect("cache just populated");
+        // A new backdrop picture since the bind group was made: bind it instead.
+        if cache.backdrop_generation != backdrop.generation {
+            cache.bind_group = self.bind_composite(&cache.ubuf, &cache.src_view, &backdrop.view);
+            cache.backdrop_generation = backdrop.generation;
+        }
+        let cache = &*cache;
 
         // Stream this frame's source pixels into the cached source texture.
         self.queue.write_texture(
@@ -873,8 +1016,8 @@ impl Compositor {
             prev_min: [prev.x as f32, prev.y as f32],
             prev_size: [prev.w as f32, prev.h as f32],
             blur: if scene.blur_from.is_some() { 1.0 } else { 0.0 },
-            _pad3: 0.0,
-            _pad4: [0.0, 0.0],
+            bg_image: if bg.image { 1.0 } else { 0.0 },
+            bg_scale: cover_scale((out_w, out_h), (backdrop.width, backdrop.height)),
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -1098,6 +1241,18 @@ fn shape_caption(fs: &mut FontSystem, c: &ResolvedCaption) -> CaptionText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_backdrop_picture_covers_the_frame() {
+        let [x, y] = cover_scale((1920, 1080), (1920, 1080));
+        assert!((x - 1.0).abs() < 1e-6 && (y - 1.0).abs() < 1e-6);
+        // A square picture behind a wide frame: all its width, the middle of its height.
+        let [x, y] = cover_scale((1600, 900), (1000, 1000));
+        assert!((x - 1.0).abs() < 1e-6 && (y - 0.5625).abs() < 1e-6);
+        // A wide picture behind a tall frame: the middle of its width.
+        let [x, y] = cover_scale((900, 1600), (1600, 900));
+        assert!((x - 0.316_406_25).abs() < 1e-6 && (y - 1.0).abs() < 1e-6);
+    }
 
     #[test]
     fn camera_frames_are_center_cropped_and_mirrored() {

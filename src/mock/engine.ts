@@ -477,6 +477,12 @@ class MockEngine {
       this.frame = { ...this.frame, ...bgInfo(name) };
     });
   }
+  setBackgroundImage(path: string) {
+    this.mutate(undefined, () => {
+      this.bgPreset = "";
+      this.frame = { ...this.frame, bg_kind: "image", bg_image: path };
+    });
+  }
   setBackgroundCustom(from: [number, number, number], to: [number, number, number] | null, angle: number) {
     this.mutate("bg-custom", () => {
       this.bgPreset = "";
@@ -486,6 +492,7 @@ class MockEngine {
         bg_from: from,
         bg_to: to ?? from,
         bg_angle: angle,
+        bg_image: null,
       };
     });
   }
@@ -1225,13 +1232,17 @@ const BG_PRESETS: Record<string, [number[], number[]] | [number[]]> = {
   dusk: [[0.17, 0.19, 0.26], [0.06, 0.06, 0.1]],
   paper: [[0.96, 0.95, 0.92], [0.85, 0.83, 0.78]],
   midnight: [[0.06, 0.07, 0.1], [0.01, 0.01, 0.02]],
+  ocean: [[0.13, 0.42, 0.72], [0.03, 0.1, 0.24]],
+  forest: [[0.16, 0.44, 0.3], [0.03, 0.13, 0.09]],
+  sunset: [[0.98, 0.6, 0.32], [0.66, 0.16, 0.2]],
+  sand: [[0.95, 0.88, 0.76], [0.78, 0.64, 0.48]],
   solid: [[0.09, 0.09, 0.1]],
 };
-function bgInfo(name: string): Pick<FrameInfo, "bg_kind" | "bg_from" | "bg_to" | "bg_angle"> {
+function bgInfo(name: string): Pick<FrameInfo, "bg_kind" | "bg_from" | "bg_to" | "bg_angle" | "bg_image"> {
   const p = BG_PRESETS[name] ?? BG_PRESETS.graphite;
   const from = p[0] as [number, number, number];
   const to = (p[1] ?? p[0]) as [number, number, number];
-  return { bg_kind: p.length > 1 ? "gradient" : "solid", bg_from: from, bg_to: to, bg_angle: 45 };
+  return { bg_kind: p.length > 1 ? "gradient" : "solid", bg_from: from, bg_to: to, bg_angle: 45, bg_image: null };
 }
 
 export { MockEngine, paintDesktop };

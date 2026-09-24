@@ -13,12 +13,50 @@
   box-shadow: var(--shadow-panel);
 }
 .home-inner {
-  width: min(960px, 100%);
+  position: relative;
+  width: min(880px, 100%);
+  min-height: 100%;
   margin: 0 auto;
-  padding: clamp(28px, 7vh, 72px) 28px 48px;
+  padding: clamp(28px, 6vh, 64px) 28px 40px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  justify-content: center;
+  gap: 26px;
+}
+/* A soft red glow that drifts slowly behind the title: the room feels switched on. */
+.home-inner::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -40px;
+  left: 50%;
+  width: 620px;
+  height: 320px;
+  margin-left: -310px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--record) 13%, transparent), transparent);
+  filter: blur(20px);
+  pointer-events: none;
+  animation: glow-drift 14s ease-in-out infinite alternate;
+}
+.home {
+  isolation: isolate;
+}
+@keyframes glow-drift {
+  from {
+    transform: translate(-60px, 0) scale(1);
+  }
+  to {
+    transform: translate(60px, 24px) scale(1.12);
+  }
+}
+:root[data-motion="reduced"] .home-inner::before {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-inner::before {
+    animation: none;
+  }
 }
 
 .home-hero {
@@ -27,20 +65,6 @@
   align-items: center;
   text-align: center;
   animation: rise var(--dur-3) var(--ease) both;
-}
-.home-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 11px;
-  border-radius: var(--r-full);
-  background: var(--raised);
-  border: 1px solid var(--line-2);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.02em;
 }
 .rec-dot.live {
   width: 7px;
@@ -59,14 +83,18 @@
   }
 }
 .home-title {
-  margin: 18px 0 10px;
+  margin: 0 0 10px;
   font-size: clamp(26px, 3.4vw, 38px);
   font-weight: 750;
   letter-spacing: -0.03em;
   line-height: 1.08;
 }
 .home-sub {
-  max-width: 520px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-lg);
@@ -76,9 +104,9 @@
 .source-cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  margin-top: 30px;
+  margin-top: 34px;
 }
 @media (max-width: 760px) {
   .source-cards {
@@ -88,48 +116,66 @@
 .source-card {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
   border-radius: var(--r-lg);
   border: 1px solid var(--line-2);
   background: var(--panel-2);
   text-align: left;
+  animation: rise var(--dur-3) var(--ease) both;
   transition:
-    transform var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--spring),
     border-color var(--dur-2) var(--ease),
     background var(--dur-2) var(--ease),
     box-shadow var(--dur-2) var(--ease);
 }
+.source-card:nth-child(2) {
+  animation-delay: 50ms;
+}
+.source-card:nth-child(3) {
+  animation-delay: 100ms;
+}
 .source-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: var(--line-strong);
   background: var(--raised);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
 }
 .source-card:active {
-  transform: translateY(0) scale(0.99);
+  transform: translateY(0) scale(0.985);
+}
+.source-card.primary {
+  border-color: color-mix(in srgb, var(--record) 35%, var(--line-2));
 }
 .source-card-icon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   flex: none;
   border-radius: var(--r-md);
   background: var(--hover);
   color: var(--text);
+  transition:
+    transform var(--dur-3) var(--spring),
+    background var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease);
 }
-.source-card.primary .source-card-icon {
+.source-card:hover .source-card-icon {
+  transform: scale(1.08) rotate(-4deg);
+}
+.source-card.primary .source-card-icon,
+.source-card:hover .source-card-icon {
   background: var(--record-soft);
   color: var(--record);
 }
 .source-card-text {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
-  flex: 1;
 }
 .source-card-text strong {
   font-size: var(--fs-lg);
@@ -141,18 +187,21 @@
   line-height: 1.35;
 }
 .source-card-go {
+  position: absolute;
+  top: 18px;
+  right: 18px;
   display: grid;
   place-items: center;
   width: 30px;
   height: 30px;
-  flex: none;
   border-radius: 50%;
   border: 1px solid var(--line-2);
   color: var(--faint);
   transition:
     background var(--dur-2) var(--ease),
     color var(--dur-2) var(--ease),
-    border-color var(--dur-2) var(--ease);
+    border-color var(--dur-2) var(--ease),
+    transform var(--dur-3) var(--spring);
 }
 .source-card:hover .source-card-go,
 .source-card.primary .source-card-go {
@@ -160,34 +209,95 @@
   border-color: var(--record);
   color: #fff;
 }
+.source-card:hover .source-card-go {
+  transform: scale(1.1);
+}
 
-.home-opts {
+/* Sound, camera and the folded options: one tidy row under the cards. */
+.home-bar {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px 22px;
+  gap: 8px;
   margin-top: 22px;
 }
-.home-opt {
-  display: flex;
+.home-more {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 560;
+  white-space: nowrap;
+  transition:
+    border-color var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease);
+}
+.home-more:hover,
+.home-more.on {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+.home-more > svg:first-child {
+  color: var(--muted);
+}
+.home-more-chev {
+  color: var(--faint);
+  transition: transform var(--dur-2) var(--ease);
+}
+.home-more.on .home-more-chev {
+  transform: rotate(180deg);
+}
+.home-opts {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 16px;
+  margin-top: 12px;
+  padding: 14px 20px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  animation: rise var(--dur-3) var(--ease) both;
+}
+.home-opt {
+  display: contents;
   color: var(--muted);
   font-size: var(--fs-sm);
 }
-.home-keys {
+.home-opt > span {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: right;
+}
+.home-opt > .seg {
+  justify-self: start;
+}
+.home-foot {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-top: 6px;
+  animation: rise var(--dur-3) var(--ease) 120ms both;
+}
+.home-keys {
+  display: inline-flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
-  gap: 8px 18px;
-  margin-top: 22px;
+  gap: 6px;
   color: var(--faint);
   font-size: var(--fs-xs);
 }
-.home-keys > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.home-keys-sep {
+  width: 10px;
 }
 
 .recover-card {

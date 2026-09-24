@@ -29,6 +29,7 @@ import "./styles/stage.css";
 import "./styles/inspector.css";
 import "./styles/timeline.css";
 import "./styles/dialogs.css";
+import "./styles/motion.css";
 
 function Workspace() {
   return (

@@ -3,7 +3,7 @@
 //    the armed tool's card, in collapsible sections that remember their state.
 //  - Clip: whole-recording settings: frame + backdrop, crop, camera (auto zooms), pacing
 //    (skim idle), click ripples + keystrokes, and clip facts.
-import { createEffect, createSignal, For, Index, on, onMount, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { trackLabel } from "../editor/audio";
 import {
   CAPTION_LANGUAGES,
@@ -30,7 +30,7 @@ const CAMERA_CORNERS: { value: CameraCorner; label: string }[] = [
   { value: "bottom-left", label: "Bottom left" },
   { value: "bottom-right", label: "Bottom right" },
 ];
-import { Field, IconButton, Section, Seg, Slider, Switch } from "../ui";
+import { Field, IconButton, Section, Seg, sectionQuery, setSectionQuery, Slider, Switch } from "../ui";
 
 export default function Inspector() {
   const ed = useEditor();
@@ -135,7 +135,7 @@ const KIND_ICON: Record<string, IconName> = {
   Box: "shape",
   Ellipse: "shape",
   Highlight: "highlight",
-  "Hidden area": "mask",
+  "Hidden area": "eyeOff",
   Spotlight: "spotlight",
   Pen: "pen",
   Marker: "pen",
@@ -251,7 +251,8 @@ function PenCard() {
             onCommit={(v) => ed.setPenLook({ ...look(), width: v })}
           />
         </Field>
-        <div class="color-row">
+        <Field label="Color" stack>
+          <div class="color-row">
           <For each={PRESET_COLORS}>
             {(c) => (
               <button
@@ -265,7 +266,8 @@ function PenCard() {
               />
             )}
           </For>
-        </div>
+          </div>
+        </Field>
         <p class="note">
           Draw as many lines as you like. <kbd>Esc</kbd> puts the pen down, then click a line to move or
           change it.
@@ -541,7 +543,7 @@ function AnnotationProps() {
       </Show>
 
       <Show when={ed.isMask()}>
-        <Section id="ann-mask" title="Hide" icon="mask">
+        <Section id="ann-mask" title="Hide" icon="eyeOff">
           <p class="note">
             Covered with solid black in the export, so nothing underneath can be read. Drag its bar on the
             timeline to choose when it covers the frame.
@@ -934,20 +936,93 @@ function ClipPanel() {
     return "";
   };
   const isCustomFrame = () => framePresetExact() === "";
+  const isPicture = () => ed.frameInfo()?.bg_kind === "image";
+  // The current backdrop as CSS, for the frame cards' little scenes.
+  const backdropCss = () => {
+    const fi = ed.frameInfo();
+    const sw = ed.BG_SWATCHES.find((s) => s.name === ed.bgPreset());
+    if (sw) return sw.css;
+    if (!fi || fi.bg_kind === "image") return "linear-gradient(135deg,#3b4a5c,#171c24)";
+    if (fi.bg_kind === "solid") return bgHex(fi.bg_from);
+    return `linear-gradient(${fi.bg_angle + 90}deg,${bgHex(fi.bg_from)},${bgHex(fi.bg_to)})`;
+  };
+  const frameName = () => FRAMES.find((f) => f.id === framePresetExact())?.label ?? "Custom";
+  const cropName = () => CROPS.find((c) => cropMatches(ed.crop(), c.ratio))?.label ?? "Custom";
+  const pictureName = () => (ed.frameInfo()?.bg_image ?? "").split(/[\\/]/).pop() ?? "";
+
+  // Settings search: filters the sections below as you type. Ctrl+F jumps here.
+  let searchEl: HTMLInputElement | undefined;
+  const [query, setQuery] = createSignal("");
+  const [noMatch, setNoMatch] = createSignal(false);
+  const search = (q: string) => {
+    setQuery(q);
+    setSectionQuery(q);
+    requestAnimationFrame(() => {
+      const shown = document.querySelectorAll(".insp-scroll .sect[data-sect^='clip-']:not(.sect-miss)");
+      setNoMatch(!!sectionQuery() && shown.length === 0);
+    });
+  };
+  const onFind = (e: KeyboardEvent) => {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl) {
+      e.preventDefault();
+      searchEl.focus();
+      searchEl.select();
+    }
+  };
+  onMount(() => window.addEventListener("keydown", onFind));
+  onCleanup(() => {
+    window.removeEventListener("keydown", onFind);
+    setSectionQuery("");
+  });
 
   return (
     <>
+      <div class="clip-search">
+        <div class="input-wrap">
+          <Icon name="search" size={14} />
+          <input
+            ref={searchEl}
+            class="input"
+            type="search"
+            placeholder="Search settings"
+            aria-label="Search clip settings"
+            spellcheck={false}
+            value={query()}
+            onInput={(e) => search(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query()) {
+                e.preventDefault();
+                e.stopPropagation();
+                search("");
+              }
+            }}
+          />
+          <Show when={query()}>
+            <button type="button" class="clip-search-x" aria-label="Clear search" onClick={() => search("")}>
+              <Icon name="close" size={12} stroke={2.2} />
+            </button>
+          </Show>
+        </div>
+      </div>
+      <Show when={noMatch()}>
+        <div class="clip-search-empty">
+          <Icon name="search" size={18} />
+          <span>Nothing matches "{query()}".</span>
+          <button type="button" class="btn sm ghost" onClick={() => search("")}>
+            Clear search
+          </button>
+        </div>
+      </Show>
+
       <Section
         id="clip-frame"
         title="Frame"
         icon="frame"
-        aside={
-          <Show when={isCustomFrame()}>
-            <span class="badge">Custom</span>
-          </Show>
-        }
+        defaultOpen={false}
+        keywords="padding corners rounded radius shadow backdrop background wallpaper picture image photo color gradient border"
+        aside={<span class="badge">{isCustomFrame() ? "Custom" : frameName()}</span>}
       >
-        <div class="frame-cards">
+        <div class="frame-cards" style={{ "--bd": backdropCss() }}>
           <For each={FRAMES}>
             {(f) => (
               <button
@@ -959,9 +1034,11 @@ function ClipPanel() {
                 onClick={() => ed.applyFramePreset(f.id)}
               >
                 <span class="frame-card-art">
-                  <span class="frame-card-shot" />
+                  <span class="frame-card-shot">
+                    <i />
+                  </span>
                 </span>
-                <span>{f.label}</span>
+                <span class="frame-card-label">{f.label}</span>
               </button>
             )}
           </For>
@@ -1026,16 +1103,40 @@ function ClipPanel() {
                 type="button"
                 class="swatch swatch-custom"
                 aria-label="Custom backdrop"
-                aria-pressed={ed.bgPreset() === ""}
-                data-tip="Custom colors"
+                aria-pressed={ed.bgPreset() === "" && !isPicture()}
+                data-tip="Your own colors"
                 onClick={() => {
                   const fi = ed.frameInfo();
-                  if (fi && ed.bgPreset() !== "") ed.applyBackgroundCustom(bgHex(fi.bg_from), bgHex(fi.bg_to), fi.bg_angle);
+                  if (fi && (ed.bgPreset() !== "" || isPicture()))
+                    ed.applyBackgroundCustom(bgHex(fi.bg_from), fi.bg_kind === "gradient" ? bgHex(fi.bg_to) : null, fi.bg_angle);
                 }}
               />
+              <button
+                type="button"
+                class="swatch swatch-picture"
+                aria-label="Picture backdrop"
+                aria-pressed={isPicture()}
+                data-tip="Your own picture"
+                onClick={() => void ed.chooseBackdropPicture()}
+              >
+                <Icon name="image" size={14} />
+              </button>
             </div>
           </Field>
-          <Show when={ed.bgPreset() === "" && ed.frameInfo()}>
+          <Show when={isPicture()}>
+            <div class="bg-picture">
+              <span class="bg-picture-icon">
+                <Icon name="image" size={16} />
+              </span>
+              <span class="bg-picture-name" data-tip={ed.frameInfo()?.bg_image ?? ""}>
+                {pictureName() || "Picture"}
+              </span>
+              <button type="button" class="btn sm" onClick={() => void ed.chooseBackdropPicture()}>
+                Change
+              </button>
+            </div>
+          </Show>
+          <Show when={ed.bgPreset() === "" && !isPicture() && ed.frameInfo()}>
             {(fi) => (
               <div class="bg-custom">
                 <Seg
@@ -1092,8 +1193,15 @@ function ClipPanel() {
         </Show>
       </Section>
 
-      <Section id="clip-crop" title="Crop" icon="crop">
-        <div class="chip-row">
+      <Section
+        id="clip-crop"
+        title="Crop"
+        icon="crop"
+        defaultOpen={false}
+        keywords="aspect ratio 16:9 square vertical portrait 9:16 reel shorts tiktok edges"
+        aside={<span class="badge">{cropName()}</span>}
+      >
+        <div class="crop-grid">
           <For each={CROPS}>
             {(c) => (
               <button
@@ -1126,6 +1234,8 @@ function ClipPanel() {
         id="clip-zoom"
         title="Zooms"
         icon="zoomIn"
+        defaultOpen={false}
+        keywords="zoom auto camera motion blur strength close magnify"
         aside={<span class="badge">{ed.zooms().length} zoom{ed.zooms().length === 1 ? "" : "s"}</span>}
       >
         <Field label="Auto zoom strength" stack>
@@ -1157,7 +1267,14 @@ function ClipPanel() {
         </Field>
       </Section>
 
-      <Section id="clip-pacing" title="Pacing" icon="speed">
+      <Section
+        id="clip-pacing"
+        title="Pacing"
+        icon="speed"
+        defaultOpen={false}
+        keywords="speed skim idle fast faster silence cut length duration"
+        aside={<span class="badge">{outDur().toFixed(1)}s</span>}
+      >
         <Field label="Skim idle stretches" hint="Plays the moments where nothing happens faster">
           <Switch checked={ed.speed().length > 0} label="Skim idle stretches" onChange={() => ed.toggleSkim()} />
         </Field>
@@ -1187,7 +1304,14 @@ function ClipPanel() {
         </Field>
       </Section>
 
-      <Section id="clip-audio" title="Audio" icon="waves">
+      <Section
+        id="clip-audio"
+        title="Audio"
+        icon="waves"
+        defaultOpen={false}
+        keywords="sound microphone mic system volume mute noise voice narration"
+        aside={<span class="badge">{ed.audio.hasAudio() ? `${ed.audio.tracks().length} track${ed.audio.tracks().length === 1 ? "" : "s"}` : "Silent"}</span>}
+      >
         <Show
           when={ed.audio.hasAudio()}
           fallback={
@@ -1249,7 +1373,14 @@ function ClipPanel() {
 
       <CaptionsSection />
 
-      <Section id="clip-pointer" title="Pointer" icon="cursor">
+      <Section
+        id="clip-pointer"
+        title="Pointer"
+        icon="cursor"
+        defaultOpen={false}
+        keywords="cursor mouse arrow size smooth hide still"
+        aside={<span class="badge">{ed.cursorStyle() ? "Smooth" : ed.pointerCaptured() ? "Recorded" : "Hidden"}</span>}
+      >
         <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
           <Switch checked={!!ed.cursorStyle()} label="Smooth pointer" onChange={() => ed.toggleCursor()} />
         </Field>
@@ -1301,7 +1432,14 @@ function ClipPanel() {
 
       <Show when={ed.cameraOverlay()}>
         {(c) => (
-          <Section id="clip-camera" title="Camera" icon="camera">
+          <Section
+            id="clip-camera"
+            title="Camera"
+            icon="camera"
+            defaultOpen={false}
+            keywords="webcam face bubble corner mirror circle"
+            aside={<span class="badge">{c().visible ? "On" : "Hidden"}</span>}
+          >
             <Field label="Show camera" hint="Hide the bubble without losing the recording">
               <Switch checked={c().visible} label="Show camera" onChange={(v) => ed.updateCamera({ visible: v })} />
             </Field>
@@ -1363,7 +1501,18 @@ function ClipPanel() {
         )}
       </Show>
 
-      <Section id="clip-overlays" title="Overlays" icon="clicks">
+      <Section
+        id="clip-overlays"
+        title="Overlays"
+        icon="clicks"
+        defaultOpen={false}
+        keywords="clicks ripples keystrokes keys shortcuts keyboard"
+        aside={
+          <Show when={ed.showClicks() || ed.showKeys()}>
+            <span class="badge">{[ed.showClicks() && "Clicks", ed.showKeys() && "Keys"].filter(Boolean).join(" · ")}</span>
+          </Show>
+        }
+      >
         <Field label="Click ripples" hint="An expanding ring at every recorded click">
           <Switch checked={ed.showClicks()} label="Click ripples" onChange={() => ed.toggleClicks()} />
         </Field>
@@ -1372,7 +1521,7 @@ function ClipPanel() {
         </Field>
       </Section>
 
-      <Section id="clip-info" title="Clip" icon="info" defaultOpen={false}>
+      <Section id="clip-info" title="Clip" icon="info" defaultOpen={false} keywords="facts details duration length aspect">
         <dl class="facts">
           <dt>Recorded</dt>
           <dd>{ed.duration().toFixed(2)}s</dd>
@@ -1383,7 +1532,9 @@ function ClipPanel() {
           <dt>Zooms</dt>
           <dd>{ed.zooms().length}</dd>
           <dt>Annotations</dt>
-          <dd>{ed.anns().texts.length + ed.anns().arrows.length + ed.anns().highlights.length}</dd>
+          <dd>
+            {ed.anns().texts.length + ed.anns().arrows.length + ed.anns().highlights.length + ed.anns().strokes.length}
+          </dd>
           <dt>Cuts</dt>
           <dd>{ed.cuts().length}</dd>
         </dl>
@@ -1402,7 +1553,18 @@ function CaptionsSection() {
   const canGenerate = () => supported() && ed.audio.hasAudio();
   const style = () => c.style();
   return (
-    <Section id="clip-captions" title="Captions" icon="captions">
+    <Section
+      id="clip-captions"
+      title="Captions"
+      icon="captions"
+      defaultOpen={false}
+      keywords="subtitles srt words speech transcribe text language"
+      aside={
+        <Show when={count() > 0}>
+          <span class="badge">{count()}</span>
+        </Show>
+      }
+    >
       <Show
         when={c.job()}
         fallback={

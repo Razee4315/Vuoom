@@ -34,7 +34,8 @@ impl Background {
     /// stored straight (the compositor mixes in the same space it writes), and the diagonal
     /// angle runs top-left → bottom-right for a soft studio falloff.
     pub const PRESET_NAMES: &'static [&'static str] = &[
-        "graphite", "slate", "teal", "dusk", "paper", "midnight", "solid",
+        "graphite", "slate", "teal", "dusk", "midnight", "ocean", "forest", "sunset", "sand",
+        "paper", "solid",
     ];
 
     /// Resolve a preset name to its [`Background`], or `None` for an unknown name.
@@ -61,6 +62,14 @@ impl Background {
             "paper" => grad(Color::rgb(0.96, 0.95, 0.92), Color::rgb(0.85, 0.83, 0.78)),
             // Near-black with a faint blue lift.
             "midnight" => grad(Color::rgb(0.06, 0.07, 0.10), Color::rgb(0.01, 0.01, 0.02)),
+            // Clear blue into deep navy.
+            "ocean" => grad(Color::rgb(0.13, 0.42, 0.72), Color::rgb(0.03, 0.10, 0.24)),
+            // Leaf green into deep pine.
+            "forest" => grad(Color::rgb(0.16, 0.44, 0.30), Color::rgb(0.03, 0.13, 0.09)),
+            // Warm orange into crimson.
+            "sunset" => grad(Color::rgb(0.98, 0.60, 0.32), Color::rgb(0.66, 0.16, 0.20)),
+            // Pale sand into warm tan.
+            "sand" => grad(Color::rgb(0.95, 0.88, 0.76), Color::rgb(0.78, 0.64, 0.48)),
             // Flat neutral dark (no gradient).
             "solid" => Background::Solid(Color::rgb(0.09, 0.09, 0.10)),
             _ => return None,

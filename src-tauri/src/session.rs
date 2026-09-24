@@ -190,15 +190,18 @@ pub struct FrameInfo {
     pub padding: f64,
     pub corner_radius: f64,
     pub shadow: f64,
-    /// `"solid"` or `"gradient"`.
+    /// `"solid"`, `"gradient"` or `"image"`.
     pub bg_kind: String,
     pub bg_from: [f32; 3],
     pub bg_to: [f32; 3],
     pub bg_angle: f64,
+    /// The backdrop picture's file, for an `"image"` backdrop.
+    pub bg_image: Option<String>,
 }
 
 impl FrameInfo {
     fn of(frame: &FrameStyle) -> Self {
+        const DARK: [f32; 3] = [0.08, 0.08, 0.09];
         let rgb = |c: &Color| [c.r, c.g, c.b];
         let (bg_kind, bg_from, bg_to, bg_angle) = match &frame.background {
             Background::Solid(c) => ("solid", rgb(c), rgb(c), 45.0),
@@ -207,9 +210,12 @@ impl FrameInfo {
                 to,
                 angle_deg,
             } => ("gradient", rgb(from), rgb(to), *angle_deg),
-            Background::Image { .. } | Background::Blur { .. } => {
-                ("solid", [0.08, 0.08, 0.09], [0.08, 0.08, 0.09], 45.0)
-            }
+            Background::Image { .. } => ("image", DARK, DARK, 45.0),
+            Background::Blur { .. } => ("solid", DARK, DARK, 45.0),
+        };
+        let bg_image = match &frame.background {
+            Background::Image { path } => Some(path.clone()),
+            _ => None,
         };
         Self {
             padding: frame.padding,
@@ -219,6 +225,7 @@ impl FrameInfo {
             bg_from,
             bg_to,
             bg_angle,
+            bg_image,
         }
     }
 }
@@ -382,6 +389,8 @@ struct FrameIndex {
 pub struct Session {
     preview: PreviewServer,
     compositor: Option<Compositor>,
+    /// The picture file the compositor holds as its backdrop, if any.
+    backdrop_path: Mutex<Option<String>>,
     clock: Clock,
     active: Mutex<Option<Active>>,
     edited: Mutex<Edited>,
@@ -449,6 +458,7 @@ impl Session {
         Ok(Self {
             preview,
             compositor,
+            backdrop_path: Mutex::new(None),
             clock: Clock::new(),
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
@@ -1263,6 +1273,7 @@ impl Session {
             )
         };
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        self.sync_backdrop(compositor, &project.frame);
         let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
         let frame = store.frame(idx)?;
 
@@ -1357,6 +1368,7 @@ impl Session {
             return Err("no frames".into());
         }
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        self.sync_backdrop(compositor, &project.frame);
 
         let (out_w, out_h) = project.output_dims();
         let bg = background_fill(&project.frame);
@@ -1467,6 +1479,7 @@ impl Session {
             return Err("no frames".into());
         }
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
+        self.sync_backdrop(compositor, &project.frame);
 
         let (out_w, out_h) = project.output_dims();
         let bg = background_fill(&project.frame);
@@ -1658,6 +1671,7 @@ impl Session {
     ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
+        self.sync_backdrop(compositor, &project.frame);
         let track = edited.track.as_ref().ok_or("no recording")?;
         let store = edited.frames.as_ref().ok_or("no frames")?;
         if store.is_empty() {
@@ -2237,6 +2251,41 @@ impl Session {
             p.frame.shadow.strength = shadow.clamp(0.0, 1.0);
             Ok(())
         })
+    }
+
+    /// Use the picture at `path` (any format Windows can read) as the backdrop behind a
+    /// framed recording. The picture is read first, so a file that isn't one is refused.
+    pub fn set_background_image(&self, path: &str) -> Result<(), String> {
+        load_backdrop(path)?;
+        self.with_project("", |p| {
+            p.frame.background = Background::Image {
+                path: path.to_owned(),
+            };
+            Ok(())
+        })
+    }
+
+    /// Keep the compositor's backdrop picture in step with the project's backdrop: load the
+    /// picture when it changes, drop it when the backdrop isn't one. A picture that can no
+    /// longer be read (moved, deleted) draws as black, and the log says why.
+    fn sync_backdrop(&self, compositor: &Compositor, frame: &FrameStyle) {
+        let want = match &frame.background {
+            Background::Image { path } => Some(path.as_str()),
+            _ => None,
+        };
+        let mut held = self.backdrop_path.lock().unwrap_or_else(|e| e.into_inner());
+        if held.as_deref() == want {
+            return;
+        }
+        match want.map(load_backdrop) {
+            Some(Ok((w, h, px))) => compositor.set_backdrop_image(Some((&px, w, h))),
+            Some(Err(e)) => {
+                tracing::warn!("backdrop picture: {e}");
+                compositor.set_backdrop_image(None);
+            }
+            None => compositor.set_backdrop_image(None),
+        }
+        *held = want.map(str::to_owned);
     }
 
     /// Set a custom backdrop: a solid color, or a two-color gradient at `angle` degrees
@@ -3704,15 +3753,16 @@ fn out_mapping(project: &Project) -> (f64, f64, Vec<SpeedRegion>, Vec<Trim>) {
     (t0, span, regions, cuts)
 }
 
-/// Resolve the project's backdrop into the compositor's [`BgFill`] (a linear 2-stop gradient;
-/// a solid fill is the degenerate `color2 == color` case). Image/Blur backdrops aren't
-/// rendered yet, so they fall back to a flat neutral dark.
 /// An opaque color from 0..1 RGB components, clamped into range.
 fn rgb01(v: [f32; 3]) -> Color {
     let c = |x: f32| x.clamp(0.0, 1.0);
     Color::rgb(c(v[0]), c(v[1]), c(v[2]))
 }
 
+/// Resolve the project's backdrop into the compositor's [`BgFill`] (a linear 2-stop gradient;
+/// a solid fill is the degenerate `color2 == color` case). A picture backdrop draws the
+/// compositor's backdrop picture (see `Session::sync_backdrop`); Blur isn't rendered yet, so
+/// it falls back to a flat neutral dark.
 fn background_fill(frame: &FrameStyle) -> BgFill {
     let rgba = |c: Color| [c.r, c.g, c.b, c.a];
     match &frame.background {
@@ -3730,12 +3780,59 @@ fn background_fill(frame: &FrameStyle) -> BgFill {
                 color: rgba(*from),
                 color2: rgba(*to),
                 dir: [rad.cos() as f32, rad.sin() as f32],
+                image: false,
             }
         }
-        Background::Image { .. } | Background::Blur { .. } => {
-            BgFill::solid([0.08, 0.08, 0.09, 1.0])
+        Background::Image { .. } => BgFill {
+            image: true,
+            ..BgFill::solid([0.08, 0.08, 0.09, 1.0])
+        },
+        Background::Blur { .. } => BgFill::solid([0.08, 0.08, 0.09, 1.0]),
+    }
+}
+
+/// The longest side a backdrop picture is kept at: sharp behind a 1440p export, and light
+/// on memory.
+const BACKDROP_MAX: u32 = 2560;
+
+/// Read a backdrop picture (any format Windows can read) as BGRA, shrunk by a whole factor
+/// until its longest side fits [`BACKDROP_MAX`].
+fn load_backdrop(path: &str) -> Result<(u32, u32, Vec<u8>), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("Can't open the picture: {e}"))?;
+    let (w, h, px) = vuoom_camera::jpeg::decode_bgra(&bytes)
+        .map_err(|_| "That file isn't a picture Vuoom can read.".to_string())?;
+    let k = w.max(h).div_ceil(BACKDROP_MAX);
+    if k <= 1 {
+        return Ok((w, h, px));
+    }
+    shrink_bgra(w, h, &px, k).ok_or_else(|| "That picture is too narrow to use.".into())
+}
+
+/// Shrink a `w`×`h` BGRA picture by the whole factor `k`, averaging each `k`×`k` block.
+/// `None` when that leaves no pixels.
+fn shrink_bgra(w: u32, h: u32, px: &[u8], k: u32) -> Option<(u32, u32, Vec<u8>)> {
+    let (nw, nh) = (w / k, h / k);
+    if nw == 0 || nh == 0 {
+        return None;
+    }
+    let (k, w) = (k as usize, w as usize);
+    let n = (k * k) as u32;
+    let mut out = Vec::with_capacity(nw as usize * nh as usize * 4);
+    for y in 0..nh as usize {
+        for x in 0..nw as usize {
+            let mut acc = [0u32; 4];
+            for row in y * k..(y + 1) * k {
+                let start = (row * w + x * k) * 4;
+                for p in px[start..start + k * 4].as_chunks::<4>().0 {
+                    for (a, &v) in acc.iter_mut().zip(p) {
+                        *a += u32::from(v);
+                    }
+                }
+            }
+            out.extend(acc.map(|a| (a / n) as u8));
         }
     }
+    Some((nw, nh, out))
 }
 
 /// Why captions aren't offered on this computer.
@@ -4060,6 +4157,21 @@ mod tests {
             range: TimeRange::new(0.0, 1.0),
         });
         assert_eq!(next_id(&p), 8);
+    }
+
+    #[test]
+    fn backdrop_pictures_shrink_by_averaging() {
+        // 4×2 BGRA: the left 2×2 block is all 10, the right one all 30.
+        let px: Vec<u8> = (0..8)
+            .flat_map(|i| {
+                let v = if i % 4 < 2 { 10 } else { 30 };
+                [v, v, v, 255]
+            })
+            .collect();
+        let (w, h, out) = shrink_bgra(4, 2, &px, 2).unwrap();
+        assert_eq!((w, h), (2, 1));
+        assert_eq!(out, [10, 10, 10, 255, 30, 30, 30, 255]);
+        assert!(shrink_bgra(3, 1, &px, 2).is_none());
     }
 
     #[test]

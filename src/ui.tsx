@@ -146,18 +146,35 @@ export function Slider(props: {
 
 // ── inspector layout ───────────────────────────────────────────────────────────
 
-/** A collapsible, titled group. Its open state persists per `id`. */
+/** What the inspector's settings search is looking for (lowercase, trimmed). */
+const [sectionQuery, setSectionQueryRaw] = createSignal("");
+export { sectionQuery };
+export const setSectionQuery = (q: string) => setSectionQueryRaw(q.trim().toLowerCase());
+
+/**
+ * A collapsible, titled group. Its open state persists per `id`. While the settings search
+ * has a query, a section shows only if its title, `keywords` or any of its words match,
+ * and then it opens by itself.
+ */
 export function Section(props: {
   id: string;
   title: string;
   icon?: IconName;
   aside?: JSX.Element;
   defaultOpen?: boolean;
+  keywords?: string;
   children: JSX.Element;
 }): JSX.Element {
-  const open = () => sectionOpen(props.id, props.defaultOpen ?? true);
+  let body: HTMLDivElement | undefined;
+  const matches = () => {
+    const q = sectionQuery();
+    if (!q) return true;
+    const hay = `${props.title} ${props.keywords ?? ""} ${body?.textContent ?? ""}`.toLowerCase();
+    return q.split(/\s+/).every((w) => hay.includes(w));
+  };
+  const open = () => (sectionQuery() ? matches() : sectionOpen(props.id, props.defaultOpen ?? true));
   return (
-    <section class="sect" classList={{ open: open() }}>
+    <section class="sect" classList={{ open: open(), "sect-miss": !matches() }} data-sect={props.id}>
       <header class="sect-head">
         <button
           type="button"
@@ -176,7 +193,9 @@ export function Section(props: {
         </Show>
       </header>
       <div class="sect-body-wrap">
-        <div class="sect-body">{props.children}</div>
+        <div class="sect-body" ref={body}>
+          {props.children}
+        </div>
       </div>
     </section>
   );

@@ -100,6 +100,9 @@
   color: var(--record);
 }
 .insp-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 14px;
 }
 
@@ -201,9 +204,10 @@
 }
 
 .color-row {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 3px;
 }
 .swatch-custom {
   position: relative;
@@ -253,59 +257,199 @@
   color: var(--muted);
 }
 
-/* Frame preset cards: a miniature of each framing. */
+/* Frame preset cards: a little scene of each framing, on the clip's own backdrop. */
 .frame-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .frame-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 6px;
-  padding: 6px 6px 8px;
-  border-radius: var(--r);
+  min-width: 0;
+  padding: 5px 5px 7px;
+  border-radius: var(--r-md);
   border: 1px solid var(--line);
-  background: var(--raised);
+  background: var(--panel-2);
   color: var(--muted);
   font-size: var(--fs-xs);
   font-weight: 600;
+  transition:
+    border-color var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--spring);
 }
 .frame-card:hover {
   border-color: var(--line-strong);
   color: var(--text);
 }
+.frame-card:active {
+  transform: scale(0.97);
+}
 .frame-card.on {
   border-color: var(--ink);
-  box-shadow: 0 0 0 1px var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
   color: var(--text);
+}
+.frame-card-label {
+  text-align: center;
 }
 .frame-card-art {
   display: grid;
   place-items: center;
   width: 100%;
   aspect-ratio: 16 / 10;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #3a3f4a, #15171c);
+  border-radius: 7px;
+  background: var(--bd, linear-gradient(135deg, #3a3f4a, #15171c));
   overflow: hidden;
 }
+/* The recording: a small light app window with its three dots. */
 .frame-card-shot {
+  position: relative;
   width: 100%;
   height: 100%;
-  background: linear-gradient(160deg, #7b8190, #4a4f5a);
+  background: linear-gradient(#dde2ea 0 17%, #f3f5f8 17% 100%);
+  transition: transform var(--dur-3) var(--spring);
+}
+.frame-card-shot i {
+  position: absolute;
+  top: 5%;
+  left: 7%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow:
+    6px 0 #febc2e,
+    12px 0 #28c840;
+}
+.frame-card:hover .frame-card-shot {
+  transform: scale(1.04);
 }
 .frame-card.subtle .frame-card-shot {
   width: 84%;
-  height: 80%;
-  border-radius: 3px;
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  height: 78%;
+  border-radius: 4px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
 }
 .frame-card.studio .frame-card-shot {
   width: 68%;
-  height: 62%;
-  border-radius: 4px;
-  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.55);
+  height: 60%;
+  border-radius: 5px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
+}
+
+/* Crop ratios: one even row, like a segmented control. */
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r);
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
+.crop-grid .chip {
+  justify-content: center;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--r) - 2px);
+  background: transparent;
+  color: var(--muted);
+  transition:
+    background var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease);
+}
+.crop-grid .chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.crop-grid .chip[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--ink-text);
+}
+
+/* The backdrop picture in use, with a way to swap it. */
+.bg-picture {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 7px 7px 9px;
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  animation: fade-up var(--dur-3) var(--ease) both;
+}
+.bg-picture-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--text-2);
+}
+.bg-picture-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+  font-weight: 560;
+}
+
+/* Settings search, pinned above the Clip sections. */
+.clip-search {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.clip-search .input {
+  height: 32px;
+  padding-right: 30px;
+  background: var(--panel-2);
+}
+.clip-search .input::-webkit-search-cancel-button {
+  display: none;
+}
+.clip-search-x {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--hover);
+  color: var(--muted);
+  animation: pop-in var(--dur-2) var(--ease);
+}
+.clip-search-x:hover {
+  color: var(--text);
+}
+.clip-search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 30px 18px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+  animation: fade-up var(--dur-3) var(--ease) both;
+}
+.sect-miss {
+  display: none;
 }
 
 .facts {

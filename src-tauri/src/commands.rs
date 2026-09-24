@@ -16,8 +16,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_project::{
-    AudioKind, CameraOverlay, Caption, CaptionStyle, CropRect, CursorStyle, SpeedRegion, Trim,
-    ZoomKeyframe, ZoomStyle,
+    AudioKind, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle, SpeedRegion,
+    Trim, ZoomKeyframe, ZoomStyle,
 };
 
 /// The visible frame around the recorded region, plus the region it should frame.
@@ -1247,6 +1247,32 @@ pub fn add_arrow(
     engine.session()?.add_arrow(fx, fy, tx, ty, t)
 }
 
+/// Add a pen stroke through normalized points, in `color` and `thickness` (a fraction of
+/// the output height), from time `t`.
+#[tauri::command]
+pub fn add_stroke(
+    engine: tauri::State<'_, Engine>,
+    points: Vec<[f64; 2]>,
+    color: Color,
+    thickness: f32,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_stroke(&points, color, thickness, t)
+}
+
+/// Add a spotlight (everything outside the normalized rect is dimmed) from time `t`.
+#[tauri::command]
+pub fn add_spotlight(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_spotlight(x, y, w, h, t)
+}
+
 /// Add a highlight box (normalized rect) from time `t`.
 #[tauri::command]
 pub fn add_box(
@@ -1434,6 +1460,16 @@ pub fn update_text(
     engine
         .session()?
         .update_text(id, x, y, text, font_size, bold, italic, background, font)
+}
+
+/// Replace a pen stroke's path (moving or resizing it).
+#[tauri::command]
+pub fn update_stroke(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    points: Vec<[f64; 2]>,
+) -> Result<(), String> {
+    engine.session()?.update_stroke(id, &points)
 }
 
 /// Move an arrow's endpoints.

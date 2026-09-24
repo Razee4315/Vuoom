@@ -350,7 +350,7 @@ export default function Timeline() {
                           onLostPointerCapture={() => void ed.onAnnUp()}
                         >
                           <span class="tl-handle l" onPointerDown={ed.onAnnDown(b, "l")} onPointerMove={ed.frameAnn(ed.onAnnMove)} onPointerUp={() => void ed.onAnnUp()} onLostPointerCapture={() => void ed.onAnnUp()} />
-                          <Icon name={b.kind === "text" ? "text" : b.kind === "arrow" ? "arrow" : "shape"} size={11} />
+                          <Icon name={b.kind === "text" ? "text" : b.kind === "arrow" ? "arrow" : b.kind === "stroke" ? "pen" : "shape"} size={11} />
                           <span class="tl-seg-label">{b.label}</span>
                           <span class="tl-handle r" onPointerDown={ed.onAnnDown(b, "r")} onPointerMove={ed.frameAnn(ed.onAnnMove)} onPointerUp={() => void ed.onAnnUp()} onLostPointerCapture={() => void ed.onAnnUp()} />
                         </button>

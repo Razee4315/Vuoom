@@ -38,7 +38,7 @@ use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
     AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
     FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
-    SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -126,6 +126,7 @@ pub struct AnnotationSet {
     pub texts: Vec<TextAnnotation>,
     pub arrows: Vec<ArrowAnnotation>,
     pub highlights: Vec<HighlightBox>,
+    pub strokes: Vec<StrokeAnnotation>,
 }
 
 /// One item in a paste payload: a full annotation snapshot from the frontend clipboard,
@@ -139,6 +140,7 @@ pub enum PasteItem {
     Text(TextAnnotation),
     Arrow(ArrowAnnotation),
     Box(HighlightBox),
+    Stroke(StrokeAnnotation),
 }
 
 /// A reference to one freshly-pasted annotation (its kind + new id), returned so the UI can
@@ -1272,6 +1274,7 @@ impl Session {
         scene.texts.clear();
         scene.arrows.clear();
         scene.highlights.clear();
+        scene.strokes.clear();
         let cam_frames = scene.camera.and_then(|_| self.camera_frames());
         let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
         let rgba = compositor.composite_scene(
@@ -1796,6 +1799,25 @@ impl Session {
         Ok(id)
     }
 
+    /// Add a spotlight: everything outside the normalized rect is dimmed. Returns its id.
+    pub fn add_spotlight(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.3);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            color: Color::rgba(0.0, 0.0, 0.0, 0.6),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Spotlight,
+            range,
+        });
+        Ok(id)
+    }
+
     /// Add an opaque redaction mask: the compositor forces a near-black fill regardless
     /// of styling, and the range uses hard edges (no fades) so masked content never
     /// leaks during a fade. Returns its id.
@@ -1812,6 +1834,33 @@ impl Session {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Mask,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add a pen stroke through normalized `points` in `color`, `thickness` (a fraction of the
+    /// output height) wide, visible for ~3s from time `t`. Returns its id.
+    pub fn add_stroke(
+        &self,
+        points: &[[f64; 2]],
+        color: Color,
+        thickness: f32,
+        t: f64,
+    ) -> Result<u32, String> {
+        if points.is_empty() {
+            return Err("a stroke needs at least one point".into());
+        }
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.strokes.push(StrokeAnnotation {
+            id,
+            points: clamp_points(points),
+            color,
+            thickness: thickness.clamp(0.001, 0.05),
             range,
         });
         Ok(id)
@@ -1845,6 +1894,12 @@ impl Session {
                 h.rect.y = (h.rect.y * sy).clamp(0.0, 1.0);
                 h.rect.w = (h.rect.w * sx).clamp(0.0, 1.0);
                 h.rect.h = (h.rect.h * sy).clamp(0.0, 1.0);
+            }
+            for s in &mut project.strokes {
+                for p in &mut s.points {
+                    p.x = (p.x * sx).clamp(0.0, 1.0);
+                    p.y = (p.y * sy).clamp(0.0, 1.0);
+                }
             }
         }
         Ok(())
@@ -2519,6 +2574,7 @@ impl Session {
             texts: project.texts.clone(),
             arrows: project.arrows.clone(),
             highlights: project.highlights.clone(),
+            strokes: project.strokes.clone(),
         })
     }
 
@@ -2611,7 +2667,24 @@ impl Session {
         })
     }
 
-    /// Tint any annotation (text, arrow, or box) by id.
+    /// Replace a pen stroke's path (moving or resizing it).
+    pub fn update_stroke(&self, id: u32, points: &[[f64; 2]]) -> Result<(), String> {
+        if points.is_empty() {
+            return Err("a stroke needs at least one point".into());
+        }
+        // Geometry edits can stream during a drag, coalesce a run into one undo step.
+        self.with_project(&format!("geo:stroke:{id}"), |p| {
+            let s = p
+                .strokes
+                .iter_mut()
+                .find(|s| s.id == id)
+                .ok_or("no such stroke")?;
+            s.points = clamp_points(points);
+            Ok(())
+        })
+    }
+
+    /// Tint any annotation (text, arrow, box, or stroke) by id.
     pub fn set_annotation_color(&self, id: u32, r: f64, g: f64, b: f64) -> Result<(), String> {
         let (r, g, b) = (r as f32, g as f32, b as f32);
         // The color picker streams values while dragging, coalesce into one undo step.
@@ -2622,6 +2695,8 @@ impl Session {
             } else if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 a.color = Color::rgba(r, g, b, a.color.a);
             } else if let Some(a) = p.highlights.iter_mut().find(|a| a.id == id) {
+                a.color = Color::rgba(r, g, b, a.color.a);
+            } else if let Some(a) = p.strokes.iter_mut().find(|a| a.id == id) {
                 a.color = Color::rgba(r, g, b, a.color.a);
             } else {
                 return Err("no such annotation".into());
@@ -2639,6 +2714,8 @@ impl Session {
             } else if let Some(x) = p.arrows.iter_mut().find(|x| x.id == id) {
                 x.color = x.color.with_alpha(alpha);
             } else if let Some(x) = p.highlights.iter_mut().find(|x| x.id == id) {
+                x.color = x.color.with_alpha(alpha);
+            } else if let Some(x) = p.strokes.iter_mut().find(|x| x.id == id) {
                 x.color = x.color.with_alpha(alpha);
             } else {
                 return Err("no such annotation".into());
@@ -2707,7 +2784,13 @@ impl Session {
                 }
                 return Ok(());
             }
-            Err("no such arrow or highlight".into())
+            if let Some(s) = p.strokes.iter_mut().find(|s| s.id == id) {
+                if let Some(t) = th {
+                    s.thickness = t;
+                }
+                return Ok(());
+            }
+            Err("no such arrow, highlight or stroke".into())
         })
     }
 
@@ -2731,6 +2814,12 @@ impl Session {
                 })
                 .or_else(|| {
                     p.highlights
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .or_else(|| {
+                    p.strokes
                         .iter_mut()
                         .find(|a| a.id == id)
                         .map(|a| &mut a.range)
@@ -2763,6 +2852,12 @@ impl Session {
                 })
                 .or_else(|| {
                     p.highlights
+                        .iter_mut()
+                        .find(|a| a.id == id)
+                        .map(|a| &mut a.range)
+                })
+                .or_else(|| {
+                    p.strokes
                         .iter_mut()
                         .find(|a| a.id == id)
                         .map(|a| &mut a.range)
@@ -2806,6 +2901,14 @@ impl Session {
             project.highlights.push(c);
             return Ok(new_id);
         }
+        if let Some(mut c) = project.strokes.iter().find(|s| s.id == id).cloned() {
+            c.id = new_id;
+            for p in &mut c.points {
+                *p = (*p + DVec2::splat(NUDGE)).clamp(DVec2::ZERO, DVec2::ONE);
+            }
+            project.strokes.push(c);
+            return Ok(new_id);
+        }
         Err("no such annotation".into())
     }
 
@@ -2835,6 +2938,7 @@ impl Session {
                 PasteItem::Text(t) => t.range.start,
                 PasteItem::Arrow(a) => a.range.start,
                 PasteItem::Box(b) => b.range.start,
+                PasteItem::Stroke(s) => s.range.start,
             })
             .fold(f64::INFINITY, f64::min);
         // Re-anchor a range onto [0, d]: preserve duration, clamp the end to the clip, and keep
@@ -2880,6 +2984,15 @@ impl Session {
                         id,
                     });
                 }
+                PasteItem::Stroke(mut s) => {
+                    s.id = id;
+                    reanchor(&mut s.range);
+                    project.strokes.push(s);
+                    refs.push(PastedRef {
+                        kind: "stroke".into(),
+                        id,
+                    });
+                }
             }
         }
         Ok(refs)
@@ -2919,6 +3032,8 @@ impl Session {
                 target(dir, i, project.arrows.len())?.map(|j| (1, i, j))
             } else if let Some(i) = index_of(&project.highlights, id, |h| h.id) {
                 target(dir, i, project.highlights.len())?.map(|j| (2, i, j))
+            } else if let Some(i) = index_of(&project.strokes, id, |s| s.id) {
+                target(dir, i, project.strokes.len())?.map(|j| (3, i, j))
             } else {
                 return Err("no such annotation".into());
             };
@@ -2938,9 +3053,13 @@ impl Session {
                 let item = project.arrows.remove(i);
                 project.arrows.insert(j, item);
             }
-            _ => {
+            2 => {
                 let item = project.highlights.remove(i);
                 project.highlights.insert(j, item);
+            }
+            _ => {
+                let item = project.strokes.remove(i);
+                project.strokes.insert(j, item);
             }
         }
         Ok(())
@@ -2954,6 +3073,7 @@ impl Session {
             p.texts.retain(|a| a.id != id);
             p.arrows.retain(|a| a.id != id);
             p.highlights.retain(|a| a.id != id);
+            p.strokes.retain(|a| a.id != id);
             Ok(())
         })
     }
@@ -3688,7 +3808,18 @@ fn next_id(project: &Project) -> u32 {
     for h in &project.highlights {
         max = max.max(h.id);
     }
+    for s in &project.strokes {
+        max = max.max(s.id);
+    }
     max + 1
+}
+
+/// Normalized points from the editor, clamped onto the frame.
+fn clamp_points(points: &[[f64; 2]]) -> Vec<DVec2> {
+    points
+        .iter()
+        .map(|&[x, y]| DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)))
+        .collect()
 }
 
 fn default_end(t: f64, duration: f64) -> f64 {
@@ -3908,6 +4039,27 @@ mod tests {
         assert_eq!(texts, ["One", "Two"]);
         let times: Vec<(f64, f64)> = cues.iter().map(|c| (c.start, c.end)).collect();
         assert_eq!(times, [(0.0, 0.5), (1.5, 3.0)]);
+    }
+
+    #[test]
+    fn pen_strokes_are_clamped_and_share_the_id_space() {
+        let pts = clamp_points(&[[-0.5, 0.25], [0.5, 1.5]]);
+        assert_eq!(pts, [DVec2::new(0.0, 0.25), DVec2::new(0.5, 1.0)]);
+        let mut p = Project::new(SourceInfo {
+            path: String::new(),
+            width: 100,
+            height: 100,
+            fps: 30.0,
+            duration: 4.0,
+        });
+        p.strokes.push(StrokeAnnotation {
+            id: 7,
+            points: pts,
+            color: Color::WHITE,
+            thickness: 0.006,
+            range: TimeRange::new(0.0, 1.0),
+        });
+        assert_eq!(next_id(&p), 8);
     }
 
     #[test]

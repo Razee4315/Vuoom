@@ -105,8 +105,10 @@ The interface is a quiet workspace built from floating panels you control:
   (2 to 8x on dead stretches), timeline zoom, undo/redo across everything.
 - ✂️ **Visual crop**: drag a crop rectangle right on the video with aspect locks
   and rule-of-thirds guides, or pick a centered preset.
-- ✏️ **Annotations**: text (six display fonts, bold/italic, legible plate),
-  arrows, lines, boxes, ellipses, highlights and **redaction masks**, each with
+- ✏️ **Annotations**: text you type right on the video (six display fonts,
+  bold/italic, several lines, legible plate), a freehand **pen and marker**,
+  arrows, lines, boxes, ellipses, highlights, a **spotlight** that dims everything
+  else, and **redaction masks**, each with
   its own timeline bar, colour, opacity, fade in / fade out and stacking order.
 - 👆 **Demo polish**: click ripples, a keystroke overlay that shows shortcuts
   (never plain typing), and Subtle / Studio frame presets on seven backdrops.
@@ -147,7 +149,7 @@ The interface is a quiet workspace built from floating panels you control:
 | `←` / `→` | Scrub the playhead (`Shift` = 1s jumps, `Home`/`End` = trim bounds) |
 | `I` / `O` | Trim start / end at the playhead (`Shift` clears) |
 | `Z` / `X` / `C` | Insert a zoom / speed-up / cut at the playhead |
-| `V` `T` `A` `L` `S` `H` `M` | Select, Text, Arrow, Line, Shape, Highlight, Mask |
+| `V` `T` `A` `P` `S` `H` `L` `M` | Select, Text, Arrow, Pen, Shape, Highlight, Spotlight, Hide |
 | Arrow keys | Nudge the selected annotation (`Shift` = bigger steps) |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo any edit |
 | `Ctrl+D` / `Ctrl+C` / `Ctrl+V` | Duplicate / copy / paste annotations |

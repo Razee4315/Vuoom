@@ -5605,6 +5605,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vuoom-camera"
+version = "0.1.40"
+dependencies = [
+ "tempfile",
+ "tracing",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "vuoom-capture"
 version = "0.1.40"
 dependencies = [

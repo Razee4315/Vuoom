@@ -169,9 +169,31 @@ export default function Settings() {
                 ]}
               />
             </Field>
+            <h3>Every new take starts with</h3>
+            <Field label="Click ripples" hint="A ring at every click, so viewers see where you clicked">
+              <Switch checked={prefs.newClicks()} label="Click ripples" onChange={(v) => prefs.newClicks.set(v)} />
+            </Field>
+            <Field label="Keystrokes" hint="Shortcuts you press appear as chips. Plain typing never shows">
+              <Switch checked={prefs.newKeys()} label="Keystrokes" onChange={(v) => prefs.newKeys.set(v)} />
+            </Field>
+            <Field label="Frame" hint="A mat and backdrop around the recording, for a polished look">
+              <Seg
+                value={prefs.newFrame()}
+                onChange={(v) => prefs.newFrame.set(v)}
+                options={[
+                  { value: "none", label: "None" },
+                  { value: "subtle", label: "Subtle" },
+                  { value: "studio", label: "Studio" },
+                ]}
+              />
+            </Field>
+            <Field label="Remove mic noise" hint="Filters fans, hum and hiss out of your voice. The original stays one click away">
+              <Switch checked={prefs.newDenoise()} label="Remove mic noise" onChange={(v) => prefs.newDenoise.set(v)} />
+            </Field>
             <p class="note">
-              Vuoom stores frames losslessly compressed as they are captured, so a long take stays small on
-              disk and survives a crash. The recording window is excluded from the capture.
+              Each of these can be changed for a single clip in the editor. Vuoom stores frames losslessly
+              compressed as they are captured, so a long take stays small on disk and survives a crash. The
+              recording panel never appears in the capture.
             </p>
           </Show>
 

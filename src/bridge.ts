@@ -321,6 +321,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "set_trim":
       m.setTrim(a.start as number, a.end as number);
       return null;
+    case "set_take_defaults":
+      m.takeDefaults = a.defaults as typeof m.takeDefaults;
+      return null;
     case "set_motion_blur":
       m.setMotionBlur(a.on as boolean);
       return null;

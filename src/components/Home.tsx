@@ -30,7 +30,7 @@ export default function Home() {
           </div>
           <h1 class="home-title">Record something worth showing.</h1>
           <p class="home-sub">
-            Your clicks drive the camera. Trim the fumbles, add a label or an arrow, and export a
+            Press Ctrl+Shift+Z and the camera glides in. Trim the fumbles, add a label or an arrow, and export a
             crisp GIF or MP4 in one go.
           </p>
 

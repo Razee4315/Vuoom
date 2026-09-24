@@ -231,6 +231,7 @@ pub fn run() {
             commands::clip_state,
             commands::set_show_clicks,
             commands::set_motion_blur,
+            commands::set_take_defaults,
             commands::set_show_keys,
             commands::set_frame_preset,
             commands::set_background_preset,

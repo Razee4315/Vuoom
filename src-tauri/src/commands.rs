@@ -1133,6 +1133,15 @@ pub fn clip_state(engine: tauri::State<'_, Engine>) -> Result<ClipState, String>
     engine.session()?.clip_state()
 }
 
+/// Set how the next take starts out: click ripples, keystrokes, frame, noise removal.
+#[tauri::command]
+pub fn set_take_defaults(
+    engine: tauri::State<'_, Engine>,
+    defaults: crate::session::TakeDefaults,
+) -> Result<(), String> {
+    engine.session()?.set_take_defaults(defaults)
+}
+
 /// Toggle motion blur on zooms and pans.
 #[tauri::command]
 pub fn set_motion_blur(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {

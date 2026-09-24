@@ -50,6 +50,9 @@ struct Live {
 #[derive(Default)]
 pub struct Camera {
     live: Mutex<Option<Live>>,
+    /// Held while a camera opens, so a take starting meanwhile waits and reuses it rather
+    /// than opening the same device a second time.
+    opening: Mutex<()>,
 }
 
 impl Camera {
@@ -60,6 +63,7 @@ impl Camera {
     /// Open `device` for the live bubble (keeping it if it's already open), or close the
     /// camera with `None`. Opening blocks for a moment.
     pub fn preview(&self, device: Option<Option<String>>) -> Result<(), String> {
+        let _opening = self.opening.lock().unwrap_or_else(|e| e.into_inner());
         let Some(device) = device else {
             *self.live() = None;
             return Ok(());
@@ -89,6 +93,7 @@ impl Camera {
         dir: &Path,
         clock: Clock,
     ) -> (Option<CameraRecorder>, Option<String>) {
+        let _opening = self.opening.lock().unwrap_or_else(|e| e.into_inner());
         let open = self.live().take();
         if !choice.on {
             return (None, None);

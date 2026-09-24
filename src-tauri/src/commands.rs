@@ -15,9 +15,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{
-    AudioKind, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
-};
+use vuoom_project::{AudioKind, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.

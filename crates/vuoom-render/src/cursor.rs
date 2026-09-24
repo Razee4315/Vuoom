@@ -5,7 +5,7 @@
 //! the log means the pointer sat still (the hook only fires on movement), so it holds.
 //! The path is then smoothed with a centered Gaussian: export knows the future of the path,
 //! so hand jitter disappears without the pointer trailing behind. A click briefly presses
-//! the pointer down.
+//! the pointer down, and a pointer set to hide when idle fades out while it rests.
 
 use glam::DVec2;
 use vuoom_project::InputEvent;
@@ -15,6 +15,13 @@ const MOTION_GAP: f64 = 0.06;
 /// A click's press animation: down fast, back up slower (seconds).
 const PRESS_DOWN: f64 = 0.06;
 const PRESS_UP: f64 = 0.22;
+/// Stillness after which a pointer that hides when idle starts fading out, and how long
+/// that takes (seconds)...
+const IDLE_AFTER: f64 = 1.5;
+const IDLE_FADE_OUT: f64 = 0.35;
+/// ...and how long it takes to fade back in, finishing as the next movement starts: export
+/// knows when that is, so the pointer is fully there the moment it moves.
+const IDLE_FADE_IN: f64 = 0.2;
 
 /// A logged pointer position: (time, position).
 type Sample = (f64, DVec2);
@@ -91,6 +98,32 @@ pub fn press_at(events: &[InputEvent], t: f64) -> f64 {
         }
     }
     0.0
+}
+
+fn smoothstep(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// How visible a pointer that hides when idle is at `t`, 0 to 1: fully shown while it
+/// moves (or clicks) and for [`IDLE_AFTER`] after, fading out while it rests, and back to
+/// fully shown by its next movement. Before the first logged event, the rest is counted
+/// from the start of the take.
+#[must_use]
+pub fn idle_opacity(events: &[InputEvent], t: f64) -> f64 {
+    let i = events.partition_point(|e| e.t() <= t);
+    let last = events[..i]
+        .iter()
+        .rev()
+        .find(|e| e.pos().is_some())
+        .map_or(0.0, InputEvent::t);
+    let next = events[i..]
+        .iter()
+        .find(|e| e.pos().is_some())
+        .map(InputEvent::t);
+    let resting = 1.0 - smoothstep((t - last - IDLE_AFTER) / IDLE_FADE_OUT);
+    let arriving = next.map_or(0.0, |n| 1.0 - smoothstep((n - t) / IDLE_FADE_IN));
+    resting.max(arriving)
 }
 
 /// The classic arrow pointer as a polygon, tip at the origin, one unit tall.
@@ -211,6 +244,39 @@ mod tests {
         assert!((press_at(&ev, 1.0 + PRESS_DOWN) - 1.0).abs() < 1e-9);
         assert!(press_at(&ev, 1.03) > 0.3 && press_at(&ev, 1.03) < 1.0);
         assert!(press_at(&ev, 1.0 + PRESS_DOWN + PRESS_UP + 0.01).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_idle_pointer_fades_out_and_is_back_before_it_moves() {
+        let ev = [mv(0.0, 0.5, 0.5), mv(0.02, 0.51, 0.5), mv(5.0, 0.6, 0.5)];
+        // Moving, and for a while after.
+        assert!((idle_opacity(&ev, 0.01) - 1.0).abs() < 1e-9);
+        assert!((idle_opacity(&ev, 1.5) - 1.0).abs() < 1e-9);
+        // Fading, then gone while it rests.
+        let fading = idle_opacity(&ev, 0.02 + IDLE_AFTER + IDLE_FADE_OUT / 2.0);
+        assert!(fading > 0.1 && fading < 0.9, "{fading}");
+        assert!(idle_opacity(&ev, 3.0).abs() < 1e-9);
+        // Coming back ahead of the next move, fully there when it starts.
+        let back = idle_opacity(&ev, 5.0 - IDLE_FADE_IN / 2.0);
+        assert!(back > 0.1 && back < 0.9, "{back}");
+        assert!((idle_opacity(&ev, 5.0) - 1.0).abs() < 1e-9);
+        // Typing doesn't count as the pointer moving.
+        let typing = [mv(0.0, 0.5, 0.5), E::KeyType { t: 2.9 }, mv(9.0, 0.6, 0.5)];
+        assert!(idle_opacity(&typing, 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_click_wakes_a_resting_pointer() {
+        let ev = [
+            mv(0.0, 0.5, 0.5),
+            E::Click {
+                t: 4.0,
+                pos: DVec2::new(0.5, 0.5),
+                button: MouseButton::Left,
+            },
+        ];
+        assert!(idle_opacity(&ev, 3.0).abs() < 1e-9);
+        assert!((idle_opacity(&ev, 4.5) - 1.0).abs() < 1e-9);
     }
 
     #[test]

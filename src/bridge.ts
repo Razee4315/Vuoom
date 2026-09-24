@@ -12,7 +12,16 @@ import { relaunch as tauriRelaunch } from "@tauri-apps/plugin-process";
 import { revealItemInDir as tauriReveal } from "@tauri-apps/plugin-opener";
 import { mockTrackWav, mockLevel } from "./mock/audio";
 import { mockEngine, paintDesktop } from "./mock/engine";
-import type { AnnotationSet, AudioDevices, AudioKind, SpeedRegion, Trim, ZoomSeg, ZoomStyle } from "./types";
+import type {
+  AnnotationSet,
+  AudioDevices,
+  AudioKind,
+  CursorStyle,
+  SpeedRegion,
+  Trim,
+  ZoomSeg,
+  ZoomStyle,
+} from "./types";
 
 export type { Update };
 
@@ -237,7 +246,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       m.captureSmooth = (a.smooth as boolean | undefined) ?? false;
       return null;
     case "set_cursor_style":
-      m.setCursorStyle(a.enabled as boolean, a.size as number, a.smoothing as number);
+      m.setCursorStyle(a.style as CursorStyle | null);
       return null;
     case "set_capture_fps":
       return null;

@@ -478,10 +478,10 @@ impl Session {
         Ok(())
     }
 
-    /// Turn the re-drawn pointer on or off and set its size and path smoothing.
-    pub fn set_cursor_style(&self, enabled: bool, size: f32, smoothing: f32) -> Result<(), String> {
+    /// Turn the re-drawn pointer on (`Some`, its look) or off (`None`).
+    pub fn set_cursor_style(&self, style: Option<CursorStyle>) -> Result<(), String> {
         self.with_project("cursor-style", |p| {
-            p.cursor = enabled.then(|| CursorStyle { size, smoothing }.clamped());
+            p.cursor = style.map(CursorStyle::clamped);
             Ok(())
         })
     }

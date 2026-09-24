@@ -4,7 +4,7 @@
 //! camera, computes the framed layout, and resolves every annotation's pixel geometry and
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
-use crate::cursor::{press_at, smooth_pos};
+use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout};
 use vuoom_project::{ArrowStyle, Color, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
@@ -62,6 +62,8 @@ pub struct ResolvedCursor {
     pub size: f64,
     /// Click press depth, 0 (up) to 1 (down).
     pub press: f64,
+    /// 1 = fully shown; lower while a pointer that hides when idle fades.
+    pub opacity: f64,
 }
 
 /// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
@@ -228,19 +230,25 @@ pub fn build_scene(
 
     // The re-drawn pointer follows its smoothed path through the camera like the ripples,
     // scales with the zoom (a real pointer is part of the picture), and is left out when
-    // the camera has moved away from it.
+    // the camera has moved away from it (or it has faded out while resting).
     let cursor = project.cursor.and_then(|style| {
         let style = style.clamped();
         let pos = smooth_pos(&project.events, t, f64::from(style.smoothing))?;
+        let opacity = if style.hide_idle {
+            idle_opacity(&project.events, t)
+        } else {
+            1.0
+        };
         let src = layout.src_rect;
         let dst = layout.dst_rect;
         let inside =
             pos.x >= src.x && pos.y >= src.y && pos.x <= src.x + src.w && pos.y <= src.y + src.h;
-        inside.then(|| ResolvedCursor {
+        (inside && opacity > 0.005).then(|| ResolvedCursor {
             x: dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w,
             y: dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h,
             size: f64::from(style.size) * CURSOR_BASE * dst.h / src.h.max(1e-9),
             press: press_at(&project.events, t),
+            opacity,
         })
     });
 
@@ -365,6 +373,15 @@ mod tests {
         let expected = f64::from(CursorStyle::DEFAULT_SIZE) * CURSOR_BASE * dst.h / src.h;
         assert!((c.size - expected).abs() < 1e-6);
         assert!(c.press.abs() < 1e-9);
+        assert!((c.opacity - 1.0).abs() < 1e-9);
+
+        // Hidden when idle: gone once it has rested a while.
+        p.cursor = Some(CursorStyle {
+            hide_idle: true,
+            ..CursorStyle::default()
+        });
+        assert!(build_scene(&p, &track, 1000, 1000, 0.5).cursor.is_some());
+        assert!(build_scene(&p, &track, 1000, 1000, 4.0).cursor.is_none());
     }
 
     #[test]

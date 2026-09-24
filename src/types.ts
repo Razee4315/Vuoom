@@ -131,6 +131,8 @@ export interface CursorStyle {
   size: number;
   /** Path smoothing in seconds, 0..0.2. */
   smoothing: number;
+  /** Fade out while resting, back in before moving (absent from older engines). */
+  hide_idle?: boolean;
 }
 
 /** How new takes handle the mouse pointer. */

@@ -21,6 +21,9 @@ pub struct CursorStyle {
     /// to the pointer's path (0 = the raw path).
     #[serde(default = "default_smoothing")]
     pub smoothing: f32,
+    /// Fade the pointer out while it rests, and back in just before it moves.
+    #[serde(default)]
+    pub hide_idle: bool,
 }
 
 impl CursorStyle {
@@ -36,6 +39,7 @@ impl CursorStyle {
         Self {
             size: self.size.clamp(Self::MIN_SIZE, Self::MAX_SIZE),
             smoothing: self.smoothing.clamp(0.0, Self::MAX_SMOOTHING),
+            hide_idle: self.hide_idle,
         }
     }
 }
@@ -45,6 +49,7 @@ impl Default for CursorStyle {
         Self {
             size: Self::DEFAULT_SIZE,
             smoothing: Self::DEFAULT_SMOOTHING,
+            hide_idle: false,
         }
     }
 }
@@ -60,9 +65,11 @@ mod tests {
         let wild = CursorStyle {
             size: 9.0,
             smoothing: -1.0,
+            hide_idle: true,
         }
         .clamped();
         assert!((wild.size - CursorStyle::MAX_SIZE).abs() < f32::EPSILON);
         assert!(wild.smoothing.abs() < f32::EPSILON);
+        assert!(wild.hide_idle);
     }
 }

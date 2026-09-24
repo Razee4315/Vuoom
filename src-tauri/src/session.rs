@@ -74,8 +74,10 @@ impl TakeDefaults {
         project.show_clicks = self.clicks;
         project.show_keys = self.keys;
         project.frame = frame_for_preset(&self.frame, &project.frame.background);
-        for t in project.audio.iter_mut().filter(|t| t.kind == AudioKind::Mic) {
-            t.denoise = self.denoise;
+        for t in &mut project.audio {
+            if t.kind == AudioKind::Mic {
+                t.denoise = self.denoise;
+            }
         }
     }
 }

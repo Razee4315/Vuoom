@@ -4,6 +4,7 @@ import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { Icon, type IconName } from "../icons";
 import { layout, prefs, resetLayout } from "../prefs";
+import { FPS_CHOICES } from "../recordOptions";
 import { TOOLS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
 
@@ -47,8 +48,13 @@ export default function CommandPalette() {
     { id: "rec-full", label: "Record full screen", group: "Record", icon: "fullscreen", run: () => void ed.startRecord("full") },
     { id: "rec-region", label: "Record a region", group: "Record", icon: "region", run: () => void ed.startRecord("region") },
     { id: "rec-win", label: "Record a window", group: "Record", icon: "window", run: () => void ed.startRecord("window") },
-    { id: "fps30", label: "Capture at 30 fps", group: "Record", icon: "monitor", run: () => prefs.captureFps.set(30) },
-    { id: "fps60", label: "Capture at 60 fps", group: "Record", icon: "monitor", run: () => prefs.captureFps.set(60) },
+    ...FPS_CHOICES.map((c) => ({
+      id: `fps${c.value}`,
+      label: `Record at ${c.label}`,
+      group: "Record",
+      icon: "monitor" as const,
+      run: () => prefs.captureFps.set(c.value),
+    })),
     { id: "open", label: "Open project…", group: "Project", icon: "folder", kbd: "Ctrl+O", run: () => void ed.onOpenProject() },
     { id: "save", label: "Save project…", group: "Project", icon: "save", kbd: "Ctrl+S", run: () => void ed.onSaveProject(), when: clip },
     { id: "export", label: "Export GIF or MP4…", group: "Project", icon: "export", kbd: "Ctrl+E", run: () => ed.setShowExport(true), when: clip },

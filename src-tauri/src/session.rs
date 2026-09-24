@@ -1820,12 +1820,13 @@ impl Session {
         Ok(id)
     }
 
-    /// Add a pen stroke through normalized `points`, visible for ~3s from time `t`: a red pen
-    /// line, or with `marker` a wide translucent yellow marker. Returns its id.
+    /// Add a pen stroke through normalized `points` in `color`, `thickness` (a fraction of the
+    /// output height) wide, visible for ~3s from time `t`. Returns its id.
     pub fn add_stroke(
         &self,
         points: &[[f64; 2]],
-        marker: bool,
+        color: Color,
+        thickness: f32,
         t: f64,
     ) -> Result<u32, String> {
         if points.is_empty() {
@@ -1836,16 +1837,11 @@ impl Session {
         let project = edited.project.as_mut().ok_or("no recording")?;
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
-        let (color, thickness) = if marker {
-            (Color::rgba(1.0, 0.86, 0.18, 0.45), 0.024)
-        } else {
-            (Color::rgb(0.95, 0.25, 0.25), 0.006)
-        };
         project.strokes.push(StrokeAnnotation {
             id,
             points: clamp_points(points),
             color,
-            thickness,
+            thickness: thickness.clamp(0.001, 0.05),
             range,
         });
         Ok(id)

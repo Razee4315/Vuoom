@@ -19,6 +19,7 @@ import type {
   FrameInfo,
   RecordingSummary,
   SpeedRegion,
+  StrokeAnn,
   TextAnn,
   Trim,
   ZoomSeg,
@@ -83,6 +84,19 @@ function demoAnns(): AnnotationSet {
         range: range(4.6, 8.2),
       },
     ],
+    // A hand-drawn ring around the second window, as the Pen would draw it.
+    strokes: [
+      {
+        id: 4,
+        points: Array.from({ length: 48 }, (_, i): [number, number] => {
+          const a = (i / 47) * Math.PI * 2.15 - 0.4;
+          return [0.64 + 0.2 * Math.cos(a) * (1 + 0.03 * Math.sin(i)), 0.52 + 0.24 * Math.sin(a)];
+        }),
+        color: color("#e5484d"),
+        thickness: 0.006,
+        range: range(8.4, 11.2),
+      },
+    ],
   };
 }
 
@@ -121,12 +135,13 @@ const track = (kind: AudioKind): AudioTrack => ({ kind, offset: 0, gain: 1, mute
 type ClipItem =
   | ({ kind: "text" } & TextAnn)
   | ({ kind: "arrow" } & ArrowAnn)
-  | ({ kind: "box" } & BoxAnn);
+  | ({ kind: "box" } & BoxAnn)
+  | ({ kind: "stroke" } & StrokeAnn);
 
 class MockEngine {
   duration = 0;
   hasClip = false;
-  anns: AnnotationSet = { texts: [], arrows: [], highlights: [] };
+  anns: AnnotationSet = { texts: [], arrows: [], highlights: [], strokes: [] };
   zooms: ZoomSeg[] = [];
   trim: Trim | null = null;
   speed: SpeedRegion[] = [];
@@ -668,9 +683,29 @@ class MockEngine {
     });
     return id;
   }
-  private findAnn(kind: string, id: number): TextAnn | ArrowAnn | BoxAnn | undefined {
+  addStroke(a: { points: [number, number][]; color: Color; thickness: number; t: number }): number {
+    const id = this.nextAnnId();
+    this.mutate(undefined, () => {
+      this.anns.strokes.push({
+        id,
+        points: a.points,
+        color: { ...a.color },
+        thickness: a.thickness,
+        range: range(Math.max(0, a.t - 0.2), Math.min(this.duration, a.t + 2.8)),
+      });
+    });
+    return id;
+  }
+  updateStroke(id: number, points: [number, number][]) {
+    this.mutate(`stroke:${id}`, () => {
+      const s = this.anns.strokes.find((x) => x.id === id);
+      if (s) s.points = points;
+    });
+  }
+  private findAnn(kind: string, id: number): TextAnn | ArrowAnn | BoxAnn | StrokeAnn | undefined {
     if (kind === "text") return this.anns.texts.find((t) => t.id === id);
     if (kind === "arrow") return this.anns.arrows.find((t) => t.id === id);
+    if (kind === "stroke") return this.anns.strokes.find((t) => t.id === id);
     return this.anns.highlights.find((t) => t.id === id);
   }
   updateText(id: number, patch: Partial<TextAnn>) {
@@ -698,7 +733,7 @@ class MockEngine {
   }
   setAnnColor(id: number, r: number, g: number, b: number) {
     this.mutate(`col:${id}`, () => {
-      const a = ["text", "arrow", "box"]
+      const a = ["text", "arrow", "box", "stroke"]
         .map((k) => this.findAnn(k, id))
         .find((x) => x !== undefined) as { color: Color } | undefined;
       if (a) a.color = { r, g, b, a: a.color.a };
@@ -706,7 +741,7 @@ class MockEngine {
   }
   setAnnOpacity(id: number, a: number) {
     this.mutate(`opa:${id}`, () => {
-      const ann = ["text", "arrow", "box"]
+      const ann = ["text", "arrow", "box", "stroke"]
         .map((k) => this.findAnn(k, id))
         .find((x) => x !== undefined) as { color: Color } | undefined;
       if (ann) ann.color.a = a;
@@ -721,6 +756,8 @@ class MockEngine {
       }
       const ar = this.anns.arrows.find((x) => x.id === id);
       if (ar && patch.thickness !== undefined) ar.thickness = patch.thickness;
+      const st = this.anns.strokes.find((x) => x.id === id);
+      if (st && patch.thickness !== undefined) st.thickness = patch.thickness;
     });
   }
   setHighlightShape(id: number, ellipse: boolean) {
@@ -737,7 +774,7 @@ class MockEngine {
   }
   updateAnnRange(id: number, start: number, end: number) {
     this.mutate(`rng:${id}`, () => {
-      const ann = ["text", "arrow", "box"]
+      const ann = ["text", "arrow", "box", "stroke"]
         .map((k) => this.findAnn(k, id))
         .find((x) => x !== undefined) as { range: { start: number; end: number; fade_in: number; fade_out: number } } | undefined;
       if (ann) ann.range = { ...ann.range, start, end };
@@ -745,7 +782,7 @@ class MockEngine {
   }
   setAnnFades(id: number, fadeIn: number, fadeOut: number) {
     this.mutate(`fades:${id}`, () => {
-      const ann = ["text", "arrow", "box"]
+      const ann = ["text", "arrow", "box", "stroke"]
         .map((k) => this.findAnn(k, id))
         .find((x) => x !== undefined) as { range: { start: number; end: number; fade_in: number; fade_out: number } } | undefined;
       if (!ann) return;
@@ -777,6 +814,13 @@ class MockEngine {
           id: newId,
           rect: { ...b.rect, x: b.rect.x + 0.04, y: b.rect.y + 0.05 },
         });
+      const st = this.anns.strokes.find((x) => x.id === id);
+      if (st)
+        this.anns.strokes.push({
+          ...structuredClone(st),
+          id: newId,
+          points: st.points.map(([x, y]) => [x + 0.04, y + 0.05]),
+        });
     });
     return newId;
   }
@@ -793,6 +837,8 @@ class MockEngine {
         if (copy.kind === "text") this.anns.texts.push({ ...copy, kind: undefined } as unknown as TextAnn);
         else if (copy.kind === "arrow")
           this.anns.arrows.push({ ...copy, kind: undefined } as unknown as ArrowAnn);
+        else if (copy.kind === "stroke")
+          this.anns.strokes.push({ ...copy, kind: undefined } as unknown as StrokeAnn);
         else this.anns.highlights.push({ ...copy, kind: undefined } as unknown as BoxAnn);
         refs.push({ kind: copy.kind, id });
       }
@@ -801,7 +847,12 @@ class MockEngine {
   }
   reorderAnn(id: number, dir: "forward" | "backward" | "front" | "back") {
     this.mutate(`reo:${id}`, () => {
-      const lists: (TextAnn | ArrowAnn | BoxAnn)[][] = [this.anns.texts, this.anns.arrows, this.anns.highlights];
+      const lists: (TextAnn | ArrowAnn | BoxAnn | StrokeAnn)[][] = [
+        this.anns.texts,
+        this.anns.arrows,
+        this.anns.highlights,
+        this.anns.strokes,
+      ];
       for (const list of lists) {
         const i = list.findIndex((x) => x.id === id);
         if (i < 0) continue;
@@ -823,6 +874,7 @@ class MockEngine {
       this.anns.texts = this.anns.texts.filter((x) => x.id !== id);
       this.anns.arrows = this.anns.arrows.filter((x) => x.id !== id);
       this.anns.highlights = this.anns.highlights.filter((x) => x.id !== id);
+      this.anns.strokes = this.anns.strokes.filter((x) => x.id !== id);
     });
   }
 

@@ -144,6 +144,12 @@
 }
 /* The inline label editor sits exactly on the label (no padding or border to shift the words),
    in the label's own font and color, so typing looks like the finished text. */
+/* Pen strokes: round ends and joins, the way the export draws them. */
+.pen-stroke {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .text-edit {
   position: absolute;
   z-index: 5;

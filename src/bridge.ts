@@ -130,6 +130,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.addText(a as unknown as { text: string; x: number; y: number; t: number });
     case "add_arrow":
       return m.addArrow(a as unknown as { fx: number; fy: number; tx: number; ty: number; t: number });
+    case "add_stroke":
+      return m.addStroke(a as unknown as Parameters<typeof m.addStroke>[0]);
     case "add_box":
       return m.addBox({ ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }) });
     case "add_ellipse":
@@ -182,6 +184,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "update_arrow":
       m.updateArrow(a.id as number, a.fx as number, a.fy as number, a.tx as number, a.ty as number);
+      return null;
+    case "update_stroke":
+      m.updateStroke(a.id as number, a.points as [number, number][]);
       return null;
     case "set_annotation_color":
       m.setAnnColor(a.id as number, a.r as number, a.g as number, a.b as number);

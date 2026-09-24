@@ -4,6 +4,7 @@
 import { For, Index, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { LINE_HEIGHT, textBox } from "../editor/textMetrics";
+import { mapStroke, strokePath } from "../editor/strokes";
 import { CORNER_CURSORS, fontCss } from "../editor/constants";
 import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
@@ -18,6 +19,12 @@ import type { Vec2 } from "../types";
 export default function Stage() {
   const ed = useEditor();
   const hint = () => TOOLS.find((t) => t.id === ed.tool())?.hint;
+  const moveFramed = ed.frameCanvas(ed.onPointerMove);
+  // The line being drawn with the Pen, in pixels.
+  const draft = () => {
+    const d = ed.drag();
+    return d?.mode === "create-stroke" ? d : null;
+  };
   return (
     <main class="stage-wrap" classList={{ cropping: !!ed.cropEdit() }}>
       <Show when={ed.tool() !== "select" && !ed.cropEdit()}>
@@ -51,7 +58,10 @@ export default function Stage() {
         }}
         onPointerDown={(e) => void ed.onPointerDown(e)}
         onContextMenu={(e) => stageMenu(ed, e)}
-        onPointerMove={ed.frameCanvas(ed.onPointerMove)}
+        onPointerMove={(e) => {
+          ed.trackStroke(e);
+          moveFramed(e);
+        }}
         onPointerUp={(e) => void ed.onPointerUp(e)}
         onLostPointerCapture={() => {
           // A canceled gesture (pointercancel / capture lost) aborts cleanly:
@@ -118,6 +128,58 @@ export default function Stage() {
             );
           }}
         </For>
+
+        {/* pen strokes */}
+        <For each={ed.anns().strokes}>
+          {(st) => {
+            const sel = () => ed.isSelected("stroke", st.id);
+            return (
+              <Show when={ed.inView(st.range, sel())}>
+                {(() => {
+                  const g = () => ed.liveGeom("stroke", st.id);
+                  const pts = () => mapStroke(st.points, g()).map(([x, y]) => ed.px({ x, y }));
+                  const a = () => ed.px({ x: g()[0], y: g()[1] });
+                  const s = () => ed.px({ x: g()[2], y: g()[3] });
+                  return (
+                    <g
+                      opacity={ed.isGhost(st.range, sel()) ? 0.35 : 1}
+                      style={{ cursor: sel() ? "move" : undefined }}
+                    >
+                      <path
+                        class="pen-stroke"
+                        d={strokePath(pts())}
+                        stroke={cssColor(st.color)}
+                        stroke-width={Math.max(st.thickness * ed.stage().h, 1)}
+                      />
+                      <Show when={sel()}>
+                        <rect class="sel-outline" x={a().x - 4} y={a().y - 4} width={s().x + 8} height={s().y + 8} />
+                        <Handles
+                          pts={[
+                            { x: a().x, y: a().y },
+                            { x: a().x + s().x, y: a().y },
+                            { x: a().x, y: a().y + s().y },
+                            { x: a().x + s().x, y: a().y + s().y },
+                          ]}
+                          cursors={CORNER_CURSORS}
+                        />
+                      </Show>
+                    </g>
+                  );
+                })()}
+              </Show>
+            );
+          }}
+        </For>
+        <Show when={draft()}>
+          {(d) => (
+            <path
+              class="pen-stroke"
+              d={strokePath(d().pts.map((q) => ed.px(q)))}
+              stroke={cssColor(ed.penLook().color)}
+              stroke-width={Math.max(ed.penLook().width * ed.stage().h, 1)}
+            />
+          )}
+        </Show>
 
         {/* arrows */}
         <For each={ed.anns().arrows}>

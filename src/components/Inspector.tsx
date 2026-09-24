@@ -14,7 +14,8 @@ import {
 } from "../editor/captions";
 import { useEditor } from "../editor/context";
 import { PRESET_COLORS, TEXT_FONTS } from "../editor/constants";
-import { fmt, rgbHex } from "../format";
+import { fmt, hexRgb, rgbHex } from "../format";
+import { isMarker, PEN_LOOKS } from "../editor/strokes";
 import { outputDuration } from "../geometry";
 import { Icon, type IconName } from "../icons";
 import { layout, prefs, setInspectorW } from "../prefs";
@@ -135,6 +136,8 @@ const KIND_ICON: Record<string, IconName> = {
   Ellipse: "shape",
   Highlight: "highlight",
   "Hidden area": "mask",
+  Pen: "pen",
+  Marker: "pen",
 };
 
 function SelectionPanel() {
@@ -201,7 +204,7 @@ function ToolCard() {
   const ed = useEditor();
   const t = () => TOOLS.find((x) => x.id === ed.tool());
   return (
-    <>
+    <Show when={ed.tool() !== "pen"} fallback={<PenCard />}>
       <PanelTitle icon="wand" title={`${t()?.label} tool`} sub={t()?.hint} />
       <div class="insp-pad">
         <p class="note">
@@ -210,6 +213,62 @@ function ToolCard() {
         <Field label="Draw several" hint="Keep this tool after each one instead of returning to Select">
           <Switch checked={ed.toolLock()} label="Draw several" onChange={(v) => ed.setToolLock(v)} />
         </Field>
+      </div>
+    </Show>
+  );
+}
+
+// The Pen tool's card: how the next line looks. The pen stays in hand until Esc or V.
+function PenCard() {
+  const ed = useEditor();
+  const look = () => ed.penLook();
+  const pick = (marker: boolean) => ed.setPenLook({ marker, ...(marker ? PEN_LOOKS.marker : PEN_LOOKS.pen) });
+  return (
+    <>
+      <PanelTitle icon="pen" title="Pen" sub="Drag on the video to draw" />
+      <div class="insp-pad">
+        <Field label="Draw with">
+          <Seg
+            value={look().marker ? "marker" : "pen"}
+            onChange={(v) => pick(v === "marker")}
+            options={[
+              { value: "pen", label: "Pen", tip: "A fine solid line" },
+              { value: "marker", label: "Marker", tip: "A wide see-through stroke, for marking up text" },
+            ]}
+          />
+        </Field>
+        <Field label="Width">
+          <ScrubField
+            value={look().width}
+            min={0.002}
+            max={0.05}
+            step={0.001}
+            displayScale={100}
+            suffix="%"
+            title="Line width as a percent of height"
+            onInput={(v) => ed.setPenLook({ ...look(), width: v })}
+            onCommit={(v) => ed.setPenLook({ ...look(), width: v })}
+          />
+        </Field>
+        <div class="color-row">
+          <For each={PRESET_COLORS}>
+            {(c) => (
+              <button
+                type="button"
+                class="swatch"
+                classList={{ on: rgbHex(look().color) === c }}
+                style={{ background: c }}
+                aria-label={`Color ${c}`}
+                data-tip={c}
+                onClick={() => ed.setPenLook({ ...look(), color: { ...hexRgb(c), a: look().color.a } })}
+              />
+            )}
+          </For>
+        </div>
+        <p class="note">
+          Draw as many lines as you like. <kbd>Esc</kbd> puts the pen down, then click a line to move or
+          change it.
+        </p>
       </div>
     </>
   );
@@ -337,7 +396,7 @@ function ArrangeSection() {
           To back
         </button>
       </div>
-      <p class="note">Stacking applies within a kind: boxes sit under arrows, arrows under text.</p>
+      <p class="note">Stacking applies within a kind: boxes sit under pen lines, lines under arrows, arrows under text.</p>
     </Section>
   );
 }
@@ -503,6 +562,36 @@ function AnnotationProps() {
                 displayScale={100}
                 suffix="%"
                 title="Stroke thickness as a percent of height"
+                onInput={(v) => ed.editStyle({ thickness: v })}
+                onCommit={(v) => ed.editStyle({ thickness: v })}
+              />
+            </Field>
+          </Section>
+        )}
+      </Show>
+
+      <Show when={ed.selectedStroke()}>
+        {(st) => (
+          <Section id="ann-stroke" title="Line" icon="pen">
+            <Field label="Look">
+              <Seg
+                value={isMarker(st()) ? "marker" : "pen"}
+                onChange={(v) => ed.setStrokeLook(v === "marker")}
+                options={[
+                  { value: "pen", label: "Pen" },
+                  { value: "marker", label: "Marker" },
+                ]}
+              />
+            </Field>
+            <Field label="Width">
+              <ScrubField
+                value={st().thickness}
+                min={0.002}
+                max={0.05}
+                step={0.001}
+                displayScale={100}
+                suffix="%"
+                title="Line width as a percent of height"
                 onInput={(v) => ed.editStyle({ thickness: v })}
                 onCommit={(v) => ed.editStyle({ thickness: v })}
               />

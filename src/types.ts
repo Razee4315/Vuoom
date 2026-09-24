@@ -1,7 +1,7 @@
 // Shared editor types. These mirror the src-tauri / vuoom_* serde shapes and are
 // imported across the frontend. Keep names identical to their App.tsx origins.
 
-export type Tool = "select" | "zoom" | "text" | "arrow" | "shape" | "highlight" | "mask";
+export type Tool = "select" | "zoom" | "text" | "arrow" | "pen" | "shape" | "highlight" | "mask";
 export type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -58,10 +58,19 @@ export interface BoxAnn {
   shape: "Rect" | "Ellipse" | "Mask";
   range: TimeRange;
 }
+/** A freehand pen stroke, mirrors vuoom_project::StrokeAnnotation. */
+export interface StrokeAnn {
+  id: number;
+  points: SerVec[];
+  color: Color;
+  thickness: number;
+  range: TimeRange;
+}
 export interface AnnotationSet {
   texts: TextAnn[];
   arrows: ArrowAnn[];
   highlights: BoxAnn[];
+  strokes: StrokeAnn[];
 }
 
 /** How a zoom picks its focus, mirrors vuoom_zoom::ZoomMode's serde shape. */
@@ -240,7 +249,7 @@ export interface WindowInfo {
   h: number;
 }
 
-export type Kind = "text" | "arrow" | "box";
+export type Kind = "text" | "arrow" | "box" | "stroke";
 export interface Selection {
   kind: Kind;
   id: number;
@@ -254,6 +263,8 @@ export type Drag =
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
   | { mode: "create-mask"; start: Vec2; cur: Vec2 }
+  // A pen stroke being drawn: its points so far; `marker` for a wide translucent marker.
+  | { mode: "create-stroke"; pts: Vec2[]; marker: boolean }
   // `group` carries the OTHER selected annotations so a canvas drag of any member
   // translates the whole multi-selection rigidly (empty/undefined for a lone selection).
   | {

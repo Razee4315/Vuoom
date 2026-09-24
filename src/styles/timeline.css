@@ -513,6 +513,9 @@
 .tl-box {
   --c: var(--t-box);
 }
+.tl-stroke {
+  --c: #ef7d5a;
+}
 .tl-speed,
 .tl-cut {
   top: 5px;

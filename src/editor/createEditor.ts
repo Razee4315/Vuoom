@@ -11,6 +11,7 @@ import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { createCaptions } from "./captions";
 import { LINE_HEIGHT, textBox } from "./textMetrics";
+import { PEN_LOOKS, isMarker, mapStroke, simplify, smooth, strokeBox, strokeDist } from "./strokes";
 import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
@@ -39,6 +40,7 @@ import type {
   RecordingSummary,
   Selection,
   SpeedRegion,
+  StrokeAnn,
   TextAnn,
   TimeRange,
   Tool,
@@ -55,6 +57,11 @@ function boxLabel(b: BoxAnn): string {
   if (b.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
   return "Box";
 }
+
+/** Any one annotation. */
+type AnyAnn = TextAnn | ArrowAnn | BoxAnn | StrokeAnn;
+/** Where each kind lives in the annotation set. */
+const LIST = { text: "texts", arrow: "arrows", box: "highlights", stroke: "strokes" } as const;
 
 export function createEditor() {
   const [tool, setTool] = createSignal<Tool>("select");
@@ -90,7 +97,12 @@ export function createEditor() {
   const [playing, setPlaying] = createSignal(false);
   const [looping, setLooping] = createSignal(prefs.loop());
 
-  const [anns, setAnns] = createSignal<AnnotationSet>({ texts: [], arrows: [], highlights: [] });
+  const [anns, setAnns] = createSignal<AnnotationSet>({ texts: [], arrows: [], highlights: [], strokes: [] });
+  /** One annotation by kind and id. */
+  const annOf = (kind: Kind, id: number): AnyAnn | undefined =>
+    (anns()[LIST[kind]] as AnyAnn[]).find((a) => a.id === id);
+  // The Pen tool's look for the next stroke: the pen or the marker, and its color and width.
+  const [penLook, setPenLook] = createSignal({ marker: false, ...PEN_LOOKS.pen });
   const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
   const [trim, setTrimState] = createSignal<Trim | null>(null);
   const [speed, setSpeed] = createSignal<SpeedRegion[]>([]);
@@ -672,6 +684,7 @@ export function createEditor() {
       texts: merge(cur.texts, next.texts),
       arrows: merge(cur.arrows, next.arrows),
       highlights: merge(cur.highlights, next.highlights),
+      strokes: merge(cur.strokes, next.strokes ?? []),
     });
   };
   const refresh = async () => {
@@ -795,6 +808,8 @@ export function createEditor() {
         (a as ArrowAnn).to = [g[2], g[3]];
       } else if (s.kind === "box") {
         (a as BoxAnn).rect = { x: g[0], y: g[1], w: g[2], h: g[3] };
+      } else if (s.kind === "stroke") {
+        (a as StrokeAnn).points = mapStroke((a as StrokeAnn).points, g);
       } else {
         (a as TextAnn).pos = [g[0], g[1]];
       }
@@ -948,7 +963,7 @@ export function createEditor() {
       TOOL_KEYS[e.code] &&
       editingText() === null
     ) {
-      // Single-key tool switching (V/T/A/L/S/H), matches the badges on the tool rail.
+      // Single-key tool switching (V/Z/T/A/P/S/H/M), matches the badges on the tool rail.
       e.preventDefault();
       setTool(TOOL_KEYS[e.code]);
     }
@@ -1009,22 +1024,15 @@ export function createEditor() {
   // (clone + mutate): Solid's <For> diffs by reference and plain object properties are not
   // reactive, so an in-place mutation would never re-render the canvas label. Untouched
   // annotations keep their references, so their timeline rows stay put.
-  const patchAnn = (kind: Kind, id: number, mut: (a: TextAnn | ArrowAnn | BoxAnn) => void) => {
+  const patchAnn = (kind: Kind, id: number, mut: (a: AnyAnn) => void) => {
     const cur = anns();
-    const swap = <T extends { id: number }>(list: T[]): T[] =>
-      list.map((x) => {
-        if (x.id !== id) return x;
-        const clone = structuredClone(x);
-        mut(clone as unknown as TextAnn | ArrowAnn | BoxAnn);
-        return clone;
-      });
-    setAnns(
-      kind === "text"
-        ? { texts: swap(cur.texts), arrows: cur.arrows, highlights: cur.highlights }
-        : kind === "arrow"
-          ? { texts: cur.texts, arrows: swap(cur.arrows), highlights: cur.highlights }
-          : { texts: cur.texts, arrows: cur.arrows, highlights: swap(cur.highlights) },
-    );
+    const list = (cur[LIST[kind]] as AnyAnn[]).map((x) => {
+      if (x.id !== id) return x;
+      const clone = structuredClone(x);
+      mut(clone);
+      return clone;
+    });
+    setAnns({ ...cur, [LIST[kind]]: list });
   };
 
   // Geometry of an annotation as a flat number[] (for the drag override + live updates).
@@ -1037,6 +1045,7 @@ export function createEditor() {
       const a = anns().arrows.find((x) => x.id === id)!;
       return [a.from[0], a.from[1], a.to[0], a.to[1]];
     }
+    if (kind === "stroke") return strokeBox(anns().strokes.find((x) => x.id === id)!.points);
     const t = anns().texts.find((x) => x.id === id)!;
     return [t.pos[0], t.pos[1]];
   };
@@ -1054,7 +1063,10 @@ export function createEditor() {
     if (kind === "box") await invoke("update_box", { id, x: g[0], y: g[1], w: g[2], h: g[3] });
     else if (kind === "arrow")
       await invoke("update_arrow", { id, fx: g[0], fy: g[1], tx: g[2], ty: g[3] });
-    else await invoke("update_text", { id, x: g[0], y: g[1] });
+    else if (kind === "stroke") {
+      const st = anns().strokes.find((x) => x.id === id);
+      if (st) await invoke("update_stroke", { id, points: mapStroke(st.points, g) });
+    } else await invoke("update_text", { id, x: g[0], y: g[1] });
   };
   // Approximate width of a text label in normalized-X space (glyph width is in height-
   // fraction units; convert to width fraction). Shared by hit-testing and resize handles.
@@ -1075,7 +1087,7 @@ export function createEditor() {
     if (!s) return null;
     const g = liveGeom(s.kind, s.id);
     const near = (hx: number, hy: number) => Math.hypot(p.x - hx, p.y - hy) <= TOL() * 1.4;
-    if (s.kind === "box") {
+    if (s.kind === "box" || s.kind === "stroke") {
       const [x, y, w, h] = g;
       if (near(x, y)) return "nw";
       if (near(x + w, y)) return "ne";
@@ -1098,7 +1110,8 @@ export function createEditor() {
     }
     return null;
   };
-  // Topmost first, the way the canvas stacks them: text over arrows over boxes, and within
+  // Topmost first, the way the canvas stacks them: text over arrows over pen strokes over
+  // boxes, and within
   // each kind the later one on top. A label sitting on a box is picked, not the box.
   const hitTest = (p: Vec2): Selection | null => {
     for (const t of [...anns().texts].reverse()) {
@@ -1111,6 +1124,11 @@ export function createEditor() {
     for (const a of [...anns().arrows].reverse()) {
       if (!inView(a.range, false)) continue;
       if (distToSeg(p, v2(a.from), v2(a.to)) <= TOL() * 1.5) return { kind: "arrow", id: a.id };
+    }
+    for (const st of [...anns().strokes].reverse()) {
+      if (!inView(st.range, false)) continue;
+      const { w, h } = stage();
+      if (strokeDist(p, st.points, w, h) <= Math.max(9, (st.thickness * h) / 2 + 5)) return { kind: "stroke", id: st.id };
     }
     for (const b of [...anns().highlights].reverse()) {
       if (!inView(b.range, false)) continue;
@@ -1129,7 +1147,7 @@ export function createEditor() {
     const ty = 8 / Math.max(stage().h, 1);
     let xs: number[];
     let ys: number[];
-    if (kind === "box") {
+    if (kind === "box" || kind === "stroke") {
       xs = [g[0], g[0] + g[2] / 2, g[0] + g[2]];
       ys = [g[1], g[1] + g[3] / 2, g[1] + g[3]];
     } else if (kind === "arrow") {
@@ -1276,6 +1294,10 @@ export function createEditor() {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
+    if (t === "pen") {
+      setDrag({ mode: "create-stroke", pts: [p], marker: penLook().marker });
+      return;
+    }
     if (t === "zoom") {
       setDrag({ mode: "create-zoom", start: p, cur: p });
       return;
@@ -1393,9 +1415,25 @@ export function createEditor() {
     clearExtra();
   };
 
+  // Every pointer position of a pen stroke, including the ones the browser coalesced and the
+  // ones between animation frames (onPointerMove runs once a frame), so fast lines stay round.
+  const trackStroke = (e: PointerEvent) => {
+    const d = drag();
+    if (d?.mode !== "create-stroke") return;
+    const { w, h } = stage();
+    for (const ev of e.getCoalescedEvents?.() ?? [e]) {
+      const p = norm(ev);
+      const last = d.pts[d.pts.length - 1];
+      if (Math.hypot((p.x - last.x) * w, (p.y - last.y) * h) >= 1.5) d.pts.push(p);
+    }
+  };
   const onPointerMove = (e: PointerEvent) => {
     const d = drag();
     if (!d) return;
+    if (d.mode === "create-stroke") {
+      setDrag({ ...d });
+      return;
+    }
     const p = norm(e);
     if (
       d.mode === "create-arrow" ||
@@ -1420,7 +1458,7 @@ export function createEditor() {
       const dx = p.x - d.grab.x;
       const dy = p.y - d.grab.y;
       let g: number[];
-      if (d.kind === "box") g = [clamp01(og[0] + dx), clamp01(og[1] + dy), og[2], og[3]];
+      if (d.kind === "box" || d.kind === "stroke") g = [clamp01(og[0] + dx), clamp01(og[1] + dy), og[2], og[3]];
       else if (d.kind === "arrow")
         g = [clamp01(og[0] + dx), clamp01(og[1] + dy), clamp01(og[2] + dx), clamp01(og[3] + dy)];
       else g = [clamp01(og[0] + dx), clamp01(og[1] + dy)];
@@ -1434,7 +1472,7 @@ export function createEditor() {
         group = group.map((m) => {
           const mo = m.orig;
           let mg: number[];
-          if (m.kind === "box") mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy), mo[2], mo[3]];
+          if (m.kind === "box" || m.kind === "stroke") mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy), mo[2], mo[3]];
           else if (m.kind === "arrow")
             mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy), clamp01(mo[2] + ndx), clamp01(mo[3] + ndy)];
           else mg = [clamp01(mo[0] + ndx), clamp01(mo[1] + ndy)];
@@ -1445,7 +1483,7 @@ export function createEditor() {
     } else if (d.mode === "resize") {
       const og = d.orig;
       let g = og.slice();
-      if (d.kind === "box") {
+      if (d.kind === "box" || d.kind === "stroke") {
         let [x, y, w, h] = og;
         let x2 = x + w;
         let y2 = y + h;
@@ -1518,6 +1556,29 @@ export function createEditor() {
         setSelected({ kind: "box", id });
         if (!toolLock()) setTool("select");
       }
+    } else if (d.mode === "create-stroke") {
+      setDrag(null);
+      const { w, h } = stage();
+      const pts = simplify(smooth([...d.pts, p]), 0.35, w, h);
+      const look = penLook();
+      try {
+        const id = await invoke<number>("add_stroke", {
+          points: pts.map((q) => [clamp01(q.x), clamp01(q.y)]),
+          color: look.color,
+          thickness: look.width,
+          t: playhead(),
+        });
+        await refresh();
+        await pushSeek(playhead());
+        setSelZoom(null);
+        setSelSpeed(null);
+        clearExtra();
+        // The pen stays in hand for the next line; the new one is selected once you put it down.
+        if (tool() === "pen") setSelected(null);
+        else setSelected({ kind: "stroke", id });
+      } catch (err) {
+        toast(`Could not draw: ${friendlyError(err)}`, "error");
+      }
     } else if (d.mode === "scale-text") {
       const f = d.cur;
       setDrag(null);
@@ -1549,6 +1610,33 @@ export function createEditor() {
   const selectedArrow = () => {
     const s = selected();
     return s?.kind === "arrow" ? anns().arrows.find((a) => a.id === s.id) : undefined;
+  };
+  const selectedStroke = () => {
+    const s = selected();
+    return s?.kind === "stroke" ? anns().strokes.find((a) => a.id === s.id) : undefined;
+  };
+  // Switch the selected stroke between the pen and the marker look (color, width, opacity).
+  const setStrokeLook = (marker: boolean) => {
+    const st = selectedStroke();
+    if (!st) return;
+    const look = marker ? PEN_LOOKS.marker : PEN_LOOKS.pen;
+    const { id } = st;
+    patchAnn("stroke", id, (a) => {
+      (a as StrokeAnn).color = look.color;
+      (a as StrokeAnn).thickness = look.width;
+    });
+    void (async () => {
+      try {
+        const { r, g, b, a } = look.color;
+        await invoke("set_annotation_color", { id, r, g, b });
+        await invoke("set_annotation_opacity", { id, a });
+        await invoke("set_annotation_style", { id, thickness: look.width });
+        await refresh();
+      } catch (e) {
+        await refresh();
+        toast(`Could not restyle: ${friendlyError(e)}`, "error");
+      }
+    })();
   };
   // The inspector "Content" field is seeded from the model only while it is NOT focused, so
   // the async edit→refresh round-trip can't reset the caret to the end mid-typing.
@@ -1638,14 +1726,17 @@ export function createEditor() {
       return b ? boxLabel(b) : "Box";
     }
     if (s.kind === "arrow") return selectedArrow()?.style === "Line" ? "Line" : "Arrow";
+    if (s.kind === "stroke") {
+      const st = selectedStroke();
+      return st && isMarker(st) ? "Marker" : "Pen";
+    }
     return s.kind[0].toUpperCase() + s.kind.slice(1);
   };
   const selectedColor = (): Color | undefined => {
     const s = selected();
     if (!s) return undefined;
     if (s.kind === "text") return anns().texts.find((t) => t.id === s.id)?.color;
-    if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.color;
-    return anns().highlights.find((b) => b.id === s.id)?.color;
+    return annOf(s.kind, s.id)?.color;
   };
   const setColor = (hex: string) => {
     const s = selected();
@@ -1714,8 +1805,7 @@ export function createEditor() {
     const s = selected();
     if (!s) return undefined;
     if (s.kind === "text") return anns().texts.find((t) => t.id === s.id)?.range;
-    if (s.kind === "arrow") return anns().arrows.find((a) => a.id === s.id)?.range;
-    return anns().highlights.find((b) => b.id === s.id)?.range;
+    return annOf(s.kind, s.id)?.range;
   };
   const editRange = (start: number, end: number) => {
     const s = selected();
@@ -1859,7 +1949,8 @@ export function createEditor() {
   type ClipItem =
     | ({ kind: "text" } & TextAnn)
     | ({ kind: "arrow" } & ArrowAnn)
-    | ({ kind: "box" } & BoxAnn);
+    | ({ kind: "box" } & BoxAnn)
+    | ({ kind: "stroke" } & StrokeAnn);
   const [clipboard, setClipboard] = createSignal<ClipItem[]>([]);
   // Snapshot the current annotation selection into the clipboard. Returns whether anything was
   // captured so the caller only swallows Ctrl+C when there was a selection to copy.
@@ -1874,6 +1965,9 @@ export function createEditor() {
       } else if (sel.kind === "arrow") {
         const a = anns().arrows.find((x) => x.id === sel.id);
         if (a) items.push({ kind: "arrow", ...structuredClone(a) });
+      } else if (sel.kind === "stroke") {
+        const a = anns().strokes.find((x) => x.id === sel.id);
+        if (a) items.push({ kind: "stroke", ...structuredClone(a) });
       } else {
         const a = anns().highlights.find((b) => b.id === sel.id);
         if (a) items.push({ kind: "box", ...structuredClone(a) });
@@ -3375,6 +3469,14 @@ export function createEditor() {
           end: b.range.end,
           label: boxLabel(b),
         });
+      for (const st of a.strokes)
+        next.push({
+          kind: "stroke",
+          id: st.id,
+          start: st.range.start,
+          end: st.range.end,
+          label: isMarker(st) ? "Marker" : "Pen",
+        });
       // Reuse the previous object for an unchanged id+span so row identity survives.
       for (let i = 0; i < next.length; i++) {
         const bar = next[i];
@@ -4064,6 +4166,11 @@ export function createEditor() {
     onInspUp,
     somethingSelected,
     drawingToolActive,
+    selectedStroke,
+    setStrokeLook,
+    penLook,
+    setPenLook,
+    trackStroke,
     safeName,
     onSaveProject,
     onRecover,

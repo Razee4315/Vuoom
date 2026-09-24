@@ -707,6 +707,16 @@ class MockEngine {
     });
     return [...this.zooms];
   }
+  addZoomAimed(t: number, x: number, y: number, amount: number): ZoomSeg[] {
+    this.mutate(undefined, () => {
+      const start = Math.max(0, Math.min(t, this.duration - 0.5));
+      const end = Math.min(this.duration, start + 2);
+      const a = Math.max(1.2, Math.min(4, amount));
+      this.zooms.push({ start, end, amount: a, mode: { Manual: { pos: [x, y] } }, style: "Smooth" });
+      this.zooms.sort((p, q) => p.start - q.start);
+    });
+    return [...this.zooms];
+  }
   updateZoom(index: number, start: number, end: number, amount: number): ZoomSeg[] {
     this.mutate(`zoom:${index}`, () => {
       const z = this.zooms[index];

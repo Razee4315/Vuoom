@@ -47,3 +47,27 @@ export function outputDuration(
   if (cursor < t1) out += t1 - cursor;
   return out;
 }
+
+/**
+ * What the zoom tool framed, from the drag's start `a` to the pointer `b` (normalized frame
+ * coordinates). A zoom's view keeps the frame's shape, so the frame is a square in normalized
+ * terms, grown from the start toward the pointer; `amount` is what fits it, 1.2× to 4×. A
+ * click (a tiny drag) aims at `a` with the clip's zoom strength `fallback`.
+ */
+export function zoomFrame(a: Vec2, b: Vec2, fallback: number): { x: number; y: number; side: number; amount: number } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const drawn = Math.min(1, Math.max(Math.abs(dx), Math.abs(dy)));
+  if (drawn < 0.03) {
+    const amount = Math.min(4, Math.max(1.2, fallback));
+    return { x: a.x, y: a.y, side: 1 / amount, amount };
+  }
+  const amount = Math.min(4, Math.max(1.2, 1 / drawn));
+  const side = 1 / amount;
+  return {
+    x: a.x + ((Math.sign(dx) || 1) * side) / 2,
+    y: a.y + ((Math.sign(dy) || 1) * side) / 2,
+    side,
+    amount,
+  };
+}

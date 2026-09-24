@@ -6,6 +6,7 @@
 
 mod audio;
 mod camera;
+mod captions;
 mod commands;
 mod displays;
 mod drag_wall;
@@ -217,6 +218,16 @@ pub fn run() {
             commands::export_gif,
             commands::export_mp4,
             commands::cancel_export,
+            commands::captions_status,
+            commands::generate_captions,
+            commands::cancel_captions,
+            commands::add_caption,
+            commands::set_caption_text,
+            commands::set_caption_range,
+            commands::delete_caption,
+            commands::clear_captions,
+            commands::set_caption_style,
+            commands::export_srt,
             commands::add_text,
             commands::add_arrow,
             commands::add_box,

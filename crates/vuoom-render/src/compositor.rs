@@ -6,7 +6,7 @@
 //! `new()` returns `None` when no GPU adapter is available (e.g. a CI runner without a
 //! GPU), so tests skip gracefully rather than fail.
 
-use crate::scene::Scene;
+use crate::scene::{ResolvedCaption, ResolvedHighlight, Scene};
 use crate::shapes::{build_shape_vertices, ShapeVertex};
 use glyphon::{
     Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
@@ -14,6 +14,7 @@ use glyphon::{
     Viewport, Weight,
 };
 use std::sync::Mutex;
+use vuoom_project::Color;
 
 /// Load the bundled display fonts into the glyphon font DB so text annotations can be
 /// rendered by family name (matching the `@font-face` set the web UI previews with).
@@ -881,29 +882,8 @@ impl Compositor {
         let mut camera_guard = self.camera_cache.lock().expect("camera cache poisoned");
         let bubble = self.prepare_camera(&mut camera_guard, scene, camera, (out_w, out_h));
 
-        let verts = build_shape_vertices(scene);
-        let shape_uniforms = ShapeUniforms {
-            out_size: [out_w as f32, out_h as f32],
-            _pad: [0.0, 0.0],
-        };
-        self.queue
-            .write_buffer(&cache.shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
-        // Shape vertices vary in count per frame, so this buffer stays per-frame.
-        let shape_vbuf = if verts.is_empty() {
-            None
-        } else {
-            let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("vuoom-shape-verts"),
-                size: (verts.len() * std::mem::size_of::<ShapeVertex>()) as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            self.queue
-                .write_buffer(&buf, 0, bytemuck::cast_slice(&verts));
-            Some(buf)
-        };
-
-        // Prepare text labels (glyphon).
+        // Prepare text labels (glyphon), before the shapes: the caption's plate is sized to
+        // its measured text.
         let mut text_guard = self.text.lock().expect("text state poisoned");
         let TextState {
             font_system,
@@ -941,7 +921,33 @@ impl Compositor {
             buf.set_text(font_system, &label.text, &attrs, Shaping::Advanced);
             text_buffers.push(buf);
         }
-        let text_areas: Vec<TextArea> = text_buffers
+        let caption = scene
+            .caption
+            .as_ref()
+            .map(|c| shape_caption(font_system, c));
+        let verts = build_shape_vertices(scene, caption.as_ref().map(|c| &c.plate));
+        let shape_uniforms = ShapeUniforms {
+            out_size: [out_w as f32, out_h as f32],
+            _pad: [0.0, 0.0],
+        };
+        self.queue
+            .write_buffer(&cache.shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
+        // Shape vertices vary in count per frame, so this buffer stays per-frame.
+        let shape_vbuf = if verts.is_empty() {
+            None
+        } else {
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("vuoom-shape-verts"),
+                size: (verts.len() * std::mem::size_of::<ShapeVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&buf, 0, bytemuck::cast_slice(&verts));
+            Some(buf)
+        };
+
+        let mut text_areas: Vec<TextArea> = text_buffers
             .iter()
             .zip(&labels)
             .map(|(buf, label)| TextArea {
@@ -963,6 +969,22 @@ impl Compositor {
                 custom_glyphs: &[],
             })
             .collect();
+        if let Some(c) = &caption {
+            text_areas.push(TextArea {
+                buffer: &c.buffer,
+                left: c.left,
+                top: c.top,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: out_w as i32,
+                    bottom: out_h as i32,
+                },
+                default_color: GlyphColor::rgb(255, 255, 255),
+                custom_glyphs: &[],
+            });
+        }
         let _ = renderer.prepare(
             &self.device,
             &self.queue,
@@ -1016,6 +1038,60 @@ impl Compositor {
             out_w,
             out_h,
         )
+    }
+}
+
+/// A caption ready to draw: its shaped text, the plate behind it, and where the text goes.
+struct CaptionText {
+    buffer: TextBuffer,
+    plate: ResolvedHighlight,
+    left: f32,
+    top: f32,
+}
+
+/// Wrap a caption to its width, center every line, and measure it to size its plate.
+fn shape_caption(fs: &mut FontSystem, c: &ResolvedCaption) -> CaptionText {
+    let line_h = c.font_px * ResolvedCaption::LINE;
+    let metrics = Metrics::new(c.font_px as f32, line_h as f32);
+    let mut buffer = TextBuffer::new(fs, metrics);
+    buffer.set_size(fs, Some(c.max_w as f32), None);
+    let sans = Attrs::new().family(Family::SansSerif);
+    let attrs = sans.weight(Weight::SEMIBOLD);
+    buffer.set_text(fs, &c.text, &attrs, Shaping::Advanced);
+    for line in &mut buffer.lines {
+        line.set_align(Some(glyphon::cosmic_text::Align::Center));
+    }
+    buffer.shape_until_scroll(fs, false);
+    let mut widest = 0.0_f64;
+    let mut lines = 0_u32;
+    for run in buffer.layout_runs() {
+        widest = widest.max(f64::from(run.line_w));
+        lines += 1;
+    }
+    let text_h = f64::from(lines.max(1)) * line_h;
+    let pad_x = c.font_px * ResolvedCaption::PAD_X;
+    let pad_y = c.font_px * ResolvedCaption::PAD_Y;
+    let top = if c.from_top {
+        c.edge_y + pad_y
+    } else {
+        c.edge_y - pad_y - text_h
+    };
+    let plate_w = widest + 2.0 * pad_x;
+    let plate = ResolvedHighlight {
+        x: c.center_x - plate_w / 2.0,
+        y: top - pad_y,
+        w: plate_w,
+        h: text_h + 2.0 * pad_y,
+        thickness_px: 0.0,
+        filled: true,
+        ellipse: false,
+        color: Color::rgb(0.04, 0.04, 0.05).with_alpha(0.75),
+    };
+    CaptionText {
+        buffer,
+        plate,
+        left: (c.center_x - c.max_w / 2.0) as f32,
+        top: top as f32,
     }
 }
 
@@ -1088,6 +1164,7 @@ mod tests {
             key_texts: Vec::new(),
             cursor: None,
             camera: None,
+            caption: None,
             blur_from: None,
         };
         let px = compositor.composite_scene(

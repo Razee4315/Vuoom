@@ -35,10 +35,10 @@ use vuoom_encode::{
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
-    output_duration, output_to_source, ArrowAnnotation, ArrowStyle, AudioKind, AudioTrack,
-    Background, CameraOverlay, Color, CropRect, CursorStyle, FrameStyle, HighlightBox,
-    HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion, TextAnnotation,
-    TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
+    AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
+    SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -177,6 +177,9 @@ pub struct ClipState {
     pub camera: Option<CameraOverlay>,
     /// Blur along the camera's movement during zooms and pans.
     pub motion_blur: bool,
+    /// Timed captions (source time) and how they look.
+    pub captions: Vec<Caption>,
+    pub caption_style: CaptionStyle,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -415,6 +418,9 @@ pub struct Session {
     /// to `false` at the start of each export. Only one export runs at a time from the UI, so a
     /// single flag is enough, no per-export token needed.
     export_cancel: AtomicBool,
+    /// Set by `cancel_captions` to stop a model download or a transcription in progress.
+    /// Reset when the next one starts (one runs at a time from the UI).
+    captions_cancel: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -458,6 +464,7 @@ impl Session {
             camera: crate::camera::Camera::default(),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
+            captions_cancel: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1891,6 +1898,8 @@ impl Session {
             pointer_captured: project.pointer_captured,
             camera: project.camera,
             motion_blur: project.motion_blur,
+            captions: project.captions.clone(),
+            caption_style: project.caption_style,
         })
     }
 
@@ -1952,6 +1961,152 @@ impl Session {
             });
             Ok(())
         })
+    }
+
+    /// Start a captions job: clear any old cancel request and hand out the flag that stops
+    /// this one. Fails early when captions can't run here, or the clip has nothing to hear.
+    pub fn captions_begin(&self) -> Result<Arc<AtomicBool>, String> {
+        if !vuoom_captions::cpu_supported() {
+            return Err(CAPTIONS_CPU.into());
+        }
+        let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        let project = edited.project.as_ref().ok_or("no recording")?;
+        speech_track(project).ok_or(NO_SPEECH_TRACK)?;
+        self.captions_cancel.store(false, Ordering::SeqCst);
+        Ok(Arc::clone(&self.captions_cancel))
+    }
+
+    /// Stop a caption download or transcription at its next check.
+    pub fn cancel_captions(&self) {
+        self.captions_cancel.store(true, Ordering::SeqCst);
+    }
+
+    /// Listen to the clip's narration with the speech model at `model` and replace its
+    /// captions with what was said (one undo step). `language` is an ISO 639-1 code, or
+    /// `None` to detect it. `progress` gets 0..=100. Takes seconds to minutes: call it on a
+    /// blocking thread.
+    pub fn generate_captions(
+        &self,
+        model: &Path,
+        language: Option<String>,
+        progress: impl FnMut(i32) + 'static,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<Vec<Caption>, String> {
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or("no recording")?;
+        let track = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            let project = edited.project.as_ref().ok_or("no recording")?;
+            speech_track(project).ok_or(NO_SPEECH_TRACK)?.clone()
+        };
+        let pcm = crate::audio::track_pcm(&dir, &track)?;
+        let audio = vuoom_captions::to_16k_mono(&pcm);
+        drop(pcm);
+        let language = language.filter(|l| !l.is_empty() && l != "auto");
+        let heard =
+            vuoom_captions::transcribe(model, &audio, language.as_deref(), progress, cancel)?;
+        tracing::info!(
+            "captions: {} words, language {:?}",
+            heard.words.len(),
+            heard.language
+        );
+        let captions = to_captions(&vuoom_captions::group(&heard.words), track.offset);
+        if captions.is_empty() {
+            return Err("Vuoom didn't hear any speech in this take.".into());
+        }
+        self.with_project("", |p| {
+            p.captions.clone_from(&captions);
+            Ok(())
+        })?;
+        Ok(captions)
+    }
+
+    /// Add a caption at source time `t` (two seconds long, or up to the next caption), and
+    /// return its id.
+    pub fn add_caption(&self, t: f64, text: String) -> Result<u32, String> {
+        let mut id = 0;
+        self.with_project("", |p| {
+            let duration = p.source.duration;
+            let next = p
+                .captions
+                .iter()
+                .map(|c| c.range.start)
+                .filter(|&s| s > t + 0.2)
+                .fold(duration, f64::min);
+            id = p.captions.iter().map(|c| c.id).max().unwrap_or(0) + 1;
+            let range = TimeRange::new(t, (t + 2.0).min(next).max(t + 0.2));
+            p.captions.push(Caption { id, text, range });
+            sort_captions(p);
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    /// Change a caption's words. A typing run is one undo step.
+    pub fn set_caption_text(&self, id: u32, text: String) -> Result<(), String> {
+        self.with_project(&format!("caption-text-{id}"), |p| {
+            caption_mut(p, id)?.text = text;
+            Ok(())
+        })
+    }
+
+    /// Move or resize a caption (source seconds). A drag is one undo step.
+    pub fn set_caption_range(&self, id: u32, start: f64, end: f64) -> Result<(), String> {
+        self.with_project(&format!("caption-range-{id}"), |p| {
+            let duration = p.source.duration;
+            let start = start.clamp(0.0, (duration - 0.1).max(0.0));
+            let end = end.clamp(start + 0.1, duration.max(start + 0.1));
+            caption_mut(p, id)?.range = TimeRange::new(start, end);
+            sort_captions(p);
+            Ok(())
+        })
+    }
+
+    /// Remove one caption.
+    pub fn delete_caption(&self, id: u32) -> Result<(), String> {
+        self.with_project("", |p| {
+            let before = p.captions.len();
+            p.captions.retain(|c| c.id != id);
+            if p.captions.len() == before {
+                return Err("no such caption".into());
+            }
+            Ok(())
+        })
+    }
+
+    /// Remove every caption.
+    pub fn clear_captions(&self) -> Result<(), String> {
+        self.with_project("", |p| {
+            p.captions.clear();
+            Ok(())
+        })
+    }
+
+    /// Set how captions look (shown, size, top or bottom). Slider drags are one undo step.
+    pub fn set_caption_style(&self, style: CaptionStyle) -> Result<(), String> {
+        self.with_project("caption-style", |p| {
+            p.caption_style = style.clamped();
+            Ok(())
+        })
+    }
+
+    /// Save the captions as a SubRip (`.srt`) file timed to the exported video: trimmed,
+    /// with cuts and speed-ups applied.
+    pub fn export_srt(&self, path: &Path) -> Result<(), String> {
+        let project = {
+            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            edited.project.as_ref().ok_or("no recording")?.clone()
+        };
+        let cues = output_cues(&project);
+        if cues.is_empty() {
+            return Err("There are no captions in the part of the video that plays.".into());
+        }
+        std::fs::write(path, vuoom_captions::srt::srt(&cues))
+            .map_err(|e| format!("couldn't save the captions: {e}"))
     }
 
     /// Set how the next take starts out (click ripples, keystrokes, frame, noise removal).
@@ -3463,6 +3618,65 @@ fn background_fill(frame: &FrameStyle) -> BgFill {
     }
 }
 
+/// Why captions aren't offered on this computer.
+const CAPTIONS_CPU: &str = "Captions need a newer processor (most PCs from 2015 on).";
+/// Why a clip can't be captioned.
+const NO_SPEECH_TRACK: &str = "This take has no recorded sound to make captions from.";
+
+/// The track captions listen to: the microphone, or else the computer's sound (a take
+/// that recorded a video or a call).
+fn speech_track(project: &Project) -> Option<&AudioTrack> {
+    let find = |kind: AudioKind| project.audio.iter().find(|t| t.kind == kind);
+    find(AudioKind::Mic).or_else(|| find(AudioKind::System))
+}
+
+/// Recognized cues (track time) as project captions (source time), numbered from 1.
+fn to_captions(cues: &[vuoom_captions::Cue], offset: f64) -> Vec<Caption> {
+    cues.iter()
+        .filter(|c| c.end + offset > 0.0)
+        .zip(1..)
+        .map(|(c, id)| Caption {
+            id,
+            text: c.text.clone(),
+            range: TimeRange::new((c.start + offset).max(0.0), c.end + offset),
+        })
+        .collect()
+}
+
+/// Keep captions in time order (the timeline and the SRT file read them that way).
+fn sort_captions(project: &mut Project) {
+    let start = |c: &Caption| c.range.start;
+    project
+        .captions
+        .sort_by(|a, b| start(a).total_cmp(&start(b)));
+}
+
+/// The project's captions on the output timeline (the exported video's clock). Captions
+/// wholly trimmed or cut away are left out.
+fn output_cues(project: &Project) -> Vec<vuoom_captions::Cue> {
+    let (t0, span, regions, cuts) = out_mapping(project);
+    let to_out = |t: f64| source_to_output(t - t0, span, &regions, &cuts);
+    project
+        .captions
+        .iter()
+        .filter(|c| !c.text.trim().is_empty())
+        .map(|c| vuoom_captions::Cue {
+            start: to_out(c.range.start),
+            end: to_out(c.range.end),
+            text: c.text.trim().to_string(),
+        })
+        .filter(|c| c.end - c.start >= 0.05)
+        .collect()
+}
+
+fn caption_mut(project: &mut Project, id: u32) -> Result<&mut Caption, String> {
+    project
+        .captions
+        .iter_mut()
+        .find(|c| c.id == id)
+        .ok_or_else(|| "no such caption".to_string())
+}
+
 fn next_id(project: &Project) -> u32 {
     let mut max = 0;
     for t in &project.texts {
@@ -3647,6 +3861,54 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
 mod tests {
     use super::*;
     use vuoom_input::RawEventKind;
+
+    #[test]
+    fn captions_are_timed_to_the_source_and_then_the_export() {
+        let cue = |start: f64, end: f64, text: &str| vuoom_captions::Cue {
+            start,
+            end,
+            text: text.into(),
+        };
+        // The track started 0.5 s before the recording's first frame.
+        let heard = [
+            cue(0.2, 0.4, "Gone"),
+            cue(1.0, 2.0, "One"),
+            cue(4.5, 6.0, "Two"),
+        ];
+        let caps = to_captions(&heard, -0.5);
+        let starts: Vec<f64> = caps.iter().map(|c| c.range.start).collect();
+        assert_eq!(starts, [0.5, 4.0]);
+        assert_eq!(caps[0].id, 1);
+        assert_eq!(caps[1].text, "Two");
+
+        // Trimmed to [0.5, 8] with [1, 3] cut: "One" plays from 0, "Two" from 1.5.
+        let mut p = Project::new(SourceInfo {
+            path: String::new(),
+            width: 100,
+            height: 100,
+            fps: 30.0,
+            duration: 8.0,
+        });
+        p.captions = caps;
+        p.captions.push(Caption {
+            id: 3,
+            text: "Cut away".into(),
+            range: TimeRange::new(1.2, 2.8),
+        });
+        p.trim = Some(Trim {
+            start: 0.5,
+            end: 8.0,
+        });
+        p.cuts.push(Trim {
+            start: 1.0,
+            end: 3.0,
+        });
+        let cues = output_cues(&p);
+        let texts: Vec<&str> = cues.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, ["One", "Two"]);
+        let times: Vec<(f64, f64)> = cues.iter().map(|c| (c.start, c.end)).collect();
+        assert_eq!(times, [(0.0, 0.5), (1.5, 3.0)]);
+    }
 
     #[test]
     fn a_new_take_gets_the_chosen_defaults() {

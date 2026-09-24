@@ -54,6 +54,13 @@ vuoom-render.workspace = true
 vuoom-preview.workspace = true
 vuoom-audio.workspace = true
 vuoom-camera.workspace = true
+vuoom-captions.workspace = true
+
+# The one-time speech model download for captions (see captions.rs). The same HTTP and TLS
+# stack the updater already brings in: reqwest on rustls, with ring as the crypto provider.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sha2 = "0.10"
 
 # Win32 helpers: SetWindowDisplayAffinity (exclude overlays from screen capture),
 # hotkey polling. Pinned to the version windows-capture pulls in (0.62) so vuoom-input

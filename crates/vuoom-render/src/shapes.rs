@@ -195,9 +195,10 @@ fn fill_arrow(
     }
 }
 
-/// Build the triangle list for all of a scene's highlights and arrows.
+/// Build the triangle list for all of a scene's highlights and arrows, and the caption's
+/// `plate` (sized by the compositor, which measures the caption's text).
 #[must_use]
-pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
+pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
     for h in scene
         .highlights
@@ -213,6 +214,9 @@ pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
     }
     for a in &scene.arrows {
         arrow(&mut out, a);
+    }
+    if let Some(p) = plate {
+        highlight(&mut out, p);
     }
     // Last, so the pointer sits above everything it points at.
     if let Some(c) = &scene.cursor {

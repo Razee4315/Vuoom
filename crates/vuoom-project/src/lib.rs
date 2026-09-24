@@ -8,6 +8,7 @@
 mod annotation;
 mod audio;
 mod camera;
+mod captions;
 mod color;
 mod cursor;
 mod frame;
@@ -17,10 +18,11 @@ mod timing;
 pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
 pub use audio::{AudioKind, AudioTrack};
 pub use camera::{CameraOverlay, CameraShape, Corner};
+pub use captions::{caption_at, Caption, CaptionPosition, CaptionStyle};
 pub use color::{Color, Rect};
 pub use cursor::CursorStyle;
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
-pub use timeline::{output_duration, output_segments, output_to_source};
+pub use timeline::{output_duration, output_segments, output_to_source, source_to_output};
 pub use timing::TimeRange;
 
 // Re-export the zoom types so a Project is self-describing from one crate.
@@ -119,6 +121,11 @@ pub struct Project {
     /// The webcam bubble, when the take recorded the camera.
     #[serde(default)]
     pub camera: Option<CameraOverlay>,
+    /// Spoken words as timed captions (empty until the user generates them).
+    #[serde(default)]
+    pub captions: Vec<Caption>,
+    #[serde(default)]
+    pub caption_style: CaptionStyle,
 }
 
 fn yes() -> bool {
@@ -198,6 +205,8 @@ impl Project {
             cursor: None,
             motion_blur: true,
             camera: None,
+            captions: Vec::new(),
+            caption_style: CaptionStyle::default(),
         }
     }
 

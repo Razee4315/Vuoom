@@ -7,7 +7,8 @@
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
 use vuoom_project::{
-    ArrowStyle, CameraOverlay, Color, Corner, HighlightShape, InputEvent, Project,
+    caption_at, ArrowStyle, CameraOverlay, CaptionPosition, Color, Corner, HighlightShape,
+    InputEvent, Project,
 };
 use vuoom_zoom::CameraTrack;
 
@@ -52,6 +53,67 @@ pub struct ResolvedHighlight {
     /// Draw an ellipse inscribed in the rect instead of the rect itself.
     pub ellipse: bool,
     pub color: Color,
+}
+
+/// The caption on screen, placed on the framed recording (it doesn't follow the zoom). The
+/// compositor wraps the text to `max_w`, centers each line on `center_x` and draws a plate
+/// behind it, grown up from `edge_y` (or down from it, for captions at the top).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedCaption {
+    pub text: String,
+    pub center_x: f64,
+    /// The caption block's outer edge: its bottom, or its top when `from_top`.
+    pub edge_y: f64,
+    pub from_top: bool,
+    pub font_px: f64,
+    /// Widest a line may run before it wraps.
+    pub max_w: f64,
+}
+
+impl ResolvedCaption {
+    /// Line height as a multiple of the font size.
+    pub const LINE: f64 = 1.25;
+    /// The plate's padding around the text, as a multiple of the font size.
+    pub const PAD_X: f64 = 0.5;
+    pub const PAD_Y: f64 = 0.25;
+
+    /// A rough height of the caption block with its plate, for laying out around it before
+    /// the compositor has measured the text.
+    #[must_use]
+    pub fn estimated_height(&self) -> f64 {
+        let text_w = self.text.chars().count() as f64 * self.font_px * 0.55;
+        let lines = (text_w / self.max_w.max(1.0)).ceil().clamp(1.0, 3.0);
+        lines * Self::LINE * self.font_px + 2.0 * Self::PAD_Y * self.font_px
+    }
+}
+
+/// The caption showing at source time `t`, placed on the framed recording `dst` at output
+/// height `oh`.
+fn place_caption(project: &Project, dst: PxRect, oh: f64, t: f64) -> Option<ResolvedCaption> {
+    let style = project.caption_style.clamped();
+    if !style.visible {
+        return None;
+    }
+    let cue = caption_at(&project.captions, t)?;
+    let text = cue.text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let font_px = f64::from(style.size) * oh;
+    let margin = font_px * 0.8;
+    let from_top = style.position == CaptionPosition::Top;
+    Some(ResolvedCaption {
+        text: text.to_string(),
+        center_x: dst.x + dst.w / 2.0,
+        edge_y: if from_top {
+            dst.y + margin
+        } else {
+            dst.y + dst.h - margin
+        },
+        from_top,
+        font_px,
+        max_w: dst.w * 0.86,
+    })
 }
 
 /// The re-drawn pointer resolved to output pixels.
@@ -140,6 +202,9 @@ pub struct Scene {
     pub cursor: Option<ResolvedCursor>,
     /// The webcam bubble, when the take has one and it's shown.
     pub camera: Option<ResolvedCamera>,
+    /// The caption on screen, if any. Kept apart from `texts`, which the live preview
+    /// clears (the editor overlay draws those).
+    pub caption: Option<ResolvedCaption>,
     /// Motion blur: the source crop one exposure ago, while the camera is moving visibly.
     /// The compositor smears the picture from there to `layout.src_rect`.
     pub blur_from: Option<NormRect>,
@@ -338,6 +403,14 @@ pub fn build_scene(
         })
     });
 
+    let caption = place_caption(project, layout.dst_rect, oh, t);
+    // Keystroke chips stack up from here: above a caption at the bottom, if one shows.
+    let mut keys_floor = oh * 0.94;
+    if let Some(c) = caption.as_ref().filter(|c| !c.from_top) {
+        let caption_top = c.edge_y - c.estimated_height();
+        keys_floor = keys_floor.min(caption_top - 0.012 * oh);
+    }
+
     // Keystroke overlay: the latest few shortcut chips, stacked above the bottom edge.
     let mut key_chips = Vec::new();
     let mut key_texts = Vec::new();
@@ -362,7 +435,7 @@ pub fn build_scene(
             let chip_h = font * 1.8;
             let text_w = k.label.chars().count() as f64 * font * 0.62;
             let chip_w = text_w + pad_x * 2.0;
-            let y = oh * 0.94 - chip_h - slot as f64 * (chip_h + 0.012 * oh);
+            let y = keys_floor - chip_h - slot as f64 * (chip_h + 0.012 * oh);
             key_chips.push(ResolvedHighlight {
                 x: ow / 2.0 - chip_w / 2.0,
                 y,
@@ -402,6 +475,7 @@ pub fn build_scene(
         key_texts,
         cursor,
         camera: webcam,
+        caption,
         blur_from,
     }
 }
@@ -540,6 +614,46 @@ mod tests {
             ..CameraOverlay::default()
         });
         assert!(build_scene(&p, &track, 1000, 1000, 1.0).camera.is_none());
+    }
+
+    #[test]
+    fn the_caption_on_screen_sits_on_the_frame() {
+        use vuoom_project::{Caption, KeyTap};
+        let mut p = project_with_text();
+        p.captions.push(Caption {
+            id: 1,
+            text: " Hello there. ".into(),
+            range: TimeRange::new(1.0, 2.0),
+        });
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        assert!(build_scene(&p, &track, 1000, 1000, 0.5).caption.is_none());
+        let scene = build_scene(&p, &track, 1000, 1000, 1.5);
+        let c = scene.caption.unwrap();
+        let dst = scene.layout.dst_rect;
+        assert_eq!(c.text, "Hello there.");
+        assert!(!c.from_top);
+        assert!((c.center_x - (dst.x + dst.w / 2.0)).abs() < 1e-9);
+        assert!(c.edge_y < dst.y + dst.h);
+        assert!((c.font_px - 45.0).abs() < 1e-3);
+
+        // Keystroke chips move up out of its way.
+        p.show_keys = true;
+        p.key_taps.push(KeyTap {
+            t: 1.4,
+            label: "Ctrl+S".into(),
+        });
+        let scene = build_scene(&p, &track, 1000, 1000, 1.5);
+        let chip = scene.key_chips[0];
+        let c = scene.caption.unwrap();
+        assert!(chip.y + chip.h < c.edge_y - c.estimated_height());
+
+        // At the top, and hidden.
+        p.caption_style.position = CaptionPosition::Top;
+        let c = build_scene(&p, &track, 1000, 1000, 1.5).caption.unwrap();
+        assert!(c.from_top);
+        assert!(c.edge_y > dst.y && c.edge_y < dst.y + dst.h / 2.0);
+        p.caption_style.visible = false;
+        assert!(build_scene(&p, &track, 1000, 1000, 1.5).caption.is_none());
     }
 
     #[test]

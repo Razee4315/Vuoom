@@ -826,6 +826,7 @@ export default function RecordOverlay(props: {
                 onClick={m.toggle}
               >
                 <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
+                <span>{prefs.recordCamera() ? "Camera" : "No camera"}</span>
                 <Icon name="chevronUp" size={12} />
               </button>
             )}

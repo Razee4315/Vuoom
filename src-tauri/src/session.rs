@@ -3606,6 +3606,7 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vuoom_input::RawEventKind;
 
     #[test]
     fn a_new_take_gets_the_chosen_defaults() {
@@ -3638,7 +3639,6 @@ mod tests {
         TakeDefaults::default().apply(&mut plain);
         assert!(!plain.show_clicks && plain.frame.padding <= 0.0);
     }
-    use vuoom_input::RawEventKind;
 
     fn rec(qpc: i64) -> FrameRec {
         FrameRec {

@@ -312,8 +312,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(420px, 100%);
-  height: min(320px, 100%);
+  width: 100%;
+  height: 100%;
   padding: 8px;
   border-radius: 18px;
   background: #121215;
@@ -357,10 +357,38 @@
     opacity: 0.35;
   }
 }
+.rec-drag-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.rec-size {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+.rec-size:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.rec-size:focus-visible,
+.rec-stop:focus-visible,
+.rec-pause:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
 .rec-grip {
   display: grid;
   place-items: center;
+  width: 18px;
   color: rgba(255, 255, 255, 0.35);
+  cursor: move;
 }
 .rec-screen {
   position: relative;
@@ -389,6 +417,9 @@
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
   padding: 3px 8px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.6);
@@ -464,29 +495,38 @@
   height: 46px;
   padding: 0 4px;
 }
+/* Stop: the one control that matters mid-take, so it's the biggest, reddest, labeled
+   target in the panel (Fitts). */
 .rec-stop {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px 0 14px;
   flex: none;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   background: var(--rec);
   box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.2);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
   transition:
     transform 0.12s ease,
     background 0.12s ease;
 }
-.rec-stop span {
-  width: 14px;
-  height: 14px;
+.rec-stop-square {
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
   background: #fff;
 }
 .rec-stop:hover {
   background: var(--rec-hover);
-  transform: scale(1.05);
+}
+.rec-stop:active {
+  transform: scale(0.97);
 }
 .rec-timebox {
   display: flex;
@@ -510,18 +550,30 @@
   white-space: nowrap;
 }
 .rec-pause {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
   flex: none;
   border: 0;
   border-radius: 12px;
   background: var(--chip);
   color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .rec-pause:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+.rec-pause.on {
+  background: rgba(240, 180, 41, 0.2);
+  color: #f5c451;
+}
+/* The bigger panel: a roomier time readout. */
+.rec-panel.large .rec-time {
+  font-size: 24px;
 }
 .rec-cancel {
   margin-left: auto;

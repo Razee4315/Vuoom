@@ -7,9 +7,12 @@
 
 #[cfg(windows)]
 mod capture;
+#[cfg(windows)]
+mod dxgi;
+pub mod pointer;
 
 #[cfg(windows)]
 pub use capture::{
-    run_display, spawn_capture, spawn_primary_display, spawn_region, CaptureError, CaptureHandle,
-    CaptureOptions, CaptureSource, CapturedFrame, CropRegion,
+    duplication_available, run_display, spawn_capture, spawn_primary_display, spawn_region,
+    Backend, CaptureError, CaptureHandle, CaptureOptions, CaptureSource, CapturedFrame, CropRegion,
 };

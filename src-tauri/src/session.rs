@@ -18,7 +18,7 @@ use std::time::Duration;
 use crate::audio::AudioChoice;
 use crate::camera::{CameraChoice, Decoded};
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
-use crate::live_preview::LivePreview;
+use crate::live_preview::{self, LivePreview};
 use crate::zoom_chord::{ChordMark, ZoomChordPoller};
 use base64::Engine;
 use glam::DVec2;
@@ -257,6 +257,8 @@ struct Active {
     /// The webcam writing its track next to the frames, and why it couldn't, if it didn't.
     camera: Option<vuoom_camera::CameraRecorder>,
     camera_note: Option<String>,
+    /// Whether capture keeps Vuoom's excluded windows (the panel) out of the frames.
+    hides_panel: bool,
     /// Whether the real pointer is being captured, and whether the take gets a re-drawn one.
     pointer_captured: bool,
     smooth_cursor: bool,
@@ -779,6 +781,30 @@ impl Session {
         self.compositor.is_some()
     }
 
+    /// Whether the next recording keeps Vuoom's capture-excluded windows (the recording panel)
+    /// out of its frames wherever they sit, so the panel may stay on screen over the recorded
+    /// area. True for window captures (other windows are never part of a window's frames) and
+    /// for displays Desktop Duplication can record; the probe opens a duplication briefly.
+    pub fn capture_hides_panel(&self) -> bool {
+        if self.pending_window().is_some() {
+            return true;
+        }
+        let monitor = self
+            .pending_monitor
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|m| m.name.clone());
+        vuoom_capture::duplication_available(monitor.as_deref())
+    }
+
+    /// Whether the running recording keeps capture-excluded windows out of its frames (see
+    /// [`Session::capture_hides_panel`]); `false` when nothing is recording.
+    pub fn recording_hides_panel(&self) -> bool {
+        let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        active.as_ref().is_some_and(|a| a.hides_panel)
+    }
+
     /// Begin capturing the primary display + global input.
     pub fn start_recording(&self) -> Result<(), String> {
         let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
@@ -884,9 +910,15 @@ impl Session {
             cursor: pointer_captured,
         };
         let (frames_rx, capture) = spawn_capture(region, &source, opts);
+        let hides_panel = window.is_some() || capture.backend().hides_excluded_windows();
         let (recorder, events_rx) = InputRecorder::start();
-        // Independent live preview, its own capture, so it can never disturb the recording.
-        let preview = LivePreview::start(region, source, mon_origin, amount, self.preview.sink());
+        // The live preview is handed small copies of the recorded frames by the drain below
+        // (it never waits on the preview). One capture, not two: Desktop Duplication allows
+        // a single capture of a display per process.
+        let (tap_tx, tap_rx) = std::sync::mpsc::sync_channel(1);
+        let sink = self.preview.sink();
+        let preview =
+            LivePreview::start(tap_rx, region, mon_origin, amount, !pointer_captured, sink);
         // Audio opens after video so device setup never delays frame 0; each track lays its
         // packets onto the timeline by their counter timestamps. The mic check is stopped
         // first so it doesn't hold a second stream on the same device.
@@ -920,6 +952,7 @@ impl Session {
         let probe_dir = recovery_dir.clone();
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
+            let mut last_tap: Option<std::time::Instant> = None;
             // If a disk write fails mid-recording, stop writing but keep draining the
             // channel (so capture never blocks and RAM stays bounded) and remember why,
             // at stop we finalize with the frames already on disk instead of erroring the
@@ -937,6 +970,10 @@ impl Session {
             loop {
                 match frames_rx.recv_timeout(Duration::from_millis(200)) {
                     Ok(f) => {
+                        if last_tap.is_none_or(|t| t.elapsed() >= live_preview::TAP_EVERY) {
+                            last_tap = Some(std::time::Instant::now());
+                            let _ = tap_tx.try_send(live_preview::sample(&f));
+                        }
                         if write_err.is_none() {
                             since_disk_check += 1;
                             if since_disk_check >= DISK_CHECK_EVERY {
@@ -994,6 +1031,7 @@ impl Session {
             audio_failed,
             camera,
             camera_note,
+            hides_panel,
             pointer_captured,
             smooth_cursor,
         });

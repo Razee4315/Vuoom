@@ -1,12 +1,16 @@
-//! WGC screen capture via `windows-capture` → BGRA frames with QPC timestamps.
+//! Screen capture via `windows-capture` → BGRA frames with QPC timestamps.
 //!
-//! Implements the crate's `GraphicsCaptureApiHandler`; each arrived frame's tightly-packed
-//! BGRA buffer is copied (with a QPC stamp) and sent over a channel. A [`CaptureHandle`]
-//! stops the session. See `docs/03-Capture.md`. (Compile-verified on CI; runtime needs a
-//! real GPU + display.)
+//! Displays are recorded with DXGI Desktop Duplication when it can record them
+//! ([`crate::dxgi`]): it keeps Vuoom's capture-excluded windows out of the frames even where
+//! they overlap the recorded area, on Windows 10 too. Windows, and displays Duplication
+//! can't record, use Windows Graphics Capture: this module implements the crate's
+//! `GraphicsCaptureApiHandler`, copying each arrived frame's tightly packed BGRA buffer (with
+//! a QPC stamp) onto a channel. A [`CaptureHandle`] stops the session and says which
+//! [`Backend`] ran it. See `docs/03-Capture.md`. (Compile-verified on CI; runtime needs a real
+//! GPU + display.)
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::Duration;
 use vuoom_input::Clock;
@@ -38,7 +42,7 @@ pub struct CropRegion {
 }
 
 /// Clamp a requested crop inside the frame, guaranteeing a non-empty rect.
-fn clamp_region(r: CropRegion, w: u32, h: u32) -> (u32, u32, u32, u32) {
+pub(crate) fn clamp_region(r: CropRegion, w: u32, h: u32) -> (u32, u32, u32, u32) {
     let cx = r.x.min(w.saturating_sub(1));
     let cy = r.y.min(h.saturating_sub(1));
     let cw = r.w.min(w - cx).max(1);
@@ -114,6 +118,26 @@ pub enum CaptureError {
     Start(String),
 }
 
+/// Which capture API delivers a session's frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backend {
+    /// DXGI Desktop Duplication (displays).
+    DesktopDuplication,
+    /// Windows Graphics Capture (windows, and displays Duplication can't record).
+    GraphicsCapture,
+}
+
+impl Backend {
+    /// Whether Vuoom's capture-excluded windows (the recording panel) stay out of the frames
+    /// even where they overlap the captured area. Duplication honors the exclusion everywhere;
+    /// WGC does on Windows 11 but records such a window as a black box on Windows 10, so it
+    /// isn't counted on.
+    #[must_use]
+    pub fn hides_excluded_windows(self) -> bool {
+        self == Self::DesktopDuplication
+    }
+}
+
 /// A handle to stop a running capture session.
 #[derive(Clone)]
 pub struct CaptureHandle {
@@ -122,9 +146,16 @@ pub struct CaptureHandle {
     /// full (the drain couldn't keep up). Read by the caller at stop time to warn the user
     /// that the take is choppy, see [`CaptureHandle::dropped`].
     dropped: Arc<AtomicU64>,
+    backend: Backend,
 }
 
 impl CaptureHandle {
+    /// The API recording this session.
+    #[must_use]
+    pub fn backend(&self) -> Backend {
+        self.backend
+    }
+
     /// Signal the capture thread to stop on its next frame.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
@@ -334,6 +365,43 @@ pub fn run_display(
     Ok(())
 }
 
+/// Whether a recording of this display (by device name; primary if `None`) would use
+/// Desktop Duplication, and so keep Vuoom's capture-excluded windows out of it wherever they
+/// sit. Opens a duplication to find out, and releases it.
+#[must_use]
+pub fn duplication_available(monitor: Option<&str>) -> bool {
+    pick_monitor(monitor).is_ok_and(crate::dxgi::available)
+}
+
+/// Capture a display, **blocking** until stopped: with Desktop Duplication when it can record
+/// this display, else with WGC. `ready` hears which one runs before the first frame.
+fn run_monitor(
+    tx: SyncSender<CapturedFrame>,
+    stop: Arc<AtomicBool>,
+    crop: Option<CropRegion>,
+    dropped: Arc<AtomicU64>,
+    monitor: Option<&str>,
+    opts: CaptureOptions,
+    ready: &Sender<Backend>,
+) -> Result<(), CaptureError> {
+    let picked = pick_monitor(monitor)?;
+    let started = || {
+        let _ = ready.send(Backend::DesktopDuplication);
+    };
+    match crate::dxgi::run(picked, &tx, &stop, crop, &dropped, opts, started) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            tracing::info!("desktop duplication unavailable ({e}), using graphics capture");
+            let _ = ready.send(Backend::GraphicsCapture);
+            run_display(tx, stop, crop, dropped, monitor, opts)
+        }
+    }
+}
+
+/// How long `spawn_capture` waits to hear which backend runs (opening a display is quick;
+/// this only bounds a stuck driver).
+const BACKEND_WAIT: Duration = Duration::from_secs(3);
+
 /// Frames buffered between the capture thread and the disk-drain consumer. Small on
 /// purpose: it only needs to absorb brief write jitter, and each slot is a full BGRA screen
 /// (several MB), so a large bound would be a large RAM ceiling.
@@ -357,22 +425,31 @@ pub fn spawn_capture(
     // Shared drop counter: the handler increments it whenever the bounded channel is full and
     // the caller reads it back through the returned `CaptureHandle` to warn about a choppy take.
     let dropped = Arc::new(AtomicU64::new(0));
-    let handle = CaptureHandle {
-        stop: Arc::clone(&stop),
-        dropped: Arc::clone(&dropped),
-    };
+    let (stop_handle, dropped_handle) = (Arc::clone(&stop), Arc::clone(&dropped));
+    let (ready_tx, ready_rx) = channel();
     let source = source.clone();
     std::thread::spawn(move || {
         let result = match &source {
             CaptureSource::Monitor { name } => {
-                run_display(tx, stop, crop, dropped, name.as_deref(), opts)
+                run_monitor(tx, stop, crop, dropped, name.as_deref(), opts, &ready_tx)
             }
-            CaptureSource::Window { hwnd } => run_window(tx, stop, crop, dropped, *hwnd, opts),
+            CaptureSource::Window { hwnd } => {
+                let _ = ready_tx.send(Backend::GraphicsCapture);
+                run_window(tx, stop, crop, dropped, *hwnd, opts)
+            }
         };
         if let Err(e) = result {
             tracing::error!("screen capture stopped: {e}");
         }
     });
+    let backend = ready_rx
+        .recv_timeout(BACKEND_WAIT)
+        .unwrap_or(Backend::GraphicsCapture);
+    let handle = CaptureHandle {
+        stop: stop_handle,
+        dropped: dropped_handle,
+        backend,
+    };
     (rx, handle)
 }
 

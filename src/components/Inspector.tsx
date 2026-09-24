@@ -127,7 +127,7 @@ const KIND_ICON: Record<string, IconName> = {
   Box: "shape",
   Ellipse: "shape",
   Highlight: "highlight",
-  Mask: "mask",
+  "Hidden area": "mask",
 };
 
 function SelectionPanel() {
@@ -169,16 +169,16 @@ function SelectionPanel() {
           <p>Click something on the video or the timeline to edit it, or pick a tool to draw.</p>
           <div class="insp-empty-keys">
             <span>
+              <kbd>Z</kbd> Zoom
+            </span>
+            <span>
+              <kbd>C</kbd> Cut
+            </span>
+            <span>
               <kbd>T</kbd> Text
             </span>
             <span>
               <kbd>A</kbd> Arrow
-            </span>
-            <span>
-              <kbd>S</kbd> Box
-            </span>
-            <span>
-              <kbd>Z</kbd> Zoom here
             </span>
           </div>
         </div>
@@ -454,10 +454,10 @@ function AnnotationProps() {
       </Show>
 
       <Show when={ed.isMask()}>
-        <Section id="ann-mask" title="Redaction" icon="mask">
+        <Section id="ann-mask" title="Hide" icon="mask">
           <p class="note">
-            The masked area renders as solid black in the export, whatever was underneath. Drag its bar on
-            the timeline to control when it covers the frame.
+            Covered with solid black in the export, so nothing underneath can be read. Drag its bar on the
+            timeline to choose when it covers the frame.
           </p>
         </Section>
       </Show>

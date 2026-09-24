@@ -61,14 +61,13 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
       { keys: ["A"], label: "Arrow" },
       { keys: ["S"], label: "Shape" },
       { keys: ["H"], label: "Highlight" },
-      { keys: ["M"], label: "Mask (redact)" },
+      { keys: ["M"], label: "Hide (cover private details)" },
     ],
   },
   {
     group: "Insert",
     items: [
-      { keys: ["Z"], label: "Zoom at playhead" },
-      { keys: ["X"], label: "Speed at playhead" },
+      { keys: ["X"], label: "Speed up at playhead" },
       { keys: ["C"], label: "Cut at playhead" },
     ],
   },

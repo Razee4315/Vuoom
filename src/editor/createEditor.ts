@@ -45,6 +45,14 @@ import type {
   ZoomStyle,
 } from "../types";
 
+/** A box's name, after the tool that makes it: Hide, Highlight (a see-through fill) or Shape. */
+function boxLabel(b: BoxAnn): string {
+  if (b.shape === "Mask") return "Hidden area";
+  if (b.shape === "Ellipse") return "Ellipse";
+  if (b.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
+  return "Box";
+}
+
 export function createEditor() {
   const [tool, setTool] = createSignal<Tool>("select");
   // When locked, a drawing tool stays active after creating an element (draw several in a
@@ -1587,10 +1595,7 @@ export function createEditor() {
     const s = selected()!;
     if (s.kind === "box") {
       const b = selectedBox();
-      if (b?.shape === "Mask") return "Mask";
-      if (b?.shape === "Ellipse") return "Ellipse";
-      if (b?.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
-      return "Box";
+      return b ? boxLabel(b) : "Box";
     }
     if (s.kind === "arrow") return selectedArrow()?.style === "Line" ? "Line" : "Arrow";
     return s.kind[0].toUpperCase() + s.kind.slice(1);
@@ -3313,7 +3318,7 @@ export function createEditor() {
           id: b.id,
           start: b.range.start,
           end: b.range.end,
-          label: b.shape === "Ellipse" ? "Ellipse" : "Box",
+          label: boxLabel(b),
         });
       // Reuse the previous object for an unchanged id+span so row identity survives.
       for (let i = 0; i < next.length; i++) {

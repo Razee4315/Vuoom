@@ -364,6 +364,18 @@
   cursor: pointer;
 }
 
+/* Multi-line label text in the inspector. */
+.text-field {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 30px;
+  padding: 6px 10px;
+  resize: none;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
 /* Captions (Clip > Captions): progress while making them, then the actions row. */
 .cap-job {
   display: flex;

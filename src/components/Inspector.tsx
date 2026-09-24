@@ -365,14 +365,22 @@ function AnnotationProps() {
         {(t) => (
           <>
             <Section id="ann-text" title="Text" icon="text">
-              <input
-                class="input"
-                type="text"
+              <textarea
+                class="input text-field"
+                rows={Math.min(4, Math.max(1, t().text.split("\n").length))}
                 spellcheck={false}
                 placeholder="Label text"
                 aria-label="Label text"
+                data-tip="Shift+Enter starts a new line. Double-click the label to type on the video"
                 ref={ed.refs.contentInput}
                 onInput={(e) => ed.editText(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  // Enter alone leaves the field; Shift+Enter is a new line.
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
               />
               <Field label="Size">
                 <ScrubField

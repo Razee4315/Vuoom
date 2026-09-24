@@ -267,16 +267,19 @@ pub fn build_scene(
         }
         let font_px = f64::from(ta.font_size) * oh;
         if ta.background {
-            // A translucent plate behind the glyphs (estimated text box), drawn in the
-            // shape pass so it sits under the text. Mirrors the keystroke-chip backing.
-            let tw = ta.text.chars().count() as f64 * font_px * 0.6;
+            // A translucent plate behind the glyphs (estimated text box, every line of it),
+            // drawn in the shape pass so it sits under the text. Mirrors the keystroke-chip
+            // backing.
+            let widest = ta.text.split('\n').map(|l| l.chars().count()).max();
+            let lines = ta.text.split('\n').count().max(1) as f64;
+            let tw = widest.unwrap_or(0) as f64 * font_px * 0.6;
             let pad_x = font_px * 0.3;
             let pad_y = font_px * 0.16;
             highlights.push(ResolvedHighlight {
                 x: ta.pos.x * ow - pad_x,
                 y: ta.pos.y * oh - pad_y,
                 w: tw + pad_x * 2.0,
-                h: font_px * 1.25 + pad_y * 2.0,
+                h: font_px * 1.25 * lines + pad_y * 2.0,
                 thickness_px: 0.0,
                 filled: true,
                 ellipse: false,

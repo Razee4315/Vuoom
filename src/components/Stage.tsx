@@ -1,8 +1,9 @@
 // The stage: the composited preview frame with the interactive annotation overlay on top
 // (select / move / resize / draw), the zoom-focus crosshair, snap guides, and the inline
 // text editor. The overlay mirrors the export renderer so what you see is what ships.
-import { For, Show } from "solid-js";
+import { For, Index, Show } from "solid-js";
 import { useEditor } from "../editor/context";
+import { LINE_HEIGHT, textBox } from "../editor/textMetrics";
 import { CORNER_CURSORS, fontCss } from "../editor/constants";
 import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
@@ -162,7 +163,8 @@ export default function Stage() {
                   const g = () => ed.liveGeom("text", tx.id);
                   const p = () => ed.px({ x: g()[0], y: g()[1] });
                   const fs = () => ed.liveFont(tx.id, tx.font_size) * ed.stage().h;
-                  const wbox = () => Math.max(40, tx.text.length * fs() * 0.6);
+                  const box = () => textBox(tx, fs());
+                  const wbox = () => box().w;
                   return (
                     <g
                       opacity={ed.isGhost(tx.range, sel()) ? 0.35 : 1}
@@ -174,7 +176,7 @@ export default function Stage() {
                           x={p().x - fs() * 0.3}
                           y={p().y - fs() * 0.16}
                           width={wbox() + fs() * 0.6}
-                          height={fs() * 1.25 + fs() * 0.32}
+                          height={box().h + fs() * 0.32}
                           rx={fs() * 0.12}
                         />
                       </Show>
@@ -187,9 +189,16 @@ export default function Stage() {
                           "font-family": fontCss(tx.font),
                           "font-weight": tx.bold ? "700" : "400",
                           "font-style": tx.italic ? "italic" : "normal",
+                          "white-space": "pre",
                         }}
                       >
-                        {tx.text}
+                        <Index each={box().lines}>
+                          {(line, i) => (
+                            <tspan x={p().x} y={p().y + fs() + i * LINE_HEIGHT * fs()}>
+                              {line() || " "}
+                            </tspan>
+                          )}
+                        </Index>
                       </text>
                       <Show when={sel()}>
                         <rect
@@ -197,14 +206,14 @@ export default function Stage() {
                           x={p().x - 4}
                           y={p().y - 4}
                           width={wbox() + 8}
-                          height={fs() + 8}
+                          height={box().h + 8}
                         />
                         <Handles
                           pts={[
                             { x: p().x, y: p().y },
                             { x: p().x + wbox(), y: p().y },
-                            { x: p().x, y: p().y + fs() },
-                            { x: p().x + wbox(), y: p().y + fs() },
+                            { x: p().x, y: p().y + box().h },
+                            { x: p().x + wbox(), y: p().y + box().h },
                           ]}
                           cursors={CORNER_CURSORS}
                         />
@@ -331,43 +340,7 @@ export default function Stage() {
       </svg>
 
       <Show when={ed.editingTextAnn()}>
-        {(() => {
-          const id = ed.editingText()!;
-          // Reactive accessors so the editor box tracks the label as the canvas
-          // resizes (e.g. when the inspector opens). The value stays uncontrolled
-          // (seeded once) so typing never resets the caret.
-          const live = () => ed.anns().texts.find((t) => t.id === id);
-          const initial = live()?.text ?? "";
-          const p = () => {
-            const t = live();
-            return t ? ed.px({ x: v2(t.pos).x, y: v2(t.pos).y }) : { x: 0, y: 0 };
-          };
-          const fs = () => (live()?.font_size ?? 0.05) * ed.stage().h;
-          return (
-            <input
-              class="text-edit"
-              style={{
-                left: `${p().x}ed.px`,
-                top: `${p().y}ed.px`,
-                "font-size": `${fs()}ed.px`,
-                "font-family": fontCss(live()?.font ?? ""),
-                "font-weight": live()?.bold ? "700" : "400",
-                "font-style": live()?.italic ? "italic" : "normal",
-              }}
-              value={initial}
-              spellcheck={false}
-              ref={(el) => queueMicrotask(() => { el.focus(); el.select(); })}
-              onInput={(e) => ed.editTextLive(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === "Escape") {
-                  e.preventDefault();
-                  e.currentTarget.blur();
-                }
-              }}
-              onBlur={() => void ed.finishTextEdit()}
-            />
-          );
-        })()}
+        <InlineTextEditor />
       </Show>
         <Show when={ed.cropEdit()}>
           <CropEditor />
@@ -377,5 +350,75 @@ export default function Stage() {
         <CropBar />
       </Show>
     </main>
+  );
+}
+
+// The inline text editor, a component of its own so it is built once per edit: reading the
+// labels in the parent Show would rebuild it (and re-select every word) on each keystroke.
+function InlineTextEditor() {
+  const ed = useEditor();
+  // Reactive accessors so the editor box tracks the label as the canvas resizes (e.g. when
+  // the inspector opens) and follows its id from temporary to real. The value stays
+  // uncontrolled (seeded once) so typing never resets the caret.
+  const live = () => ed.editingTextAnn();
+  const initial = live()?.text ?? "";
+  const p = () => {
+    const t = live();
+    return t ? ed.px({ x: v2(t.pos).x, y: v2(t.pos).y }) : { x: 0, y: 0 };
+  };
+  const fs = () => (live()?.font_size ?? 0.05) * ed.stage().h;
+  // Sized to the words as they are typed (one character of slack so the caret fits).
+  const box = () => {
+    const t = live();
+    return t ? textBox(t, fs()) : { w: fs(), h: fs() * LINE_HEIGHT, lines: [""] };
+  };
+  // Enter keeps the words, Escape puts back what was there; either way the blur that
+  // follows must not commit a second time.
+  let done = false;
+  const finish = (cancel: boolean) => {
+    if (done) return;
+    done = true;
+    void ed.finishTextEdit(cancel);
+  };
+  return (
+    <textarea
+      class="text-edit"
+      classList={{ plate: !!live()?.background }}
+      style={{
+        left: `${p().x}px`,
+        top: `${p().y}px`,
+        width: `${box().w + fs() * 0.7}px`,
+        height: `${box().h}px`,
+        "font-size": `${fs()}px`,
+        "line-height": String(LINE_HEIGHT),
+        "font-family": fontCss(live()?.font ?? ""),
+        "font-weight": live()?.bold ? "700" : "400",
+        "font-style": live()?.italic ? "italic" : "normal",
+        color: live() ? cssColor(live()!.color) : undefined,
+      }}
+      value={initial}
+      rows={1}
+      wrap="off"
+      spellcheck={false}
+      aria-label="Text label"
+      ref={(el) =>
+        queueMicrotask(() => {
+          el.focus();
+          el.select();
+        })
+      }
+      onInput={(e) => ed.editTextLive(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        // Shift+Enter starts a new line; Enter alone is done.
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          finish(false);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          finish(true);
+        }
+      }}
+      onBlur={() => finish(false)}
+    />
   );
 }

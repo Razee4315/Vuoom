@@ -4,12 +4,13 @@
 //
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
-import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { batch, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { invoke, isMock, save, open, ask, check, relaunch, type Update } from "../bridge";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { createCaptions } from "./captions";
+import { LINE_HEIGHT, textBox } from "./textMetrics";
 import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
@@ -839,6 +840,14 @@ export function createEditor() {
     } else if ((e.key === "Delete" || e.key === "Backspace") && selCut() !== null) {
       e.preventDefault();
       void deleteSelectedCut();
+    } else if (
+      (e.key === "Enter" || e.key === "F2") &&
+      selected()?.kind === "text" &&
+      selCount() === 1 &&
+      editingText() === null
+    ) {
+      e.preventDefault();
+      beginTextEdit(selected()!.id);
     } else if ((e.key === "Delete" || e.key === "Backspace") && selCaption() !== null) {
       e.preventDefault();
       void deleteSelectedCaption();
@@ -1049,8 +1058,11 @@ export function createEditor() {
   };
   // Approximate width of a text label in normalized-X space (glyph width is in height-
   // fraction units; convert to width fraction). Shared by hit-testing and resize handles.
-  const textWNorm = (t: TextAnn) =>
-    Math.max(t.text.length * t.font_size * 0.6 * (stage().h / Math.max(stage().w, 1)), 0.05);
+  // A label's measured size (normalized): its widest line, and all its lines.
+  const textWNorm = (t: TextAnn, font = t.font_size) =>
+    Math.max(textBox(t, font * stage().h).w / Math.max(stage().w, 1), 0.02);
+  const textHNorm = (t: TextAnn, font = t.font_size) =>
+    t.text.split("\n").length * LINE_HEIGHT * font;
   // The live font size for a text label (the scale-text drag override, else the stored size).
   const liveFont = (id: number, fallback: number) => {
     const d = drag();
@@ -1077,7 +1089,7 @@ export function createEditor() {
       if (t) {
         const pos = v2(t.pos);
         const w = textWNorm(t);
-        const h = t.font_size;
+        const h = textHNorm(t);
         if (near(pos.x, pos.y)) return "nw";
         if (near(pos.x + w, pos.y)) return "ne";
         if (near(pos.x, pos.y + h)) return "sw";
@@ -1086,29 +1098,25 @@ export function createEditor() {
     }
     return null;
   };
+  // Topmost first, the way the canvas stacks them: text over arrows over boxes, and within
+  // each kind the later one on top. A label sitting on a box is picked, not the box.
   const hitTest = (p: Vec2): Selection | null => {
-    for (const b of anns().highlights) {
+    for (const t of [...anns().texts].reverse()) {
+      if (!inView(t.range, false)) continue;
+      const pos = v2(t.pos);
+      const [w, h] = [textWNorm(t), textHNorm(t)];
+      if (p.x >= pos.x - TOL() && p.x <= pos.x + w + TOL() && p.y >= pos.y - TOL() && p.y <= pos.y + h + TOL())
+        return { kind: "text", id: t.id };
+    }
+    for (const a of [...anns().arrows].reverse()) {
+      if (!inView(a.range, false)) continue;
+      if (distToSeg(p, v2(a.from), v2(a.to)) <= TOL() * 1.5) return { kind: "arrow", id: a.id };
+    }
+    for (const b of [...anns().highlights].reverse()) {
       if (!inView(b.range, false)) continue;
       const [x, y, w, h] = [b.rect.x, b.rect.y, b.rect.w, b.rect.h];
       if (p.x >= x - TOL() && p.x <= x + w + TOL() && p.y >= y - TOL() && p.y <= y + h + TOL())
         return { kind: "box", id: b.id };
-    }
-    for (const a of anns().arrows) {
-      if (!inView(a.range, false)) continue;
-      if (distToSeg(p, v2(a.from), v2(a.to)) <= TOL() * 1.5) return { kind: "arrow", id: a.id };
-    }
-    for (const t of anns().texts) {
-      if (!inView(t.range, false)) continue;
-      const pos = v2(t.pos);
-      const wApprox = textWNorm(t);
-      // The glyphs sit between pos.y (top) and pos.y + font_size (baseline); pad by TOL.
-      if (
-        p.x >= pos.x - TOL() &&
-        p.x <= pos.x + wApprox + TOL() &&
-        p.y >= pos.y - TOL() &&
-        p.y <= pos.y + t.font_size + TOL()
-      )
-        return { kind: "text", id: t.id };
     }
     return null;
   };
@@ -1168,8 +1176,18 @@ export function createEditor() {
   };
 
   // ── pointer interaction on the overlay ───────────────────────────────────────────
+  // Chromium (and so WebView2) reports `detail` 0 on pointerdown, so presses are counted
+  // here: a second press soon after the first, in about the same place, is a double-click.
+  let lastPress = { t: -1e9, x: 0, y: 0, n: 0 };
+  const pressCount = (e: PointerEvent) => {
+    const near = Math.hypot(e.clientX - lastPress.x, e.clientY - lastPress.y) <= 6;
+    const n = e.timeStamp - lastPress.t < 450 && near ? lastPress.n + 1 : 1;
+    lastPress = { t: e.timeStamp, x: e.clientX, y: e.clientY, n };
+    return Math.max(n, e.detail);
+  };
   const onPointerDown = async (e: PointerEvent) => {
     if (!hasClip()) return;
+    const presses = pressCount(e);
     try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     const p = norm(e);
     const t = tool();
@@ -1217,7 +1235,7 @@ export function createEditor() {
         "pointerup",
         () => {
           const sid = selected()?.id;
-          if (sid === tempId || sid === resolvedId) setEditingText(sid);
+          if (sid === tempId || sid === resolvedId) beginTextEdit(sid, true);
         },
         { once: true },
       );
@@ -1228,18 +1246,21 @@ export function createEditor() {
         const cs = anns();
         const t = cs.texts.find((x) => x.id === tempId);
         if (t) t.id = realId;
-        setAnns({ texts: [...cs.texts], arrows: [...cs.arrows], highlights: [...cs.highlights] });
-        if (selected()?.id === tempId) setSelected({ kind: "text", id: realId });
-        if (editingText() === tempId) setEditingText(realId);
+        // One update, so the open inline editor never sees its label missing and closes.
+        batch(() => {
+          setAnns({ ...cs, texts: [...cs.texts] });
+          if (selected()?.id === tempId) setSelected({ kind: "text", id: realId });
+          if (editingText() === tempId) setEditingText(realId);
+        });
+        if (editOrigin?.id === tempId) editOrigin.id = realId;
         return realId;
       })();
       pendingTemp.set(tempId, creation);
       void creation
-        .then(async (realId) => {
+        .then(async () => {
           pendingTemp.delete(tempId);
           await refresh();
           await pushSeek(playhead());
-          if (selected()?.id === realId) setEditingText(realId);
         })
         .catch(async (e) => {
           pendingTemp.delete(tempId);
@@ -1272,9 +1293,9 @@ export function createEditor() {
       return;
     }
 
-    // Second click of a double-click on a text label → inline edit. Detected here via
-    // e.detail because pointer capture can swallow the synthesized dblclick event.
-    if (e.detail >= 2) {
+    // Second click of a double-click on a text label → inline edit. Detected here (see
+    // pressCount) because pointer capture can swallow the synthesized dblclick event.
+    if (presses >= 2) {
       const hit = hitTest(p);
       if (hit?.kind === "text") {
         setDrag(null);
@@ -1306,7 +1327,7 @@ export function createEditor() {
         // passed; the trailing `mouseup`/`click`/`dblclick` carry no focus default, so the input
         // keeps focus until the user blurs / presses Enter / Esc. This is event-driven (no timer).
         const id = hit.id;
-        window.addEventListener("pointerup", () => setEditingText(id), { once: true });
+        window.addEventListener("pointerup", () => beginTextEdit(id), { once: true });
         return;
       }
     }
@@ -1320,7 +1341,7 @@ export function createEditor() {
         const tx = anns().texts.find((x) => x.id === s.id)!;
         const pos = v2(tx.pos);
         const w = textWNorm(tx);
-        const ht = tx.font_size;
+        const ht = textHNorm(tx);
         const opp: Record<string, Vec2> = {
           nw: { x: pos.x + w, y: pos.y + ht },
           ne: { x: pos.x, y: pos.y + ht },
@@ -1531,7 +1552,7 @@ export function createEditor() {
   };
   // The inspector "Content" field is seeded from the model only while it is NOT focused, so
   // the async edit→refresh round-trip can't reset the caret to the end mid-typing.
-  let contentInput: HTMLInputElement | undefined;
+  let contentInput: HTMLTextAreaElement | undefined;
   createEffect(() => {
     const t = selectedText();
     const el = contentInput;
@@ -1908,14 +1929,29 @@ export function createEditor() {
       },
     );
   };
-  const finishTextEdit = async () => {
+  // What a label said when its editing began, so Escape can put it back (and a label just
+  // made with the Text tool can be taken away again).
+  let editOrigin: { id: number; text: string; isNew: boolean } | null = null;
+  const beginTextEdit = (id: number, isNew = false) => {
+    const t = anns().texts.find((x) => x.id === id);
+    editOrigin = { id, text: t?.text ?? "", isNew };
+    setEditingText(id);
+  };
+  /** End inline editing: keep the words, or with `cancel` (Escape) put back what was there. */
+  const finishTextEdit = async (cancel = false) => {
     const picked = editingText();
     setEditingText(null);
     if (picked === null) return;
+    const origin = editOrigin?.id === picked ? editOrigin : null;
+    editOrigin = null;
     const id = await ensureRealId(picked);
+    if (cancel && origin && !origin.isNew) {
+      patchAnn("text", id, (a) => ((a as TextAnn).text = origin.text));
+      await invoke("update_text", { id, text: origin.text });
+    }
     await refresh(); // sync the live-typed value before deciding
     const ann = anns().texts.find((t) => t.id === id);
-    if (ann && ann.text.trim() === "") {
+    if (ann && (ann.text.trim() === "" || (cancel && origin?.isNew))) {
       await invoke("delete_annotation", { id });
       setSelected(null);
       await refresh();
@@ -3653,7 +3689,7 @@ export function createEditor() {
     recordBtn: (el: HTMLButtonElement) => {
       recordBtnEl = el;
     },
-    contentInput: (el: HTMLInputElement) => {
+    contentInput: (el: HTMLTextAreaElement) => {
       contentInput = el;
       // The field mounts after the selection changed, so seed it now.
       el.value = selectedText()?.text ?? "";
@@ -3913,6 +3949,8 @@ export function createEditor() {
     editingTextAnn,
     editTextLive,
     finishTextEdit,
+    beginTextEdit,
+    textHNorm,
     showSource,
     setShowSource,
     sources,

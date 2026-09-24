@@ -105,7 +105,10 @@ export default function RecordOverlay(props: {
   // Webcam: opened while framing so its bubble previews where it will sit in the take; the
   // same camera then records without reopening.
   const cameras = createCameras();
-  const camera = useCameraPreview(() => framing() && prefs.recordCamera());
+  // It stays open through "preparing" too: closing it there would make the take reopen
+  // the device (or race a reopen) instead of reusing it.
+  const beforeTake = () => phase() === "select" || phase() === "preparing" || phase() === "countdown";
+  const camera = useCameraPreview(() => beforeTake() && prefs.recordCamera());
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
   // resize a given edge). Applied inline so it overrides the base crosshair.
   const [cursor, setCursor] = createSignal("crosshair");

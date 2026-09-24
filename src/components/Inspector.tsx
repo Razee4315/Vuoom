@@ -1035,6 +1035,49 @@ function ClipPanel() {
         </Show>
       </Section>
 
+      <Section id="clip-pointer" title="Pointer" icon="cursor">
+        <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
+          <Switch checked={!!ed.cursorStyle()} label="Smooth pointer" onChange={() => ed.toggleCursor()} />
+        </Field>
+        <Show when={ed.cursorStyle()}>
+          {(c) => (
+            <>
+              <Field label="Size" stack>
+                <Slider
+                  value={c().size}
+                  min={0.5}
+                  max={3}
+                  step={0.05}
+                  label="Pointer size"
+                  format={(v) => `${v.toFixed(1)}×`}
+                  onInput={ed.setCursorSize}
+                />
+              </Field>
+              <Field label="Smoothing" stack>
+                <Slider
+                  value={c().smoothing}
+                  min={0}
+                  max={0.2}
+                  step={0.01}
+                  label="Pointer smoothing"
+                  format={(v) => (v === 0 ? "Off" : v < 0.04 ? "Light" : v < 0.1 ? "Medium" : "Heavy")}
+                  onInput={ed.setCursorSmoothing}
+                />
+              </Field>
+            </>
+          )}
+        </Show>
+        <Show when={ed.cursorStyle() && ed.pointerCaptured()}>
+          <p class="note">
+            The real pointer is also in this take, so two show. Set the pointer to Smooth before recording for a
+            clean result.
+          </p>
+        </Show>
+        <Show when={!ed.cursorStyle() && !ed.pointerCaptured()}>
+          <p class="note">This take has no visible pointer. Turn on the smooth pointer to show one.</p>
+        </Show>
+      </Section>
+
       <Section id="clip-overlays" title="Overlays" icon="clicks">
         <Field label="Click ripples" hint="An expanding ring at every recorded click">
           <Switch checked={ed.showClicks()} label="Click ripples" onChange={() => ed.toggleClicks()} />

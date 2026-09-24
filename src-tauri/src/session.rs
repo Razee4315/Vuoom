@@ -35,8 +35,9 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, ArrowAnnotation, ArrowStyle, AudioKind, AudioTrack,
-    Background, Color, CropRect, FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect,
-    Shadow, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    Background, Color, CropRect, CursorStyle, FrameStyle, HighlightBox, HighlightShape, KeyTap,
+    Project, Rect, Shadow, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig,
+    ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -128,6 +129,10 @@ pub struct ClipState {
     pub frame: FrameInfo,
     /// Recorded audio tracks and how they play (volume, mute).
     pub audio: Vec<AudioTrack>,
+    /// The re-drawn pointer, if on.
+    pub cursor: Option<CursorStyle>,
+    /// Whether the real pointer is in the recorded frames.
+    pub pointer_captured: bool,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -205,6 +210,9 @@ struct Active {
     audio: crate::audio::Captures,
     /// Audio sources that failed to start (the take goes on without them).
     audio_failed: Vec<String>,
+    /// Whether the real pointer is being captured, and whether the take gets a re-drawn one.
+    pointer_captured: bool,
+    smooth_cursor: bool,
 }
 
 #[derive(Default)]
@@ -291,6 +299,8 @@ pub struct Session {
     pending_fps: AtomicU32,
     /// Whether the next recording draws the mouse cursor (see [`Session::set_capture_cursor`]).
     pending_cursor: AtomicBool,
+    /// Whether the next take gets a re-drawn, smoothed pointer.
+    pending_smooth: AtomicBool,
     /// Audio sources for the next recording (see [`Session::set_capture_audio`]).
     audio_choice: Mutex<AudioChoice>,
     /// A microphone check running outside a recording (level meter only, nothing saved).
@@ -339,6 +349,7 @@ impl Session {
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
             pending_cursor: AtomicBool::new(true),
+            pending_smooth: AtomicBool::new(false),
             audio_choice: Mutex::new(AudioChoice::default()),
             mic_check: Mutex::new(None),
             current_recovery: Mutex::new(None),
@@ -459,10 +470,20 @@ impl Session {
     }
 
     /// Show or hide the mouse cursor in the next recording. Zooms still follow the cursor
-    /// either way (they are driven by the input log, not the pixels).
-    pub fn set_capture_cursor(&self, show: bool) -> Result<(), String> {
+    /// either way (they are driven by the input log, not the pixels). With `smooth`, the
+    /// take also gets a re-drawn, smoothed pointer (meant for a hidden real one).
+    pub fn set_capture_cursor(&self, show: bool, smooth: bool) -> Result<(), String> {
         self.pending_cursor.store(show, Ordering::Relaxed);
+        self.pending_smooth.store(smooth, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Turn the re-drawn pointer on or off and set its size and path smoothing.
+    pub fn set_cursor_style(&self, enabled: bool, size: f32, smoothing: f32) -> Result<(), String> {
+        self.with_project("cursor-style", |p| {
+            p.cursor = enabled.then(|| CursorStyle { size, smoothing }.clamped());
+            Ok(())
+        })
     }
 
     /// Choose the audio the next recording captures: the microphone (`mic_device` = an
@@ -698,15 +719,20 @@ impl Session {
         // recover time (see `recover_session`); this placeholder just has to parse. Without
         // it, a crash before stop would strand the on-disk frames with nothing to open them.
         let (rw, rh) = region.map_or((0, 0), |r| (r.w, r.h));
-        if let Ok(json) = Project::new(SourceInfo {
+        let mut placeholder = Project::new(SourceInfo {
             path: String::new(),
             width: rw,
             height: rh,
             fps: 0.0,
             duration: 0.0,
-        })
-        .to_json()
-        {
+        });
+        // A recovered take must still know its pointer was hidden and re-drawn.
+        placeholder.pointer_captured = self.pending_cursor.load(Ordering::Relaxed);
+        placeholder.cursor = self
+            .pending_smooth
+            .load(Ordering::Relaxed)
+            .then(CursorStyle::default);
+        if let Ok(json) = placeholder.to_json() {
             let _ = std::fs::write(frame_store::project_path(&recovery_dir), json);
         }
 
@@ -714,9 +740,11 @@ impl Session {
         // arrives during startup can be stamped earlier than the epoch (a negative time would
         // otherwise slip into normalization / zoom planning).
         let start_qpc = self.clock.now();
+        let pointer_captured = self.pending_cursor.load(Ordering::Relaxed);
+        let smooth_cursor = self.pending_smooth.load(Ordering::Relaxed);
         let opts = CaptureOptions {
             max_fps: self.pending_fps.load(Ordering::Relaxed),
-            cursor: self.pending_cursor.load(Ordering::Relaxed),
+            cursor: pointer_captured,
         };
         let (frames_rx, capture) = spawn_capture(region, &source, opts);
         let (recorder, events_rx) = InputRecorder::start();
@@ -815,6 +843,8 @@ impl Session {
             _preview: preview,
             audio,
             audio_failed,
+            pointer_captured,
+            smooth_cursor,
         });
         Ok(())
     }
@@ -949,6 +979,8 @@ impl Session {
         // restorable in the editor if a pause was hit by mistake.
         project.cuts = pauses_to_cuts(&session.pauses, self.clock, session.start_qpc, duration);
         project.audio = audio_tracks;
+        project.pointer_captured = session.pointer_captured;
+        project.cursor = session.smooth_cursor.then(CursorStyle::default);
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -1637,6 +1669,8 @@ impl Session {
                 .into(),
             frame: FrameInfo::of(&project.frame),
             audio: project.audio.clone(),
+            cursor: project.cursor,
+            pointer_captured: project.pointer_captured,
         })
     }
 

@@ -65,6 +65,10 @@ The interface is a quiet workspace built from floating panels you control:
   on any monitor, with pause/resume. Capture is paced at the compositor to the
   frame rate you pick (24 / 30 / 60 fps), so a 144 Hz screen doesn't burn CPU on
   frames nobody needs.
+- 🖱️ **A smooth pointer**: record without the real cursor and Vuoom draws a
+  clean one from your movements, gliding (jitter smoothed out with no lag),
+  pressing on every click, sized so it stays legible in a small GIF, and
+  scaling with the zoom like the real thing.
 - 🎙️ **Narration and system sound**: record your microphone, everything the
   computer plays, or both, each as its own track with a live level meter while
   you frame the shot. Audio is timed by the same clock as the frames, so it

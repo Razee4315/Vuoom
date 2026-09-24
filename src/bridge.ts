@@ -103,8 +103,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "save_project_bundle":
       return null;
     case "seek":
-      m.playhead = Math.max(0, Math.min(m.duration || 0, a.t as number));
-      m.sceneVersion++; // playhead moved: preview clients repaint
+      m.seek(a.t as number);
       return null;
     case "clip_state":
       return m.clipState();
@@ -234,6 +233,12 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "delete_zoom":
       return m.deleteZoom(a.index as number);
     case "set_capture_cursor":
+      m.captureShow = a.show as boolean;
+      m.captureSmooth = (a.smooth as boolean | undefined) ?? false;
+      return null;
+    case "set_cursor_style":
+      m.setCursorStyle(a.enabled as boolean, a.size as number, a.smoothing as number);
+      return null;
     case "set_capture_fps":
       return null;
     case "list_audio_devices":

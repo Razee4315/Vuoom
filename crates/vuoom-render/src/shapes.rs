@@ -1,7 +1,9 @@
-//! Lightweight triangle geometry for flat annotation shapes (highlight boxes + arrows).
-//! Generated manually (no tessellation dependency) and drawn with `shaders/shapes.wgsl`.
+//! Lightweight triangle geometry for flat annotation shapes (highlight boxes + arrows) and
+//! the re-drawn pointer. Generated manually (no tessellation dependency) and drawn with
+//! `shaders/shapes.wgsl`.
 
-use crate::scene::{ResolvedArrow, ResolvedHighlight, Scene};
+use crate::cursor::{offset_polygon, ARROW, ARROW_TRIS};
+use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, Scene};
 use vuoom_project::Color;
 
 /// A colored 2D vertex in output-pixel space.
@@ -154,6 +156,43 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     }
 }
 
+/// The pointer: a soft shadow, a dark outline, then the white body. A click presses it
+/// slightly smaller toward its tip.
+fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
+    let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0));
+    const SHADOW: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
+    const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
+    const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let shadow = offset_polygon(&ARROW, 0.09);
+    let outline = offset_polygon(&ARROW, 0.06);
+    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], SHADOW);
+    fill_arrow(out, c, scale, &outline, [0.0, 0.0], OUTLINE);
+    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], BODY);
+}
+
+/// Fill an arrow-shaped polygon (pointer units, tip at the origin, vertices matching
+/// [`ARROW`]) at the pointer's tip, shifted by `shift` pointer units.
+fn fill_arrow(
+    out: &mut Vec<ShapeVertex>,
+    c: &ResolvedCursor,
+    scale: f64,
+    poly: &[[f64; 2]],
+    shift: [f64; 2],
+    color: [f32; 4],
+) {
+    let px = |p: [f64; 2]| {
+        [
+            (c.x + (p[0] + shift[0]) * scale) as f32,
+            (c.y + (p[1] + shift[1]) * scale) as f32,
+        ]
+    };
+    for [a, b, t] in ARROW_TRIS {
+        for pos in [px(poly[a]), px(poly[b]), px(poly[t])] {
+            out.push(ShapeVertex { pos, color });
+        }
+    }
+}
+
 /// Build the triangle list for all of a scene's highlights and arrows.
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
@@ -172,6 +211,10 @@ pub fn build_shape_vertices(scene: &Scene) -> Vec<ShapeVertex> {
     }
     for a in &scene.arrows {
         arrow(&mut out, a);
+    }
+    // Last, so the pointer sits above everything it points at.
+    if let Some(c) = &scene.cursor {
+        cursor(&mut out, c);
     }
     out
 }

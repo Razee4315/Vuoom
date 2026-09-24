@@ -293,6 +293,7 @@ pub fn run() {
             commands::audio_levels,
             commands::audio_track,
             commands::set_audio_track,
+            commands::set_audio_cleanup,
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,

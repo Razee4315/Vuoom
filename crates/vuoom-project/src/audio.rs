@@ -40,6 +40,12 @@ pub struct AudioTrack {
     pub gain: f32,
     #[serde(default)]
     pub muted: bool,
+    /// Voice clean-up: remove background noise.
+    #[serde(default)]
+    pub denoise: bool,
+    /// Voice clean-up: even out the volume.
+    #[serde(default)]
+    pub level: bool,
 }
 
 impl AudioTrack {
@@ -53,7 +59,29 @@ impl AudioTrack {
             offset: 0.0,
             gain: 1.0,
             muted: false,
+            denoise: false,
+            level: false,
         }
+    }
+
+    /// Whether any voice clean-up applies (the track then plays a processed copy).
+    #[must_use]
+    pub fn cleaned(&self) -> bool {
+        self.denoise || self.level
+    }
+
+    /// The file the processed copy is cached in, named by the clean-up it has, so a cached
+    /// copy never stands in for different settings. `None` when no clean-up applies.
+    #[must_use]
+    pub fn cleaned_file_name(&self) -> Option<String> {
+        let tag = match (self.denoise, self.level) {
+            (false, false) => return None,
+            (true, false) => "denoise",
+            (false, true) => "level",
+            (true, true) => "denoise-level",
+        };
+        let stem = self.kind.file_name().trim_end_matches(".wav");
+        Some(format!("{stem}.{tag}.wav"))
     }
 
     /// The gain actually applied: zero when muted.
@@ -85,5 +113,18 @@ mod tests {
         t.muted = true;
         assert!(t.effective_gain().abs() < f32::EPSILON);
         assert_eq!(AudioKind::System.file_name(), "system.wav");
+    }
+
+    #[test]
+    fn each_clean_up_has_its_own_cache_file() {
+        let mut t = AudioTrack::new(AudioKind::Mic);
+        assert!(!t.cleaned());
+        assert_eq!(t.cleaned_file_name(), None);
+        t.denoise = true;
+        assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.denoise.wav"));
+        t.level = true;
+        assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.denoise-level.wav"));
+        t.denoise = false;
+        assert_eq!(t.cleaned_file_name().as_deref(), Some("mic.level.wav"));
     }
 }

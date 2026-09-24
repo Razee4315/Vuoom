@@ -509,14 +509,16 @@ pub async fn audio_levels(engine: tauri::State<'_, Engine>) -> Result<AudioLevel
     Ok(AudioLevels { mic, system })
 }
 
-/// The loaded clip's recorded track as WAV bytes (an `ArrayBuffer` on the JS side), for the
-/// timeline waveform and preview playback.
+/// The loaded clip's track as it plays, as WAV bytes (an `ArrayBuffer` on the JS side), for
+/// the timeline waveform and preview playback. Runs on a blocking thread: voice clean-up
+/// of a long take can take seconds.
 #[tauri::command]
-pub async fn audio_track(
-    engine: tauri::State<'_, Engine>,
-    kind: AudioKind,
-) -> Result<tauri::ipc::Response, String> {
-    let bytes = engine.session()?.audio_track_wav(kind)?;
+pub async fn audio_track(app: AppHandle, kind: AudioKind) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Engine>().session()?.audio_track_wav(kind)
+    })
+    .await
+    .map_err(|e| format!("audio: {e}"))??;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -529,6 +531,17 @@ pub fn set_audio_track(
     muted: bool,
 ) -> Result<(), String> {
     engine.session()?.set_audio_track(kind, gain, muted)
+}
+
+/// Turn a recorded track's voice clean-up (noise removal, even volume) on or off.
+#[tauri::command]
+pub fn set_audio_cleanup(
+    engine: tauri::State<'_, Engine>,
+    kind: AudioKind,
+    denoise: bool,
+    level: bool,
+) -> Result<(), String> {
+    engine.session()?.set_audio_cleanup(kind, denoise, level)
 }
 
 /// Cap the next recording's capture frame rate (10-120 fps).

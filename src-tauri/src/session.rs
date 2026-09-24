@@ -523,8 +523,9 @@ impl Session {
         (check.as_ref().map_or(0.0, Recorder::level), 0.0)
     }
 
-    /// The loaded clip's recorded track of `kind` as WAV bytes (source time), for the
-    /// editor's waveform and preview playback.
+    /// The loaded clip's track of `kind` as it plays (with any voice clean-up), as WAV
+    /// bytes in source time, for the editor's waveform and preview playback. Cleaning a
+    /// long take can take seconds the first time; the result is cached.
     pub fn audio_track_wav(&self, kind: AudioKind) -> Result<Vec<u8>, String> {
         let dir = self
             .current_recovery
@@ -532,7 +533,16 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
             .ok_or("no recording")?;
-        vuoom_audio::wav::normalized_bytes(&dir.join(kind.file_name()))
+        let track = self
+            .edited
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .project
+            .as_ref()
+            .and_then(|p| p.audio.iter().find(|t| t.kind == kind).cloned())
+            .unwrap_or_else(|| AudioTrack::new(kind));
+        let pcm = crate::audio::track_pcm(&dir, &track)?;
+        Ok(vuoom_audio::wav::encode(&pcm))
     }
 
     /// Set a track's volume (linear, 0..4) and mute. Drags coalesce into one undo step.
@@ -545,6 +555,26 @@ impl Session {
                 .ok_or("no such audio track")?;
             track.gain = gain.clamp(0.0, AudioTrack::MAX_GAIN);
             track.muted = muted;
+            Ok(())
+        })
+    }
+
+    /// Turn a track's voice clean-up on or off. Unlike volume drags, every toggle is its
+    /// own undo step.
+    pub fn set_audio_cleanup(
+        &self,
+        kind: AudioKind,
+        denoise: bool,
+        level: bool,
+    ) -> Result<(), String> {
+        self.with_project("", |p| {
+            let track = p
+                .audio
+                .iter_mut()
+                .find(|t| t.kind == kind)
+                .ok_or("no such audio track")?;
+            track.denoise = denoise;
+            track.level = level;
             Ok(())
         })
     }

@@ -8,6 +8,9 @@ description = "Microphone and system-audio capture (WASAPI, QPC-aligned), WAV st
 
 [dependencies]
 tracing.workspace = true
+# RNNoise in pure Rust, for "Remove noise" (BSD-3-Clause). Without default features it is
+# just the library: no CLI, no resampler, no training code.
+nnnoiseless = { version = "0.5.2", default-features = false }
 
 # WASAPI capture and endpoint enumeration. Pinned to the version the rest of the workspace
 # uses (0.62) so no second `windows` tree is compiled.

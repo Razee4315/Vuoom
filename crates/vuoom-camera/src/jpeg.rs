@@ -49,7 +49,9 @@ mod imp {
 
     fn encode_com(bgra: &[u8], w: u32, h: u32) -> Result<Vec<u8>> {
         let bgr: Vec<u8> = bgra
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .take(w as usize * h as usize)
             .flat_map(|p| [p[0], p[1], p[2]])
             .collect();
@@ -169,7 +171,7 @@ mod tests {
             .sum();
         let mean = err as f64 / px.len() as f64;
         assert!(mean < 6.0, "mean error {mean}");
-        assert!(back.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(back.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     }
 
     #[test]

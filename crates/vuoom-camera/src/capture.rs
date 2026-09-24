@@ -99,7 +99,7 @@ pub fn downscale(src: &[u8], w: u32, h: u32, tw: u32, th: u32) -> Vec<u8> {
             let mut acc = [0u32; 4];
             for y in y0..y1 {
                 let row = &src[(y * w + x0) * 4..(y * w + x1) * 4];
-                for px in row.chunks_exact(4) {
+                for px in row.as_chunks::<4>().0 {
                     for (a, v) in acc.iter_mut().zip(px) {
                         *a += u32::from(*v);
                     }
@@ -433,7 +433,8 @@ mod imp {
         for y in 0..h {
             // SAFETY: guaranteed by the caller.
             let row = unsafe { std::slice::from_raw_parts(row0.offset(pitch * y as isize), w * 4) };
-            out.extend(row.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2], 255]));
+            let (pixels, _) = row.as_chunks::<4>();
+            out.extend(pixels.iter().flat_map(|p| [p[0], p[1], p[2], 255]));
         }
         out
     }
@@ -527,7 +528,7 @@ mod imp {
             if let Some(w) = writer.as_mut() {
                 if w.push(t, &encoded)? {
                     let n = shared.frames.fetch_add(1, Ordering::Relaxed) + 1;
-                    if n % FLUSH_EVERY == 0 {
+                    if n.is_multiple_of(FLUSH_EVERY) {
                         w.flush()?;
                     }
                 }

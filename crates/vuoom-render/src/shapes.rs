@@ -157,17 +157,19 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
 }
 
 /// The pointer: a soft shadow, a dark outline, then the white body. A click presses it
-/// slightly smaller toward its tip.
+/// slightly smaller toward its tip; fading out while idle, it also shrinks a little.
 fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
-    let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0));
+    let fade = c.opacity.clamp(0.0, 1.0);
+    let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0)) * (0.8 + 0.2 * fade);
     const SHADOW: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
     const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
     const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let faded = |[r, g, b, a]: [f32; 4]| [r, g, b, a * fade as f32];
     let shadow = offset_polygon(&ARROW, 0.09);
     let outline = offset_polygon(&ARROW, 0.06);
-    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], SHADOW);
-    fill_arrow(out, c, scale, &outline, [0.0, 0.0], OUTLINE);
-    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], BODY);
+    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], faded(SHADOW));
+    fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
+    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(BODY));
 }
 
 /// Fill an arrow-shaped polygon (pointer units, tip at the origin, vertices matching

@@ -15,7 +15,7 @@ use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
-use vuoom_project::{AudioKind, CropRect, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
+use vuoom_project::{AudioKind, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle};
 
 /// The visible frame around the recorded region, plus the region it should frame.
 /// Held as Tauri managed state so the record-flow commands can show/clear it.
@@ -472,15 +472,14 @@ pub fn set_capture_cursor(
         .set_capture_cursor(show, smooth.unwrap_or(false))
 }
 
-/// Turn the re-drawn pointer on or off and set its size (0.5-3) and smoothing (seconds).
+/// Turn the re-drawn pointer on (its look: size 0.5-3, smoothing in seconds, hide when
+/// idle) or off (`null`).
 #[tauri::command]
 pub fn set_cursor_style(
     engine: tauri::State<'_, Engine>,
-    enabled: bool,
-    size: f32,
-    smoothing: f32,
+    style: Option<CursorStyle>,
 ) -> Result<(), String> {
-    engine.session()?.set_cursor_style(enabled, size, smoothing)
+    engine.session()?.set_cursor_style(style)
 }
 
 /// Microphones (default first) and whether system sound can be recorded.

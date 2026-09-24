@@ -1085,6 +1085,13 @@ function ClipPanel() {
                   onInput={ed.setCursorSmoothing}
                 />
               </Field>
+              <Field label="Hide when still" hint="Fades out while the mouse rests and is back before it moves">
+                <Switch
+                  checked={!!c().hide_idle}
+                  label="Hide pointer when still"
+                  onChange={(v) => ed.setCursorHideIdle(v)}
+                />
+              </Field>
             </>
           )}
         </Show>

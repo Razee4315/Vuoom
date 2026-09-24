@@ -2515,7 +2515,7 @@ export function createEditor() {
   };
 
   // ── re-drawn pointer ────────────────────────────────────────────────────────────
-  const DEFAULT_CURSOR: CursorStyle = { size: 1.5, smoothing: 0.05 };
+  const DEFAULT_CURSOR: CursorStyle = { size: 1.5, smoothing: 0.05, hide_idle: false };
   const [cursorStyle, setCursorStyle] = createSignal<CursorStyle | null>(null);
   const [pointerCaptured, setPointerCaptured] = createSignal(true);
   // Remembered while the pointer is off, so switching it back on restores the last look.
@@ -2528,8 +2528,7 @@ export function createEditor() {
     setDirty(true);
     cursorSync.push({ style }, async (val, superseded) => {
       try {
-        const s = val.style ?? lastCursor;
-        await invoke("set_cursor_style", { enabled: val.style !== null, size: s.size, smoothing: s.smoothing });
+        await invoke("set_cursor_style", { style: val.style });
         await pushSeek(playhead());
       } catch (e) {
         if (!superseded()) toast(`Pointer change failed: ${friendlyError(e)}`, "error");
@@ -2539,6 +2538,7 @@ export function createEditor() {
   const toggleCursor = () => applyCursor(cursorStyle() ? null : lastCursor);
   const setCursorSize = (size: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), size });
   const setCursorSmoothing = (smoothing: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), smoothing });
+  const setCursorHideIdle = (hide_idle: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), hide_idle });
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
   const keysSync = createSyncSlot<boolean>();
@@ -3530,6 +3530,7 @@ export function createEditor() {
     toggleCursor,
     setCursorSize,
     setCursorSmoothing,
+    setCursorHideIdle,
     looping,
     setLooping,
     anns,

@@ -259,9 +259,15 @@ class MockEngine {
     };
   }
 
-  setCursorStyle(enabled: boolean, size: number, smoothing: number) {
+  setCursorStyle(style: CursorStyle | null) {
     this.mutate("cursor-style", () => {
-      this.cursor = enabled ? { size: Math.max(0.5, Math.min(3, size)), smoothing: Math.max(0, Math.min(0.2, smoothing)) } : null;
+      this.cursor = style
+        ? {
+            size: Math.max(0.5, Math.min(3, style.size)),
+            smoothing: Math.max(0, Math.min(0.2, style.smoothing)),
+            hide_idle: !!style.hide_idle,
+          }
+        : null;
     });
   }
 

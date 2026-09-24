@@ -107,10 +107,12 @@ export interface FrameInfo {
   padding: number;
   corner_radius: number;
   shadow: number;
-  bg_kind: "solid" | "gradient";
+  bg_kind: "solid" | "gradient" | "image";
   bg_from: [number, number, number];
   bg_to: [number, number, number];
   bg_angle: number;
+  /** The backdrop picture's file, for an "image" backdrop. */
+  bg_image?: string | null;
 }
 
 /** Mirrors src-tauri session::ClipState. */

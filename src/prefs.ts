@@ -139,6 +139,17 @@ export function resetLayout(): void {
 // Collapsible inspector sections remember whether they are open, keyed by section id.
 const [sections, setSections] = createSignal<Record<string, boolean>>(read("sections", {}));
 export const sectionOpen = (id: string, fallback = true): boolean => sections()[id] ?? fallback;
+/** Forget whether the sections whose id starts with `prefix` were open, so each falls back
+ *  to its default (a fresh take opens with the Clip settings folded). */
+export function resetSections(prefix: string): void {
+  const next = Object.fromEntries(Object.entries(sections()).filter(([id]) => !id.startsWith(prefix)));
+  setSections(next);
+  try {
+    localStorage.setItem(`${PREFIX}sections`, JSON.stringify(next));
+  } catch {
+    /* storage unavailable */
+  }
+}
 export function toggleSection(id: string, fallback = true): void {
   const next = { ...sections(), [id]: !sectionOpen(id, fallback) };
   setSections(next);

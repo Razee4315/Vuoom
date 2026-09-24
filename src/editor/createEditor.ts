@@ -22,7 +22,7 @@ import { clamp01, distToSeg, v2 } from "../geometry";
 import { fmtBytes, friendlyError, hexRgb } from "../format";
 import { CROP_KEY, TOOL_KEYS } from "../shortcuts";
 import { zoomFrame } from "../geometry";
-import { layout, prefs } from "../prefs";
+import { layout, prefs, resetSections } from "../prefs";
 import type {
   AnnotationSet,
   ArrowAnn,
@@ -2191,6 +2191,8 @@ export function createEditor() {
   const loadFinishedClip = async (summary: RecordingSummary) => {
     // A new clip's tracks load fresh (refreshClip below adopts and decodes them).
     audio.unload();
+    // Each take opens with the Clip settings folded, so the panel reads as a short list.
+    resetSections("clip-");
     setHasClip(true);
     setDuration(summary.duration);
     setSelected(null);
@@ -2610,8 +2612,31 @@ export function createEditor() {
     { name: "dusk", label: "Dusk", css: "linear-gradient(135deg,#2b3043,#0f0f1a)" },
     { name: "paper", label: "Paper", css: "linear-gradient(135deg,#f5f2eb,#d9d4c7)" },
     { name: "midnight", label: "Midnight", css: "linear-gradient(135deg,#0f121a,#030305)" },
+    { name: "ocean", label: "Ocean", css: "linear-gradient(135deg,#216bb8,#081a3d)" },
+    { name: "forest", label: "Forest", css: "linear-gradient(135deg,#29704d,#082117)" },
+    { name: "sunset", label: "Sunset", css: "linear-gradient(135deg,#fa9952,#a82933)" },
+    { name: "sand", label: "Sand", css: "linear-gradient(135deg,#f2e0c2,#c7a37a)" },
     { name: "solid", label: "Solid", css: "#17171a" },
   ];
+  // Pick a picture file for the backdrop. The engine reads it first, so a file that isn't a
+  // picture is refused with a clear message.
+  const chooseBackdropPicture = async () => {
+    if (!hasClip()) return;
+    const path = await open({
+      title: "Choose a backdrop picture",
+      filters: [{ name: "Pictures", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] }],
+    });
+    if (!path) return;
+    try {
+      await invoke("set_background_image", { path });
+      setDirty(true);
+      await refreshFrame();
+      await pushSeek(playhead());
+      setStatus("Backdrop: your picture");
+    } catch (e) {
+      toast(`Couldn't use that picture: ${friendlyError(e)}`, "error");
+    }
+  };
   const bgSync = createSyncSlot<string>();
   const applyBackground = (name: string) => {
     if (!hasClip()) return;
@@ -4103,6 +4128,7 @@ export function createEditor() {
     frameSync,
     applyFramePreset,
     BG_SWATCHES,
+    chooseBackdropPicture,
     bgSync,
     applyBackground,
     clicksSync,

@@ -68,9 +68,15 @@ export function save(opts?: {
   if (!isMock) return tauriSave(opts) as Promise<string | null>;
   return Promise.resolve(`${VIDEOS}\\${opts?.defaultPath ?? "untitled.gif"}`);
 }
-export function open(opts?: { directory?: boolean; title?: string; multiple?: boolean }): Promise<string | null> {
+export function open(opts?: {
+  directory?: boolean;
+  title?: string;
+  multiple?: boolean;
+  filters?: { name: string; extensions: string[] }[];
+}): Promise<string | null> {
   if (!isMock) return tauriOpen(opts) as Promise<string | null>;
-  return Promise.resolve(DEMO_DIR);
+  // A file pick (with filters) gets a demo picture; a folder pick the demo project.
+  return Promise.resolve(opts?.filters ? "C:\\Users\\demo\\Pictures\\Mountains at dawn.jpg" : DEMO_DIR);
 }
 export function ask(
   message: string,
@@ -383,6 +389,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "set_frame_style":
       m.setFrameStyle(a.padding as number, a.cornerRadius as number, a.shadow as number);
+      return null;
+    case "set_background_image":
+      m.setBackgroundImage(a.path as string);
       return null;
     case "set_background_custom":
       m.setBackgroundCustom(

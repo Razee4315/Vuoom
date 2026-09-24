@@ -1,0 +1,107 @@
+/* Motion: small, quick movements that make the interface feel alive and answer every
+   action. Every duration comes from the --dur-* tokens, which drop to 0 when the system
+   asks for reduced motion (see tokens.css), so all of this switches off with it. */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+}
+@keyframes float {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes grow-x {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+}
+
+/* Inspector: a panel fades up as it opens or its tab changes; section contents settle in
+   as a section unfolds. */
+.insp-scroll > .insp-title,
+.insp-scroll > .insp-empty,
+.insp-scroll > .clip-search,
+.insp-scroll > .sect {
+  animation: fade-up var(--dur-3) var(--ease) both;
+}
+.insp-scroll > .sect:nth-of-type(2) {
+  animation-delay: 20ms;
+}
+.insp-scroll > .sect:nth-of-type(3) {
+  animation-delay: 40ms;
+}
+.insp-scroll > .sect:nth-of-type(4) {
+  animation-delay: 60ms;
+}
+.insp-scroll > .sect:nth-of-type(n + 5) {
+  animation-delay: 80ms;
+}
+.sect-body > * {
+  transition:
+    opacity var(--dur-3) var(--ease),
+    transform var(--dur-3) var(--ease);
+}
+.sect:not(.open) .sect-body > * {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.sect-head .badge {
+  animation: fade-in var(--dur-2) var(--ease);
+}
+.sect-toggle .sect-icon {
+  transition: color var(--dur-2) var(--ease);
+}
+.sect-toggle:hover .sect-icon,
+.sect.open .sect-icon {
+  color: var(--text-2);
+}
+.insp-empty-icon {
+  animation: float 3.2s ease-in-out infinite;
+}
+.insp-tab {
+  transition:
+    background var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease);
+}
+
+/* Tool rail: the picked tool's icon pops as it lights up. */
+.rail-tool svg {
+  transition: transform var(--dur-2) var(--spring);
+}
+.rail-tool:hover:not(.on) svg {
+  transform: translateY(-1px) scale(1.08);
+}
+.rail-tool.on svg {
+  animation: pop var(--dur-3) var(--spring);
+}
+
+/* Icon buttons answer a press with a quick squeeze. */
+.ibtn svg {
+  transition: transform var(--dur-2) var(--spring);
+}
+.ibtn:hover:not(:disabled) svg {
+  transform: scale(1.08);
+}
+
+/* Timeline: a new bar grows in from its start. */
+.tl-ann {
+  transform-origin: left center;
+  animation: grow-x var(--dur-3) var(--spring);
+}
+
+/* Switches and sliders: the knob springs. */
+.slider input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}

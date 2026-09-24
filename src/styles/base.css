@@ -819,15 +819,17 @@ select.input {
 
 /* ── toasts ──────────────────────────────────────────────────────────────── */
 
+/* Toasts drop in at the top center, over the video, where they never cover a panel. */
 .toasts {
   position: fixed;
-  right: 16px;
-  bottom: calc(var(--status-h) + 14px);
+  top: calc(var(--titlebar-h) + 12px);
+  left: 50%;
   z-index: 10000;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 .toast {
@@ -897,7 +899,7 @@ select.input {
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(-12px) scale(0.96);
   }
 }
 
@@ -945,25 +947,51 @@ button.chip:hover {
   color: var(--record);
 }
 
+/* Color swatches: round chips at a fixed size, wrapping with room for the selection ring
+   (an outline, so it never pushes or covers a neighbour). */
 .swatches {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 3px;
 }
 .swatch {
-  aspect-ratio: 1;
-  width: 100%;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line-2);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
   padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.28);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
   transition:
-    transform var(--dur-1) var(--ease),
-    box-shadow var(--dur-1) var(--ease);
+    transform var(--dur-2) var(--spring),
+    outline-color var(--dur-2) var(--ease);
 }
 .swatch:hover {
-  transform: scale(1.06);
+  transform: scale(1.12);
+}
+.swatch:active {
+  transform: scale(0.94);
 }
 .swatch.on,
 .swatch[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--ink);
+  outline-color: var(--ink);
+}
+.swatch:focus-visible {
+  box-shadow: none;
+  outline-color: color-mix(in srgb, var(--ink) 60%, transparent);
+}
+.swatch-picture {
+  background: var(--raised);
+}
+.swatch-picture:hover {
+  color: var(--text);
 }

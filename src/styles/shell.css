@@ -116,11 +116,25 @@
   border-color: var(--line-strong);
   color: var(--muted);
 }
+/* The panel toggles: one pill of three, each lit on its own with room between them. */
 .tb-group {
   display: flex;
-  gap: 1px;
-  padding: 0 4px;
-  border-right: 1px solid var(--line-2);
+  gap: 3px;
+  margin: 0 6px;
+  padding: 2px;
+  border-radius: var(--r);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.tb-group .ibtn {
+  width: 26px;
+  height: 24px;
+  border-radius: calc(var(--r) - 3px);
+  color: var(--faint);
+}
+.tb-group .ibtn.on {
+  background: var(--active);
+  color: var(--text);
 }
 .tb-export {
   margin-left: 4px;

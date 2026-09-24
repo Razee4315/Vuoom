@@ -84,7 +84,7 @@ export function zoomMenu(ed: Editor, e: MouseEvent, index: number): void {
       }),
     ),
     { separator: true },
-    { label: "Follow cursor", checked: typeof z.mode !== "object", onSelect: () => void ed.applyZoomFocus(null) },
+    { label: "Follow pointer", checked: typeof z.mode !== "object", onSelect: () => void ed.applyZoomFocus(null) },
     {
       label: "Fixed point",
       checked: typeof z.mode === "object",

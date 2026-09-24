@@ -2152,7 +2152,7 @@ export function createEditor() {
       setZooms(await invoke<ZoomSeg[]>("set_zoom_focus", args));
       setDirty(true);
       await pushSeek(playhead());
-      setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the cursor");
+      setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the pointer");
     } catch (e) {
       setStatus(`Zoom focus failed: ${String(e)}`);
     }

@@ -530,7 +530,7 @@ function ZoomProps() {
         sub={`${z().amount.toFixed(1)}× from ${z().start.toFixed(1)}s to ${z().end.toFixed(1)}s`}
         actions={<IconButton icon="trash" tip="Delete zoom" kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedZoom()} />}
       />
-      <Section id="zoom-camera" title="Camera" icon="zoomIn">
+      <Section id="zoom-aim" title="Strength and aim" icon="zoomIn">
         <Field label="Strength" stack>
           <Slider
             value={z().amount}
@@ -548,7 +548,7 @@ function ZoomProps() {
             value={ed.selZoomFocus() ? "fixed" : "follow"}
             onChange={(v) => void ed.applyZoomFocus(v === "fixed" ? (ed.selZoomFocus() ?? { x: 0.5, y: 0.5 }) : null)}
             options={[
-              { value: "follow", label: "Follow cursor", tip: "The camera tracks your recorded cursor" },
+              { value: "follow", label: "Follow pointer", tip: "The zoom follows your recorded mouse pointer" },
               { value: "fixed", label: "Fixed point", tip: "Hold one spot. Drag the crosshair to aim" },
             ]}
           />
@@ -945,8 +945,8 @@ function ClipPanel() {
       </Section>
 
       <Section
-        id="clip-camera"
-        title="Camera"
+        id="clip-zoom"
+        title="Zooms"
         icon="zoomIn"
         aside={<span class="badge">{ed.zooms().length} zoom{ed.zooms().length === 1 ? "" : "s"}</span>}
       >

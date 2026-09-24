@@ -3798,16 +3798,14 @@ const BACKDROP_MAX: u32 = 2560;
 /// Read a backdrop picture (any format Windows can read) as BGRA, shrunk by a whole factor
 /// until its longest side fits [`BACKDROP_MAX`].
 fn load_backdrop(path: &str) -> Result<(u32, u32, Vec<u8>), String> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| format!("Can't open the picture: {e}"))?;
+    let bytes = std::fs::read(path).map_err(|e| format!("Can't open the picture: {e}"))?;
     let (w, h, px) = vuoom_camera::jpeg::decode_bgra(&bytes)
         .map_err(|_| "That file isn't a picture Vuoom can read.".to_string())?;
     let k = w.max(h).div_ceil(BACKDROP_MAX);
     if k <= 1 {
         return Ok((w, h, px));
     }
-    shrink_bgra(w, h, &px, k)
-        .ok_or_else(|| "That picture is too narrow to use.".into())
+    shrink_bgra(w, h, &px, k).ok_or_else(|| "That picture is too narrow to use.".into())
 }
 
 /// Shrink a `w`×`h` BGRA picture by the whole factor `k`, averaging each `k`×`k` block.

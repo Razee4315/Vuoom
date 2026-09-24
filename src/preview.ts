@@ -245,7 +245,46 @@ export class MockPreviewClient {
     if (!mockEngine.live && mockEngine.camera) {
       paintBubble(this.ctx, this.canvas.width, this.canvas.height, mockEngine.camera, t);
     }
+    if (!mockEngine.live) paintCaption(this.ctx, this.canvas.width, this.canvas.height, t);
   }
+}
+
+/** The caption on screen, as the engine draws it: centered lines over a dark plate. */
+function paintCaption(ctx: CanvasRenderingContext2D, w: number, h: number, t: number): void {
+  const style = mockEngine.captionStyle;
+  const cue = style.visible ? mockEngine.captionAt(t) : null;
+  const text = cue?.text.trim();
+  if (!text) return;
+  const font = style.size * h;
+  const maxW = w * 0.86;
+  ctx.save();
+  ctx.font = `600 ${font}px "Segoe UI", system-ui, sans-serif`;
+  // Greedy word wrap to the caption width.
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && ctx.measureText(`${last} ${word}`).width <= maxW) {
+      lines[lines.length - 1] = `${last} ${word}`;
+    } else {
+      lines.push(word);
+    }
+  }
+  const lineH = font * 1.25;
+  const padX = font * 0.5;
+  const padY = font * 0.25;
+  const textH = lines.length * lineH;
+  const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+  const margin = font * 0.8;
+  const top = style.position === "top" ? margin + padY : h - margin - padY - textH;
+  ctx.fillStyle = "rgba(10, 10, 13, 0.75)";
+  ctx.fillRect(w / 2 - widest / 2 - padX, top - padY, widest + 2 * padX, textH + 2 * padY);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  lines.forEach((l, i) => {
+    ctx.fillText(l, w / 2, top + lineH * (i + 0.5));
+  });
+  ctx.restore();
 }
 
 /** Preview client factory: the real WebSocket client in the app, the mock in a browser. */

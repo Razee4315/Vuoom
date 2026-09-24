@@ -127,6 +127,40 @@ export interface ClipState {
   cursor?: CursorStyle | null;
   /** Whether the real pointer is in the recorded frames. */
   pointer_captured?: boolean;
+  /** Timed captions (absent from engines that predate them). */
+  captions?: Caption[];
+  caption_style?: CaptionStyle;
+}
+
+/** Mirrors vuoom_project::Caption: one caption cue, in source time. */
+export interface Caption {
+  id: number;
+  text: string;
+  range: TimeRange;
+}
+
+/** Mirrors vuoom_project::CaptionStyle. */
+export interface CaptionStyle {
+  visible: boolean;
+  /** Text height as a fraction of the output height, 0.025..0.09. */
+  size: number;
+  position: "bottom" | "top";
+}
+
+/** Mirrors src-tauri commands::CaptionsStatus. */
+export interface CaptionsStatus {
+  /** Whether this processor can run the speech model. */
+  supported: boolean;
+  /** Whether the speech model is already downloaded. */
+  model_ready: boolean;
+  model_bytes: number;
+}
+
+/** Mirrors src-tauri commands::CaptionsProgress (the `captions-progress` event). */
+export interface CaptionsProgress {
+  step: "download" | "listen";
+  done: number;
+  total: number;
 }
 
 /** Mirrors vuoom_project::CursorStyle. */

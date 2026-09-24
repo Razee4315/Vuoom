@@ -88,6 +88,8 @@ export const prefs = {
   loop: persisted<boolean>("loop", false),
   /** Preview playback speed (does not affect the export). */
   previewRate: persisted<number>("preview-rate", 1),
+  /** Spoken language for new captions: an ISO 639-1 code, or "auto" to detect it. */
+  captionLanguage: persisted<string>("caption-language", "auto"),
   /** Last export settings per format, restored the next time the dialog opens. */
   exportGif: persisted<ExportSettings | null>("export-gif", null),
   exportMp4: persisted<ExportSettings | null>("export-mp4", null),

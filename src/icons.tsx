@@ -72,6 +72,7 @@ const P: Record<string, string> = {
   target: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01",
   cursor: "M5 3l6 15.5 2.3-6.2 6.2-2.3z",
   text: "M5 7V5h14v2M12 5v14M9 19h6",
+  captions: "M3 5h18v14H3zM10.5 10.2a2 2 0 1 0 0 3.6M17 10.2a2 2 0 1 0 0 3.6",
   shape: "M4 6h16v12H4z",
   arrow: "M6 18L18 6M10.5 6H18v7.5",
   line: "M6 18L18 6",

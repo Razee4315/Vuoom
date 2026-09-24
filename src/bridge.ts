@@ -18,6 +18,7 @@ import type {
   AudioDevices,
   AudioKind,
   CameraOverlay,
+  CaptionStyle,
   CursorStyle,
   SpeedRegion,
   Trim,
@@ -42,6 +43,9 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>)
 
 export function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
   if (!isMock) return tauriListen<T>(event, (ev) => cb(ev.payload));
+  if (event === "captions-progress") {
+    return Promise.resolve(mockEngine.onCaptionsProgress(cb as Parameters<typeof mockEngine.onCaptionsProgress>[0]));
+  }
   if (event === "export-progress") {
     return Promise.resolve(mockEngine.onProgress(cb as (p: { done: number; total: number }) => void));
   }
@@ -279,6 +283,32 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return new Promise((done) => setTimeout(() => done(null), a.on ? 600 : 0));
     case "camera_preview_frame":
       return m.cameraPreview ? mockCameraJpeg() : new ArrayBuffer(0);
+    case "captions_status":
+      return m.captionsStatus();
+    case "generate_captions":
+      return m.generateCaptions();
+    case "cancel_captions":
+      m.cancelCaptions();
+      return null;
+    case "add_caption":
+      return m.addCaption(a.t as number, a.text as string);
+    case "set_caption_text":
+      m.setCaptionText(a.id as number, a.text as string);
+      return null;
+    case "set_caption_range":
+      m.setCaptionRange(a.id as number, a.start as number, a.end as number);
+      return null;
+    case "delete_caption":
+      m.deleteCaption(a.id as number);
+      return null;
+    case "clear_captions":
+      m.clearCaptions();
+      return null;
+    case "set_caption_style":
+      m.setCaptionStyle(a.style as CaptionStyle);
+      return null;
+    case "export_srt":
+      return null;
     case "set_camera_overlay":
       m.setCameraOverlay(a.overlay as CameraOverlay);
       return null;

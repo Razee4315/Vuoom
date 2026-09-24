@@ -8,6 +8,7 @@
   --fx-h: 34px;
   --film-h: 36px;
   --audio-h: 30px;
+  --caption-h: 32px;
   --heads-w: 104px;
   position: relative;
   display: flex;
@@ -257,6 +258,12 @@
   border-bottom: 0;
   color: color-mix(in srgb, var(--t-audio) 70%, var(--muted));
 }
+.tl-headcell.captions {
+  height: var(--caption-h);
+  --c: var(--t-caption);
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
 .tl-headcell.audio + .tl-headcell.audio {
   border-top-color: color-mix(in srgb, var(--line) 60%, transparent);
 }
@@ -389,6 +396,24 @@
 .tl-effects {
   height: var(--fx-h);
   border-bottom: 0;
+}
+.tl-captions {
+  height: var(--caption-h);
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.tl-seg.tl-caption {
+  --c: var(--t-caption);
+  top: 4px;
+  bottom: 4px;
+  padding: 0;
+}
+.tl-caption .tl-seg-body {
+  justify-content: flex-start;
+  font-weight: 560;
+}
+.tl-caption.empty {
+  border-style: dashed;
 }
 .tl-audio {
   height: var(--audio-h);

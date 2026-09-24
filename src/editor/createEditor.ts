@@ -9,6 +9,7 @@ import { invoke, isMock, save, open, ask, check, relaunch, type Update } from ".
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
+import { createCaptions } from "./captions";
 import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
@@ -25,6 +26,7 @@ import type {
   ArrowAnn,
   BoxAnn,
   CameraOverlay,
+  Caption,
   ClipState,
   CropRect,
   CursorStyle,
@@ -95,6 +97,8 @@ export function createEditor() {
   const [selZoom, setSelZoom] = createSignal<number | null>(null);
   const [selSpeed, setSelSpeed] = createSignal<number | null>(null);
   const [selCut, setSelCut] = createSignal<number | null>(null);
+  /** The selected caption's id (captions are edited in the inspector, not on the canvas). */
+  const [selCaption, setSelCaption] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
   const [motionBlur, setMotionBlur] = createSignal(true);
@@ -350,6 +354,7 @@ export function createEditor() {
   const frameZoom = createPointerFrame();
   const frameSpeed = createPointerFrame();
   const frameCut = createPointerFrame();
+  const frameCaption = createPointerFrame();
   const frameAnn = createPointerFrame();
   const frameTrim = createPointerFrame();
   const frameCanvas = createPointerFrame();
@@ -697,6 +702,7 @@ export function createEditor() {
       setCursorStyle(cs.cursor ?? null);
       setPointerCaptured(cs.pointer_captured ?? true);
       setCameraOverlay(cs.camera ?? null);
+      captions.adopt(cs.captions, cs.caption_style);
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -712,6 +718,14 @@ export function createEditor() {
 
   // Recorded audio follows the playhead (see editor/audio.ts); any stop silences it.
   const audio = createAudio({ onEdit: () => setDirty(true) });
+  // Captions: made from the narration, drawn by the engine in the preview and export.
+  const captions = createCaptions({
+    hasClip,
+    onEdit: async () => {
+      setDirty(true);
+      await pushSeek(playhead());
+    },
+  });
   createEffect(() => {
     if (!playing()) audio.stop();
   });
@@ -825,6 +839,9 @@ export function createEditor() {
     } else if ((e.key === "Delete" || e.key === "Backspace") && selCut() !== null) {
       e.preventDefault();
       void deleteSelectedCut();
+    } else if ((e.key === "Delete" || e.key === "Backspace") && selCaption() !== null) {
+      e.preventDefault();
+      void deleteSelectedCaption();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selected()) {
       e.preventDefault();
       void deleteSelection();
@@ -834,6 +851,7 @@ export function createEditor() {
         selZoom() !== null ||
         selSpeed() !== null ||
         selCut() !== null ||
+        selCaption() !== null ||
         tool() !== "select")
     ) {
       // One key clears everything: disarm the current drawing tool (back to Select) AND
@@ -843,6 +861,7 @@ export function createEditor() {
       setSelZoom(null);
       setSelSpeed(null);
       setSelCut(null);
+      setSelCaption(null);
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
@@ -3358,7 +3377,88 @@ export function createEditor() {
     }
   };
   const somethingSelected = () =>
-    !!selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null;
+    !!selected() ||
+    selZoom() !== null ||
+    selSpeed() !== null ||
+    selCut() !== null ||
+    selCaption() !== null;
+  // One selection at a time: picking anything else lets go of the caption.
+  createEffect(() => {
+    if (selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null) {
+      setSelCaption(null);
+    }
+  });
+  const selectedCaption = () => {
+    const id = selCaption();
+    return id === null ? null : (captions.list().find((c) => c.id === id) ?? null);
+  };
+  const selectCaption = (id: number | null) => {
+    setSelected(null);
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    setSelCaption(id);
+  };
+  const deleteSelectedCaption = async () => {
+    const id = selCaption();
+    if (id === null) return;
+    setSelCaption(null);
+    await captions.remove(id);
+    setStatus("Caption deleted");
+  };
+  /** Add a caption at the playhead and select it, ready to type into. */
+  const addCaptionAtPlayhead = async () => {
+    if (!hasClip()) return;
+    const id = await captions.add(playhead(), "");
+    if (id !== null) selectCaption(id);
+  };
+
+  // ── caption bars: drag to move, edges to retime, click to select ───────────────
+  const [captionDrag, setCaptionDrag] = createSignal<{
+    id: number;
+    mode: "move" | "l" | "r";
+    grabT: number;
+    orig: { start: number; end: number };
+    cur: { start: number; end: number };
+    moved: boolean;
+  } | null>(null);
+  const captionGeom = (c: Caption) => {
+    const d = captionDrag();
+    return d && d.id === c.id ? d.cur : { start: c.range.start, end: c.range.end };
+  };
+  const onCaptionDown = (c: Caption, force: "l" | "r" | "move") => (e: PointerEvent) => {
+    e.stopPropagation();
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+    beginSnapGesture(`cap${c.id}`);
+    refreshTlRect();
+    const orig = { start: c.range.start, end: c.range.end };
+    setCaptionDrag({ id: c.id, mode: force, grabT: tlTime(e), orig, cur: { ...orig }, moved: force !== "move" });
+  };
+  const onCaptionMove = (e: PointerEvent) => {
+    const d = captionDrag();
+    if (!d) return;
+    const dt = tlTime(e) - d.grabT;
+    const all = captions.list();
+    const i = all.findIndex((c) => c.id === d.id);
+    const prevEnd = Math.max(0, all[i - 1]?.range.end ?? 0);
+    const nextStart = Math.min(duration(), all[i + 1]?.range.start ?? duration());
+    const { start, end } = snapSegDrag(d.mode, d.orig, dt, 0.2, prevEnd, nextStart, `cap${d.id}`, e.altKey);
+    setCaptionDrag({ ...d, cur: { start, end }, moved: d.moved || Math.abs(dt) > 0.02 });
+  };
+  const onCaptionUp = async () => {
+    const d = captionDrag();
+    if (!d) return;
+    setSnapLine(null);
+    endSnapGesture();
+    selectCaption(d.id);
+    setCaptionDrag(null);
+    if (d.moved) {
+      await captions.setRange(d.id, d.cur.start, d.cur.end);
+    } else {
+      // A plain click: select the caption and show its moment.
+      scrub(d.orig.start + 0.01);
+    }
+  };
   // A drawing tool is armed (not Select). Used to swap the inspector into a tool-context card.
   const drawingToolActive = () => hasClip() && tool() !== "select";
 
@@ -3610,6 +3710,19 @@ export function createEditor() {
     playing,
     setPlaying,
     audio,
+    captions,
+    selCaption,
+    setSelCaption,
+    selectedCaption,
+    selectCaption,
+    deleteSelectedCaption,
+    addCaptionAtPlayhead,
+    captionGeom,
+    captionDrag,
+    onCaptionDown,
+    onCaptionMove,
+    onCaptionUp,
+    frameCaption,
     cursorStyle,
     cameraOverlay,
     updateCamera,

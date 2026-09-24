@@ -3,14 +3,21 @@
 //    the armed tool's card, in collapsible sections that remember their state.
 //  - Clip: whole-recording settings: frame + backdrop, crop, camera (auto zooms), pacing
 //    (skim idle), click ripples + keystrokes, and clip facts.
-import { createEffect, createSignal, For, Index, on, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, Index, on, onMount, Show, type JSX } from "solid-js";
 import { trackLabel } from "../editor/audio";
+import {
+  CAPTION_LANGUAGES,
+  CAPTION_MAX_SIZE,
+  CAPTION_MIN_SIZE,
+  jobFraction,
+  jobLabel,
+} from "../editor/captions";
 import { useEditor } from "../editor/context";
 import { PRESET_COLORS, TEXT_FONTS } from "../editor/constants";
 import { fmt, rgbHex } from "../format";
 import { outputDuration } from "../geometry";
 import { Icon, type IconName } from "../icons";
-import { layout, setInspectorW } from "../prefs";
+import { layout, prefs, setInspectorW } from "../prefs";
 import ScrubField from "../ScrubField";
 import { TOOLS } from "../shortcuts";
 import type { CameraCorner, CropRect } from "../types";
@@ -156,6 +163,9 @@ function SelectionPanel() {
       </Show>
       <Show when={ed.selCut() !== null && ed.selectedCut()}>
         <CutProps />
+      </Show>
+      <Show when={ed.selectedCaption()}>
+        <CaptionProps />
       </Show>
       <Show when={ed.drawingToolActive() && !ed.somethingSelected()}>
         <ToolCard />
@@ -708,6 +718,67 @@ function CutProps() {
   );
 }
 
+function CaptionProps() {
+  const ed = useEditor();
+  const c = () => ed.selectedCaption()!;
+  const setStart = (v: number) => void ed.captions.setRange(c().id, v, Math.max(c().range.end, v + 0.2));
+  const setEnd = (v: number) => void ed.captions.setRange(c().id, Math.min(c().range.start, v - 0.2), v);
+  return (
+    <>
+      <PanelTitle
+        icon="captions"
+        title="Caption"
+        sub={`On screen for ${(c().range.end - c().range.start).toFixed(1)}s`}
+        actions={
+          <IconButton
+            icon="trash"
+            tip="Delete caption"
+            kbd="Del"
+            class="sm danger"
+            onClick={() => void ed.deleteSelectedCaption()}
+          />
+        }
+      />
+      <Section id="caption-words" title="Words" icon="text">
+        <textarea
+          class="input cap-text"
+          rows={3}
+          spellcheck={true}
+          placeholder="Type what was said"
+          aria-label="Caption words"
+          value={c().text}
+          onInput={(e) => ed.captions.setText(c().id, e.currentTarget.value)}
+        />
+        <p class="note">Two short lines read best. Drag the ends of the bar on the timeline to retime it.</p>
+      </Section>
+      <Section id="caption-timing" title="Timing" icon="timer">
+        <Field label="Shows at">
+          <ScrubField
+            value={Number(c().range.start.toFixed(2))}
+            min={0}
+            max={ed.duration()}
+            step={0.05}
+            suffix="s"
+            title="When this caption appears"
+            onCommit={setStart}
+          />
+        </Field>
+        <Field label="Hides at">
+          <ScrubField
+            value={Number(c().range.end.toFixed(2))}
+            min={0}
+            max={ed.duration()}
+            step={0.05}
+            suffix="s"
+            title="When this caption goes away"
+            onCommit={setEnd}
+          />
+        </Field>
+      </Section>
+    </>
+  );
+}
+
 // ── clip ─────────────────────────────────────────────────────────────────────
 
 const FRAMES: { id: string; label: string; tip: string }[] = [
@@ -1069,6 +1140,8 @@ function ClipPanel() {
         </Show>
       </Section>
 
+      <CaptionsSection />
+
       <Section id="clip-pointer" title="Pointer" icon="cursor">
         <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
           <Switch checked={!!ed.cursorStyle()} label="Smooth pointer" onChange={() => ed.toggleCursor()} />
@@ -1209,5 +1282,131 @@ function ClipPanel() {
         </dl>
       </Section>
     </>
+  );
+}
+
+function CaptionsSection() {
+  const ed = useEditor();
+  const c = ed.captions;
+  onMount(() => void c.loadStatus());
+  const count = () => c.list().length;
+  const supported = () => c.status()?.supported ?? true;
+  const needsDownload = () => !!c.status() && !c.status()!.model_ready;
+  const canGenerate = () => supported() && ed.audio.hasAudio();
+  const style = () => c.style();
+  return (
+    <Section id="clip-captions" title="Captions" icon="captions">
+      <Show
+        when={c.job()}
+        fallback={
+          <>
+            <Show when={!supported()}>
+              <p class="note">
+                Making captions needs a newer processor (most PCs from 2015 on). You can still type them in with
+                Add caption.
+              </p>
+            </Show>
+            <Show when={supported() && !ed.audio.hasAudio()}>
+              <p class="note">
+                This take has no sound to make captions from. You can still type them in with Add caption.
+              </p>
+            </Show>
+            <Show when={canGenerate()}>
+              <Field label="Spoken language" stack>
+                <select
+                  class="input"
+                  aria-label="Spoken language"
+                  value={prefs.captionLanguage()}
+                  onChange={(e) => prefs.captionLanguage.set(e.currentTarget.value)}
+                >
+                  <For each={CAPTION_LANGUAGES}>{(l) => <option value={l.value}>{l.label}</option>}</For>
+                </select>
+              </Field>
+              <button type="button" class="btn primary block" onClick={() => void c.generate()}>
+                <Icon name="captions" size={14} /> {count() > 0 ? "Make captions again" : "Make captions"}
+              </button>
+              <p class="note">
+                <Show
+                  when={needsDownload()}
+                  fallback="Vuoom listens to your narration on this computer. Nothing is uploaded."
+                >
+                  The first time, Vuoom downloads its speech model (
+                  {Math.round((c.status()?.model_bytes ?? 0) / 1_000_000)} MB). After that, captions are made on
+                  this computer. Nothing is uploaded.
+                </Show>
+              </p>
+            </Show>
+          </>
+        }
+      >
+        {(j) => (
+          <div class="cap-job" role="status">
+            <div class="cap-bar" classList={{ busy: j().step === "start" }}>
+              <i style={{ width: `${jobFraction(j()) * 100}%` }} />
+            </div>
+            <p class="note">{jobLabel(j())}</p>
+            <button type="button" class="btn block" onClick={c.cancel}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </Show>
+
+      <Show when={count() > 0}>
+        <Field label="Show captions" hint="Hide them in the video but keep them, and the .srt file">
+          <Switch checked={style().visible} label="Show captions" onChange={(v) => c.updateStyle({ visible: v })} />
+        </Field>
+        <Field label="Size" stack>
+          <Slider
+            value={style().size}
+            min={CAPTION_MIN_SIZE}
+            max={CAPTION_MAX_SIZE}
+            step={0.0025}
+            disabled={!style().visible}
+            label="Caption size"
+            format={(v) => (v < 0.037 ? "Small" : v < 0.055 ? "Medium" : "Large")}
+            onInput={(v) => c.updateStyle({ size: v })}
+          />
+        </Field>
+        <Field label="Position" stack>
+          <Seg
+            full
+            value={style().position}
+            disabled={!style().visible}
+            label="Caption position"
+            onChange={(v) => c.updateStyle({ position: v })}
+            options={[
+              { value: "bottom", label: "Bottom" },
+              { value: "top", label: "Top", tip: "Out of the way of subtitles a player adds" },
+            ]}
+          />
+        </Field>
+      </Show>
+      <div class="cap-actions">
+        <button
+          type="button"
+          class="btn"
+          disabled={!!c.job()}
+          data-tip="Add a caption at the playhead and type it in"
+          onClick={() => void ed.addCaptionAtPlayhead()}
+        >
+          <Icon name="plus" size={14} /> Add caption
+        </button>
+        <button
+          type="button"
+          class="btn"
+          disabled={count() === 0}
+          data-tip="A subtitle file for YouTube and video players, timed to your export"
+          onClick={() => void c.saveSrt()}
+        >
+          <Icon name="download" size={14} /> Save .srt
+        </button>
+      </div>
+      <Show when={count() > 0 && !c.job()}>
+        <button type="button" class="btn ghost block" onClick={() => void c.clear()}>
+          <Icon name="trash" size={14} /> Remove all captions
+        </button>
+      </Show>
+    </Section>
   );
 }

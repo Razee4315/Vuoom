@@ -199,6 +199,13 @@ export default function Timeline() {
               <span class="tl-swatch" />
               <span>Speed · Cuts</span>
             </div>
+            <Show when={ed.captions.list().length > 0}>
+              <div class="tl-headcell captions" aria-hidden="true">
+                <span class="tl-swatch" />
+                <span>Captions</span>
+                <span class="tl-count">{ed.captions.list().length}</span>
+              </div>
+            </Show>
             <Index each={ed.audio.tracks()}>
               {(t) => (
                 <div class="tl-headcell audio" classList={{ muted: t().muted }}>
@@ -416,6 +423,47 @@ export default function Timeline() {
                     }}
                   </For>
                 </div>
+
+                {/* Captions: one bar per cue. Click to edit the words, drag to retime. */}
+                <Show when={ed.captions.list().length > 0}>
+                  <div class="tl-lane tl-captions">
+                    <For each={ed.captions.list()}>
+                      {(c) => {
+                        const g = () => ed.captionGeom(c);
+                        const gone = () => isSwallowed(g().start, g().end, ed.cuts(), ed.trim());
+                        return (
+                          <div
+                            class="tl-seg tl-caption"
+                            classList={{ selected: ed.selCaption() === c.id, swallowed: gone(), empty: !c.text.trim() }}
+                            style={{ left: `${ed.pct(g().start)}%`, width: w(g().start, g().end) }}
+                          >
+                            <span class="tl-handle l" onPointerDown={ed.onCaptionDown(c, "l")} onPointerMove={ed.frameCaption(ed.onCaptionMove)} onPointerUp={() => void ed.onCaptionUp()} onLostPointerCapture={() => void ed.onCaptionUp()} />
+                            <button
+                              type="button"
+                              class="tl-seg-body"
+                              aria-label={`Caption: ${c.text || "empty"}`}
+                              data-tip={gone() ? "Hidden by a cut, never exported" : c.text || "Empty caption"}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  ed.selectCaption(c.id);
+                                  ed.scrub(c.range.start + 0.01);
+                                }
+                              }}
+                              onPointerDown={ed.onCaptionDown(c, "move")}
+                              onPointerMove={ed.frameCaption(ed.onCaptionMove)}
+                              onPointerUp={() => void ed.onCaptionUp()}
+                              onLostPointerCapture={() => void ed.onCaptionUp()}
+                            >
+                              <span class="tl-seg-label">{c.text.trim() || "Empty"}</span>
+                            </button>
+                            <span class="tl-handle r" onPointerDown={ed.onCaptionDown(c, "r")} onPointerMove={ed.frameCaption(ed.onCaptionMove)} onPointerUp={() => void ed.onCaptionUp()} onLostPointerCapture={() => void ed.onCaptionUp()} />
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
 
                 {/* Audio: one waveform lane per recorded track. */}
                 <Index each={ed.audio.tracks()}>

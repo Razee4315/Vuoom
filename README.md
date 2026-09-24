@@ -84,6 +84,12 @@ The interface is a quiet workspace built from floating panels you control:
   (RNNoise), another evens out a voice that drifts toward and away from the
   mic, with peaks held safely under clipping. Both work on a copy, so the
   original recording is always one click away.
+- 💬 **Captions, made offline**: one click turns your narration into captions,
+  on your own computer (whisper.cpp; the speech model downloads once, nothing is
+  uploaded). They show in the preview and in every GIF and MP4, bottom or top, at
+  the size you pick; fix any word in the inspector, drag a caption's bar to
+  retime it, and save an `.srt` file timed to your export for YouTube and other
+  players.
 - 🗜️ **Recordings that stay small**: frames are stored losslessly as LZ4
   compressed XOR deltas with periodic keyframes, typically 20x+ smaller than raw
   pixels, streamed to disk as you record so length is bounded by your drive and

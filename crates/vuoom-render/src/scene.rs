@@ -448,7 +448,10 @@ mod tests {
             .find(|s| s.blur_from.is_some())
             .expect("the camera moves during the zoom");
         let from = moving.blur_from.unwrap();
-        assert!(from.w > moving.layout.src_rect.w, "zooming in: the crop was wider");
+        assert!(
+            from.w > moving.layout.src_rect.w,
+            "zooming in: the crop was wider"
+        );
         // Off: never.
         p.motion_blur = false;
         let still = |k: i32| at(&p, f64::from(k) * 0.05).blur_from.is_none();

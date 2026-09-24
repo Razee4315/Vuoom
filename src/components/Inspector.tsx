@@ -195,9 +195,11 @@ function ToolCard() {
       <PanelTitle icon="wand" title={`${t()?.label} tool`} sub={t()?.hint} />
       <div class="insp-pad">
         <p class="note">
-          Options appear here once you place one. Double click a tool, or turn on the lock at the
-          bottom of the rail, to draw several in a row. <kbd>Esc</kbd> returns to Select.
+          Options appear here once you place one. <kbd>Esc</kbd> returns to Select.
         </p>
+        <Field label="Draw several" hint="Keep this tool after each one instead of returning to Select">
+          <Switch checked={ed.toolLock()} label="Draw several" onChange={(v) => ed.setToolLock(v)} />
+        </Field>
       </div>
     </>
   );
@@ -968,7 +970,7 @@ function ClipPanel() {
           >
             <Icon name="sparkle" size={14} /> Auto zooms
           </button>
-          <button type="button" class="btn sm grow" data-kbd="Z" data-tip="Add a zoom at the playhead" onClick={() => void ed.addZoomAt()}>
+          <button type="button" class="btn sm grow" data-tip="Add a zoom at the playhead. To aim it, use the Zoom tool (Z)" onClick={() => void ed.addZoomAt()}>
             <Icon name="plus" size={14} /> Zoom here
           </button>
         </div>

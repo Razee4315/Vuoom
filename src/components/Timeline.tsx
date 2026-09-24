@@ -123,7 +123,7 @@ export default function Timeline() {
         </div>
 
         <div class="tl-insert">
-          <button type="button" class="tl-ins zoom" data-tip="Add a zoom at the playhead" data-kbd="Z" onClick={() => void ed.addZoomAt()}>
+          <button type="button" class="tl-ins zoom" data-tip="Add a zoom at the playhead. To aim it, use the Zoom tool (Z)" onClick={() => void ed.addZoomAt()}>
             <Icon name="zoomIn" size={14} /> Zoom
           </button>
           <button type="button" class="tl-ins speed" data-tip={`Speed up 2s at ${ed.skimFactor()}×`} data-kbd="X" onClick={() => void ed.addSpeedAtPlayhead()}>

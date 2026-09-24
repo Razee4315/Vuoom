@@ -42,7 +42,8 @@ Studio is praised precisely for *not* being a full editor, hold that line.
 │                                       │   selected   │
 │                                       │   element)   │
 ├──────────────────────────────────────┴──────────────┤
-│ Tool rail:  ▭ select │ T text │ ↗ arrow │ ▢ box │ ⌧ crop │
+│ Tool rail (left): select │ zoom, crop │ text, arrow, │
+│   shape, highlight, hide                             │
 ├──────────────────────────────────────────────────────┤
 │ TIMELINE  ▸ playhead · trim handles · zoom blocks ·   │
 │             text/annotation bars · speed regions      │
@@ -148,3 +149,22 @@ The timeline is the single source of truth; scrubbing and export share the ident
   <https://github.com/njraladdin/screen-demo> · Screenize two-pass
   <https://www.blog.brightcoding.dev/2026/02/07/screenize-the-revolutionary-auto-zoom-screen-recorder> ·
   canvas text editing conventions (Figma) <https://help.figma.com/hc/en-us/articles/360039956434-Guide-to-text-in-Figma-Design>
+
+## The tool rail (as built)
+
+The rail is grouped by what the user is doing, top to bottom:
+
+| Group | Tools | Key |
+|---|---|---|
+| Select | Select, move, resize | V |
+| Aim the camera | **Zoom**: drag a box over what to zoom into (the zoom is sized to fit it, 1.2× to 4×, and aimed at its center), or click a spot for the clip's zoom strength. One undo step. **Crop**: the on-canvas crop mode. | Z, R |
+| Point things out | Text, Arrow (ends: arrow, both, or a plain line), Shape, Highlight, **Hide** (covers private details with a solid block) | T, A, S, H, M |
+
+Why this set: the camera is the product's headline, so zooming belongs on the canvas as direct
+manipulation (frame what you want), not only as a timeline button plus a crosshair. Line was a
+duplicate of Arrow with no heads (still available as the arrow's Ends option), and the rail's Lock
+button was a rarely used power feature taking a slot; double click still keeps a tool armed, and
+the tool's Inspector card has a "Draw several" switch. "Mask" was renamed "Hide", the word people
+use for covering an email or a password. Labels are shown by default (recognition over recall);
+the compact rail drops them. X and C still add a speed-up or a cut at the playhead; Z now arms the
+Zoom tool, while the timeline's Zoom button adds one at the playhead.

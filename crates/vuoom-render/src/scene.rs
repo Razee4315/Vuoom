@@ -5,8 +5,8 @@
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
-use crate::layout::{compute_layout, CompositeLayout, NormRect};
-use vuoom_project::{ArrowStyle, Color, HighlightShape, InputEvent, Project};
+use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
+use vuoom_project::{ArrowStyle, CameraOverlay, Color, Corner, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
@@ -66,6 +66,41 @@ pub struct ResolvedCursor {
     pub opacity: f64,
 }
 
+/// The webcam bubble resolved to output pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedCamera {
+    /// Bubble rect in output pixels.
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    /// Corner radius in pixels (half the height on a square bubble: a circle).
+    pub radius: f64,
+    pub mirror: bool,
+    /// The camera track's time to show (the frame's source time, less the track offset).
+    pub t: f64,
+}
+
+/// Place the webcam bubble in its corner of the framed recording `dst`, at output height
+/// `oh`, for source time `t`.
+fn place_camera(o: CameraOverlay, dst: PxRect, oh: f64, t: f64) -> ResolvedCamera {
+    let o = o.clamped();
+    let h = f64::from(o.size) * oh;
+    let w = h * o.shape.aspect();
+    let m = CameraOverlay::MARGIN * oh;
+    let left = matches!(o.corner, Corner::TopLeft | Corner::BottomLeft);
+    let top = matches!(o.corner, Corner::TopLeft | Corner::TopRight);
+    ResolvedCamera {
+        x: if left { dst.x + m } else { dst.x + dst.w - m - w },
+        y: if top { dst.y + m } else { dst.y + dst.h - m - h },
+        w,
+        h,
+        radius: h * o.shape.radius(),
+        mirror: o.mirror,
+        t: t - o.offset,
+    }
+}
+
 /// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
@@ -93,6 +128,8 @@ pub struct Scene {
     pub key_texts: Vec<ResolvedText>,
     /// The re-drawn pointer, when the project has one and it's in view.
     pub cursor: Option<ResolvedCursor>,
+    /// The webcam bubble, when the take has one and it's shown.
+    pub camera: Option<ResolvedCamera>,
     /// Motion blur: the source crop one exposure ago, while the camera is moving visibly.
     /// The compositor smears the picture from there to `layout.src_rect`.
     pub blur_from: Option<NormRect>,
@@ -339,6 +376,12 @@ pub fn build_scene(
         }
     }
 
+    // The webcam bubble sits on the framed recording; it doesn't follow the zoom.
+    let webcam = project
+        .camera
+        .filter(|c| c.visible)
+        .map(|c| place_camera(c, layout.dst_rect, oh, t));
+
     Scene {
         layout,
         texts,
@@ -348,6 +391,7 @@ pub fn build_scene(
         key_chips,
         key_texts,
         cursor,
+        camera: webcam,
         blur_from,
     }
 }
@@ -456,6 +500,36 @@ mod tests {
         p.motion_blur = false;
         let still = |k: i32| at(&p, f64::from(k) * 0.05).blur_from.is_none();
         assert!((10..40).all(still));
+    }
+
+    #[test]
+    fn the_camera_bubble_sits_in_its_corner() {
+        let mut p = project_with_text();
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        assert!(build_scene(&p, &track, 1000, 1000, 1.0).camera.is_none());
+        p.camera = Some(CameraOverlay {
+            offset: -0.25,
+            ..CameraOverlay::default()
+        });
+        let scene = build_scene(&p, &track, 1000, 1000, 1.0);
+        let c = scene.camera.unwrap();
+        let dst = scene.layout.dst_rect;
+        let m = CameraOverlay::MARGIN * 1000.0;
+        // Bottom right, a circle of the default size.
+        assert!((c.x + c.w - (dst.x + dst.w - m)).abs() < 1e-6);
+        assert!((c.y + c.h - (dst.y + dst.h - m)).abs() < 1e-6);
+        let size = f64::from(CameraOverlay::DEFAULT_SIZE) * 1000.0;
+        assert!((c.h - size).abs() < 1e-6);
+        assert!((c.w - c.h).abs() < 1e-9);
+        assert!((c.radius - c.h / 2.0).abs() < 1e-9);
+        // The camera's own clock runs behind by the offset.
+        assert!((c.t - 1.25).abs() < 1e-9);
+        // Hidden: no bubble.
+        p.camera = Some(CameraOverlay {
+            visible: false,
+            ..CameraOverlay::default()
+        });
+        assert!(build_scene(&p, &track, 1000, 1000, 1.0).camera.is_none());
     }
 
     #[test]

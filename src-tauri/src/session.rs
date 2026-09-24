@@ -16,6 +16,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::audio::AudioChoice;
+use crate::camera::{CameraChoice, Decoded};
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::LivePreview;
 use crate::zoom_chord::{ChordMark, ZoomChordPoller};
@@ -35,9 +36,9 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, ArrowAnnotation, ArrowStyle, AudioKind, AudioTrack,
-    Background, Color, CropRect, CursorStyle, FrameStyle, HighlightBox, HighlightShape, KeyTap,
-    Project, Rect, Shadow, SourceInfo, SpeedRegion, TextAnnotation, TimeRange, Trim, ZoomConfig,
-    ZoomKeyframe,
+    Background, CameraOverlay, Color, CropRect, CursorStyle, FrameStyle, HighlightBox,
+    HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo, SpeedRegion, TextAnnotation,
+    TimeRange, Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -133,6 +134,8 @@ pub struct ClipState {
     pub cursor: Option<CursorStyle>,
     /// Whether the real pointer is in the recorded frames.
     pub pointer_captured: bool,
+    /// The webcam bubble, when the take recorded the camera.
+    pub camera: Option<CameraOverlay>,
     /// Blur along the camera's movement during zooms and pans.
     pub motion_blur: bool,
 }
@@ -212,6 +215,9 @@ struct Active {
     audio: crate::audio::Captures,
     /// Audio sources that failed to start (the take goes on without them).
     audio_failed: Vec<String>,
+    /// The webcam writing its track next to the frames, and why it couldn't, if it didn't.
+    camera: Option<vuoom_camera::CameraRecorder>,
+    camera_note: Option<String>,
     /// Whether the real pointer is being captured, and whether the take gets a re-drawn one.
     pointer_captured: bool,
     smooth_cursor: bool,
@@ -226,6 +232,9 @@ struct Edited {
     project: Option<Project>,
     track: Option<CameraTrack>,
     start_qpc: i64,
+    /// The clip's webcam frames, opened on first use. Dropped with the clip, so no file
+    /// handle outlives it (a bundle opened next reuses the scratch folder).
+    camera: Option<Arc<crate::camera::Frames>>,
     /// Undo history: `(coalesce_tag, project_before_the_edit)`. The tag lets rapid-fire
     /// edits (typing, slider drags) collapse into one undo step.
     undo: Vec<(String, Project)>,
@@ -307,6 +316,9 @@ pub struct Session {
     audio_choice: Mutex<AudioChoice>,
     /// A microphone check running outside a recording (level meter only, nothing saved).
     mic_check: Mutex<Option<Recorder>>,
+    /// The webcam for the next recording, and the one kept open for the live bubble.
+    camera_choice: Mutex<CameraChoice>,
+    camera: crate::camera::Camera,
     /// The rotated recovery subdir backing the currently-loaded clip (the active recording or
     /// an opened bundle's scratch store). Recovery scanning skips it, so we offer the
     /// *previous* unsaved session rather than the one already in the editor.
@@ -354,6 +366,8 @@ impl Session {
             pending_smooth: AtomicBool::new(false),
             audio_choice: Mutex::new(AudioChoice::default()),
             mic_check: Mutex::new(None),
+            camera_choice: Mutex::new(CameraChoice::default()),
+            camera: crate::camera::Camera::default(),
             current_recovery: Mutex::new(None),
             export_cancel: AtomicBool::new(false),
         })
@@ -796,6 +810,18 @@ impl Session {
             freq: self.clock.freq(),
         };
         let (audio, audio_failed) = crate::audio::start(&choice, &recovery_dir, anchor);
+        // The webcam is usually already open (its bubble showed while framing), so it starts
+        // writing from its next frame; a camera that isn't open yet is opened here.
+        let cam_choice = self
+            .camera_choice
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let cam_clock = vuoom_camera::Clock {
+            start_qpc,
+            freq: self.clock.freq(),
+        };
+        let (camera, camera_note) = self.camera.start(&cam_choice, &recovery_dir, cam_clock);
 
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
@@ -875,6 +901,8 @@ impl Session {
             _preview: preview,
             audio,
             audio_failed,
+            camera,
+            camera_note,
             pointer_captured,
             smooth_cursor,
         });
@@ -915,6 +943,9 @@ impl Session {
         let mut audio_failed = std::mem::take(&mut session.audio_failed);
         let (audio_tracks, late) = crate::audio::finish(std::mem::take(&mut session.audio));
         audio_failed.extend(late);
+        let (camera_overlay, camera_late) =
+            crate::camera::finish(session.camera.take(), &session.recovery_dir);
+        let camera_note = session.camera_note.take().or(camera_late);
 
         // Let the drain thread flush remaining frames and hand back the disk store. A disk
         // write that failed mid-recording comes back as a warning (not an error): the frames
@@ -1011,6 +1042,7 @@ impl Session {
         // restorable in the editor if a pause was hit by mistake.
         project.cuts = pauses_to_cuts(&session.pauses, self.clock, session.start_qpc, duration);
         project.audio = audio_tracks;
+        project.camera = camera_overlay;
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(CursorStyle::default);
 
@@ -1059,6 +1091,8 @@ impl Session {
             Some(w)
         } else if let Some(w) = crate::audio::warning(&audio_failed) {
             Some(w)
+        } else if let Some(w) = camera_note {
+            Some(w)
         } else {
             session.space_warning.take()
         };
@@ -1098,6 +1132,8 @@ impl Session {
         scene.texts.clear();
         scene.arrows.clear();
         scene.highlights.clear();
+        let cam_frames = scene.camera.and_then(|_| self.camera_frames());
+        let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
         let rgba = compositor.composite_scene(
             &frame.bgra,
             frame.width,
@@ -1106,6 +1142,7 @@ impl Session {
             out_h,
             &scene,
             background_fill(&project.frame),
+            cam.as_deref().map(Decoded::image),
         );
         let meta = FrameMeta {
             stride: out_w * 4,
@@ -1183,6 +1220,7 @@ impl Session {
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let count = ((d_out * f64::from(fps)).ceil() as usize).max(1);
+        let cam_frames = self.camera_frames();
 
         let settings = GifSettings {
             fps,
@@ -1204,6 +1242,7 @@ impl Session {
             let idx = nearest_idx(store.recs(), self.clock, start_qpc, t_src).ok_or("no frames")?;
             let frame = store.frame(idx)?;
             let scene = build_scene(&project, &track, out_w, out_h, t_src);
+            let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -1212,6 +1251,7 @@ impl Session {
                 out_h,
                 &scene,
                 bg,
+                cam.as_deref().map(Decoded::image),
             );
             Ok(RgbaImage::new(out_w, out_h, rgba))
         };
@@ -1309,6 +1349,7 @@ impl Session {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let cam_frames = self.camera_frames();
         let mix = match (audio, dir) {
             (true, Some(d)) => crate::audio::Mix::load(&d, &project, t0, span, &regions, &cuts),
             _ => None,
@@ -1352,6 +1393,7 @@ impl Session {
                 }
             };
             let scene = build_scene(&project, &track, out_w, out_h, t_src);
+            let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -1360,6 +1402,7 @@ impl Session {
                 out_h,
                 &scene,
                 bg,
+                cam.as_deref().map(Decoded::image),
             );
             let img = RgbaImage::new(out_w, out_h, rgba);
             let img = if scale_w.is_some() {
@@ -1482,6 +1525,14 @@ impl Session {
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
+        // The caller holds `edited`, so the camera track is opened here rather than cached.
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let cam_frames = crate::camera::frames_for(project, dir.as_deref());
+        let cam_frames = cam_frames.map(Arc::new);
 
         let mut images = Vec::with_capacity(indices.len());
         for (done, &i) in indices.iter().enumerate() {
@@ -1491,6 +1542,7 @@ impl Session {
                 .ok_or("no frames")?;
             let frame = store.frame(idx)?;
             let scene = build_scene(project, track, out_w, out_h, t_src);
+            let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
             let rgba = compositor.composite_scene(
                 &frame.bgra,
                 frame.width,
@@ -1499,6 +1551,7 @@ impl Session {
                 out_h,
                 &scene,
                 bg,
+                cam.as_deref().map(Decoded::image),
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
             progress(done as u32 + 1, indices.len() as u32);
@@ -1703,7 +1756,69 @@ impl Session {
             audio: project.audio.clone(),
             cursor: project.cursor,
             pointer_captured: project.pointer_captured,
+            camera: project.camera,
             motion_blur: project.motion_blur,
+        })
+    }
+
+    /// The loaded clip's webcam frames, opened on first use; `None` when it has no camera.
+    fn camera_frames(&self) -> Option<Arc<crate::camera::Frames>> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        if edited.project.as_ref()?.camera.is_none() {
+            return None;
+        }
+        if edited.camera.is_none() {
+            let dir = self
+                .current_recovery
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()?;
+            edited.camera = crate::camera::Frames::open(&dir).map(Arc::new);
+        }
+        edited.camera.clone()
+    }
+
+    /// Choose the webcam the next recording captures (`on` false: none; `device` `None`:
+    /// the first camera).
+    pub fn set_capture_camera(&self, on: bool, device: Option<String>) -> Result<(), String> {
+        let choice = CameraChoice { on, device };
+        *self.camera_choice.lock().unwrap_or_else(|e| e.into_inner()) = choice;
+        Ok(())
+    }
+
+    /// Open (or close) the chosen webcam for the recording UI's live bubble. Opening takes
+    /// a moment; the same camera then records without reopening. Ignored while recording.
+    pub fn set_camera_preview(&self, on: bool) -> Result<(), String> {
+        let recording = self
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+        if recording {
+            return Ok(());
+        }
+        let choice = self
+            .camera_choice
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        self.camera.preview((on && choice.on).then_some(choice.device))
+    }
+
+    /// The live bubble's latest frame as JPEG bytes, if the camera is open.
+    pub fn camera_preview_frame(&self) -> Option<Arc<Vec<u8>>> {
+        self.camera.latest()
+    }
+
+    /// Set how the webcam bubble looks (shown, corner, size, shape, mirror).
+    pub fn set_camera_overlay(&self, overlay: CameraOverlay) -> Result<(), String> {
+        self.with_project("camera-overlay", |p| {
+            let current = p.camera.ok_or("this take has no camera")?;
+            p.camera = Some(CameraOverlay {
+                offset: current.offset,
+                ..overlay.clamped()
+            });
+            Ok(())
         })
     }
 
@@ -2603,6 +2718,7 @@ impl Session {
             (i128::from(q - start_qpc) * i128::from(BUNDLE_TIMEBASE) / freq) as i64
         })?;
         crate::audio::copy_tracks(&src, &dir.join("audio"), &project.audio)?;
+        crate::camera::copy_track(&src, &dir.join("camera"))?;
         std::fs::write(
             dir.join("project.json"),
             project.to_json().map_err(|e| e.to_string())?,
@@ -2679,6 +2795,7 @@ impl Session {
         })?;
         if let Some(bundle) = frames_dir.parent() {
             crate::audio::copy_tracks(&bundle.join("audio"), &scratch, &project.audio)?;
+            crate::camera::copy_track(&bundle.join("camera"), &scratch)?;
         }
         let store = FrameStore::open(&scratch)?;
         if let Ok(json) = project.to_json() {
@@ -2800,6 +2917,7 @@ impl Session {
         // (within the first frame's capture latency).
         let start_qpc = first.qpc;
         crate::audio::recover(&dir, &mut project, start_qpc);
+        crate::camera::recover(&dir, &mut project, start_qpc);
 
         // A take recovered from a hard crash carries only the startup placeholder manifest,
         // no real dimensions/fps/duration (and no post-processed events/zooms). Rebuild the

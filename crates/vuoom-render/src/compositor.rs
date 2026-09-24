@@ -84,6 +84,51 @@ struct Uniforms {
     _pad4: [f32; 2],
 }
 
+/// A webcam frame for the scene's bubble.
+#[derive(Debug, Clone, Copy)]
+pub struct CameraImage<'a> {
+    /// BGRA pixels, top row first.
+    pub bgra: &'a [u8],
+    pub width: u32,
+    pub height: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniforms {
+    out_size: [f32; 2],
+    rect_min: [f32; 2],
+    rect_size: [f32; 2],
+    uv_min: [f32; 2],
+    uv_size: [f32; 2],
+    radius: f32,
+    shadow: f32,
+}
+
+/// The webcam texture and its bind group, rebuilt when the camera's frame size changes.
+struct CameraCache {
+    width: u32,
+    height: u32,
+    tex: wgpu::Texture,
+    ubuf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+/// The part of a `w`×`h` camera frame that fills a bubble of width over height `aspect`
+/// (a centered crop), as texture-space `(min, size)`. Mirrored, it runs right to left.
+fn camera_crop(w: u32, h: u32, aspect: f64, mirror: bool) -> ([f32; 2], [f32; 2]) {
+    let frame = f64::from(w) / f64::from(h.max(1));
+    let (sw, sh) = if frame > aspect {
+        (aspect / frame, 1.0)
+    } else {
+        (1.0, frame / aspect)
+    };
+    let x = (1.0 - sw) / 2.0;
+    let y = (1.0 - sh) / 2.0;
+    let (x, uw) = if mirror { (x + sw, -sw) } else { (x, sw) };
+    ([x as f32, y as f32], [uw as f32, sh as f32])
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShapeUniforms {
@@ -126,11 +171,15 @@ pub struct Compositor {
     bind_group_layout: wgpu::BindGroupLayout,
     shape_pipeline: wgpu::RenderPipeline,
     shape_bind_group_layout: wgpu::BindGroupLayout,
+    camera_pipeline: wgpu::RenderPipeline,
+    camera_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     text: Mutex<TextState>,
     /// Reused size-keyed resources for the hot `composite_scene` path. `None` until the first
     /// composite; rebuilt whenever the frame dimensions change.
     cache: Mutex<Option<CompositeCache>>,
+    /// The webcam bubble's texture, sized to the camera frames.
+    camera_cache: Mutex<Option<CameraCache>>,
 }
 
 impl Compositor {
@@ -292,6 +341,74 @@ impl Compositor {
             cache: None,
         });
 
+        // ── Webcam bubble ──
+        let camera_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("vuoom-camera"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/camera.wgsl").into()),
+        });
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("vuoom-camera-bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let camera_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("vuoom-camera-pl"),
+            bind_group_layouts: &[&camera_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let camera_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("vuoom-camera-pipeline"),
+            layout: Some(&camera_pl),
+            vertex: wgpu::VertexState {
+                module: &camera_shader,
+                entry_point: Some("vs"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &camera_shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         // ── Text (glyphon) ──
         let glyph_cache = GlyphCache::new(&device);
         let viewport = Viewport::new(&device, &glyph_cache);
@@ -324,9 +441,12 @@ impl Compositor {
             bind_group_layout,
             shape_pipeline,
             shape_bind_group_layout,
+            camera_pipeline,
+            camera_bind_group_layout,
             sampler,
             text,
             cache: Mutex::new(None),
+            camera_cache: Mutex::new(None),
         })
     }
 
@@ -540,6 +660,116 @@ impl Compositor {
         }
     }
 
+    /// Build the webcam bubble's texture and bind group for `width`×`height` frames.
+    fn build_camera_cache(&self, width: u32, height: u32) -> CameraCache {
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vuoom-camera-frame"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("vuoom-camera-uniforms"),
+            size: std::mem::size_of::<CameraUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("vuoom-camera-bg"),
+            layout: &self.camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubuf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        CameraCache {
+            width,
+            height,
+            tex,
+            ubuf,
+            bind_group,
+        }
+    }
+
+    /// Upload a webcam frame and the bubble's placement. Returns whether there is a bubble
+    /// to draw (the scene has one and a frame was given).
+    fn prepare_camera(
+        &self,
+        guard: &mut Option<CameraCache>,
+        scene: &Scene,
+        image: Option<CameraImage<'_>>,
+        out: (u32, u32),
+    ) -> bool {
+        let (Some(bubble), Some(img)) = (scene.camera, image) else {
+            return false;
+        };
+        let expected = img.width as usize * img.height as usize * 4;
+        if img.width == 0 || img.height == 0 || img.bgra.len() < expected {
+            return false;
+        }
+        if !guard
+            .as_ref()
+            .is_some_and(|c| c.width == img.width && c.height == img.height)
+        {
+            *guard = Some(self.build_camera_cache(img.width, img.height));
+        }
+        let Some(cache) = guard.as_ref() else {
+            return false;
+        };
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &cache.tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &img.bgra[..expected],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(img.width * 4),
+                rows_per_image: Some(img.height),
+            },
+            wgpu::Extent3d {
+                width: img.width,
+                height: img.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let aspect = bubble.w / bubble.h.max(1e-9);
+        let (uv_min, uv_size) = camera_crop(img.width, img.height, aspect, bubble.mirror);
+        let uniforms = CameraUniforms {
+            out_size: [out.0 as f32, out.1 as f32],
+            rect_min: [bubble.x as f32, bubble.y as f32],
+            rect_size: [bubble.w as f32, bubble.h as f32],
+            uv_min,
+            uv_size,
+            radius: bubble.radius as f32,
+            shadow: (bubble.h * 0.06).max(2.0) as f32,
+        };
+        self.queue
+            .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
+        true
+    }
+
     /// Render an offscreen RGBA texture cleared to `color` and read it back (a smoke test
     /// for the device + render-pass + readback path).
     #[cfg(test)]
@@ -588,6 +818,7 @@ impl Compositor {
         out_h: u32,
         scene: &Scene,
         bg: BgFill,
+        camera: Option<CameraImage<'_>>,
     ) -> Vec<u8> {
         let layout = &scene.layout;
 
@@ -646,6 +877,9 @@ impl Compositor {
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
+
+        let mut camera_guard = self.camera_cache.lock().expect("camera cache poisoned");
+        let bubble = self.prepare_camera(&mut camera_guard, scene, camera, (out_w, out_h));
 
         let verts = build_shape_vertices(scene);
         let shape_uniforms = ShapeUniforms {
@@ -760,6 +994,12 @@ impl Compositor {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &cache.bind_group, &[]);
             pass.draw(0..3, 0..1);
+            // The webcam bubble over the recording, under annotations and the pointer.
+            if let Some(cam) = camera_guard.as_ref().filter(|_| bubble) {
+                pass.set_pipeline(&self.camera_pipeline);
+                pass.set_bind_group(0, &cam.bind_group, &[]);
+                pass.draw(0..6, 0..1);
+            }
             if let Some(vbuf) = &shape_vbuf {
                 pass.set_pipeline(&self.shape_pipeline);
                 pass.set_bind_group(0, &cache.shape_bind_group, &[]);
@@ -782,6 +1022,25 @@ impl Compositor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_frames_are_center_cropped_and_mirrored() {
+        // 16:9 into a circle: the middle square.
+        let (min, size) = camera_crop(1600, 900, 1.0, false);
+        assert!((size[0] - 0.5625).abs() < 1e-6);
+        assert!((size[1] - 1.0).abs() < 1e-6);
+        assert!((min[0] - 0.21875).abs() < 1e-6);
+        assert!(min[1].abs() < 1e-6);
+        // Mirrored: the same span, right to left.
+        let (min, size) = camera_crop(1600, 900, 1.0, true);
+        assert!((min[0] - 0.78125).abs() < 1e-6);
+        assert!((size[0] + 0.5625).abs() < 1e-6);
+        // 4:3 into 16:9: a band across the middle.
+        let (min, size) = camera_crop(640, 480, 16.0 / 9.0, false);
+        assert!((size[0] - 1.0).abs() < 1e-6);
+        assert!((size[1] - 0.75).abs() < 1e-6);
+        assert!((min[1] - 0.125).abs() < 1e-6);
+    }
     use crate::layout::{CompositeLayout, NormRect, PxRect};
     use crate::scene::Scene;
 
@@ -828,6 +1087,7 @@ mod tests {
             key_chips: Vec::new(),
             key_texts: Vec::new(),
             cursor: None,
+            camera: None,
             blur_from: None,
         };
         let px = compositor.composite_scene(
@@ -838,6 +1098,7 @@ mod tests {
             8,
             &scene,
             BgFill::solid([0.0, 0.0, 0.0, 1.0]),
+            None,
         );
         assert_eq!(px.len(), 8 * 8 * 4);
     }

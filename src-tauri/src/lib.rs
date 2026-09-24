@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod audio;
+mod camera;
 mod commands;
 mod displays;
 mod drag_wall;
@@ -296,6 +297,11 @@ pub fn run() {
             commands::audio_track,
             commands::set_audio_track,
             commands::set_audio_cleanup,
+            commands::list_cameras,
+            commands::set_capture_camera,
+            commands::set_camera_preview,
+            commands::camera_preview_frame,
+            commands::set_camera_overlay,
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,

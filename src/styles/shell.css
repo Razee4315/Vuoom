@@ -301,8 +301,9 @@ body.resizing-y * {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 50px;
-  flex: none;
+  /* 50px tall, shrinking to 38px on short windows so every tool stays in view. */
+  flex: 0 1 50px;
+  min-height: 38px;
   border: 0;
   border-radius: var(--r);
   background: transparent;
@@ -313,10 +314,21 @@ body.resizing-y * {
     transform var(--dur-1) var(--ease);
 }
 .rail.compact .rail-tool {
-  height: 34px;
+  flex-basis: 34px;
+  min-height: 30px;
 }
 .rail.compact .rail-label {
   display: none;
+}
+/* Short windows: icons only (names stay in the tooltips), so the whole rail fits. */
+@media (max-height: 780px) {
+  .rail .rail-tool {
+    flex-basis: 34px;
+    min-height: 30px;
+  }
+  .rail .rail-label {
+    display: none;
+  }
 }
 .rail-tool:hover {
   background: var(--hover);
@@ -359,6 +371,8 @@ body.resizing-y * {
   color: var(--record);
 }
 .rail-collapse {
+  flex: none !important;
+  min-height: 0 !important;
   height: 26px !important;
   color: var(--faint);
 }

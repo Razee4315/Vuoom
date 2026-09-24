@@ -1,7 +1,7 @@
 // Shared editor types. These mirror the src-tauri / vuoom_* serde shapes and are
 // imported across the frontend. Keep names identical to their App.tsx origins.
 
-export type Tool = "select" | "zoom" | "text" | "arrow" | "pen" | "shape" | "highlight" | "mask";
+export type Tool = "select" | "zoom" | "text" | "arrow" | "pen" | "shape" | "highlight" | "spotlight" | "mask";
 export type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -55,7 +55,7 @@ export interface BoxAnn {
   color: Color;
   thickness: number;
   filled: boolean;
-  shape: "Rect" | "Ellipse" | "Mask";
+  shape: "Rect" | "Ellipse" | "Mask" | "Spotlight";
   range: TimeRange;
 }
 /** A freehand pen stroke, mirrors vuoom_project::StrokeAnnotation. */
@@ -263,6 +263,7 @@ export type Drag =
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }
   | { mode: "create-mask"; start: Vec2; cur: Vec2 }
+  | { mode: "create-spotlight"; start: Vec2; cur: Vec2 }
   // A pen stroke being drawn: its points so far; `marker` for a wide translucent marker.
   | { mode: "create-stroke"; pts: Vec2[]; marker: boolean }
   // `group` carries the OTHER selected annotations so a canvas drag of any member

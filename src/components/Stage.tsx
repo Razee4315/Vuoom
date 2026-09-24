@@ -86,18 +86,27 @@ export default function Stage() {
                       opacity={ed.isGhost(b.range, sel()) ? 0.35 : 1}
                       style={{ cursor: sel() ? "move" : undefined }}
                     >
+                      <Show when={b.shape === "Spotlight"}>
+                        <path
+                          fill-rule="evenodd"
+                          fill={cssColor(b.color)}
+                          d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z M${a().x} ${a().y}h${s().x}v${s().y}h${-s().x}Z`}
+                        />
+                      </Show>
                       <Show
                         when={b.shape === "Ellipse"}
                         fallback={
-                          <rect
-                            x={a().x}
-                            y={a().y}
-                            width={s().x}
-                            height={s().y}
-                            fill={b.filled ? cssColor(b.color) : "none"}
-                            stroke={cssColor(b.color)}
-                            stroke-width={Math.max(b.thickness * ed.stage().h, 1.5)}
-                          />
+                          <Show when={b.shape !== "Spotlight"}>
+                            <rect
+                              x={a().x}
+                              y={a().y}
+                              width={s().x}
+                              height={s().y}
+                              fill={b.filled ? cssColor(b.color) : "none"}
+                              stroke={cssColor(b.color)}
+                              stroke-width={Math.max(b.thickness * ed.stage().h, 1.5)}
+                            />
+                          </Show>
                         }
                       >
                         <ellipse
@@ -342,6 +351,23 @@ export default function Stage() {
             const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
             return (
               <rect x={a.x} y={a.y} width={w} height={h} fill="rgba(10,10,13,0.85)" stroke="#e5484d" stroke-width={1.5} stroke-dasharray="5 3" />
+            );
+          })()}
+        </Show>
+        <Show when={ed.drag()?.mode === "create-spotlight"}>
+          {(() => {
+            const d = ed.drag() as { start: Vec2; cur: Vec2 };
+            const a = ed.px({ x: Math.min(d.start.x, d.cur.x), y: Math.min(d.start.y, d.cur.y) });
+            const w = Math.abs(d.cur.x - d.start.x) * ed.stage().w;
+            const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
+            return (
+              <path
+                fill-rule="evenodd"
+                fill="rgba(0,0,0,0.6)"
+                stroke="#ffd23f"
+                stroke-width={1.5}
+                d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z M${a.x} ${a.y}h${w}v${h}h${-w}Z`}
+              />
             );
           })()}
         </Show>

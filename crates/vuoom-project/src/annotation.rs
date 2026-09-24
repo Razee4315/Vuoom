@@ -74,6 +74,9 @@ pub enum HighlightShape {
     /// Opaque redaction block: the compositor enforces a near-black fill and ignores
     /// the stored color, so masked content can never leak through a wrong style.
     Mask,
+    /// Dims the whole frame except the rect, to draw the eye to it. The color (black by
+    /// default) and its alpha set how dark.
+    Spotlight,
 }
 
 /// A highlight region (outlined or filled; rectangle or ellipse).

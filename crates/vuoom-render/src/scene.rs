@@ -8,7 +8,7 @@ use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
 use vuoom_project::{
     caption_at, ArrowStyle, CameraOverlay, CaptionPosition, Color, Corner, HighlightShape,
-    InputEvent, Project,
+    InputEvent, Project, Rect,
 };
 use vuoom_zoom::CameraTrack;
 
@@ -182,6 +182,31 @@ fn place_camera(o: CameraOverlay, dst: PxRect, oh: f64, t: f64) -> ResolvedCamer
     }
 }
 
+/// The four dark bands around a spotlight's clear rect `r` (normalized) on an `ow`×`oh`
+/// frame: above, below, left and right of it.
+fn spotlight_bands(r: Rect, ow: f64, oh: f64, color: Color) -> [ResolvedHighlight; 4] {
+    let x0 = r.x.clamp(0.0, 1.0) * ow;
+    let y0 = r.y.clamp(0.0, 1.0) * oh;
+    let x1 = (r.x + r.w).clamp(0.0, 1.0) * ow;
+    let y1 = (r.y + r.h).clamp(0.0, 1.0) * oh;
+    let band = |x: f64, y: f64, w: f64, h: f64| ResolvedHighlight {
+        x,
+        y,
+        w: w.max(0.0),
+        h: h.max(0.0),
+        thickness_px: 0.0,
+        filled: true,
+        ellipse: false,
+        color,
+    };
+    [
+        band(0.0, 0.0, ow, y0),
+        band(0.0, y1, ow, oh - y1),
+        band(0.0, y0, x0, y1 - y0),
+        band(x1, y0, ow - x1, y1 - y0),
+    ]
+}
+
 /// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
@@ -345,9 +370,15 @@ pub fn build_scene(
         });
     }
 
+    // A spotlight's dark bands go first, so everything else stays bright over them.
+    let mut dim = Vec::new();
     for h in &project.highlights {
         let o = h.range.opacity_at(t);
         if o <= 0.0 {
+            continue;
+        }
+        if h.shape == HighlightShape::Spotlight {
+            dim.extend(spotlight_bands(h.rect, ow, oh, fade(h.color, o)));
             continue;
         }
         // A mask is an OPAQUE redaction block: the compositor forces a near-black fill
@@ -372,6 +403,7 @@ pub fn build_scene(
             },
         });
     }
+    highlights.splice(0..0, dim);
 
     let mut ripples = Vec::new();
     if project.show_clicks {
@@ -512,7 +544,9 @@ pub fn build_scene(
 mod tests {
     use super::*;
     use glam::DVec2;
-    use vuoom_project::{CursorStyle, SourceInfo, StrokeAnnotation, TextAnnotation, TimeRange};
+    use vuoom_project::{
+        CursorStyle, HighlightBox, SourceInfo, StrokeAnnotation, TextAnnotation, TimeRange,
+    };
 
     fn project_with_text() -> Project {
         let mut p = Project::new(SourceInfo {
@@ -548,6 +582,28 @@ mod tests {
         assert!((t.y - 200.0).abs() < 1e-9);
         // font_size is f32, so allow f32->f64 rounding slack.
         assert!((t.font_px - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_spotlight_dims_all_around_its_rect_and_goes_under_the_rest() {
+        let mut p = project_with_text();
+        p.texts[0].background = true;
+        p.highlights.push(HighlightBox {
+            id: 3,
+            rect: Rect::new(0.2, 0.3, 0.4, 0.5),
+            color: Color::rgba(0.0, 0.0, 0.0, 0.6),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Spotlight,
+            range: TimeRange::new(1.0, 3.0),
+        });
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        // Four bands, then the label's plate.
+        assert_eq!(scene.highlights.len(), 5);
+        let area: f64 = scene.highlights[..4].iter().map(|b| b.w * b.h).sum();
+        assert!((area - (1_000_000.0 - 400.0 * 500.0)).abs() < 1e-6);
+        assert!(scene.highlights[..4].iter().all(|b| b.filled && b.color.a > 0.5));
     }
 
     #[test]

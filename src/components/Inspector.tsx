@@ -136,6 +136,7 @@ const KIND_ICON: Record<string, IconName> = {
   Ellipse: "shape",
   Highlight: "highlight",
   "Hidden area": "mask",
+  Spotlight: "spotlight",
   Pen: "pen",
   Marker: "pen",
 };
@@ -490,7 +491,16 @@ function AnnotationProps() {
         )}
       </Show>
 
-      <Show when={ed.selectedBox() && !ed.isMask()}>
+      <Show when={ed.isSpotlight()}>
+        <Section id="ann-spotlight" title="Spotlight" icon="spotlight">
+          <p class="note">
+            Everything around this area goes dark, so eyes go straight to it. Opacity sets how dark; drag
+            its handles to reframe it.
+          </p>
+        </Section>
+      </Show>
+
+      <Show when={ed.selectedBox() && !ed.isMask() && !ed.isSpotlight()}>
         <Section id="ann-shape" title="Shape" icon="shape">
           <Field label="Shape">
             <Seg

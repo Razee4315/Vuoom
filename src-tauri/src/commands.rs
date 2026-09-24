@@ -1260,6 +1260,19 @@ pub fn add_stroke(
     engine.session()?.add_stroke(&points, color, thickness, t)
 }
 
+/// Add a spotlight (everything outside the normalized rect is dimmed) from time `t`.
+#[tauri::command]
+pub fn add_spotlight(
+    engine: tauri::State<'_, Engine>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_spotlight(x, y, w, h, t)
+}
+
 /// Add a highlight box (normalized rect) from time `t`.
 #[tauri::command]
 pub fn add_box(

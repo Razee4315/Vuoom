@@ -53,6 +53,7 @@ import type {
 /** A box's name, after the tool that makes it: Hide, Highlight (a see-through fill) or Shape. */
 function boxLabel(b: BoxAnn): string {
   if (b.shape === "Mask") return "Hidden area";
+  if (b.shape === "Spotlight") return "Spotlight";
   if (b.shape === "Ellipse") return "Ellipse";
   if (b.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
   return "Box";
@@ -1314,6 +1315,10 @@ export function createEditor() {
       setDrag({ mode: "create-mask", start: p, cur: p });
       return;
     }
+    if (t === "spotlight") {
+      setDrag({ mode: "create-spotlight", start: p, cur: p });
+      return;
+    }
 
     // Second click of a double-click on a text label → inline edit. Detected here (see
     // pressCount) because pointer capture can swallow the synthesized dblclick event.
@@ -1441,7 +1446,8 @@ export function createEditor() {
       d.mode === "create-box" ||
       d.mode === "create-ellipse" ||
       d.mode === "create-highlight" ||
-      d.mode === "create-mask"
+      d.mode === "create-mask" ||
+      d.mode === "create-spotlight"
     ) {
       setDrag({ ...d, cur: p });
       return;
@@ -1531,16 +1537,16 @@ export function createEditor() {
       d.mode === "create-box" ||
       d.mode === "create-ellipse" ||
       d.mode === "create-highlight" ||
-      d.mode === "create-mask"
+      d.mode === "create-mask" ||
+      d.mode === "create-spotlight"
     ) {
-      const cmd =
-        d.mode === "create-box"
-          ? "add_box"
-          : d.mode === "create-ellipse"
-            ? "add_ellipse"
-            : d.mode === "create-mask"
-              ? "add_mask"
-              : "add_highlighter";
+      const cmd = {
+        "create-box": "add_box",
+        "create-ellipse": "add_ellipse",
+        "create-mask": "add_mask",
+        "create-spotlight": "add_spotlight",
+        "create-highlight": "add_highlighter",
+      }[d.mode];
       setDrag(null);
       const x = Math.min(d.start.x, p.x);
       const y = Math.min(d.start.y, p.y);
@@ -1719,6 +1725,7 @@ export function createEditor() {
     );
   };
   const isMask = () => selectedBox()?.shape === "Mask";
+  const isSpotlight = () => selectedBox()?.shape === "Spotlight";
   const inspTitle = () => {
     const s = selected()!;
     if (s.kind === "box") {
@@ -4030,6 +4037,7 @@ export function createEditor() {
     setArrowStyle,
     setOpacity,
     isMask,
+    isSpotlight,
     inspTitle,
     selectedColor,
     setColor,

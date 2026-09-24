@@ -236,6 +236,7 @@ pub fn run() {
             commands::add_ellipse,
             commands::add_highlighter,
             commands::add_mask,
+            commands::add_spotlight,
             commands::set_crop,
             commands::plan_zoom_auto,
             commands::list_displays,

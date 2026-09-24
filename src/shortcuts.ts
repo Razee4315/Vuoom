@@ -17,6 +17,13 @@ export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: 
   { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to frame something with a box. (S)" },
   { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag over an area to highlight it. (H)" },
   {
+    id: "spotlight",
+    label: "Spotlight",
+    key: "L",
+    code: "KeyL",
+    hint: "Drag over what matters. Everything around it goes dark. (L)",
+  },
+  {
     id: "mask",
     label: "Hide",
     key: "M",
@@ -63,6 +70,7 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
       { keys: ["P"], label: "Pen (draw freehand)" },
       { keys: ["S"], label: "Shape" },
       { keys: ["H"], label: "Highlight" },
+      { keys: ["L"], label: "Spotlight (dim everything else)" },
       { keys: ["M"], label: "Hide (cover private details)" },
     ],
   },

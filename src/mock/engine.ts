@@ -660,6 +660,7 @@ class MockEngine {
     ellipse?: boolean;
     highlight?: boolean;
     mask?: boolean;
+    spotlight?: boolean;
   }): number {
     const id = this.nextAnnId();
     this.mutate(undefined, () => {
@@ -667,10 +668,16 @@ class MockEngine {
       this.anns.highlights.push({
         id,
         rect: { x: a.x, y: a.y, w: a.w, h: a.h },
-        color: mask ? color("#0a0a0d") : a.highlight ? color("#ffd23f", 0.4) : color("#ffd23f"),
+        color: mask
+          ? color("#0a0a0d")
+          : a.spotlight
+            ? color("#000000", 0.6)
+            : a.highlight
+              ? color("#ffd23f", 0.4)
+              : color("#ffd23f"),
         thickness: 0.0,
-        filled: mask || !!a.highlight,
-        shape: mask ? "Mask" : a.ellipse ? "Ellipse" : "Rect",
+        filled: mask || !!a.highlight || !!a.spotlight,
+        shape: mask ? "Mask" : a.spotlight ? "Spotlight" : a.ellipse ? "Ellipse" : "Rect",
         range: mask
           ? {
               start: Math.max(0, a.t - 0.2),

@@ -1799,6 +1799,25 @@ impl Session {
         Ok(id)
     }
 
+    /// Add a spotlight: everything outside the normalized rect is dimmed. Returns its id.
+    pub fn add_spotlight(&self, x: f64, y: f64, w: f64, h: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.3);
+        project.highlights.push(HighlightBox {
+            id,
+            rect: Rect::new(x, y, w, h),
+            color: Color::rgba(0.0, 0.0, 0.0, 0.6),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Spotlight,
+            range,
+        });
+        Ok(id)
+    }
+
     /// Add an opaque redaction mask: the compositor forces a near-black fill regardless
     /// of styling, and the range uses hard edges (no fades) so masked content never
     /// leaks during a fade. Returns its id.

@@ -144,6 +144,11 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
         ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }),
         highlight: true,
       });
+    case "add_spotlight":
+      return m.addBox({
+        ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }),
+        spotlight: true,
+      });
     case "add_mask":
       return m.addBox({
         ...(a as unknown as { x: number; y: number; w: number; h: number; t: number }),

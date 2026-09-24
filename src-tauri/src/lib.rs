@@ -230,6 +230,8 @@ pub fn run() {
             commands::export_srt,
             commands::add_text,
             commands::add_arrow,
+            commands::add_stroke,
+            commands::update_stroke,
             commands::add_box,
             commands::add_ellipse,
             commands::add_highlighter,

@@ -1,4 +1,4 @@
-//! The simple, core annotation set: text labels, arrows, and highlight boxes.
+//! The simple, core annotation set: text labels, arrows, highlight boxes and pen strokes.
 //!
 //! Kept deliberately minimal (see `docs/11-Editor-and-Annotations.md`). Each carries a
 //! [`TimeRange`] so it appears/disappears (with fades) on the timeline, and geometry in
@@ -88,5 +88,18 @@ pub struct HighlightBox {
     /// Defaults to `Rect` so projects saved before ellipses existed still load.
     #[serde(default)]
     pub shape: HighlightShape,
+    pub range: TimeRange,
+}
+
+/// A freehand pen stroke: a smooth line through its points with round ends (drawn as flat
+/// triangles at composite time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StrokeAnnotation {
+    pub id: u32,
+    /// The path, normalized, in drawing order.
+    pub points: Vec<DVec2>,
+    pub color: Color,
+    /// Line thickness as a fraction of output height.
+    pub thickness: f32,
     pub range: TimeRange,
 }

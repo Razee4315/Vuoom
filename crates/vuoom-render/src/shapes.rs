@@ -1,9 +1,10 @@
-//! Lightweight triangle geometry for flat annotation shapes (highlight boxes + arrows) and
-//! the re-drawn pointer. Generated manually (no tessellation dependency) and drawn with
-//! `shaders/shapes.wgsl`.
+//! Lightweight triangle geometry for flat annotation shapes (highlight boxes, pen strokes,
+//! arrows) and the re-drawn pointer. Generated manually (no tessellation dependency) and
+//! drawn with `shaders/shapes.wgsl`.
 
 use crate::cursor::{offset_polygon, ARROW, ARROW_TRIS};
-use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, Scene};
+use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene};
+use std::f32::consts::{PI, TAU};
 use vuoom_project::Color;
 
 /// A colored 2D vertex in output-pixel space.
@@ -96,6 +97,94 @@ fn ellipse(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
             push_quad(out, [p0, p1, q1, q0], color);
         }
     }
+}
+
+/// Segments in a stroke's round end (half a circle).
+const CAP_SEGS: u32 = 10;
+
+/// A triangle fan around `c` of radius `r`: from angle `arc[0]`, sweeping `arc[1]`.
+fn fan(out: &mut Vec<ShapeVertex>, c: [f32; 2], r: f32, arc: [f32; 2], color: [f32; 4]) {
+    let segs = CAP_SEGS * if arc[1] < TAU { 1 } else { 2 };
+    let step = arc[1] / segs as f32;
+    for i in 0..segs {
+        let a0 = arc[0] + i as f32 * step;
+        let a1 = a0 + step;
+        let p0 = [c[0] + r * a0.cos(), c[1] + r * a0.sin()];
+        let p1 = [c[0] + r * a1.cos(), c[1] + r * a1.sin()];
+        for pos in [c, p0, p1] {
+            out.push(ShapeVertex { pos, color });
+        }
+    }
+}
+
+/// The unit normal of the segment from `a` to `b` (a quarter turn from its direction).
+fn unit_normal(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len = dx.hypot(dy).max(1e-3);
+    [-dy / len, dx / len]
+}
+
+/// The offset at a joint between segments with normals `a` and `b`: their average, scaled
+/// so the stroke's sides stay parallel to both (a miter), at most twice as long on sharp
+/// turns.
+fn miter(a: [f32; 2], b: [f32; 2]) -> [f32; 2] {
+    let m = [a[0] + b[0], a[1] + b[1]];
+    let len = m[0].hypot(m[1]);
+    if len < 1e-3 {
+        return b;
+    }
+    let cos = (m[0] * b[0] + m[1] * b[1]) / len;
+    let k = 1.0 / (cos.max(0.5) * len);
+    [m[0] * k, m[1] * k]
+}
+
+/// A pen stroke: a strip along the path, its sides half the thickness out on each side
+/// and mitered at every point, with a round cap at both ends. A single point is a dot.
+fn stroke(out: &mut Vec<ShapeVertex>, s: &ResolvedStroke) {
+    let color = col(s.color);
+    let h = (s.thickness_px as f32).max(1.0) / 2.0;
+    // Points closer than a pixel to the last kept one only add slivers.
+    let mut pts: Vec<[f32; 2]> = Vec::with_capacity(s.points.len());
+    for p in &s.points {
+        let q = [p[0] as f32, p[1] as f32];
+        match pts.last() {
+            Some(l) if (q[0] - l[0]).hypot(q[1] - l[1]) < 1.0 => {}
+            _ => pts.push(q),
+        }
+    }
+    let Some(&first) = pts.first() else {
+        return;
+    };
+    if pts.len() == 1 {
+        fan(out, first, h, [0.0, TAU], color);
+        return;
+    }
+    let mut normals = Vec::with_capacity(pts.len());
+    for w in pts.windows(2) {
+        normals.push(unit_normal(w[0], w[1]));
+    }
+    let last = normals.len() - 1;
+    let mut left = Vec::with_capacity(pts.len());
+    let mut right = Vec::with_capacity(pts.len());
+    for (i, p) in pts.iter().enumerate() {
+        let n = if i == 0 {
+            normals[0]
+        } else if i > last {
+            normals[last]
+        } else {
+            miter(normals[i - 1], normals[i])
+        };
+        left.push([p[0] + n[0] * h, p[1] + n[1] * h]);
+        right.push([p[0] - n[0] * h, p[1] - n[1] * h]);
+    }
+    for (l, r) in left.windows(2).zip(right.windows(2)) {
+        push_quad(out, [l[0], l[1], r[1], r[0]], color);
+    }
+    // Round ends: half discs from one side to the other, around the outside.
+    let start = normals[0][1].atan2(normals[0][0]);
+    fan(out, first, h, [start, PI], color);
+    let end = normals[last][1].atan2(normals[last][0]) + PI;
+    fan(out, pts[pts.len() - 1], h, [end, PI], color);
 }
 
 fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
@@ -195,8 +284,8 @@ fn fill_arrow(
     }
 }
 
-/// Build the triangle list for all of a scene's highlights and arrows, and the caption's
-/// `plate` (sized by the compositor, which measures the caption's text).
+/// Build the triangle list for all of a scene's highlights, strokes and arrows, and the
+/// caption's `plate` (sized by the compositor, which measures the caption's text).
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
@@ -212,6 +301,9 @@ pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) ->
             highlight(&mut out, h);
         }
     }
+    for s in &scene.strokes {
+        stroke(&mut out, s);
+    }
     for a in &scene.arrows {
         arrow(&mut out, a);
     }
@@ -223,4 +315,42 @@ pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) ->
         cursor(&mut out, c);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pen(points: Vec<[f64; 2]>) -> ResolvedStroke {
+        ResolvedStroke {
+            points,
+            thickness_px: 4.0,
+            color: Color::WHITE,
+        }
+    }
+
+    #[test]
+    fn a_stroke_is_a_strip_with_round_ends() {
+        let mut out = Vec::new();
+        let s = pen(vec![[10.0, 10.0], [50.0, 10.0], [50.0, 40.0]]);
+        stroke(&mut out, &s);
+        // Two quads, then two half discs.
+        assert_eq!(out.len(), 2 * 6 + 2 * CAP_SEGS as usize * 3);
+        // Nothing reaches further than half the thickness past the path.
+        for v in &out {
+            let [x, y] = v.pos;
+            assert!((7.99..=52.01).contains(&x), "x {x}");
+            assert!((7.99..=42.01).contains(&y), "y {y}");
+        }
+    }
+
+    #[test]
+    fn a_single_point_is_a_dot_and_repeats_are_dropped() {
+        let mut out = Vec::new();
+        stroke(&mut out, &pen(vec![[5.0, 5.0], [5.2, 5.1]]));
+        assert_eq!(out.len(), 2 * CAP_SEGS as usize * 3);
+        let mut none = Vec::new();
+        stroke(&mut none, &pen(Vec::new()));
+        assert!(none.is_empty());
+    }
 }

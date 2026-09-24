@@ -15,7 +15,9 @@ mod frame;
 mod timeline;
 mod timing;
 
-pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
+pub use annotation::{
+    ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, StrokeAnnotation, TextAnnotation,
+};
 pub use audio::{AudioKind, AudioTrack};
 pub use camera::{CameraOverlay, CameraShape, Corner};
 pub use captions::{caption_at, Caption, CaptionPosition, CaptionStyle};
@@ -82,6 +84,9 @@ pub struct Project {
     pub texts: Vec<TextAnnotation>,
     pub arrows: Vec<ArrowAnnotation>,
     pub highlights: Vec<HighlightBox>,
+    /// Freehand pen strokes. Serde default keeps older projects loading.
+    #[serde(default)]
+    pub strokes: Vec<StrokeAnnotation>,
     pub trim: Option<Trim>,
     pub speed_regions: Vec<SpeedRegion>,
     /// Source-time ranges removed from the output entirely (mistakes, dead ends).
@@ -191,6 +196,7 @@ impl Project {
             texts: Vec::new(),
             arrows: Vec::new(),
             highlights: Vec::new(),
+            strokes: Vec::new(),
             trim: None,
             speed_regions: Vec::new(),
             cuts: Vec::new(),

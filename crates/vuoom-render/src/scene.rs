@@ -41,6 +41,15 @@ pub struct ResolvedArrow {
     pub head_to: bool,
 }
 
+/// A pen stroke resolved to output pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedStroke {
+    /// The path in output pixels.
+    pub points: Vec<[f64; 2]>,
+    pub thickness_px: f64,
+    pub color: Color,
+}
+
 /// A highlight box resolved to output pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResolvedHighlight {
@@ -190,6 +199,8 @@ pub struct Scene {
     pub texts: Vec<ResolvedText>,
     pub arrows: Vec<ResolvedArrow>,
     pub highlights: Vec<ResolvedHighlight>,
+    /// Pen strokes, drawn over the highlights and under the arrows.
+    pub strokes: Vec<ResolvedStroke>,
     /// Click ripples (expanding fading rings), kept separate from `highlights` because
     /// the live preview clears the annotation lists (the editor overlay draws those)
     /// but ripples must still show.
@@ -295,6 +306,19 @@ pub fn build_scene(
             bold: ta.bold,
             italic: ta.italic,
             font: ta.font.clone(),
+        });
+    }
+
+    let mut strokes = Vec::new();
+    for s in &project.strokes {
+        let o = s.range.opacity_at(t);
+        if o <= 0.0 || s.points.is_empty() {
+            continue;
+        }
+        strokes.push(ResolvedStroke {
+            points: s.points.iter().map(|p| [p.x * ow, p.y * oh]).collect(),
+            thickness_px: f64::from(s.thickness) * oh,
+            color: fade(s.color, o),
         });
     }
 
@@ -473,6 +497,7 @@ pub fn build_scene(
         texts,
         arrows,
         highlights,
+        strokes,
         ripples,
         key_chips,
         key_texts,
@@ -487,7 +512,7 @@ pub fn build_scene(
 mod tests {
     use super::*;
     use glam::DVec2;
-    use vuoom_project::{CursorStyle, SourceInfo, TextAnnotation, TimeRange};
+    use vuoom_project::{CursorStyle, SourceInfo, StrokeAnnotation, TextAnnotation, TimeRange};
 
     fn project_with_text() -> Project {
         let mut p = Project::new(SourceInfo {
@@ -523,6 +548,27 @@ mod tests {
         assert!((t.y - 200.0).abs() < 1e-9);
         // font_size is f32, so allow f32->f64 rounding slack.
         assert!((t.font_px - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_pen_stroke_resolves_to_pixels_while_visible() {
+        let mut p = project_with_text();
+        p.strokes.push(StrokeAnnotation {
+            id: 2,
+            points: vec![DVec2::new(0.1, 0.2), DVec2::new(0.3, 0.4)],
+            color: Color::WHITE,
+            thickness: 0.01,
+            range: TimeRange::new(1.0, 3.0),
+        });
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        assert_eq!(scene.strokes.len(), 1);
+        let s = &scene.strokes[0];
+        assert_eq!(s.points.len(), 2);
+        assert!((s.points[1][0] - 300.0).abs() < 1e-9);
+        assert!((s.points[1][1] - 400.0).abs() < 1e-9);
+        assert!((s.thickness_px - 10.0).abs() < 1e-4);
+        assert!(build_scene(&p, &track, 1000, 1000, 4.0).strokes.is_empty());
     }
 
     #[test]

@@ -1159,6 +1159,7 @@ mod tests {
             texts: Vec::new(),
             arrows: Vec::new(),
             highlights: Vec::new(),
+            strokes: Vec::new(),
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),

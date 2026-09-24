@@ -1247,6 +1247,18 @@ pub fn add_arrow(
     engine.session()?.add_arrow(fx, fy, tx, ty, t)
 }
 
+/// Add a pen stroke (or, with `marker`, a marker stroke) through normalized points from
+/// time `t`.
+#[tauri::command]
+pub fn add_stroke(
+    engine: tauri::State<'_, Engine>,
+    points: Vec<[f64; 2]>,
+    marker: bool,
+    t: f64,
+) -> Result<u32, String> {
+    engine.session()?.add_stroke(&points, marker, t)
+}
+
 /// Add a highlight box (normalized rect) from time `t`.
 #[tauri::command]
 pub fn add_box(
@@ -1434,6 +1446,16 @@ pub fn update_text(
     engine
         .session()?
         .update_text(id, x, y, text, font_size, bold, italic, background, font)
+}
+
+/// Replace a pen stroke's path (moving or resizing it).
+#[tauri::command]
+pub fn update_stroke(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    points: Vec<[f64; 2]>,
+) -> Result<(), String> {
+    engine.session()?.update_stroke(id, &points)
 }
 
 /// Move an arrow's endpoints.

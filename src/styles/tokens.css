@@ -159,6 +159,7 @@
   --t-cut: #9a4a4f;
   --t-audio: #2fbfa8;
   --t-box: #ffd23f;
+  --t-caption: #9bd46a;
 
   /* Selection = ink. */
   --sel: var(--ink);

@@ -10,6 +10,9 @@ import type {
   AudioTrack,
   BoxAnn,
   CameraOverlay,
+  Caption,
+  CaptionStyle,
+  CaptionsProgress,
   CursorStyle,
   ClipState,
   Color,
@@ -83,6 +86,27 @@ function demoAnns(): AnnotationSet {
   };
 }
 
+/** What the demo take's narrator "says", as the speech model would caption it. */
+function demoCaptions(): Caption[] {
+  const lines: [number, number, string][] = [
+    [0.4, 2.3, "Here's the settings page of our app."],
+    [2.5, 4.6, "Open the theme menu in the top corner,"],
+    [4.7, 6.4, "and pick the dark theme."],
+    [6.9, 9.2, "Every panel switches over right away."],
+    [9.8, 11.5, "Let's skip ahead a little."],
+    [12.0, 14.0, "That's all it takes. Thanks for watching!"],
+  ];
+  return lines.map(([start, end, text], i) => ({
+    id: i + 1,
+    text,
+    range: { start, end, fade_in: 0, fade_out: 0 },
+  }));
+}
+
+const DEFAULT_CAPTION_STYLE: CaptionStyle = { visible: true, size: 0.045, position: "bottom" };
+/** The speech model's size, as the engine reports it. */
+const MOCK_MODEL_BYTES = 59_707_625;
+
 function demoZooms(): ZoomSeg[] {
   return [
     { start: 2.4, end: 4.6, amount: 1.8, mode: "Auto", style: "Smooth" },
@@ -122,6 +146,13 @@ class MockEngine {
   captureSmooth = false;
   /** The webcam bubble (mirrors Project::camera). */
   camera: CameraOverlay | null = null;
+  /** Timed captions and how they look (mirrors Project::captions / caption_style). */
+  captions: Caption[] = [];
+  captionStyle: CaptionStyle = { ...DEFAULT_CAPTION_STYLE };
+  /** Whether the speech model is "downloaded" (the first Make captions fetches it). */
+  modelReady = false;
+  private captionCbs = new Set<(p: CaptionsProgress) => void>();
+  private captionCancel = false;
   /** The camera the next mock take records, and whether its live bubble is open. */
   cameraChoice: { on: boolean; device: string | null } = { on: false, device: null };
   cameraPreview = false;
@@ -184,6 +215,8 @@ class MockEngine {
       audio: this.audio,
       cursor: this.cursor,
       camera: this.camera,
+      captions: this.captions,
+      captionStyle: this.captionStyle,
     });
   }
   private mutate(tag?: string, fn?: () => void) {
@@ -217,6 +250,8 @@ class MockEngine {
     this.audio = st.audio ?? [];
     this.cursor = st.cursor ?? null;
     this.camera = st.camera ?? null;
+    this.captions = st.captions ?? [];
+    this.captionStyle = st.captionStyle ?? { ...DEFAULT_CAPTION_STYLE };
   }
 
   private loadDemo() {
@@ -236,6 +271,9 @@ class MockEngine {
     this.cursor = { size: 1.5, smoothing: 0.05 };
     this.pointerCaptured = false;
     this.camera = defaultOverlay();
+    // `&captions` starts the demo already captioned (screenshots of the captions UI).
+    this.captions = new URLSearchParams(window.location.search).has("captions") ? demoCaptions() : [];
+    this.captionStyle = { ...DEFAULT_CAPTION_STYLE };
     this.playhead = 0;
     this.undoStack = [];
     this.redoStack = [];
@@ -273,7 +311,90 @@ class MockEngine {
       cursor: this.cursor ? { ...this.cursor } : null,
       pointer_captured: this.pointerCaptured,
       camera: this.camera ? { ...this.camera } : null,
+      captions: structuredClone(this.captions),
+      caption_style: { ...this.captionStyle },
     };
+  }
+
+  // ── captions ─────────────────────────────────────────────────────────────────
+  captionsStatus() {
+    return { supported: true, model_ready: this.modelReady, model_bytes: MOCK_MODEL_BYTES };
+  }
+  onCaptionsProgress(cb: (p: CaptionsProgress) => void): () => void {
+    this.captionCbs.add(cb);
+    return () => this.captionCbs.delete(cb);
+  }
+  cancelCaptions() {
+    this.captionCancel = true;
+  }
+  /** A fake model download (first time) and transcription, with progress, then the demo cues. */
+  async generateCaptions(): Promise<Caption[]> {
+    if (this.audio.length === 0) throw new Error("This take has no recorded sound to make captions from.");
+    this.captionCancel = false;
+    const step = async (p: CaptionsProgress, ms: number) => {
+      await new Promise((r) => setTimeout(r, ms));
+      if (this.captionCancel) throw new Error("cancelled");
+      for (const cb of this.captionCbs) cb(p);
+    };
+    if (!this.modelReady) {
+      for (let i = 1; i <= 16; i++) {
+        await step({ step: "download", done: Math.round((MOCK_MODEL_BYTES * i) / 16), total: MOCK_MODEL_BYTES }, 110);
+      }
+      this.modelReady = true;
+    }
+    for (let p = 5; p <= 100; p += 5) await step({ step: "listen", done: p, total: 100 }, 70);
+    this.mutate("", () => {
+      this.captions = demoCaptions().filter((c) => c.range.start < this.duration);
+    });
+    return structuredClone(this.captions);
+  }
+  addCaption(t: number, text: string): number {
+    const next = this.captions.map((c) => c.range.start).filter((s) => s > t + 0.2);
+    const end = Math.max(t + 0.2, Math.min(t + 2, this.duration, ...next));
+    const id = Math.max(0, ...this.captions.map((c) => c.id)) + 1;
+    this.mutate("", () => {
+      this.captions.push({ id, text, range: { start: t, end, fade_in: 0, fade_out: 0 } });
+      this.captions.sort((a, b) => a.range.start - b.range.start);
+    });
+    return id;
+  }
+  setCaptionText(id: number, text: string) {
+    this.mutate(`caption-text-${id}`, () => {
+      const c = this.captions.find((x) => x.id === id);
+      if (c) c.text = text;
+    });
+  }
+  setCaptionRange(id: number, start: number, end: number) {
+    this.mutate(`caption-range-${id}`, () => {
+      const c = this.captions.find((x) => x.id === id);
+      if (!c) return;
+      const s = Math.max(0, Math.min(start, this.duration - 0.1));
+      c.range = { ...c.range, start: s, end: Math.max(s + 0.1, Math.min(end, this.duration)) };
+      this.captions.sort((a, b) => a.range.start - b.range.start);
+    });
+  }
+  deleteCaption(id: number) {
+    this.mutate("", () => {
+      this.captions = this.captions.filter((c) => c.id !== id);
+    });
+  }
+  clearCaptions() {
+    this.mutate("", () => {
+      this.captions = [];
+    });
+  }
+  setCaptionStyle(style: CaptionStyle) {
+    this.mutate("caption-style", () => {
+      this.captionStyle = { ...style, size: Math.max(0.025, Math.min(0.09, style.size)) };
+    });
+  }
+  /** The caption on screen at `t` (the later one where two overlap). */
+  captionAt(t: number): Caption | null {
+    for (let i = this.captions.length - 1; i >= 0; i--) {
+      const c = this.captions[i];
+      if (t >= c.range.start && t < c.range.end) return c;
+    }
+    return null;
   }
 
   setCameraOverlay(overlay: CameraOverlay) {

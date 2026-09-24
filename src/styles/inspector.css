@@ -364,6 +364,53 @@
   cursor: pointer;
 }
 
+/* Captions (Clip > Captions): progress while making them, then the actions row. */
+.cap-job {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cap-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--active);
+}
+.cap-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+  transition: width var(--dur-1) var(--ease);
+}
+.cap-bar.busy > i {
+  width: 30% !important;
+  animation: cap-busy 1.1s ease-in-out infinite alternate;
+}
+@keyframes cap-busy {
+  from {
+    transform: translateX(-10%);
+  }
+  to {
+    transform: translateX(240%);
+  }
+}
+.cap-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cap-actions > .btn {
+  justify-content: center;
+}
+.cap-text {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
 /* Audio tracks (Clip > Audio): icon + name + mute, then the volume slider. */
 .audio-row {
   display: flex;

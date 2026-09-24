@@ -113,6 +113,7 @@ export default function App() {
           speed={ed.speed()}
           cuts={ed.cuts()}
           hasAudio={ed.audio.tracks().some((t) => !t.muted)}
+          hasCaptions={ed.captions.list().length > 0}
           onClose={() => ed.setShowExport(false)}
           onStatus={ed.setStatus}
           onExported={() => ed.setDirty(false)}

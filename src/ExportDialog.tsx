@@ -20,6 +20,8 @@ export function ExportDialog(props: {
   cuts: Trim[];
   /** The clip has at least one unmuted audio track. */
   hasAudio: boolean;
+  /** The clip has captions, which can also be saved as an .srt beside the export. */
+  hasCaptions?: boolean;
   onClose: () => void;
   onStatus: (s: string) => void;
   onExported: () => void;
@@ -38,6 +40,7 @@ export function ExportDialog(props: {
   const [budgetMb, setBudgetMb] = createSignal("");
   const [fitting, setFitting] = createSignal(false);
   const [withAudio, setWithAudio] = createSignal(true);
+  const [srtSaved, setSrtSaved] = createSignal("");
   const audioOn = () => props.hasAudio && withAudio();
 
   let dialogEl: HTMLDivElement | undefined;
@@ -272,6 +275,16 @@ export function ExportDialog(props: {
   const busy = () => phase() === "starting" || phase() === "exporting";
 
   const pct = () => Math.round(progress() * 100);
+  /** Save the captions as `<export name>.srt` beside the export: players pick that up. */
+  const saveSrt = async () => {
+    const path = `${outPath().replace(/\.[^.\\/]+$/, "")}.srt`;
+    try {
+      await invoke("export_srt", { path });
+      setSrtSaved(path.split(/[\\/]/).pop() ?? path);
+    } catch (e) {
+      toast(friendlyError(e), "error");
+    }
+  };
   const sizeText = () =>
     estimate() === null ? "Estimating…" : estimate()! < 0 ? "Unavailable" : `≈ ${fmtBytes(estimate()!)}`;
   const height = () => Math.round(width() / Math.max(props.aspect || 16 / 9, 0.2));
@@ -551,6 +564,12 @@ export function ExportDialog(props: {
                 <Icon name="folder" size={14} /> Show
               </button>
             </div>
+            <Show when={props.hasCaptions}>
+              <button type="button" class="btn ghost" disabled={!!srtSaved()} onClick={() => void saveSrt()}>
+                <Icon name={srtSaved() ? "check" : "captions"} size={14} />
+                {srtSaved() ? ` Saved ${srtSaved()}` : " Save captions next to it (.srt)"}
+              </button>
+            </Show>
             <p class="muted small">
               {copied() ||
                 (format() === "gif"

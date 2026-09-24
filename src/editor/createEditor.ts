@@ -17,7 +17,8 @@ import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
 import { fmtBytes, friendlyError, hexRgb } from "../format";
-import { TOOL_KEYS } from "../shortcuts";
+import { CROP_KEY, TOOL_KEYS } from "../shortcuts";
+import { zoomFrame } from "../geometry";
 import { layout, prefs } from "../prefs";
 import type {
   AnnotationSet,
@@ -885,13 +886,23 @@ export function createEditor() {
       !e.metaKey &&
       !e.shiftKey &&
       editingText() === null &&
-      (e.code === "KeyZ" || e.code === "KeyX" || e.code === "KeyC")
+      (e.code === "KeyX" || e.code === "KeyC")
     ) {
-      // Insert a segment at the playhead, Z/X/C mirror the Insert group (Zoom/Speed/Cut).
+      // Insert a segment at the playhead: X speeds up, C cuts (Z arms the zoom tool).
       e.preventDefault();
-      if (e.code === "KeyZ") void addZoomAt();
-      else if (e.code === "KeyX") void addSpeedAtPlayhead();
+      if (e.code === "KeyX") void addSpeedAtPlayhead();
       else void addCutAtPlayhead();
+    } else if (
+      hasClip() &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      !e.shiftKey &&
+      editingText() === null &&
+      e.code === CROP_KEY.code
+    ) {
+      e.preventDefault();
+      void beginCropEdit();
     } else if (
       hasClip() &&
       !e.ctrlKey &&
@@ -1217,8 +1228,8 @@ export function createEditor() {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
-    if (t === "line") {
-      setDrag({ mode: "create-line", start: p, cur: p });
+    if (t === "zoom") {
+      setDrag({ mode: "create-zoom", start: p, cur: p });
       return;
     }
     if (t === "shape") {
@@ -1340,7 +1351,7 @@ export function createEditor() {
     const p = norm(e);
     if (
       d.mode === "create-arrow" ||
-      d.mode === "create-line" ||
+      d.mode === "create-zoom" ||
       d.mode === "create-box" ||
       d.mode === "create-ellipse" ||
       d.mode === "create-highlight" ||
@@ -1408,8 +1419,11 @@ export function createEditor() {
     setSnapX(null);
     setSnapY(null);
     const p = norm(e);
-    if (d.mode === "create-arrow" || d.mode === "create-line") {
-      const isLine = d.mode === "create-line";
+    if (d.mode === "create-zoom") {
+      setDrag(null);
+      await addZoomAimed(zoomFrame(d.start, p, zoomStrength()));
+      if (!toolLock()) setTool("select");
+    } else if (d.mode === "create-arrow") {
       setDrag(null);
       if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.01) {
         const id = await invoke<number>("add_arrow", {
@@ -1419,7 +1433,6 @@ export function createEditor() {
           ty: p.y,
           t: playhead(),
         });
-        if (isLine) await invoke("set_arrow_style", { id, style: "line" });
         await refresh();
         await pushSeek(playhead());
         setSelZoom(null);
@@ -2075,6 +2088,26 @@ export function createEditor() {
     } catch (e) {
       setZooms(zooms().filter((z) => z !== inserted));
       setSelZoom(null);
+      toast(`Could not add zoom: ${friendlyError(e)}`, "error");
+    }
+  };
+  /** The zoom tool: a zoom at the playhead, aimed and sized by what the user framed. One
+   *  undo step. */
+  const addZoomAimed = async (f: { x: number; y: number; amount: number }) => {
+    if (!hasClip()) return;
+    const t = playhead();
+    try {
+      const list = await invoke<ZoomSeg[]>("add_zoom_aimed", { t, x: f.x, y: f.y, amount: f.amount });
+      setZooms(list);
+      setDirty(true);
+      setSelected(null);
+      setSelSpeed(null);
+      setSelCut(null);
+      const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
+      setSelZoom(idx >= 0 ? idx : null);
+      setStatus(`Zoom ${f.amount.toFixed(1)}× added. Drag its ends on the timeline to retime it.`);
+      await pushSeek(t);
+    } catch (e) {
       toast(`Could not add zoom: ${friendlyError(e)}`, "error");
     }
   };

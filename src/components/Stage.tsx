@@ -6,7 +6,7 @@ import { useEditor } from "../editor/context";
 import { CORNER_CURSORS, fontCss } from "../editor/constants";
 import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
-import { arrowHeads, v2 } from "../geometry";
+import { arrowHeads, v2, zoomFrame } from "../geometry";
 import { Icon } from "../icons";
 import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
@@ -44,8 +44,9 @@ export default function Stage() {
         class="overlay"
         classList={{
           hidden: !!ed.cropEdit(),
-          "tool-draw": ed.tool() !== "select" && ed.tool() !== "text",
+          "tool-draw": ed.tool() !== "select" && ed.tool() !== "text" && ed.tool() !== "zoom",
           "tool-text": ed.tool() === "text",
+          "tool-zoom": ed.tool() === "zoom",
         }}
         onPointerDown={(e) => void ed.onPointerDown(e)}
         onContextMenu={(e) => stageMenu(ed, e)}
@@ -223,10 +224,21 @@ export default function Stage() {
             return <ArrowLine from={ed.px(d.start)} to={ed.px(d.cur)} color="#e5484d" />;
           })()}
         </Show>
-        <Show when={ed.drag()?.mode === "create-line"}>
+        <Show when={ed.drag()?.mode === "create-zoom"}>
           {(() => {
             const d = ed.drag() as { start: Vec2; cur: Vec2 };
-            return <ArrowLine from={ed.px(d.start)} to={ed.px(d.cur)} color="#e5484d" headTo={false} />;
+            const f = zoomFrame(d.start, d.cur, ed.zoomStrength());
+            const a = ed.px({ x: f.x - f.side / 2, y: f.y - f.side / 2 });
+            const w = f.side * ed.stage().w;
+            const h = f.side * ed.stage().h;
+            return (
+              <g class="zoom-draft">
+                <rect x={a.x} y={a.y} width={w} height={h} rx={6} />
+                <text x={a.x + 10} y={a.y + 22}>
+                  {f.amount.toFixed(1)}×
+                </text>
+              </g>
+            );
           })()}
         </Show>
         <Show when={ed.drag()?.mode === "create-box"}>

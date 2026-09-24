@@ -247,6 +247,7 @@ pub fn run() {
             commands::update_cut,
             commands::delete_cut,
             commands::add_zoom,
+            commands::add_zoom_aimed,
             commands::update_zoom,
             commands::set_zoom_focus,
             commands::set_zoom_style,

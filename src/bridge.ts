@@ -232,6 +232,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.redo();
     case "add_zoom":
       return m.addZoom(a.t as number) as ZoomSeg[];
+    case "add_zoom_aimed":
+      return m.addZoomAimed(a.t as number, a.x as number, a.y as number, a.amount as number);
     case "update_zoom":
       return m.updateZoom(a.index as number, a.start as number, a.end as number, a.amount as number);
     case "set_zoom_focus":

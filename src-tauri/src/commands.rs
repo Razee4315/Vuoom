@@ -952,6 +952,19 @@ pub async fn add_zoom(
     engine.session()?.add_zoom(t)
 }
 
+/// Insert a zoom at time `t` aimed at the normalized point (`x`, `y`) at `amount` (the zoom
+/// tool); returns the updated segment list.
+#[tauri::command]
+pub async fn add_zoom_aimed(
+    engine: tauri::State<'_, Engine>,
+    t: f64,
+    x: f64,
+    y: f64,
+    amount: f64,
+) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.add_zoom_aimed(t, x, y, amount)
+}
+
 /// Retime / re-level the zoom segment at `index`; returns the updated segment list.
 #[tauri::command]
 pub async fn update_zoom(

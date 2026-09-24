@@ -1764,9 +1764,7 @@ impl Session {
     /// The loaded clip's webcam frames, opened on first use; `None` when it has no camera.
     fn camera_frames(&self) -> Option<Arc<crate::camera::Frames>> {
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        if edited.project.as_ref()?.camera.is_none() {
-            return None;
-        }
+        edited.project.as_ref()?.camera?;
         if edited.camera.is_none() {
             let dir = self
                 .current_recovery

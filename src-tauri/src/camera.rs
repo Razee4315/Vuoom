@@ -246,9 +246,7 @@ impl Frames {
 
 /// The camera frames for `project`, stored in `dir`, when it has a camera.
 pub fn frames_for(project: &Project, dir: Option<&Path>) -> Option<Frames> {
-    if project.camera.is_none() {
-        return None;
-    }
+    project.camera?;
     Frames::open(dir?)
 }
 

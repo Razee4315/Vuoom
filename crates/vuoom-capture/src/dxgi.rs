@@ -114,6 +114,10 @@ struct Pacer {
     interval: f64,
     last_sent: Option<i64>,
     pointer: Pointer,
+    /// Whether a frame with a desktop image has arrived yet. Until one has, the duplication's
+    /// image is all black: a fresh duplication often starts with pointer-only frames, and
+    /// sending those gave the region picker a black backdrop and takes a black first frame.
+    seen_image: bool,
 }
 
 impl Pacer {
@@ -130,7 +134,8 @@ impl Pacer {
         }
         let image = info.LastPresentTime != 0;
         let moved = self.cursor && info.LastMouseUpdateTime != 0;
-        if !image && !moved {
+        self.seen_image |= image;
+        if !self.seen_image || (!image && !moved) {
             return Outcome::Nothing;
         }
         // Hold the frame until the cap allows the next one.
@@ -205,6 +210,7 @@ pub fn run(
         interval,
         last_sent: None,
         pointer: Pointer::default(),
+        seen_image: false,
     };
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {

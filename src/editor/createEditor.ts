@@ -3381,7 +3381,7 @@ export function createEditor() {
     selZoom() !== null ||
     selSpeed() !== null ||
     selCut() !== null ||
-    selCaption() !== null;
+    selectedCaption() !== null;
   // One selection at a time: picking anything else lets go of the caption.
   createEffect(() => {
     if (selected() || selZoom() !== null || selSpeed() !== null || selCut() !== null) {

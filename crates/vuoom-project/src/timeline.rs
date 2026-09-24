@@ -134,9 +134,54 @@ pub fn output_to_source(
     source_duration
 }
 
+/// Map a source time to where it plays on the output timeline: the inverse of
+/// [`output_to_source`]. A time inside a cut maps to the single output instant the cut
+/// collapses to.
+#[must_use]
+pub fn source_to_output(
+    t_src: f64,
+    source_duration: f64,
+    regions: &[SpeedRegion],
+    cuts: &[Trim],
+) -> f64 {
+    let t = t_src.clamp(0.0, source_duration);
+    let mut acc = 0.0;
+    for (s, e, f) in segments(source_duration, regions, cuts) {
+        if t < e {
+            // A cut's factor is infinite, so everything in it lands on `acc`.
+            return acc + (t - s).max(0.0) / f;
+        }
+        acc += (e - s) / f;
+    }
+    acc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_to_output_inverts_the_mapping() {
+        let regions = [SpeedRegion {
+            start: 1.0,
+            end: 2.0,
+            factor: 2.0,
+        }];
+        let cuts = [Trim {
+            start: 3.0,
+            end: 5.0,
+        }];
+        for t_out in [0.0, 0.5, 1.2, 1.9, 2.6, 3.4] {
+            let src = output_to_source(t_out, 6.0, &regions, &cuts);
+            let back = source_to_output(src, 6.0, &regions, &cuts);
+            assert!((back - t_out).abs() < 1e-9, "{t_out} -> {src} -> {back}");
+        }
+        // Anywhere inside the cut lands on the instant it collapses to (output 2.5).
+        assert!((source_to_output(3.0, 6.0, &regions, &cuts) - 2.5).abs() < 1e-9);
+        assert!((source_to_output(4.2, 6.0, &regions, &cuts) - 2.5).abs() < 1e-9);
+        // Past the end clamps to the output's length.
+        assert!((source_to_output(9.0, 6.0, &regions, &cuts) - 3.5).abs() < 1e-9);
+    }
 
     #[test]
     fn no_regions_is_identity() {

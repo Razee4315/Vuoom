@@ -16,7 +16,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_project::{
-    AudioKind, CameraOverlay, CropRect, CursorStyle, SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
+    AudioKind, CameraOverlay, Caption, CaptionStyle, CropRect, CursorStyle, SpeedRegion, Trim,
+    ZoomKeyframe, ZoomStyle,
 };
 
 /// The visible frame around the recorded region, plus the region it should frame.
@@ -914,6 +915,127 @@ pub async fn export_mp4(
 pub async fn cancel_export(engine: tauri::State<'_, Engine>) -> Result<(), String> {
     engine.session()?.cancel_export();
     Ok(())
+}
+
+// ── Captions ─────────────────────────────────────────────────────────────────────
+
+/// Whether captions can run on this computer, and whether the speech model is already
+/// downloaded (if not, the first "Generate captions" fetches `model_bytes` first).
+#[derive(Serialize)]
+pub struct CaptionsStatus {
+    supported: bool,
+    model_ready: bool,
+    model_bytes: u64,
+}
+
+#[tauri::command]
+pub fn captions_status(app: AppHandle) -> Result<CaptionsStatus, String> {
+    let model = crate::captions::model_path(&app)?;
+    Ok(CaptionsStatus {
+        supported: vuoom_captions::cpu_supported(),
+        model_ready: crate::captions::model_ready(&model),
+        model_bytes: vuoom_captions::MODEL.bytes,
+    })
+}
+
+/// Payload of the `captions-progress` event: `step` is `"download"` (bytes of the speech
+/// model) or `"listen"` (percent of the recording heard).
+#[derive(Clone, Copy, Serialize)]
+struct CaptionsProgress {
+    step: &'static str,
+    done: u64,
+    total: u64,
+}
+
+fn captions_progress(app: &AppHandle, step: &'static str, done: u64, total: u64) {
+    let _ = app.emit("captions-progress", CaptionsProgress { step, done, total });
+}
+
+/// Make captions from the clip's narration: download the speech model the first time, then
+/// transcribe on a blocking thread, emitting `captions-progress` along the way. `language`
+/// is an ISO 639-1 code, or `"auto"`/none to detect it. Replaces the clip's captions.
+#[tauri::command]
+pub async fn generate_captions(
+    app: AppHandle,
+    language: Option<String>,
+) -> Result<Vec<Caption>, String> {
+    let cancel = app.state::<Engine>().session()?.captions_begin()?;
+    let model = crate::captions::model_path(&app)?;
+    if !crate::captions::model_ready(&model) {
+        let emitter = app.clone();
+        let progress = move |done, total| captions_progress(&emitter, "download", done, total);
+        crate::captions::download(&model, &cancel, progress).await?;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let emitter = app.clone();
+        let progress = move |p: i32| {
+            let done = u64::try_from(p.clamp(0, 100)).unwrap_or(0);
+            captions_progress(&emitter, "listen", done, 100);
+        };
+        app.state::<Engine>()
+            .session()?
+            .generate_captions(&model, language, progress, cancel)
+    })
+    .await
+    .map_err(|e| format!("captions: {e}"))?
+}
+
+/// Stop a caption download or transcription (it then fails with `"cancelled"`).
+#[tauri::command]
+pub fn cancel_captions(engine: tauri::State<'_, Engine>) -> Result<(), String> {
+    engine.session()?.cancel_captions();
+    Ok(())
+}
+
+/// Add a caption at source time `t`; returns its id.
+#[tauri::command]
+pub fn add_caption(engine: tauri::State<'_, Engine>, t: f64, text: String) -> Result<u32, String> {
+    engine.session()?.add_caption(t, text)
+}
+
+#[tauri::command]
+pub fn set_caption_text(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    text: String,
+) -> Result<(), String> {
+    engine.session()?.set_caption_text(id, text)
+}
+
+/// Move or resize a caption (source seconds).
+#[tauri::command]
+pub fn set_caption_range(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    start: f64,
+    end: f64,
+) -> Result<(), String> {
+    engine.session()?.set_caption_range(id, start, end)
+}
+
+#[tauri::command]
+pub fn delete_caption(engine: tauri::State<'_, Engine>, id: u32) -> Result<(), String> {
+    engine.session()?.delete_caption(id)
+}
+
+#[tauri::command]
+pub fn clear_captions(engine: tauri::State<'_, Engine>) -> Result<(), String> {
+    engine.session()?.clear_captions()
+}
+
+/// Set how captions look (shown, size, top or bottom).
+#[tauri::command]
+pub fn set_caption_style(
+    engine: tauri::State<'_, Engine>,
+    style: CaptionStyle,
+) -> Result<(), String> {
+    engine.session()?.set_caption_style(style)
+}
+
+/// Save the captions as an `.srt` file timed to the exported video.
+#[tauri::command]
+pub async fn export_srt(engine: tauri::State<'_, Engine>, path: String) -> Result<(), String> {
+    engine.session()?.export_srt(std::path::Path::new(&path))
 }
 
 /// Estimate the export size in bytes for the given settings (sample-and-extrapolate).

@@ -187,7 +187,7 @@ export default function Timeline() {
             </Show>
             <div class="tl-headcell zoom" aria-hidden="true">
               <span class="tl-swatch" />
-              <span>Camera</span>
+              <span>Zooms</span>
               <span class="tl-count">{ed.zooms().length}</span>
             </div>
             <div class="tl-headcell notes" aria-hidden="true" style={{ height: `calc(var(--lane-h) * ${noteLanes()})` }}>

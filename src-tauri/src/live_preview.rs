@@ -358,13 +358,13 @@ mod tests {
     #[test]
     fn the_marker_is_drawn_in_place_and_clipped() {
         let mut img = RgbaImage::new(20, 20, vec![0; 20 * 20 * 4]);
+        let at = |img: &RgbaImage, x: usize, y: usize| img.pixels[(y * 20 + x) * 4];
         mark(&mut img, 10.0, 10.0);
-        let at = |x: usize, y: usize| img.pixels[(y * 20 + x) * 4];
-        assert_eq!(at(10, 10), 255, "white center");
-        assert_eq!(at(14, 10), 20, "dark ring");
-        assert_eq!(at(0, 0), 0, "untouched outside");
+        assert_eq!(at(&img, 10, 10), 255, "white center");
+        assert_eq!(at(&img, 14, 10), 20, "dark ring");
+        assert_eq!(at(&img, 0, 0), 0, "untouched outside");
         // At the corner, only the part inside the image is drawn.
         mark(&mut img, 0.0, 0.0);
-        assert_eq!(at(0, 0), 255);
+        assert_eq!(at(&img, 0, 0), 255);
     }
 }

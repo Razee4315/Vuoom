@@ -106,6 +106,7 @@ class MockEngine {
   speed: SpeedRegion[] = [];
   cuts: Trim[] = [];
   showClicks = false;
+  motionBlur = true;
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
   audio: AudioTrack[] = [];
@@ -164,6 +165,7 @@ class MockEngine {
       speed: this.speed,
       cuts: [...this.cuts],
       showClicks: this.showClicks,
+      motionBlur: this.motionBlur,
       showKeys: this.showKeys,
       crop: this.crop ? { ...this.crop } : null,
       framePreset: this.framePreset,
@@ -196,6 +198,7 @@ class MockEngine {
     this.speed = st.speed;
     this.cuts = st.cuts;
     this.showClicks = st.showClicks;
+    this.motionBlur = st.motionBlur ?? true;
     this.showKeys = st.showKeys;
     this.framePreset = st.framePreset;
     this.bgPreset = st.bgPreset;
@@ -248,6 +251,7 @@ class MockEngine {
       cuts: [...this.cuts],
       zooms: [...this.zooms],
       show_clicks: this.showClicks,
+      motion_blur: this.motionBlur,
       show_keys: this.showKeys,
       crop: this.crop ? { ...this.crop } : null,
       frame_preset: this.frame.padding <= 0 ? "none" : this.frame.padding < 0.06 ? "subtle" : "studio",
@@ -280,6 +284,12 @@ class MockEngine {
   setAudioCleanup(kind: AudioKind, denoise: boolean, level: boolean) {
     this.mutate(undefined, () => {
       this.audio = this.audio.map((t) => (t.kind === kind ? { ...t, denoise, level } : t));
+    });
+  }
+
+  setMotionBlur(on: boolean) {
+    this.mutate(undefined, () => {
+      this.motionBlur = on;
     });
   }
 

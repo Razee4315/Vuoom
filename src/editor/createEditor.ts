@@ -85,6 +85,7 @@ export function createEditor() {
   const [selCut, setSelCut] = createSignal<number | null>(null);
   const [skimFactor, setSkimFactor] = createSignal(3);
   const [showClicks, setShowClicks] = createSignal(false);
+  const [motionBlur, setMotionBlur] = createSignal(true);
   const [showKeys, setShowKeys] = createSignal(false);
   const [crop, setCrop] = createSignal<CropRect | null>(null);
   const [framePreset, setFramePreset] = createSignal("none");
@@ -674,6 +675,7 @@ export function createEditor() {
       setSpeed(cs.speed_regions);
       setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
+      setMotionBlur(cs.motion_blur ?? true);
       setShowKeys(cs.show_keys);
       setCrop(cs.crop);
       setFramePreset(cs.frame_preset);
@@ -2494,6 +2496,25 @@ export function createEditor() {
     });
   };
 
+  const blurSync = createSyncSlot<boolean>();
+  const toggleMotionBlur = () => {
+    if (!hasClip()) return;
+    const on = !motionBlur();
+    setMotionBlur(on);
+    setDirty(true);
+    blurSync.push(on, async (val, superseded) => {
+      try {
+        await invoke("set_motion_blur", { on: val });
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) {
+          setMotionBlur(!val);
+          toast(`Motion blur change failed: ${friendlyError(e)}`, "error");
+        }
+      }
+    });
+  };
+
   const clicksSync = createSyncSlot<boolean>();
   const toggleClicks = () => {
     if (!hasClip()) return;
@@ -3552,6 +3573,7 @@ export function createEditor() {
     skimFactor,
     setSkimFactor,
     showClicks,
+    motionBlur,
     setShowClicks,
     showKeys,
     setShowKeys,
@@ -3758,6 +3780,7 @@ export function createEditor() {
     applyBackground,
     clicksSync,
     toggleClicks,
+    toggleMotionBlur,
     keysSync,
     toggleKeys,
     refreshTlRect,

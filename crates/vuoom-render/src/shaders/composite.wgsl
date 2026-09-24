@@ -14,7 +14,15 @@ struct Uniforms {
     bg2: vec4<f32>,        // backdrop stop 1 (straight RGBA); == bg for a solid fill
     bg_dir: vec2<f32>,     // gradient axis (unit vector, output UV space, y down)
     _pad2: vec2<f32>,
+    prev_min: vec2<f32>,   // motion blur: source crop one exposure ago (min, normalized)
+    prev_size: vec2<f32>,  // ...and its size
+    blur: f32,             // 1 = smear from prev_* to src_*, 0 = a single sample
+    _pad3: f32,
+    _pad4: vec2<f32>,
 };
+
+// Samples along the camera's path for motion blur.
+const BLUR_TAPS: i32 = 12;
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var src_tex: texture_2d<f32>;
@@ -77,7 +85,20 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 
     // Map the pixel within the destination rect into the source crop.
     let local = (px - u.dst_min) / u.dst_size;
-    let src_uv = u.src_min + local * u.src_size;
-    let col = textureSample(src_tex, src_samp, src_uv);
+    var col: vec4<f32>;
+    if u.blur > 0.5 {
+        // Motion blur: average what this pixel saw as the camera moved from where it was
+        // one exposure ago to where it is now, like a real shutter during a zoom or pan.
+        var acc = vec4<f32>(0.0);
+        for (var i = 0; i < BLUR_TAPS; i = i + 1) {
+            let k = f32(i) / f32(BLUR_TAPS - 1);
+            let crop_min = mix(u.prev_min, u.src_min, k);
+            let crop_size = mix(u.prev_size, u.src_size, k);
+            acc = acc + textureSampleLevel(src_tex, src_samp, crop_min + local * crop_size, 0.0);
+        }
+        col = acc / f32(BLUR_TAPS);
+    } else {
+        col = textureSampleLevel(src_tex, src_samp, u.src_min + local * u.src_size, 0.0);
+    }
     return mix(bg, col, inside);
 }

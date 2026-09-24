@@ -133,6 +133,8 @@ pub struct ClipState {
     pub cursor: Option<CursorStyle>,
     /// Whether the real pointer is in the recorded frames.
     pub pointer_captured: bool,
+    /// Blur along the camera's movement during zooms and pans.
+    pub motion_blur: bool,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -1701,6 +1703,15 @@ impl Session {
             audio: project.audio.clone(),
             cursor: project.cursor,
             pointer_captured: project.pointer_captured,
+            motion_blur: project.motion_blur,
+        })
+    }
+
+    /// Toggle motion blur on zooms and pans (preview and export).
+    pub fn set_motion_blur(&self, on: bool) -> Result<(), String> {
+        self.with_project("", |p| {
+            p.motion_blur = on;
+            Ok(())
         })
     }
 

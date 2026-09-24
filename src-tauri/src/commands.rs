@@ -1080,6 +1080,12 @@ pub fn clip_state(engine: tauri::State<'_, Engine>) -> Result<ClipState, String>
     engine.session()?.clip_state()
 }
 
+/// Toggle motion blur on zooms and pans.
+#[tauri::command]
+pub fn set_motion_blur(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
+    engine.session()?.set_motion_blur(on)
+}
+
 /// Toggle click ripples, expanding rings at every recorded mouse click.
 #[tauri::command]
 pub fn set_show_clicks(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {

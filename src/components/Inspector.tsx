@@ -964,6 +964,9 @@ function ClipPanel() {
             <Icon name="plus" size={14} /> Zoom here
           </button>
         </div>
+        <Field label="Motion blur" hint="Softens fast zooms and pans the way a camera's shutter does">
+          <Switch checked={ed.motionBlur()} label="Motion blur" onChange={() => ed.toggleMotionBlur()} />
+        </Field>
       </Section>
 
       <Section id="clip-pacing" title="Pacing" icon="speed">

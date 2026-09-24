@@ -5,10 +5,12 @@
 //! - [`wav`]: 16-bit PCM WAV storage that survives a crash mid-take.
 //! - [`mix`]: the edit-aware mixer shared by preview and MP4 export (cuts skipped, sped-up
 //!   spans silent, fades at every join).
+//! - [`clean`]: voice clean-up for narration (noise removal, even volume).
 //!
 //! See `docs/14-Audio.md`.
 
 pub mod capture;
+pub mod clean;
 pub mod mix;
 pub mod wav;
 

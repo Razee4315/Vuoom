@@ -1,6 +1,8 @@
 // Synthetic audio for the browser mock: a voice-like narration track and a system track
-// with a few UI chimes, encoded as the same 16-bit PCM WAV the engine serves.
-import type { AudioKind } from "../types";
+// with a few UI chimes, encoded as the same 16-bit PCM WAV the engine serves. The voice
+// has a room-noise bed and phrases at uneven volume, so the clean-up options visibly change
+// its waveform (the mock imitates their effect; the engine runs the real processing).
+import type { AudioKind, AudioTrack } from "../types";
 
 const RATE = 16_000;
 
@@ -39,16 +41,25 @@ function noise(seed: number) {
 }
 
 /** Phrases of syllables with pauses between them: reads as speech on a waveform. */
-function voice(duration: number): Float32Array {
+function voice(duration: number, clean: { denoise: boolean; level: boolean }): Float32Array {
   const out = new Float32Array(Math.ceil(duration * RATE));
   const rnd = noise(7);
+  if (!clean.denoise) {
+    // A fan and a little hiss under everything.
+    const hiss = noise(11);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = 0.018 * Math.sin((2 * Math.PI * 110 * i) / RATE) + 0.02 * hiss();
+    }
+  }
   const phrases: [number, number][] = [];
   for (let t = 0.4; t < duration - 0.5; ) {
     const len = 1.2 + ((phrases.length * 0.77) % 1.6);
     phrases.push([t, Math.min(duration - 0.2, t + len)]);
     t += len + 0.5 + ((phrases.length * 0.31) % 0.6);
   }
-  for (const [a, b] of phrases) {
+  for (const [n, [a, b]] of phrases.entries()) {
+    // Every third phrase trails off, the next one is too close to the mic.
+    const loudness = clean.level ? 1 : [1, 0.35, 1.6][n % 3];
     for (let i = Math.floor(a * RATE); i < Math.floor(b * RATE); i++) {
       const t = i / RATE;
       const syl = Math.max(0, Math.sin(2 * Math.PI * 4.3 * (t - a))) ** 1.5;
@@ -58,7 +69,7 @@ function voice(duration: number): Float32Array {
         0.5 * Math.sin(2 * Math.PI * f0 * t) +
         0.25 * Math.sin(2 * Math.PI * 2 * f0 * t) +
         0.12 * Math.sin(2 * Math.PI * 3 * f0 * t);
-      out[i] = 0.32 * syl * edge * (tone + 0.35 * rnd());
+      out[i] += 0.32 * loudness * syl * edge * (tone + 0.35 * rnd());
     }
   }
   return out;
@@ -83,8 +94,9 @@ function chimes(duration: number): Float32Array {
   return out;
 }
 
-export function mockTrackWav(kind: AudioKind, duration: number): ArrayBuffer {
-  return wav(kind === "mic" ? voice(duration) : chimes(duration), RATE);
+export function mockTrackWav(track: AudioTrack | undefined, kind: AudioKind, duration: number): ArrayBuffer {
+  const clean = { denoise: !!track?.denoise, level: !!track?.level };
+  return wav(kind === "mic" ? voice(duration, clean) : chimes(duration), RATE);
 }
 
 /** A plausible live level for the meters (speech-like bursts). */

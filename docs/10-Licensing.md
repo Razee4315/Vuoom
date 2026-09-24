@@ -58,6 +58,10 @@ The text/annotation crates are clean: **glyphon** (Apache-2.0 / MIT / zlib), **c
 / Apache-2.0), **lyon** (MIT / Apache-2.0), **tiny-skia** (BSD-3, fallback). No copyleft. See
 [`11-Editor-and-Annotations.md`](./11-Editor-and-Annotations.md).
 
+Voice clean-up uses **nnnoiseless** (BSD-3-Clause), a pure-Rust port of RNNoise (BSD-3-Clause),
+with default features off; its FFT dependencies (**rustfft**, **realfft**, **easyfft**) are MIT /
+Apache-2.0. See [`16-Voice-Cleanup.md`](./16-Voice-Cleanup.md).
+
 ## 6. Sidecar binary distribution
 
 | Binary | License posture | How to ship |

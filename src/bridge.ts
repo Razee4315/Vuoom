@@ -269,10 +269,18 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
         mic: m.live ? (m.audioChoice.mic ? mockLevel("mic") : 0) : m.micCheck ? mockLevel("mic") : 0,
         system: m.live && m.audioChoice.system ? mockLevel("system") : 0,
       };
-    case "audio_track":
-      return mockTrackWav(a.kind as AudioKind, m.duration || 1);
+    case "audio_track": {
+      const track = m.audio.find((t) => t.kind === a.kind);
+      const wav = mockTrackWav(track, a.kind as AudioKind, m.duration || 1);
+      // Clean-up takes the engine a moment; the mock pauses so its progress note shows.
+      const busy = track?.denoise || track?.level ? 700 : 0;
+      return new Promise((done) => setTimeout(() => done(wav), busy));
+    }
     case "set_audio_track":
       m.setAudioTrack(a.kind as AudioKind, a.gain as number, a.muted as boolean);
+      return null;
+    case "set_audio_cleanup":
+      m.setAudioCleanup(a.kind as AudioKind, a.denoise as boolean, a.level as boolean);
       return null;
     case "set_zoom_amount":
       m.zoomAmount = a.amount as number;

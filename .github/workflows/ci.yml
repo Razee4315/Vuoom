@@ -17,6 +17,8 @@ concurrency:
 # Opt JS actions into Node 24 (Node 20 is being deprecated on the runners).
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # whisper.cpp (captions) is built for a portable AVX2 baseline, not the runner's CPU.
+  GGML_NATIVE: "OFF"
 
 jobs:
   ci:

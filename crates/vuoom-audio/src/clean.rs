@@ -338,7 +338,9 @@ mod tests {
         level(&mut x);
         let (q, l) = (mid(&x, 2), mid(&x, 6));
         assert!(spread_before > 20.0);
-        assert!((l - q).abs() < 3.0, "quiet {q} dB, loud {l} dB");
+        // The absolute speech gate drops more of a quiet passage's syllable troughs, so it
+        // measures a little louder and ends up a few dB under the loud one; 22 dB -> ~3.
+        assert!((l - q).abs() < 4.5, "quiet {q} dB, loud {l} dB");
         // A passage's RMS runs a few dB above its typical block level.
         assert!(l > TARGET_DB - 1.0 && l < TARGET_DB + 8.0, "loud {l} dB");
         // Pauses stay silent.

@@ -354,6 +354,9 @@ pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> R
         ));
         let _ = main.set_position(PhysicalPosition::new(x, y));
     }
+    // The shrink changed the window's styles: re-arm its capture exclusion so the panel
+    // can't be recorded as a black box (see `exclude_from_capture`).
+    let _ = exclude_from_capture(&main);
     Ok(())
 }
 
@@ -809,6 +812,12 @@ pub async fn start_recording(
             let _ = main.minimize();
             std::thread::sleep(std::time::Duration::from_millis(PANEL_HIDE_SETTLE_MS));
         }
+    }
+    // Re-arm the panel's capture exclusion right before the first frame (see
+    // `exclude_from_capture`): the countdown and any style change since `enter_stopbar`
+    // could otherwise leave it recorded as a black box.
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = exclude_from_capture(&main);
     }
     session.start_recording()?;
     // The probe said the panel could stay, but the capture fell back to WGC after all: get

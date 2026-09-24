@@ -397,3 +397,56 @@
   text-decoration: line-through;
   text-decoration-color: var(--faint);
 }
+
+/* Webcam corner picker (Clip > Camera): a miniature frame with one cell per corner; the
+   chosen corner shows a filled bubble. */
+.corner-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  width: 92px;
+  aspect-ratio: 16 / 10;
+  padding: 3px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+.corner-cell {
+  display: flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.corner-cell:nth-child(2n) {
+  justify-content: flex-end;
+}
+.corner-cell:nth-child(n + 3) {
+  align-items: flex-end;
+}
+.corner-cell:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--muted);
+}
+.corner-cell:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -1px;
+}
+.corner-cell:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.corner-cell.on {
+  color: var(--ink);
+}
+.corner-dot {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.corner-cell.on .corner-dot {
+  background: currentColor;
+}

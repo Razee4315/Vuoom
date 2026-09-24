@@ -6,6 +6,7 @@ import { Icon, type IconName } from "../icons";
 import { prefs } from "../prefs";
 import { Kbd, Seg } from "../ui";
 import { AudioPicker } from "./AudioControls";
+import { CameraPicker } from "./CameraControls";
 
 const SOURCES: { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] = [
   { mode: "region", icon: "region", title: "Region", sub: "Any area, any aspect ratio" },
@@ -87,6 +88,10 @@ export default function Home() {
             <div class="home-opt">
               <span>Audio</span>
               <AudioPicker />
+            </div>
+            <div class="home-opt">
+              <span>Camera</span>
+              <CameraPicker />
             </div>
             <div class="home-opt">
               <span>Countdown</span>

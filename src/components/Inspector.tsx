@@ -13,7 +13,15 @@ import { Icon, type IconName } from "../icons";
 import { layout, setInspectorW } from "../prefs";
 import ScrubField from "../ScrubField";
 import { TOOLS } from "../shortcuts";
-import type { CropRect } from "../types";
+import type { CameraCorner, CropRect } from "../types";
+
+/** The webcam bubble's corners, in reading order for the 2×2 picker. */
+const CAMERA_CORNERS: { value: CameraCorner; label: string }[] = [
+  { value: "top-left", label: "Top left" },
+  { value: "top-right", label: "Top right" },
+  { value: "bottom-left", label: "Bottom left" },
+  { value: "bottom-right", label: "Bottom right" },
+];
 import { Field, IconButton, Section, Seg, Slider, Switch } from "../ui";
 
 export default function Inspector() {
@@ -1108,6 +1116,70 @@ function ClipPanel() {
           <p class="note">This take has no visible pointer. Turn on the smooth pointer to show one.</p>
         </Show>
       </Section>
+
+      <Show when={ed.cameraOverlay()}>
+        {(c) => (
+          <Section id="clip-camera" title="Camera" icon="camera">
+            <Field label="Show camera" hint="Hide the bubble without losing the recording">
+              <Switch checked={c().visible} label="Show camera" onChange={(v) => ed.updateCamera({ visible: v })} />
+            </Field>
+            <Field label="Corner">
+              <div class="corner-pick">
+                <For each={CAMERA_CORNERS}>
+                  {(k) => (
+                    <button
+                      type="button"
+                      class="corner-cell"
+                      classList={{ on: c().corner === k.value }}
+                      aria-pressed={c().corner === k.value}
+                      aria-label={k.label}
+                      data-tip={k.label}
+                      disabled={!c().visible}
+                      onClick={() => ed.updateCamera({ corner: k.value })}
+                    >
+                      <span class="corner-dot" />
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Field>
+            <Field label="Size" stack>
+              <Slider
+                value={c().size}
+                min={0.12}
+                max={0.6}
+                step={0.01}
+                disabled={!c().visible}
+                label="Camera size"
+                format={(v) => `${Math.round(v * 100)}%`}
+                onInput={(v) => ed.updateCamera({ size: v })}
+              />
+            </Field>
+            <Field label="Shape" stack>
+              <Seg
+                full
+                value={c().shape}
+                disabled={!c().visible}
+                label="Camera shape"
+                onChange={(v) => ed.updateCamera({ shape: v })}
+                options={[
+                  { value: "circle", label: "Circle" },
+                  { value: "square", label: "Square" },
+                  { value: "wide", label: "Wide", tip: "A 16:9 frame" },
+                ]}
+              />
+            </Field>
+            <Field label="Mirror" hint="Flip the camera the way you see yourself">
+              <Switch
+                checked={c().mirror}
+                disabled={!c().visible}
+                label="Mirror camera"
+                onChange={(v) => ed.updateCamera({ mirror: v })}
+              />
+            </Field>
+          </Section>
+        )}
+      </Show>
 
       <Section id="clip-overlays" title="Overlays" icon="clicks">
         <Field label="Click ripples" hint="An expanding ring at every recorded click">

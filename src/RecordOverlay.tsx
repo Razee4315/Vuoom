@@ -13,6 +13,15 @@ import {
   micName,
   useMicCheck,
 } from "./components/AudioControls";
+import {
+  BUBBLE_MARGIN,
+  BUBBLE_SIZE,
+  CameraBubble,
+  cameraMenuItems,
+  cameraName,
+  createCameras,
+  useCameraPreview,
+} from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import "./RecordOverlay.css";
 
@@ -93,6 +102,13 @@ export default function RecordOverlay(props: {
   const framing = () => phase() === "select" || phase() === "countdown";
   useMicCheck(() => framing() && prefs.recordMic());
   const levels = createLevels(() => (framing() && prefs.recordMic()) || phase() === "recording");
+  // Webcam: opened while framing so its bubble previews where it will sit in the take; the
+  // same camera then records without reopening.
+  const cameras = createCameras();
+  // It stays open through "preparing" too: closing it there would make the take reopen
+  // the device (or race a reopen) instead of reusing it.
+  const beforeTake = () => phase() === "select" || phase() === "preparing" || phase() === "countdown";
+  const camera = useCameraPreview(() => beforeTake() && prefs.recordCamera());
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
   // resize a given edge). Applied inline so it overrides the base crosshair.
   const [cursor, setCursor] = createSignal("crosshair");
@@ -571,6 +587,15 @@ export default function RecordOverlay(props: {
 
   const windowMode = () => props.target?.kind === "window";
   const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
+  /** The bubble's spot: the bottom right of the recorded area, sized like a new take's. */
+  const bubbleSpot = () => {
+    const whole = windowMode() || preset().ratio === "full";
+    const r = whole ? { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight } : sel();
+    if (!r) return null;
+    const size = Math.max(44, r.h * BUBBLE_SIZE);
+    const m = r.h * BUBBLE_MARGIN;
+    return { left: r.x + r.w - m - size, top: r.y + r.h - m - size, size };
+  };
 
   return (
     <Show
@@ -719,6 +744,15 @@ export default function RecordOverlay(props: {
             </>
           )}
         </Show>
+        <Show when={framing() && prefs.recordCamera() && bubbleSpot()}>
+          {(b) => (
+            <CameraBubble
+              url={camera.url()}
+              starting={camera.starting()}
+              style={{ left: `${b().left}px`, top: `${b().top}px`, width: `${b().size}px`, height: `${b().size}px` }}
+            />
+          )}
+        </Show>
         <Show when={preset().ratio === "full" || windowMode()}>
           <div class="sel-fullhint">
             <Icon name={windowMode() ? "window" : "fullscreen"} size={18} />
@@ -794,6 +828,24 @@ export default function RecordOverlay(props: {
                 <Show when={prefs.recordMic()}>
                   <LevelMeter level={levels.mic()} class="hud-meter" />
                 </Show>
+                <Icon name="chevronUp" size={12} />
+              </button>
+            )}
+          />
+          <Menu
+            class="hud-menu"
+            items={() => cameraMenuItems(cameras())}
+            trigger={(m) => (
+              <button
+                type="button"
+                class="hud-options hud-audio hud-camera"
+                classList={{ on: m.open, off: !prefs.recordCamera() }}
+                ref={m.ref}
+                aria-label={prefs.recordCamera() ? `Camera: ${cameraName(cameras())}` : "Camera off"}
+                data-tip={prefs.recordCamera() ? cameraName(cameras()) : "Add your webcam as a bubble"}
+                onClick={m.toggle}
+              >
+                <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
                 <Icon name="chevronUp" size={12} />
               </button>
             )}

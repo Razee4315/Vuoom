@@ -9,6 +9,7 @@ import type {
   AudioKind,
   AudioTrack,
   BoxAnn,
+  CameraOverlay,
   CursorStyle,
   ClipState,
   Color,
@@ -20,6 +21,7 @@ import type {
   ZoomSeg,
   ZoomStyle,
 } from "../types";
+import { defaultOverlay } from "./camera";
 
 const DEMO_DURATION = 14.4;
 
@@ -116,6 +118,11 @@ class MockEngine {
   /** Pointer handling for the next mock take (set_capture_cursor). */
   captureShow = true;
   captureSmooth = false;
+  /** The webcam bubble (mirrors Project::camera). */
+  camera: CameraOverlay | null = null;
+  /** The camera the next mock take records, and whether its live bubble is open. */
+  cameraChoice: { on: boolean; device: string | null } = { on: false, device: null };
+  cameraPreview = false;
   /** Audio the next mock recording "captures" (set_capture_audio). */
   audioChoice = { mic: false, system: false };
   micCheck = false;
@@ -174,6 +181,7 @@ class MockEngine {
       duration: this.duration,
       audio: this.audio,
       cursor: this.cursor,
+      camera: this.camera,
     });
   }
   private mutate(tag?: string, fn?: () => void) {
@@ -206,6 +214,7 @@ class MockEngine {
     this.duration = st.duration;
     this.audio = st.audio ?? [];
     this.cursor = st.cursor ?? null;
+    this.camera = st.camera ?? null;
   }
 
   private loadDemo() {
@@ -224,6 +233,7 @@ class MockEngine {
     this.audio = [track("mic"), track("system")];
     this.cursor = { size: 1.5, smoothing: 0.05 };
     this.pointerCaptured = false;
+    this.camera = defaultOverlay();
     this.playhead = 0;
     this.undoStack = [];
     this.redoStack = [];
@@ -260,7 +270,16 @@ class MockEngine {
       audio: structuredClone(this.audio),
       cursor: this.cursor ? { ...this.cursor } : null,
       pointer_captured: this.pointerCaptured,
+      camera: this.camera ? { ...this.camera } : null,
     };
+  }
+
+  setCameraOverlay(overlay: CameraOverlay) {
+    if (!this.camera) return;
+    const offset = this.camera.offset;
+    this.mutate("camera-overlay", () => {
+      this.camera = { ...overlay, size: Math.max(0.12, Math.min(0.6, overlay.size)), offset };
+    });
   }
 
   setCursorStyle(style: CursorStyle | null) {
@@ -426,6 +445,7 @@ class MockEngine {
     ];
     this.pointerCaptured = this.captureShow;
     this.cursor = this.captureSmooth ? { size: 1.5, smoothing: 0.05 } : null;
+    this.camera = this.cameraChoice.on ? defaultOverlay() : null;
     return this.summary();
   }
   recoverSession(): RecordingSummary {

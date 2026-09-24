@@ -36,3 +36,6 @@ Thumbs.db
 .env.*
 *.key
 *.pfx
+
+# Local CI debugging dumps
+.ci-*

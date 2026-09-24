@@ -1,0 +1,245 @@
+---
+import Base from '../layouts/Base.astro';
+import Button from '../components/Button.astro';
+import Stage from '../components/Stage.astro';
+import Problem from '../components/Problem.astro';
+import BeforeAfter from '../components/BeforeAfter.astro';
+import Video from '../components/Video.astro';
+import EditorPin from '../components/EditorPin.astro';
+import Faq from '../components/Faq.astro';
+import { FAQ_GENERAL } from '../data/faq';
+import { SITE, absolute, url } from '../lib/site';
+import { softwareApp, faqPage } from '../lib/schema';
+
+const faq = FAQ_GENERAL.slice(0, 4);
+const schema = [
+  await softwareApp(),
+  faqPage(faq),
+  {
+    '@type': 'VideoObject',
+    name: 'A Vuoom recording: a launch dashboard with auto-zoom',
+    description: 'An unedited screen recording made with Vuoom. The camera zooms into each click automatically.',
+    thumbnailUrl: absolute('/media/demo-poster.jpg'),
+    contentUrl: absolute('/media/demo.mp4'),
+    uploadDate: '2026-09-25',
+    duration: 'PT24S',
+  },
+];
+
+const FEATURES = [
+  { t: 'Auto-zoom', d: 'Follows every click.', href: '/features/auto-zoom/' },
+  { t: 'Smooth pointer', d: 'No jitter, ever.', href: '/features/auto-zoom/' },
+  { t: 'Voice and sound', d: 'Mic, system audio, noise removal.', href: '/features/audio-and-webcam/' },
+  { t: 'Webcam bubble', d: 'Any corner, any shape.', href: '/features/audio-and-webcam/' },
+  { t: 'Offline captions', d: 'Made on your PC.', href: '/features/captions/' },
+  { t: 'GIF and MP4', d: 'Small enough to paste anywhere.', href: '/features/gif-export/' },
+];
+---
+<Base path="/" schema={schema}>
+  <!-- Hero -->
+  <section class="hero" aria-labelledby="hero-h" data-hero>
+    <div class="wrap hero__copy">
+      <h1 id="hero-h" class="display hero__h" data-split data-hero-h>
+        Screen recordings that zoom where it matters.
+      </h1>
+      <p class="hero__sub" data-hero-lead>Your clicks steer the camera. Free for Windows.</p>
+      <div class="hero__cta" data-hero-cta>
+        <Button href="/download/" size="lg">Download</Button>
+        <Button href={SITE.repoUrl} variant="secondary" icon="github" size="lg">Star on GitHub</Button>
+      </div>
+    </div>
+    <div class="wrap hero__stage" data-hero-stage>
+      <Stage />
+    </div>
+  </section>
+
+  <!-- The problem -->
+  <Problem />
+
+  <!-- Before / after -->
+  <section class="section" aria-labelledby="ba-h">
+    <div class="wrap">
+      <h2 id="ba-h" class="h2 title" data-split>Flat vs Vuoom.</h2>
+      <div data-reveal>
+        <BeforeAfter />
+      </div>
+    </div>
+  </section>
+
+  <!-- A real take -->
+  <section class="section" aria-labelledby="take-h">
+    <div class="wrap">
+      <h2 id="take-h" class="h2 title" data-split>A real take. Zero edits.</h2>
+      <div data-reveal>
+        <Video name="demo" />
+      </div>
+    </div>
+  </section>
+
+  <!-- Editor -->
+  <EditorPin />
+
+  <!-- Features -->
+  <section class="section" aria-labelledby="fx-h">
+    <div class="wrap">
+      <h2 id="fx-h" class="h2 title" data-split>Everything a demo needs.</h2>
+      <ul class="fx" role="list">
+        {FEATURES.map((f) => (
+          <li data-reveal>
+            <a class="fx__item" href={url(f.href)}>
+              <span class="fx__t">{f.t}</span>
+              <span class="fx__d">{f.d}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p class="more" data-reveal><a class="link" href={url('/features/')}>All features</a></p>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section" aria-labelledby="faq-h">
+    <div class="wrap narrow">
+      <h2 id="faq-h" class="h2 title" data-split>Questions.</h2>
+      <Faq items={faq} />
+      <p class="more" data-reveal><a class="link" href={url('/faq/')}>More answers</a></p>
+    </div>
+  </section>
+
+  <!-- End -->
+  <section class="end" aria-labelledby="end-h">
+    <div class="wrap">
+      <h2 id="end-h" class="display end__h" data-split>Record your next demo.</h2>
+      <div class="end__cta" data-reveal>
+        <Button href="/download/" size="lg">Download for Windows</Button>
+        <p class="end__note">No account. No watermark. No cloud.</p>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  /* hero */
+  .hero {
+    padding-top: clamp(9rem, 18vh, 13rem);
+    padding-bottom: var(--section);
+  }
+  .hero__copy {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+  }
+  .hero__h {
+    max-width: 15ch;
+    font-size: clamp(2.75rem, 1rem + 5.2vw, 6.25rem);
+  }
+  .hero__sub {
+    margin-top: var(--s-6);
+    font-size: var(--step-1);
+    color: var(--ink-2);
+    letter-spacing: var(--track-sub);
+  }
+  .hero__cta {
+    margin-top: var(--s-7);
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+  }
+  .hero__gh {
+    color: var(--ink-2);
+    font-size: 0.9375rem;
+  }
+  .hero__gh:hover {
+    color: var(--ink);
+  }
+  .hero__stage {
+    margin-top: clamp(4rem, 10vw, 8rem);
+    max-width: 1180px;
+  }
+
+  /* shared */
+  .title {
+    text-align: center;
+    margin-bottom: clamp(3rem, 7vw, 6rem);
+  }
+  .narrow {
+    max-width: calc(760px + var(--gutter) * 2);
+  }
+  .more {
+    margin-top: var(--s-8);
+    text-align: center;
+    color: var(--ink-2);
+  }
+
+  /* features */
+  .fx {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border-radius: var(--r-frame);
+    overflow: hidden;
+  }
+  .fx__item {
+    display: grid;
+    gap: var(--s-2);
+    min-height: 13rem;
+    align-content: end;
+    padding: var(--s-6);
+    background: var(--ground);
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .fx__item:hover {
+    background: var(--ground-raised);
+  }
+  .fx__t {
+    font-family: var(--font-display);
+    font-size: var(--step-2);
+    font-weight: 620;
+    font-stretch: 85%;
+    letter-spacing: var(--track-heading);
+    line-height: 1.1;
+  }
+  .fx__d {
+    color: var(--ink-3);
+  }
+
+  /* end */
+  .end {
+    padding-block: var(--section) calc(var(--section) * 1.2);
+    text-align: center;
+  }
+  .end__h {
+    max-width: 12ch;
+    margin-inline: auto;
+    font-size: clamp(2.75rem, 1rem + 5.2vw, 6.25rem);
+  }
+  .end__cta {
+    margin-top: var(--s-7);
+    display: grid;
+    justify-items: center;
+    gap: var(--s-5);
+  }
+  .end__note {
+    color: var(--ink-3);
+    font-size: 0.9375rem;
+  }
+
+  @media (max-width: 860px) {
+    .fx {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  @media (max-width: 560px) {
+    .fx {
+      grid-template-columns: 1fr;
+    }
+    .fx__item {
+      min-height: 8rem;
+    }
+    .hero__cta {
+      flex-direction: column;
+      gap: var(--s-4);
+    }
+  }
+</style>

@@ -1,0 +1,273 @@
+---
+// The shell every page renders in: full SEO head, structured data, header, footer, grain,
+// the smooth pointer and the motion runtime.
+import '../styles/global.css';
+import brico from '@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-standard-normal.woff2?url';
+import geist from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import { PAGES, ogSlug, type PagePath } from '../data/pages';
+import { SITE, absolute, url } from '../lib/site';
+import { latest } from '../lib/github';
+
+interface Props {
+  path: PagePath;
+  crumbs?: { href: string; label: string }[];
+  schema?: Record<string, unknown>[];
+  countdown?: boolean;
+  type?: 'website' | 'article';
+}
+
+const { path, crumbs, schema = [], countdown = false, type = 'website' } = Astro.props;
+const meta = PAGES[path];
+const canonical = absolute(path === '/404/' ? '/' : path);
+// Per-page cards come with the inner pages; until then every page shares the home card.
+const og = absolute(`/og/${ogSlug("/")}.png`);
+const release = await latest();
+
+const org = {
+  '@type': 'Organization',
+  '@id': `${absolute('/')}#org`,
+  name: SITE.name,
+  url: absolute('/'),
+  logo: absolute('/icon-512.png'),
+  sameAs: [SITE.repoUrl],
+};
+const website = {
+  '@type': 'WebSite',
+  '@id': `${absolute('/')}#website`,
+  name: SITE.name,
+  url: absolute('/'),
+  description: SITE.description,
+  publisher: { '@id': `${absolute('/')}#org` },
+  inLanguage: 'en',
+};
+const breadcrumbLd = crumbs?.length
+  ? {
+      '@type': 'BreadcrumbList',
+      itemListElement: [{ href: '/', label: 'Home' }, ...crumbs].map((c, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        name: c.label,
+        item: absolute(c.href),
+      })),
+    }
+  : undefined;
+const graph = {
+  '@context': 'https://schema.org',
+  '@graph': [org, website, ...(breadcrumbLd ? [breadcrumbLd] : []), ...schema],
+};
+const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
+---
+<!doctype html>
+<html lang="en" dir="ltr" data-version={release.version} data-countdown={countdown ? '1' : undefined}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={meta.description} />
+    <link rel="canonical" href={canonical} />
+    {path === '/404/' ? <meta name="robots" content="noindex" /> : <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />}
+    <meta name="theme-color" content={SITE.themeColor} />
+    <meta name="color-scheme" content="dark" />
+    <meta name="application-name" content="Vuoom" />
+    <meta name="author" content={SITE.author} />
+    <meta name="generator" content={Astro.generator} />
+    {SITE.gscVerification && <meta name="google-site-verification" content={SITE.gscVerification} />}
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content="Vuoom" />
+    <meta property="og:locale" content={SITE.locale} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={meta.description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={og} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`${meta.og} Vuoom, the free auto-zoom screen recorder for Windows.`} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={meta.description} />
+    <meta name="twitter:image" content={og} />
+
+    <link rel="icon" href={url('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={url('/favicon-32.png')} sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href={url('/apple-touch-icon.png')} />
+    <link rel="manifest" href={url('/manifest.webmanifest')} />
+    <link rel="sitemap" href={url('/sitemap-index.xml')} />
+    <link rel="alternate" type="application/atom+xml" title="Vuoom releases" href={`${SITE.releasesUrl}.atom`} />
+
+    <link rel="preload" href={brico} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={geist} as="font" type="font/woff2" crossorigin />
+
+    <script type="application/ld+json" set:html={JSON.stringify(graph)} />
+
+    <script is:inline>
+      // Decide the motion mode before first paint so reveal states never flash.
+      (function () {
+        var d = document.documentElement;
+        d.classList.add('js');
+        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!reduce) d.classList.add('motion');
+        if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) d.classList.add('fine');
+        try {
+          if (!reduce && d.dataset.countdown === '1' && !sessionStorage.getItem('vuoom-take')) {
+            d.classList.add('is-counting');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <Header path={path} />
+    {countdown && (
+      <div class="countdown" aria-hidden="true" data-countdown>
+        <span class="countdown__num mono">3</span>
+        <span class="countdown__rec label"><span class="countdown__light" />REC</span>
+      </div>
+    )}
+    <main id="content" tabindex="-1">
+      {crumbs && (
+        <div class="wrap crumbs-wrap">
+          <Breadcrumbs items={crumbs} />
+        </div>
+      )}
+      <slot />
+    </main>
+    <Footer release={release} />
+    <div class="grain" aria-hidden="true"></div>
+    <div class="pointer" aria-hidden="true" data-pointer>
+      <svg width="22" height="22" viewBox="0 0 22 22"><path d="M3 2.5 18.5 9l-6.7 2.2L9 18z" fill="#F2F0EB" stroke="#0B0B0C" stroke-width="1.4" stroke-linejoin="round"/></svg>
+      <span class="pointer__ring"></span>
+    </div>
+    <script>
+      import '../scripts/main';
+    </script>
+  </body>
+</html>
+
+<style>
+  .skip {
+    position: fixed;
+    left: var(--s-4);
+    top: var(--s-4);
+    z-index: calc(var(--z-countdown) + 1);
+    padding: var(--s-3) var(--s-4);
+    background: var(--ink);
+    color: var(--ground);
+    border-radius: var(--r-ui);
+    transform: translateY(-200%);
+    transition: transform var(--dur-hover) var(--ease-out);
+  }
+  .skip:focus {
+    transform: none;
+  }
+  main {
+    position: relative;
+    z-index: 1;
+    background: var(--ground);
+    outline: none;
+  }
+  .crumbs-wrap {
+    padding-top: calc(var(--nav-h) + var(--s-7));
+  }
+
+  /* smooth pointer (M12): only with a fine pointer and motion on */
+  .pointer {
+    display: none;
+  }
+  :global(html.motion.fine) .pointer {
+    display: block;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: var(--z-pointer);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--dur-hover) var(--ease-out-quart);
+    will-change: transform;
+  }
+  :global(html.motion.fine.pointer-on) .pointer {
+    opacity: 1;
+  }
+  :global(html.motion.fine.pointer-on body),
+  :global(html.motion.fine.pointer-on a),
+  :global(html.motion.fine.pointer-on button),
+  :global(html.motion.fine.pointer-on [role='slider']) {
+    cursor: none;
+  }
+  .pointer svg {
+    position: relative;
+    transform-origin: 3px 2.5px;
+    transition: transform var(--dur-press) var(--ease-out-quart);
+    filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.5));
+  }
+  :global(.pointer.is-hot) svg {
+    transform: scale(1.18);
+  }
+  :global(.pointer.is-down) svg {
+    transform: scale(0.86);
+  }
+  .pointer__ring {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border-radius: var(--r-pill);
+    border: 2px solid var(--rec);
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  :global(.pointer.is-down) .pointer__ring {
+    animation: ring 600ms var(--ease-out) forwards;
+  }
+  @keyframes ring {
+    from {
+      opacity: 0.9;
+      transform: scale(0.3);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.4);
+    }
+  }
+
+  /* countdown preloader (M11) */
+  .countdown {
+    display: none;
+  }
+  :global(html.is-counting) .countdown {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-countdown);
+    display: grid;
+    place-items: center;
+    background: var(--ground);
+  }
+  .countdown__num {
+    font-size: var(--step-6);
+    font-weight: 400;
+    line-height: 1;
+    color: var(--ink);
+  }
+  .countdown__rec {
+    position: absolute;
+    left: var(--gutter);
+    top: var(--s-5);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--ink);
+  }
+  .countdown__light {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+  }
+</style>

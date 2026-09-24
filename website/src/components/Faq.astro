@@ -1,0 +1,83 @@
+---
+import type { QA } from '../data/faq';
+interface Props {
+  items: QA[];
+}
+const { items } = Astro.props;
+---
+<div class="faq">
+  {items.map((it) => (
+    <details class="faq__item" data-reveal>
+      <summary class="faq__q">
+        <span>{it.q}</span>
+        <span class="faq__icon" aria-hidden="true"></span>
+      </summary>
+      <p class="faq__a">{it.a}</p>
+    </details>
+  ))}
+</div>
+<style>
+  .faq__item {
+    box-shadow: inset 0 var(--hair) 0 var(--rule);
+  }
+  .faq__item:last-child {
+    box-shadow:
+      inset 0 var(--hair) 0 var(--rule),
+      inset 0 calc(var(--hair) * -1) 0 var(--rule);
+  }
+  .faq__q {
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--s-5);
+    padding-block: var(--s-5);
+    font-size: var(--step-1);
+    font-weight: 500;
+    letter-spacing: var(--track-sub);
+    line-height: var(--lh-sub);
+    cursor: pointer;
+    border-radius: var(--r-ui);
+  }
+  .faq__q::-webkit-details-marker {
+    display: none;
+  }
+  .faq__icon {
+    position: relative;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    transition: transform var(--dur-hover) var(--ease-out-quart);
+  }
+  .faq__icon::before,
+  .faq__icon::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 16px;
+    height: 1.5px;
+    background: var(--ink-2);
+  }
+  .faq__icon::after {
+    transform: rotate(90deg);
+  }
+  details[open] .faq__icon {
+    transform: rotate(45deg);
+  }
+  details[open] .faq__icon::before,
+  details[open] .faq__icon::after {
+    background: var(--rec);
+  }
+  .faq__a {
+    color: var(--ink-2);
+    max-width: 62ch;
+    padding-bottom: var(--s-5);
+  }
+  @media (hover: hover) {
+    .faq__q:hover .faq__icon::before,
+    .faq__q:hover .faq__icon::after {
+      background: var(--ink);
+    }
+  }
+</style>

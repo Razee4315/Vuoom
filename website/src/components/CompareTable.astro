@@ -1,0 +1,125 @@
+---
+import { PRODUCTS, ROWS } from '../data/compare';
+import { url } from '../lib/site';
+interface Props {
+  only?: string[];
+  caption?: string;
+}
+const { only, caption = 'Screen recorders for product demos, compared. Checked September 2026.' } = Astro.props;
+const list = only ? PRODUCTS.filter((p) => only.includes(p.id)) : PRODUCTS;
+---
+<div class="ct" role="region" aria-label="Comparison table" tabindex="0">
+  <table>
+    <caption class="label">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col"><span class="visually-hidden">Feature</span></th>
+        {list.map((p) => (
+          <th scope="col" class:list={[{ 'is-us': p.id === 'vuoom' }]}>
+            {p.id === 'vuoom' ? <span class="ct__us"><span class="ct__light" aria-hidden="true"></span>Vuoom</span> : <a class="link" href={url(p.url)} rel="noopener">{p.name}</a>}
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      {ROWS.map((row, ri) => (
+        <tr>
+          <th scope="row">{row}</th>
+          {list.map((p) => {
+            const c = p.cells[ri];
+            return (
+              <td class:list={[`is-${c.v}`, { 'is-us': p.id === 'vuoom' }]}>
+                <span class="ct__mark" aria-hidden="true"></span>
+                {c.t}
+              </td>
+            );
+          })}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+<p class="ct__note label">Spotted something out of date? <a class="link" href="https://github.com/Razee4315/Vuoom/issues/new" rel="noopener">Open an issue</a> and we will fix it.</p>
+
+<style>
+  .ct {
+    overflow-x: auto;
+    border-radius: var(--r-ui);
+  }
+  table {
+    width: 100%;
+    min-width: 760px;
+    font-size: 0.9375rem;
+  }
+  caption {
+    text-align: left;
+    padding-bottom: var(--s-4);
+  }
+  th,
+  td {
+    text-align: left;
+    padding: var(--s-3) var(--s-4) var(--s-3) 0;
+    box-shadow: inset 0 calc(var(--hair) * -1) 0 var(--rule);
+    vertical-align: top;
+  }
+  thead th {
+    font-weight: 560;
+    color: var(--ink);
+    padding-bottom: var(--s-4);
+  }
+  tbody th {
+    font-weight: 400;
+    color: var(--ink-2);
+    position: sticky;
+    left: 0;
+    background: var(--ground);
+    z-index: 1;
+    min-width: 11rem;
+  }
+  td {
+    color: var(--ink-2);
+  }
+  td.is-us,
+  th.is-us {
+    color: var(--ink);
+    background: var(--wash);
+    padding-left: var(--s-4);
+  }
+  .ct__us {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+  .ct__light {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+  }
+  .ct__mark {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: var(--s-2);
+    border-radius: var(--r-pill);
+    vertical-align: 0.1em;
+  }
+  .is-yes .ct__mark {
+    background: var(--ink);
+  }
+  .is-no .ct__mark {
+    box-shadow: inset 0 0 0 1.5px var(--ink-3);
+  }
+  .is-part .ct__mark {
+    background: linear-gradient(90deg, var(--ink) 50%, transparent 50%);
+    box-shadow: inset 0 0 0 1.5px var(--ink);
+  }
+  .is-text .ct__mark {
+    display: none;
+  }
+  .ct__note {
+    margin-top: var(--s-4);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+</style>

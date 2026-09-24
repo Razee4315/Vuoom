@@ -1,0 +1,320 @@
+---
+// The editor, pinned (M09). An HTML rebuild of the Vuoom timeline: as you scroll, the
+// playhead runs, blocks draw in, and the preview reacts (zoom, a text label, a 3x skim, a cut).
+// Block times are in seconds on a 14.4 s take. Without motion the finished edit is shown.
+import { Image } from 'astro:assets';
+import flat from '../assets/shots/take-flat.png';
+
+const DUR = 14.4;
+const pct = (s: number) => `${((s / DUR) * 100).toFixed(3)}%`;
+const blocks = [
+  { track: 0, kind: 'zoom', a: 1.2, b: 4.6, label: '2.2×', z: 2.2, x: 0.18, y: 0.26 },
+  { track: 0, kind: 'zoom', a: 5.4, b: 8.2, label: '1.8×', z: 1.8, x: 0.44, y: 0.52 },
+  { track: 1, kind: 'text', a: 0.6, b: 4.2, label: 'Text: 12,408 sign-ups' },
+  { track: 1, kind: 'arrow', a: 5.6, b: 8.0, label: 'Arrow' },
+  { track: 2, kind: 'speed', a: 8.8, b: 11.2, label: '3×' },
+  { track: 2, kind: 'cut', a: 12.4, b: 13.2, label: 'Cut' },
+];
+const captions = ['Zoom', 'Annotate', 'Skim', 'Cut'];
+const ticks = [0, 2, 4, 6, 8, 10, 12, 14];
+---
+<section class="ed" aria-labelledby="ed-h" data-editor>
+  <div class="ed__pin" data-editor-pin>
+    <div class="wrap ed__wrap">
+      <h2 id="ed-h" class="h2 ed__h" data-split>Edit in seconds.</h2>
+
+      <div class="ed__app" aria-hidden="true">
+        <div class="ed__preview">
+          <div class="ed__cam" data-editor-cam>
+            <Image src={flat} alt="" widths={[640, 1000, 1400]} sizes="(min-width: 960px) 55vw, 100vw" loading="lazy" />
+            <span class="ed__label" data-editor-label>12,408 sign-ups</span>
+            <svg class="ed__arrow" data-editor-arrow viewBox="0 0 120 60" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 54 C 40 50, 80 30, 110 8 M110 8 l-22 4 M110 8 l-6 20" /></svg>
+          </div>
+          <span class="ed__badge label" data-editor-speed>3×</span>
+          <span class="ed__cut" data-editor-cut></span>
+          <span class="ed__time label num" data-editor-time>0:00.0</span>
+        </div>
+
+        <div class="ed__timeline">
+          <div class="ed__ruler label">
+            {ticks.map((t) => <span style={`left:${pct(t)}`}>0:{String(t).padStart(2, '0')}</span>)}
+          </div>
+          <div class="ed__tracks">
+            {['Zoom', 'Notes', 'Speed · Cuts'].map((name, ti) => (
+              <div class="ed__track">
+                <span class="ed__track-name label">{name}</span>
+                <div class="ed__lane">
+                  {blocks.filter((b) => b.track === ti).map((b) => (
+                    <span
+                      class={`ed__block ed__block--${b.kind}`}
+                      style={`left:${pct(b.a)};width:${pct(b.b - b.a)}`}
+                      data-editor-block
+                      data-a={b.a}
+                      data-b={b.b}
+                      data-kind={b.kind}
+                      data-z={'z' in b ? b.z : undefined}
+                      data-x={'x' in b ? b.x : undefined}
+                      data-y={'y' in b ? b.y : undefined}
+                    >
+                      <span>{b.label}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <span class="ed__playhead" data-editor-playhead></span>
+          </div>
+          <p class="ed__len label num">
+            Final length <span class="ed__len-v" data-editor-len>12.0s</span> of 14.4s
+          </p>
+        </div>
+      </div>
+      <ol class="ed__caps" role="list" aria-label="What you can do on the timeline">
+        {captions.map((c, i) => (
+          <li class="ed__cap" data-editor-cap={i}>{c}</li>
+        ))}
+      </ol>
+    </div>
+  </div>
+</section>
+
+<style>
+  .ed__pin {
+    min-height: 100dvh;
+    display: grid;
+    align-items: center;
+    padding-block: var(--section);
+  }
+  :global(html.motion) .ed__pin {
+    padding-block: calc(var(--nav-h) + var(--s-5)) var(--s-6);
+  }
+  .ed__wrap {
+    display: grid;
+    justify-items: center;
+    gap: clamp(2rem, 4vh, 3.5rem);
+  }
+  .ed__app {
+    width: 100%;
+    max-width: min(1080px, calc((100dvh - 300px) * 1.55));
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-2);
+    border-radius: var(--r-frame);
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+  }
+  .ed__h {
+    text-align: center;
+  }
+  .ed__caps {
+    display: flex;
+    gap: var(--s-2);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .ed__cap {
+    padding: 8px 16px;
+    border-radius: var(--r-pill);
+    font-size: 0.9375rem;
+    color: var(--ink-3);
+    box-shadow: inset 0 0 0 1px var(--rule);
+    transition:
+      color 300ms var(--ease-out),
+      background-color 300ms var(--ease-out);
+  }
+  :global(html:not(.motion)) .ed__cap,
+  .ed__cap.is-on {
+    color: var(--ground);
+    background: var(--ink);
+    box-shadow: none;
+  }
+  .ed__preview {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: calc(var(--r-frame) - var(--s-2));
+    background: var(--ground-sunk);
+  }
+  .ed__cam {
+    position: absolute;
+    inset: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .ed__cam :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .ed__label {
+    position: absolute;
+    left: 22%;
+    top: 16%;
+    font-family: var(--font-text);
+    font-weight: 700;
+    font-size: clamp(7px, 1.1vw, 13px);
+    color: #fff;
+    background: #1f1f22;
+    padding: 0.3em 0.6em;
+    border-radius: 3px;
+  }
+  .ed__arrow {
+    position: absolute;
+    left: 30%;
+    top: 40%;
+    width: 11%;
+    color: var(--rec);
+  }
+  .ed__badge {
+    position: absolute;
+    right: 12px;
+    top: 10px;
+    color: var(--on-rec);
+    background: #b7791f;
+    padding: 2px 8px;
+    border-radius: var(--r-ui);
+  }
+  .ed__cut {
+    position: absolute;
+    inset: 0;
+    background: var(--ground-sunk);
+  }
+  .ed__time {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.8);
+    padding: 2px 6px;
+    border-radius: var(--r-ui);
+  }
+  :global(html.motion) .ed__label,
+  :global(html.motion) .ed__arrow,
+  :global(html.motion) .ed__badge,
+  :global(html.motion) .ed__cut {
+    opacity: 0;
+  }
+  :global(html:not(.motion)) .ed__cut {
+    display: none;
+  }
+  .ed__timeline {
+    padding: var(--s-2) var(--s-2) var(--s-1);
+  }
+  .ed__ruler {
+    position: relative;
+    height: 18px;
+    margin-left: 92px;
+    font-size: 10px;
+  }
+  .ed__ruler span {
+    position: absolute;
+    transform: translateX(-50%);
+  }
+  .ed__ruler span:first-child {
+    transform: none;
+  }
+  .ed__tracks {
+    position: relative;
+  }
+  .ed__track {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    align-items: center;
+    height: 30px;
+    box-shadow: inset 0 var(--hair) 0 var(--rule);
+  }
+  .ed__track-name {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .ed__lane {
+    position: relative;
+    height: 100%;
+  }
+  .ed__block {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    display: flex;
+    align-items: center;
+    padding-inline: 6px;
+    overflow: hidden;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    transform-origin: left center;
+  }
+  .ed__block span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ed__block--zoom {
+    background: #4a2224;
+    box-shadow: inset 0 0 0 1px #8a3a3d;
+    color: #ffb4b6;
+  }
+  .ed__block--text,
+  .ed__block--arrow {
+    background: #1d2a44;
+    box-shadow: inset 0 0 0 1px #3b5a92;
+    color: #b8cdf5;
+  }
+  .ed__block--speed {
+    background: #3f3212;
+    box-shadow: inset 0 0 0 1px #8a6d20;
+    color: #f3d38a;
+  }
+  .ed__block--cut {
+    background: repeating-linear-gradient(135deg, #4a1d20 0 6px, #3a1618 6px 12px);
+    box-shadow: inset 0 0 0 1px #8a3a3d;
+    color: #ffb4b6;
+  }
+  .ed__playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 92px;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--rec);
+    transform-origin: left;
+  }
+  .ed__playhead::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px 2px 50% 50%;
+    background: var(--rec);
+  }
+  :global(html:not(.motion)) .ed__playhead {
+    display: none;
+  }
+  .ed__len {
+    margin-top: var(--s-2);
+    text-align: right;
+  }
+  .ed__len-v {
+    color: var(--ink);
+  }
+  @media (max-width: 640px) {
+    .ed__ruler {
+      margin-left: 64px;
+    }
+    .ed__track {
+      grid-template-columns: 64px 1fr;
+    }
+    .ed__playhead {
+      left: 64px;
+    }
+    .ed__block {
+      font-size: 9px;
+      padding-inline: 3px;
+    }
+  }
+</style>

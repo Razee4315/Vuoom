@@ -1,0 +1,86 @@
+---
+// A real Vuoom take. Muted, looping, played only while in view (src/scripts/videos.ts);
+// never autoplays under reduced motion, where the poster and a play button stay.
+import { url } from '../lib/site';
+import Icon from './Icon.astro';
+
+const CLIPS = {
+  demo: { w: 1600, h: 900, label: 'A dashboard recording where the camera zooms into each click' },
+  github: { w: 1000, h: 562, label: 'Zooming into a GitHub page in a browser, with motion blur' },
+  voice: { w: 1000, h: 562, label: 'The Vuoom README recorded with captions reading "I am using Vuoom"' },
+} as const;
+
+interface Props {
+  name: keyof typeof CLIPS;
+  class?: string;
+  sound?: boolean;
+}
+const { name, class: cls, sound = false } = Astro.props;
+const c = CLIPS[name];
+---
+<figure class:list={['vid', cls]} data-video>
+  <video
+    width={c.w}
+    height={c.h}
+    muted
+    loop
+    playsinline
+    preload="none"
+    poster={url(`/media/${name}-poster.jpg`)}
+    aria-label={c.label}
+  >
+    <source src={url(`/media/${name}.mp4`)} type="video/mp4" />
+  </video>
+  <div class="vid__bar">
+    <button class="vid__btn" type="button" data-video-toggle aria-pressed="false">
+      <span class="vid__play"><Icon name="play" size={14} /><span class="visually-hidden">Play</span></span>
+      <span class="vid__pause"><Icon name="pause" size={14} /><span class="visually-hidden">Pause</span></span>
+    </button>
+    {sound && (
+      <button class="vid__btn vid__sound label" type="button" data-video-sound aria-pressed="false">
+        Sound off
+      </button>
+    )}
+  </div>
+</figure>
+<style>
+  .vid {
+    position: relative;
+    border-radius: var(--r-frame);
+    overflow: hidden;
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+  }
+  video {
+    width: 100%;
+  }
+  .vid__bar {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    display: flex;
+    gap: var(--s-2);
+  }
+  .vid__btn {
+    min-width: 28px;
+    height: 28px;
+    padding-inline: var(--s-2);
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.75);
+    border-radius: var(--r-ui);
+  }
+  .vid__pause,
+  .vid__btn[aria-pressed='true'] .vid__play {
+    display: none;
+  }
+  .vid__btn[aria-pressed='true'] .vid__pause {
+    display: block;
+  }
+  .vid__sound {
+    color: var(--ink);
+  }
+</style>

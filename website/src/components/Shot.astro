@@ -1,0 +1,50 @@
+---
+// A framed product screenshot, the only image treatment on the site (docs/08).
+import { Image } from 'astro:assets';
+import editor from '../assets/shots/screenshot-editor.png';
+import editorLight from '../assets/shots/screenshot-editor-light.png';
+import home from '../assets/shots/screenshot-home.png';
+import record from '../assets/shots/screenshot-record.png';
+import exp from '../assets/shots/screenshot-export.png';
+
+const SHOTS = {
+  editor: { src: editor, alt: 'The Vuoom editor with zoom blocks, notes and a cut on the timeline' },
+  'editor-light': { src: editorLight, alt: 'The Vuoom editor in the light Paper theme' },
+  home: { src: home, alt: "Vuoom's home screen with Region, Full screen and Window options" },
+  record: { src: record, alt: 'Picking a region to record with the record HUD' },
+  export: { src: exp, alt: 'The export card with GIF and MP4 presets and a size estimate' },
+} as const;
+
+interface Props {
+  name: keyof typeof SHOTS;
+  sizes?: string;
+  eager?: boolean;
+  class?: string;
+  alt?: string;
+}
+const { name, sizes = '(min-width: 960px) 50vw, 100vw', eager = false, class: cls, alt } = Astro.props;
+const s = SHOTS[name];
+---
+<div class:list={['shot', cls]}>
+  <Image
+    src={s.src}
+    alt={alt ?? s.alt}
+    widths={[480, 800, 1200, 1440]}
+    sizes={sizes}
+    loading={eager ? 'eager' : 'lazy'}
+    decoding="async"
+  />
+</div>
+<style>
+  .shot {
+    border-radius: var(--r-frame);
+    overflow: hidden;
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+  }
+  .shot :global(img) {
+    width: 100%;
+  }
+</style>

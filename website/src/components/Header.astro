@@ -1,0 +1,192 @@
+---
+// Floating pill navigation: logo, three links, one action. Nothing else.
+import Logo from './Logo.astro';
+import { url } from '../lib/site';
+
+interface Props {
+  path: string;
+}
+const { path } = Astro.props;
+const LINKS = [
+  { href: '/features/', label: 'Features' },
+  { href: '/compare/', label: 'Compare' },
+  { href: '/guide/', label: 'Guide' },
+];
+const isCurrent = (href: string) => path.startsWith(href);
+---
+<header class="nav" data-nav>
+  <div class="nav__pill">
+    <a class="nav__brand" href={url('/')} aria-label="Vuoom home">
+      <Logo size={22} />
+      <span class="nav__word">Vuoom</span>
+    </a>
+
+    <nav class="nav__links" aria-label="Main">
+      {LINKS.map((l) => (
+        <a
+          class="nav__link"
+          href={url(l.href)}
+          aria-current={isCurrent(l.href) ? 'page' : undefined}
+        >
+          {l.label}
+        </a>
+      ))}
+    </nav>
+
+    <a class="nav__dl" href={url('/download/')}>Download</a>
+
+    <button
+      class="nav__menu"
+      type="button"
+      aria-expanded="false"
+      aria-controls="menu"
+      data-menu-toggle
+    >
+      <span class="visually-hidden">Menu</span>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 8h12M4 12h12" /></svg>
+    </button>
+  </div>
+
+  <div class="sheet" id="menu" hidden data-menu>
+    <nav aria-label="Mobile">
+      <a href={url('/')}>Home</a>
+      {LINKS.map((l) => <a href={url(l.href)}>{l.label}</a>)}
+      <a href={url('/faq/')}>FAQ</a>
+      <a href={url('/download/')}>Download</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: fixed;
+    top: var(--s-4);
+    left: 0;
+    right: 0;
+    z-index: var(--z-nav);
+    display: flex;
+    justify-content: center;
+    padding-inline: var(--s-4);
+    pointer-events: none;
+  }
+  .nav__pill {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    height: 52px;
+    padding: 6px 6px 6px 18px;
+    border-radius: var(--r-pill);
+    background: rgb(22 22 24 / 0.72);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    box-shadow:
+      inset 0 0 0 1px rgb(242 240 235 / 0.08),
+      0 12px 40px -12px rgb(0 0 0 / 0.6);
+    transition: transform 400ms var(--ease-out);
+  }
+  :global(.nav.is-hidden) .nav__pill {
+    transform: translateY(calc(-100% - var(--s-5)));
+  }
+  .nav__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin-right: var(--s-4);
+    border-radius: var(--r-pill);
+  }
+  .nav__word {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-stretch: 85%;
+    font-size: 1.125rem;
+    letter-spacing: -0.02em;
+  }
+  .nav__links {
+    display: flex;
+    gap: 2px;
+  }
+  .nav__link {
+    padding: 8px 14px;
+    border-radius: var(--r-pill);
+    font-size: 0.875rem;
+    color: var(--ink-2);
+    transition:
+      color var(--dur-hover) var(--ease-out-quart),
+      background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .nav__link:hover,
+  .nav__link[aria-current='page'] {
+    color: var(--ink);
+    background: rgb(242 240 235 / 0.07);
+  }
+  .nav__dl {
+    margin-left: var(--s-3);
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    padding-inline: 18px;
+    border-radius: var(--r-pill);
+    background: var(--ink);
+    color: var(--ground);
+    font-size: 0.875rem;
+    font-weight: 560;
+    transition: transform var(--dur-press) var(--ease-out-quart);
+  }
+  .nav__dl:hover {
+    background: #fff;
+  }
+  .nav__dl:active {
+    transform: scale(0.97);
+  }
+  .nav__menu {
+    display: none;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: var(--r-pill);
+    color: var(--ink);
+  }
+
+  .sheet {
+    pointer-events: auto;
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: rgb(11 11 12 / 0.96);
+    backdrop-filter: blur(12px);
+    display: grid;
+    place-items: center;
+  }
+  .sheet[hidden] {
+    display: none;
+  }
+  .sheet nav {
+    display: grid;
+    gap: var(--s-4);
+    text-align: center;
+  }
+  .sheet a {
+    font-family: var(--font-display);
+    font-size: var(--step-3);
+    font-weight: 600;
+    font-stretch: 85%;
+    letter-spacing: var(--track-heading);
+  }
+
+  @media (max-width: 720px) {
+    .nav__links {
+      display: none;
+    }
+    .nav__menu {
+      display: grid;
+    }
+    .nav__brand {
+      margin-right: auto;
+    }
+    .nav__pill {
+      width: 100%;
+      max-width: 420px;
+    }
+  }
+</style>

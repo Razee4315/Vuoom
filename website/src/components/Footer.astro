@@ -1,0 +1,120 @@
+---
+// Quiet footer: a compact sitemap, then the oversized VUOOM● wordmark. Curtain reveal.
+import { FOOTER, url } from '../lib/site';
+import type { Release } from '../lib/github';
+
+interface Props {
+  release: Release;
+}
+const { release } = Astro.props;
+const year = new Date().getFullYear();
+const cols = FOOTER.filter((c) => c.title !== 'Legal');
+const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
+---
+<footer class="foot" data-footer>
+  <div class="wrap">
+    <nav class="foot__cols" aria-label="Footer">
+      {cols.map((col) => (
+        <div>
+          <h2 class="foot__title">{col.title}</h2>
+          <ul role="list">
+            {col.links.map((l) => (
+              <li>
+                <a class="foot__link" href={url(l.href)} {...(/^https?:/.test(l.href) ? { rel: 'noopener' } : {})}>
+                  {l.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  </div>
+
+  <p class="foot__mark" aria-hidden="true" data-wordmark>
+    <span class="foot__word">VUOOM</span><span class="foot__dot"></span>
+  </p>
+
+  <div class="wrap foot__base">
+    <span>© {year} Vuoom · Apache-2.0 · v{release.version}</span>
+    <span class="foot__legal">
+      {legal.map((l) => <a class="foot__link" href={url(l.href)}>{l.label}</a>)}
+    </span>
+  </div>
+</footer>
+
+<style>
+  .foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 0;
+    background: var(--ground-sunk);
+    padding-top: var(--s-9);
+    overflow: hidden;
+  }
+  .foot__cols {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--s-7) var(--col-gap);
+  }
+  .foot__title {
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+    margin-bottom: var(--s-4);
+    font-weight: 400;
+  }
+  .foot__cols li + li {
+    margin-top: var(--s-2);
+  }
+  .foot__link {
+    color: var(--ink-2);
+    font-size: 0.875rem;
+    transition: color var(--dur-hover) var(--ease-out-quart);
+  }
+  .foot__link:hover {
+    color: var(--ink);
+  }
+  .foot__mark {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    margin-top: var(--s-9);
+    line-height: 0.78;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-stretch: 75%;
+    font-size: clamp(5rem, 26vw, 25rem);
+    letter-spacing: -0.05em;
+    color: rgb(242 240 235 / 0.9);
+    user-select: none;
+    white-space: nowrap;
+  }
+  .foot__dot {
+    width: 0.2em;
+    height: 0.2em;
+    margin-top: 0.02em;
+    margin-left: 0.02em;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+    box-shadow: 0 0 0.3em var(--rec-glow);
+    flex: none;
+  }
+  .foot__base {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--s-3) var(--s-6);
+    padding-block: var(--s-5) var(--s-6);
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+  }
+  .foot__legal {
+    display: flex;
+    gap: var(--s-5);
+  }
+  @media (max-width: 720px) {
+    .foot__cols {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

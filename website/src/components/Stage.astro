@@ -1,0 +1,180 @@
+---
+// The signature move (M10): a real Vuoom screenshot on a viewfinder stage. A smooth pointer
+// clicks through a scripted take and the camera springs into each click using the app's own
+// spring maths (src/scripts/stage.ts). Without JS or with reduced motion it is a still image.
+import { Image } from 'astro:assets';
+import editor from '../assets/shots/screenshot-editor.png';
+import Icon from './Icon.astro';
+---
+<figure class="stage" data-stage>
+  <div
+    class="stage__well"
+    role="img"
+    aria-label="The Vuoom editor. A pointer clicks the play button, a zoom block, Auto zooms and Export, and the view zooms into each click."
+  >
+    <div class="stage__cam" data-cam>
+      <Image
+        src={editor}
+        alt=""
+        widths={[720, 1080, 1440]}
+        sizes="(min-width: 960px) 60vw, 100vw"
+        loading="eager"
+        fetchpriority="high"
+        class="stage__img"
+      />
+      <span class="stage__ripple" data-ripple></span>
+      <svg class="stage__pointer" data-stage-pointer width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <path d="M3 2.5 18.5 9l-6.7 2.2L9 18z" fill="#F2F0EB" stroke="#0B0B0C" stroke-width="1.4" stroke-linejoin="round" />
+      </svg>
+    </div>
+    <span class="stage__corner stage__corner--tl" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--tr" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--bl" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--br" aria-hidden="true"></span>
+    <span class="stage__zoom label" data-zoom-readout aria-hidden="true">1.0×</span>
+  </div>
+  <button class="stage__toggle" type="button" data-stage-toggle aria-pressed="false" hidden>
+    <span class="stage__toggle-pause"><Icon name="pause" size={16} /><span class="visually-hidden">Pause the demo</span></span>
+    <span class="stage__toggle-play"><Icon name="play" size={16} /><span class="visually-hidden">Play the demo</span></span>
+  </button>
+</figure>
+
+<style>
+  .stage {
+    position: relative;
+  }
+  .stage__well {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    border-radius: var(--r-frame);
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+    isolation: isolate;
+  }
+  .stage__cam {
+    position: absolute;
+    inset: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .stage__img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .stage__pointer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.6%;
+    height: auto;
+    transform-origin: 13.6% 11.4%;
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.6));
+    opacity: 0;
+    will-change: transform;
+  }
+  .stage__ripple {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 3.2%;
+    aspect-ratio: 1;
+    margin: -1.6% 0 0 -1.6%;
+    border-radius: var(--r-pill);
+    border: 2px solid var(--rec);
+    background: rgb(229 72 77 / 0.18);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .stage__corner {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border: 0 solid rgb(242 240 235 / 0.55);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .stage__corner--tl {
+    left: 14px;
+    top: 14px;
+    border-left-width: 2px;
+    border-top-width: 2px;
+  }
+  .stage__corner--tr {
+    right: 14px;
+    top: 14px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+  }
+  .stage__corner--bl {
+    left: 14px;
+    bottom: 14px;
+    border-left-width: 2px;
+    border-bottom-width: 2px;
+  }
+  .stage__corner--br {
+    right: 14px;
+    bottom: 14px;
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+  }
+  .stage__zoom {
+    position: absolute;
+    right: 44px;
+    bottom: 12px;
+    z-index: 2;
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.7);
+    padding: 2px 6px;
+    border-radius: var(--r-ui);
+  }
+  .stage__toggle {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    z-index: 3;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.7);
+    border-radius: var(--r-ui);
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .stage__toggle:hover {
+    background: rgb(11 11 12 / 0.95);
+  }
+  .stage__toggle-play,
+  .stage__toggle[aria-pressed='true'] .stage__toggle-pause {
+    display: none;
+  }
+  .stage__toggle[aria-pressed='true'] .stage__toggle-play {
+    display: block;
+  }
+  @media (max-width: 640px) {
+    .stage__corner {
+      width: 14px;
+      height: 14px;
+    }
+    .stage__corner--tl,
+    .stage__corner--tr {
+      top: 8px;
+    }
+    .stage__corner--tl,
+    .stage__corner--bl {
+      left: 8px;
+    }
+    .stage__corner--tr,
+    .stage__corner--br {
+      right: 8px;
+    }
+    .stage__corner--bl,
+    .stage__corner--br {
+      bottom: 8px;
+    }
+  }
+</style>

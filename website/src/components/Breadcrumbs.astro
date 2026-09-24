@@ -1,0 +1,39 @@
+---
+import { url } from '../lib/site';
+interface Props {
+  items: { href: string; label: string }[];
+}
+const { items } = Astro.props;
+---
+<nav aria-label="Breadcrumb" class="crumbs label">
+  <ol role="list">
+    <li><a class="link" href={url('/')}>Home</a></li>
+    {items.map((it, i) => (
+      <li>
+        <span aria-hidden="true">/</span>
+        {i === items.length - 1 ? (
+          <span aria-current="page">{it.label}</span>
+        ) : (
+          <a class="link" href={url(it.href)}>{it.label}</a>
+        )}
+      </li>
+    ))}
+  </ol>
+</nav>
+<style>
+  ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+  li {
+    display: inline-flex;
+    gap: var(--s-2);
+  }
+  [aria-current] {
+    color: var(--ink-2);
+  }
+  span[aria-hidden] {
+    color: var(--rule);
+  }
+</style>

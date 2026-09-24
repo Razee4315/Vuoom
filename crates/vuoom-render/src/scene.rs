@@ -4,6 +4,7 @@
 //! camera, computes the framed layout, and resolves every annotation's pixel geometry and
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
+use crate::cursor::{press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout};
 use vuoom_project::{ArrowStyle, Color, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
@@ -51,6 +52,22 @@ pub struct ResolvedHighlight {
     pub color: Color,
 }
 
+/// The re-drawn pointer resolved to output pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedCursor {
+    /// Tip position in output pixels.
+    pub x: f64,
+    pub y: f64,
+    /// Pointer height in output pixels.
+    pub size: f64,
+    /// Click press depth, 0 (up) to 1 (down).
+    pub press: f64,
+}
+
+/// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
+/// real pointer on a 1080p screen).
+const CURSOR_BASE: f64 = 0.021;
+
 /// Everything the compositor draws for one output frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
@@ -66,6 +83,8 @@ pub struct Scene {
     pub key_chips: Vec<ResolvedHighlight>,
     /// Keystroke-overlay labels (separate from `texts` for the same reason).
     pub key_texts: Vec<ResolvedText>,
+    /// The re-drawn pointer, when the project has one and it's in view.
+    pub cursor: Option<ResolvedCursor>,
 }
 
 fn fade(color: Color, opacity: f64) -> Color {
@@ -207,6 +226,24 @@ pub fn build_scene(
         }
     }
 
+    // The re-drawn pointer follows its smoothed path through the camera like the ripples,
+    // scales with the zoom (a real pointer is part of the picture), and is left out when
+    // the camera has moved away from it.
+    let cursor = project.cursor.and_then(|style| {
+        let style = style.clamped();
+        let pos = smooth_pos(&project.events, t, f64::from(style.smoothing))?;
+        let src = layout.src_rect;
+        let dst = layout.dst_rect;
+        let inside =
+            pos.x >= src.x && pos.y >= src.y && pos.x <= src.x + src.w && pos.y <= src.y + src.h;
+        inside.then(|| ResolvedCursor {
+            x: dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w,
+            y: dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h,
+            size: f64::from(style.size) * CURSOR_BASE * dst.h / src.h.max(1e-9),
+            press: press_at(&project.events, t),
+        })
+    });
+
     // Keystroke overlay: the latest few shortcut chips, stacked above the bottom edge.
     let mut key_chips = Vec::new();
     let mut key_texts = Vec::new();
@@ -263,6 +300,7 @@ pub fn build_scene(
         ripples,
         key_chips,
         key_texts,
+        cursor,
     }
 }
 
@@ -270,7 +308,7 @@ pub fn build_scene(
 mod tests {
     use super::*;
     use glam::DVec2;
-    use vuoom_project::{SourceInfo, TextAnnotation, TimeRange};
+    use vuoom_project::{CursorStyle, SourceInfo, TextAnnotation, TimeRange};
 
     fn project_with_text() -> Project {
         let mut p = Project::new(SourceInfo {
@@ -306,6 +344,27 @@ mod tests {
         assert!((t.y - 200.0).abs() < 1e-9);
         // font_size is f32, so allow f32->f64 rounding slack.
         assert!((t.font_px - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn redrawn_pointer_follows_the_log_only_when_enabled() {
+        let mut p = project_with_text();
+        p.events = vec![InputEvent::Move {
+            t: 0.0,
+            pos: DVec2::new(0.25, 0.5),
+        }];
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        assert!(build_scene(&p, &track, 1000, 1000, 1.0).cursor.is_none());
+
+        p.cursor = Some(CursorStyle::default());
+        let scene = build_scene(&p, &track, 1000, 1000, 1.0);
+        let c = scene.cursor.unwrap();
+        let (src, dst) = (scene.layout.src_rect, scene.layout.dst_rect);
+        assert!((c.x - (dst.x + (0.25 - src.x) / src.w * dst.w)).abs() < 1e-6);
+        assert!((c.y - (dst.y + (0.5 - src.y) / src.h * dst.h)).abs() < 1e-6);
+        let expected = f64::from(CursorStyle::DEFAULT_SIZE) * CURSOR_BASE * dst.h / src.h;
+        assert!((c.size - expected).abs() < 1e-6);
+        assert!(c.press.abs() < 1e-9);
     }
 
     #[test]

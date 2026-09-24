@@ -3,6 +3,7 @@
 // every write is saved immediately. Storage failures (private mode, quota) are ignored:
 // the app then simply starts from defaults next time.
 import { createSignal, type Accessor } from "solid-js";
+import type { CursorMode } from "./types";
 
 const PREFIX = "vuoom-pref:";
 
@@ -41,12 +42,21 @@ function persisted<T>(key: string, fallback: T): Persisted<T> {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+/** The pointer mode implied by the older show/hide preference, else the smooth default. */
+function legacyCursorMode(): CursorMode {
+  const old = read<boolean | null>("capture-cursor", null);
+  return old === null ? "smooth" : old ? "show" : "hide";
+}
+
 /** Recording, editing and interface preferences (Settings dialog). */
 export const prefs = {
   /** Capture frame-rate cap for new recordings. */
   captureFps: persisted<number>("capture-fps", 60),
-  /** Draw the mouse cursor into recordings. */
-  captureCursor: persisted<boolean>("capture-cursor", true),
+  /**
+   * The pointer in new takes: re-drawn and smoothed (the real one hidden), captured as is,
+   * or left out. Installs that chose show/hide before this option existed keep that.
+   */
+  cursorMode: persisted<CursorMode>("cursor-mode", legacyCursorMode()),
   /** Record the microphone (narration) with new takes. */
   recordMic: persisted<boolean>("record-mic", false),
   /** Microphone endpoint id; null = the system default input. */

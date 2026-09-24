@@ -462,8 +462,25 @@ pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<
 
 /// Show or hide the mouse cursor in the next recording.
 #[tauri::command]
-pub fn set_capture_cursor(engine: tauri::State<'_, Engine>, show: bool) -> Result<(), String> {
-    engine.session()?.set_capture_cursor(show)
+pub fn set_capture_cursor(
+    engine: tauri::State<'_, Engine>,
+    show: bool,
+    smooth: Option<bool>,
+) -> Result<(), String> {
+    engine
+        .session()?
+        .set_capture_cursor(show, smooth.unwrap_or(false))
+}
+
+/// Turn the re-drawn pointer on or off and set its size (0.5-3) and smoothing (seconds).
+#[tauri::command]
+pub fn set_cursor_style(
+    engine: tauri::State<'_, Engine>,
+    enabled: bool,
+    size: f32,
+    smoothing: f32,
+) -> Result<(), String> {
+    engine.session()?.set_cursor_style(enabled, size, smoothing)
 }
 
 /// Microphones (default first) and whether system sound can be recorded.

@@ -8,6 +8,7 @@
 mod annotation;
 mod audio;
 mod color;
+mod cursor;
 mod frame;
 mod timeline;
 mod timing;
@@ -15,6 +16,7 @@ mod timing;
 pub use annotation::{ArrowAnnotation, ArrowStyle, HighlightBox, HighlightShape, TextAnnotation};
 pub use audio::{AudioKind, AudioTrack};
 pub use color::{Color, Rect};
+pub use cursor::CursorStyle;
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
 pub use timeline::{output_duration, output_segments, output_to_source};
 pub use timing::TimeRange;
@@ -101,6 +103,17 @@ pub struct Project {
     /// saved before audio existed.
     #[serde(default)]
     pub audio: Vec<AudioTrack>,
+    /// Whether the real pointer is baked into the recorded frames (true for every take
+    /// made before the pointer could be hidden).
+    #[serde(default = "yes")]
+    pub pointer_captured: bool,
+    /// Draw a clean, smoothed pointer from the input log (`None` = no re-drawn pointer).
+    #[serde(default)]
+    pub cursor: Option<CursorStyle>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// A normalized crop rectangle in `0.0..=1.0` source space.
@@ -172,6 +185,8 @@ impl Project {
             frame: FrameStyle::default(),
             aspect: AspectRatio::Original,
             audio: Vec::new(),
+            pointer_captured: true,
+            cursor: None,
         }
     }
 

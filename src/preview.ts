@@ -72,7 +72,7 @@ export class PreviewClient {
     const ws = new WebSocket(`ws://127.0.0.1:${this.port}/ws/${this.token}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (ev) => {
-      if (ev.data instanceof ArrayBuffer) this.draw(ev.data);
+      if (ev.data instanceof ArrayBuffer) this.queue(ev.data);
     };
     ws.onclose = () => this.scheduleReconnect();
     ws.onerror = () => {
@@ -111,6 +111,9 @@ export class PreviewClient {
   /** Close the connection and stop reconnecting. */
   disconnect(): void {
     this.closed = true;
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.pending = null;
     if (this.reconnectTimer !== undefined) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -118,17 +121,38 @@ export class PreviewClient {
     this.closeSocket();
   }
 
+  // Frames can arrive faster than the screen refreshes (live preview, fast scrubbing): keep
+  // only the newest and draw it on the next animation frame, so none is drawn for nothing.
+  private pending: ArrayBuffer | null = null;
+  private raf = 0;
+  private queue(buf: ArrayBuffer): void {
+    this.pending = buf;
+    if (this.raf) return;
+    this.raf = requestAnimationFrame(() => {
+      this.raf = 0;
+      const next = this.pending;
+      this.pending = null;
+      if (next) this.draw(next);
+    });
+  }
+
   private draw(buf: ArrayBuffer): void {
     const frame = parseFrame(buf);
     if (!frame || !this.canvas || !this.ctx) return;
     const { width, height, stride, pixels } = frame;
 
-    // Un-pad rows (stride may exceed width*4) into a tightly packed RGBA buffer.
     const rowBytes = width * 4;
-    const packed = new Uint8ClampedArray(rowBytes * height);
-    for (let y = 0; y < height; y++) {
-      const src = y * stride;
-      packed.set(pixels.subarray(src, src + rowBytes), y * rowBytes);
+    let packed: Uint8ClampedArray;
+    if (stride === rowBytes) {
+      // Tightly packed (the usual case): draw straight from the received bytes.
+      packed = new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, rowBytes * height);
+    } else {
+      // Un-pad rows (stride exceeds width*4) into a tightly packed RGBA buffer.
+      packed = new Uint8ClampedArray(rowBytes * height);
+      for (let y = 0; y < height; y++) {
+        const src = y * stride;
+        packed.set(pixels.subarray(src, src + rowBytes), y * rowBytes);
+      }
     }
 
     if (this.canvas.width !== width) this.canvas.width = width;

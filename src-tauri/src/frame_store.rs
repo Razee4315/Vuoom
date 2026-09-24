@@ -115,25 +115,42 @@ fn strip_ranges(w: u32, h: u32) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// The threads that compress frames: half the processor (2 to 6 threads). A full-screen take
+/// at 60 fps kept every core busy on rayon's global pool, which made the app being recorded
+/// (and the whole computer) sluggish; half leaves room for it.
+fn encode_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(4, usize::from);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads((cores / 2).clamp(2, 6))
+            .thread_name(|i| format!("vuoom-encode-{i}"))
+            .build()
+            .expect("frame encoder threads")
+    })
+}
+
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the
 /// strip container: `u8 n`, `n × u32 compressed len`, then the concatenated LZ4 blocks.
 fn encode_frame(cur: &[u8], prev: Option<&[u8]>, w: u32, h: u32) -> Vec<u8> {
     use rayon::prelude::*;
     let ranges = strip_ranges(w, h);
-    let blocks: Vec<Vec<u8>> = ranges
-        .par_iter()
-        .map(|r| match prev {
-            Some(p) => {
-                let xored: Vec<u8> = cur[r.clone()]
-                    .iter()
-                    .zip(&p[r.clone()])
-                    .map(|(a, b)| a ^ b)
-                    .collect();
-                lz4_flex::block::compress(&xored)
-            }
-            None => lz4_flex::block::compress(&cur[r.clone()]),
-        })
-        .collect();
+    let blocks: Vec<Vec<u8>> = encode_pool().install(|| {
+        ranges
+            .par_iter()
+            .map(|r| match prev {
+                Some(p) => {
+                    let xored: Vec<u8> = cur[r.clone()]
+                        .iter()
+                        .zip(&p[r.clone()])
+                        .map(|(a, b)| a ^ b)
+                        .collect();
+                    lz4_flex::block::compress(&xored)
+                }
+                None => lz4_flex::block::compress(&cur[r.clone()]),
+            })
+            .collect()
+    });
     let body: usize = blocks.iter().map(Vec::len).sum();
     let mut out = Vec::with_capacity(1 + blocks.len() * 4 + body);
     out.push(blocks.len() as u8);

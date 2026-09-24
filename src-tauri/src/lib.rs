@@ -251,6 +251,7 @@ pub fn run() {
             commands::set_background_preset,
             commands::set_frame_style,
             commands::set_background_custom,
+            commands::set_background_image,
             commands::set_trim,
             commands::auto_speed,
             commands::clear_speed,

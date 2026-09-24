@@ -1431,6 +1431,12 @@ pub fn set_frame_style(
         .set_frame_style(padding, corner_radius, shadow)
 }
 
+/// Use a picture file as the backdrop.
+#[tauri::command]
+pub fn set_background_image(engine: tauri::State<'_, Engine>, path: String) -> Result<(), String> {
+    engine.session()?.set_background_image(&path)
+}
+
 /// Set a custom solid (no `to`) or gradient backdrop.
 #[tauri::command]
 pub fn set_background_custom(

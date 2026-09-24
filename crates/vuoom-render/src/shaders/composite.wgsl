@@ -17,8 +17,8 @@ struct Uniforms {
     prev_min: vec2<f32>,   // motion blur: source crop one exposure ago (min, normalized)
     prev_size: vec2<f32>,  // ...and its size
     blur: f32,             // 1 = smear from prev_* to src_*, 0 = a single sample
-    _pad3: f32,
-    _pad4: vec2<f32>,
+    bg_image: f32,         // 1 = the backdrop is the picture in bg_tex, 0 = the stops above
+    bg_scale: vec2<f32>,   // the picture's visible UV extent, so it covers the frame
 };
 
 // Samples along the camera's path for motion blur.
@@ -27,6 +27,7 @@ const BLUR_TAPS: i32 = 12;
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var src_tex: texture_2d<f32>;
 @group(0) @binding(2) var src_samp: sampler;
+@group(0) @binding(3) var bg_tex: texture_2d<f32>;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -59,6 +60,11 @@ fn sd_rounded_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
 // normalizes by the axis's extent across the unit frame, so the stops land on opposite
 // corners for a diagonal direction. Solid fills pass bg2 == bg, so the mix is a no-op.
 fn backdrop(uv: vec2<f32>) -> vec4<f32> {
+    if u.bg_image > 0.5 {
+        // The picture, centered and scaled to cover the frame.
+        let st = vec2<f32>(0.5) + (uv - vec2<f32>(0.5)) * u.bg_scale;
+        return textureSampleLevel(bg_tex, src_samp, st, 0.0);
+    }
     let d = u.bg_dir;
     // Projected span of the [0,1]^2 frame onto d: [pmin, pmax], length |dx| + |dy|.
     let pmin = min(0.0, d.x) + min(0.0, d.y);

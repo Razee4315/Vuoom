@@ -263,6 +263,10 @@ fn snapshot(edited: &mut Edited, tag: &str) {
     }
 }
 
+/// The range the zoom tool's framed zooms are kept to.
+const MIN_AIMED_ZOOM: f64 = 1.2;
+const MAX_AIMED_ZOOM: f64 = 4.0;
+
 /// Timestamp unit of a saved bundle's frame index (ticks per second). The QPC epoch and
 /// frequency are machine-specific, so bundles store time from the first frame at 10 MHz.
 const BUNDLE_TIMEBASE: i64 = 10_000_000;
@@ -2157,6 +2161,30 @@ impl Session {
     /// Insert a manual zoom segment at time `t` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn add_zoom(&self, t: f64) -> Result<Vec<ZoomKeyframe>, String> {
+        self.insert_zoom(t, ZoomMode::Auto, None)
+    }
+
+    /// Insert a zoom at time `t` aimed at the normalized point (`x`, `y`) at `amount` (the
+    /// editor's zoom tool: a click aims at a spot, a drag frames an area). One undo step.
+    pub fn add_zoom_aimed(
+        &self,
+        t: f64,
+        x: f64,
+        y: f64,
+        amount: f64,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
+        let pos = DVec2::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
+        let amount = amount.clamp(MIN_AIMED_ZOOM, MAX_AIMED_ZOOM);
+        self.insert_zoom(t, ZoomMode::Manual { pos }, Some(amount))
+    }
+
+    /// Insert a zoom segment at `t` (the recording's zoom strength when `amount` is `None`).
+    fn insert_zoom(
+        &self,
+        t: f64,
+        mode: ZoomMode,
+        amount: Option<f64>,
+    ) -> Result<Vec<ZoomKeyframe>, String> {
         const DEFAULT_LEN: f64 = 2.0;
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         snapshot(&mut edited, "");
@@ -2168,7 +2196,7 @@ impl Session {
             d.max(start + vuoom_zoom::MIN_LEN),
         );
         // If zoom was recorded "off" (amount 1.0), a manual segment still needs a real zoom.
-        let amount = if project.zoom_config.amount > 1.05 {
+        let recorded = if project.zoom_config.amount > 1.05 {
             project.zoom_config.amount
         } else {
             1.8
@@ -2176,8 +2204,8 @@ impl Session {
         let kf = ZoomKeyframe {
             start,
             end,
-            amount,
-            mode: ZoomMode::Auto,
+            amount: amount.unwrap_or(recorded),
+            mode,
             edge_snap_ratio: project.zoom_config.edge_snap_ratio,
             style: ZoomStyle::default(),
         };

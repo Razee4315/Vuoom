@@ -1,32 +1,52 @@
-// The annotation tool rail. Single click arms a tool for one shape; double click (or the
-// lock at the bottom) keeps it armed to draw several in a row. Compact mode drops the
-// labels for a slimmer rail.
+// The tool rail, grouped by what the user is doing: select; aim the camera (zoom, crop);
+// point things out or hide them (text, arrow, shape, highlight, hide). A tool arms for one
+// use and hands back to Select; double click keeps it armed (also a switch in the tool's
+// Inspector card). Compact mode drops the labels for a slimmer rail.
 import { For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { Icon, type IconName } from "../icons";
 import { layout } from "../prefs";
-import { TOOLS } from "../shortcuts";
+import { CROP_KEY, TOOLS } from "../shortcuts";
 import type { Tool } from "../types";
 
-const GLYPH: Record<Tool, IconName> = {
+/** A rail button: a drawing tool, or Crop (a mode, not a tool). */
+type RailItem = Tool | "crop";
+
+const GLYPH: Record<RailItem, IconName> = {
   select: "cursor",
+  zoom: "zoomIn",
+  crop: "crop",
   text: "text",
-  shape: "shape",
   arrow: "arrow",
-  line: "line",
+  shape: "shape",
   highlight: "highlight",
-  mask: "mask",
+  mask: "eyeOff",
 };
 
-// Grouped by intent: select, shapes, connectors, text.
-const GROUPS: Tool[][] = [["select"], ["shape", "highlight", "mask"], ["arrow", "line"], ["text"]];
-const meta = (id: Tool) => TOOLS.find((t) => t.id === id)!;
+const GROUPS: RailItem[][] = [["select"], ["zoom", "crop"], ["text", "arrow", "shape", "highlight", "mask"]];
+
+const CROP = { label: "Crop", key: CROP_KEY.key, tip: "Crop the recording" };
 
 export default function ToolRail() {
   const ed = useEditor();
-  const locked = (id: Tool) => ed.toolLock() && ed.tool() === id && id !== "select";
+  const meta = (id: RailItem) => (id === "crop" ? null : TOOLS.find((t) => t.id === id));
+  const label = (id: RailItem) => meta(id)?.label ?? CROP.label;
+  const on = (id: RailItem) => (id === "crop" ? !!ed.cropEdit() : ed.tool() === id && !ed.cropEdit());
+  const locked = (id: RailItem) => id !== "crop" && id !== "select" && ed.toolLock() && ed.tool() === id;
+  const tip = (id: RailItem) => {
+    if (id === "crop") return CROP.tip;
+    if (id === "select") return "Select, move and resize";
+    return `${meta(id)?.hint.replace(/ \(.\)$/, "") ?? ""} Double click to keep it armed.`;
+  };
+  const pick = (id: RailItem) => {
+    if (id === "crop") {
+      if (!ed.cropEdit()) void ed.beginCropEdit();
+      return;
+    }
+    ed.pickTool(id);
+  };
   return (
-    <nav class="rail" classList={{ compact: layout.railCompact() }} aria-label="Annotation tools">
+    <nav class="rail" classList={{ compact: layout.railCompact() }} aria-label="Tools">
       <For each={GROUPS}>
         {(group, gi) => (
           <>
@@ -38,16 +58,17 @@ export default function ToolRail() {
                 <button
                   type="button"
                   class="rail-tool"
-                  classList={{ on: ed.tool() === id, locked: locked(id) }}
-                  aria-pressed={ed.tool() === id}
-                  aria-label={meta(id).label}
-                  data-tip={`${meta(id).label}${id === "select" ? "" : ". Double click to keep it armed"}`}
-                  data-kbd={meta(id).key}
-                  onClick={() => ed.pickTool(id)}
-                  onDblClick={() => id !== "select" && ed.lockTool(id)}
+                  classList={{ on: on(id), locked: locked(id) }}
+                  aria-pressed={on(id)}
+                  aria-label={label(id)}
+                  data-tip={tip(id)}
+                  data-kbd={meta(id)?.key ?? CROP.key}
+                  disabled={!ed.hasClip()}
+                  onClick={() => pick(id)}
+                  onDblClick={() => id !== "select" && id !== "crop" && ed.lockTool(id)}
                 >
                   <Icon name={GLYPH[id]} size={18} />
-                  <span class="rail-label">{meta(id).label}</span>
+                  <span class="rail-label">{label(id)}</span>
                   <Show when={locked(id)}>
                     <span class="rail-lockdot" aria-hidden="true" />
                   </Show>
@@ -58,18 +79,6 @@ export default function ToolRail() {
         )}
       </For>
       <div class="rail-spacer" />
-      <button
-        type="button"
-        class="rail-tool rail-lock"
-        classList={{ on: ed.toolLock() }}
-        aria-pressed={ed.toolLock()}
-        aria-label="Keep tool armed"
-        data-tip={ed.toolLock() ? "Tool stays armed. Click to release" : "Keep the tool armed after each shape"}
-        onClick={() => ed.setToolLock(!ed.toolLock())}
-      >
-        <Icon name={ed.toolLock() ? "lock" : "unlock"} size={16} />
-        <span class="rail-label">Lock</span>
-      </button>
       <button
         type="button"
         class="rail-tool rail-collapse"

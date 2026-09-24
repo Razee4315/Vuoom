@@ -4,13 +4,27 @@ import type { Tool } from "./types";
 
 export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
   { id: "select", label: "Select", key: "V", code: "KeyV", hint: "Click to select, drag to move or resize. (V)" },
-  { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click to add a text label. (T)" },
-  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag to draw an arrow. (A)" },
-  { id: "line", label: "Line", key: "L", code: "KeyL", hint: "Drag to draw a line. (L)" },
-  { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to draw a box. (S)" },
-  { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag to highlight an area. (H)" },
-  { id: "mask", label: "Mask", key: "M", code: "KeyM", hint: "Drag to cover an area with an opaque redaction block. (M)" },
+  {
+    id: "zoom",
+    label: "Zoom",
+    key: "Z",
+    code: "KeyZ",
+    hint: "Drag a box over what to zoom into, or click a spot. It starts at the playhead. (Z)",
+  },
+  { id: "text", label: "Text", key: "T", code: "KeyT", hint: "Click where the label should go. (T)" },
+  { id: "arrow", label: "Arrow", key: "A", code: "KeyA", hint: "Drag from the label toward what it points at. (A)" },
+  { id: "shape", label: "Shape", key: "S", code: "KeyS", hint: "Drag to frame something with a box. (S)" },
+  { id: "highlight", label: "Highlight", key: "H", code: "KeyH", hint: "Drag over an area to highlight it. (H)" },
+  {
+    id: "mask",
+    label: "Hide",
+    key: "M",
+    code: "KeyM",
+    hint: "Drag over private details, like an email or a password, to cover them. (M)",
+  },
 ];
+/** Crop isn't a drawing tool but a mode, entered from the rail or with R. */
+export const CROP_KEY = { key: "R", code: "KeyR" };
 // e.code → tool, for single-key tool switching (only while a clip is loaded).
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.code, t.id]));
 
@@ -41,9 +55,10 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
     group: "Tools",
     items: [
       { keys: ["V"], label: "Select" },
+      { keys: ["Z"], label: "Zoom (drag over what to zoom into)" },
+      { keys: ["R"], label: "Crop" },
       { keys: ["T"], label: "Text" },
       { keys: ["A"], label: "Arrow" },
-      { keys: ["L"], label: "Line" },
       { keys: ["S"], label: "Shape" },
       { keys: ["H"], label: "Highlight" },
       { keys: ["M"], label: "Mask (redact)" },

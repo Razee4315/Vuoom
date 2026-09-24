@@ -360,3 +360,22 @@
   top: 50%;
   opacity: 0.45;
 }
+
+/* The zoom tool's live frame: what the zoom will show, and how far it zooms. */
+.overlay.tool-zoom {
+  cursor: zoom-in;
+}
+.zoom-draft rect {
+  fill: color-mix(in srgb, var(--t-zoom) 14%, transparent);
+  stroke: var(--t-zoom);
+  stroke-width: 2;
+  stroke-dasharray: 7 4;
+}
+.zoom-draft text {
+  fill: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3px;
+}

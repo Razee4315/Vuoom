@@ -1,6 +1,7 @@
 /* Timeline: header (transport, insert, view tools), track headers, ruler, lanes. */
 
 .timeline {
+  container: timeline / inline-size;
   --ruler-h: 26px;
   --zoom-h: 40px;
   --lane-h: 28px;
@@ -19,8 +20,11 @@
   height: auto;
 }
 
+/* Three columns with a truly centered middle: the insert buttons never move while the
+   playhead readout ticks or the final-length pill comes and goes. */
 .tl-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   height: 46px;
@@ -36,6 +40,7 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
+  justify-self: start;
 }
 .tl-play {
   display: grid;
@@ -85,7 +90,11 @@
   color: var(--muted);
   white-space: nowrap;
 }
+/* A fixed-width readout, so the duration beside it holds still too. */
 .tl-time-now {
+  display: inline-block;
+  min-width: 6ch;
+  text-align: right;
   color: var(--text);
   font-weight: 650;
   font-size: var(--fs-md);
@@ -107,7 +116,7 @@
 .tl-insert {
   display: flex;
   gap: 4px;
-  margin: 0 auto;
+  justify-self: center;
 }
 .tl-ins {
   display: inline-flex;
@@ -147,6 +156,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  justify-self: end;
 }
 .tl-sep {
   width: 1px;
@@ -172,11 +182,19 @@
   color: var(--text);
   background: var(--active);
 }
-@media (max-width: 1100px) {
+/* Narrow timelines (a small window, or the inspector open beside it): the insert buttons
+   drop their labels, then the less essential readouts step aside. */
+@container timeline (max-width: 980px) {
   .tl-ins {
     font-size: 0;
     gap: 0;
     padding: 0 8px;
+  }
+}
+@container timeline (max-width: 760px) {
+  .tl-time-out,
+  .tl-rate {
+    display: none;
   }
 }
 

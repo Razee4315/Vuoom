@@ -1,7 +1,7 @@
 // Shared editor types. These mirror the src-tauri / vuoom_* serde shapes and are
 // imported across the frontend. Keep names identical to their App.tsx origins.
 
-export type Tool = "select" | "text" | "arrow" | "line" | "shape" | "highlight" | "mask";
+export type Tool = "select" | "zoom" | "text" | "arrow" | "shape" | "highlight" | "mask";
 export type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -215,7 +215,7 @@ export interface Selection {
 // Drag state for the interactive overlay.
 export type Drag =
   | { mode: "create-arrow"; start: Vec2; cur: Vec2 }
-  | { mode: "create-line"; start: Vec2; cur: Vec2 }
+  | { mode: "create-zoom"; start: Vec2; cur: Vec2 }
   | { mode: "create-box"; start: Vec2; cur: Vec2 }
   | { mode: "create-ellipse"; start: Vec2; cur: Vec2 }
   | { mode: "create-highlight"; start: Vec2; cur: Vec2 }

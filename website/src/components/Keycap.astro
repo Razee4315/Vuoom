@@ -1,0 +1,43 @@
+---
+interface Props {
+  keys: string[];
+  class?: string;
+}
+const { keys, class: cls } = Astro.props;
+---
+<span class:list={['keys', cls]}>
+  {keys.map((k) => <kbd class="key" data-key={k.toLowerCase()}>{k}</kbd>)}
+</span>
+<style>
+  .keys {
+    display: inline-flex;
+    gap: var(--s-1);
+    vertical-align: middle;
+  }
+  .key {
+    font-family: var(--font-mono);
+    font-size: var(--step--1);
+    font-weight: 500;
+    line-height: 1;
+    min-width: 2.1em;
+    padding: 0.45em 0.6em 0.5em;
+    text-align: center;
+    color: var(--ink);
+    background: var(--ground-raised);
+    border-radius: var(--r-ui);
+    box-shadow:
+      inset 0 0 0 var(--hair) var(--rule),
+      inset 0 -2px 0 var(--rule);
+    transition:
+      transform var(--dur-press) var(--ease-out-quart),
+      box-shadow var(--dur-press) var(--ease-out-quart),
+      color var(--dur-press) var(--ease-out-quart);
+  }
+  .key.is-down {
+    transform: translateY(2px);
+    color: var(--rec-ink);
+    box-shadow:
+      inset 0 0 0 var(--hair) var(--rec),
+      inset 0 0 0 var(--rule);
+  }
+</style>

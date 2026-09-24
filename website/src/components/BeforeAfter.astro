@@ -1,0 +1,141 @@
+---
+// Before/after wipe (M08): the same take, flat and zoomed. Two real frames from the owner's
+// demo. The handle is a keyboard-operable slider; without JS the two frames sit side by side.
+import { Image } from 'astro:assets';
+import flat from '../assets/shots/take-flat.png';
+import zoom from '../assets/shots/take-zoom.png';
+---
+<div class="ba" data-ba style="--split: 50%">
+  <div class="ba__layer ba__layer--after">
+    <Image src={zoom} alt="The same moment recorded with Vuoom, zoomed 2.5 times into the sign-up count, which reads 12,408." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1360px, 100vw" loading="lazy" />
+    <span class="ba__tag ba__tag--after label"><span class="ba__light" aria-hidden="true"></span>Vuoom</span>
+  </div>
+  <div class="ba__layer ba__layer--before" data-ba-before>
+    <Image src={flat} alt="A flat full-screen recording of a launch dashboard. The sign-up count is too small to read." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1360px, 100vw" loading="lazy" />
+    <span class="ba__tag label">Flat recording</span>
+  </div>
+  <div
+    class="ba__handle"
+    role="slider"
+    tabindex="0"
+    aria-label="Compare flat recording and Vuoom recording"
+    aria-valuemin="0"
+    aria-valuemax="100"
+    aria-valuenow="50"
+    aria-valuetext="50% flat recording"
+    data-ba-handle
+  >
+    <span class="ba__grip" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 6 3.5 10l4 4M12.5 6l4 4-4 4" /></svg>
+    </span>
+  </div>
+</div>
+
+<style>
+  .ba {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--r-frame);
+    overflow: hidden;
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+    touch-action: pan-y;
+    user-select: none;
+  }
+  .ba__layer {
+    position: absolute;
+    inset: 0;
+  }
+  .ba__layer :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .ba__layer--before {
+    clip-path: inset(0 calc(100% - var(--split)) 0 0);
+  }
+  .ba__tag {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.82);
+    padding: 4px 8px;
+    border-radius: var(--r-ui);
+  }
+  .ba__tag--after {
+    left: auto;
+    right: 14px;
+  }
+  .ba__light {
+    width: 7px;
+    height: 7px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+  }
+  .ba__handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--split);
+    width: 44px;
+    margin-left: -22px;
+    display: grid;
+    place-items: center;
+    cursor: ew-resize;
+    outline: none;
+  }
+  .ba__handle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--ink);
+  }
+  .ba__grip {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    color: var(--ground);
+    background: var(--ink);
+    border-radius: var(--r-pill);
+    transition: transform var(--dur-hover) var(--ease-out-quart);
+  }
+  .ba__handle:hover .ba__grip,
+  .ba__handle.is-drag .ba__grip {
+    transform: scale(1.1);
+  }
+  .ba__handle:focus-visible .ba__grip {
+    outline: 2px solid var(--rec);
+    outline-offset: 3px;
+  }
+  /* no JS: side by side, both whole */
+  :global(html:not(.js)) .ba {
+    aspect-ratio: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-2);
+    background: none;
+  }
+  :global(html:not(.js)) .ba__layer {
+    position: relative;
+    clip-path: none;
+    order: 2;
+  }
+  :global(html:not(.js)) .ba__layer--before {
+    order: 1;
+  }
+  :global(html:not(.js)) .ba__handle {
+    display: none;
+  }
+</style>

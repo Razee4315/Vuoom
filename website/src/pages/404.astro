@@ -1,0 +1,36 @@
+---
+import Base from '../layouts/Base.astro';
+import Button from '../components/Button.astro';
+---
+<Base path="/404/">
+  <section class="nf">
+    <div class="wrap nf__inner">
+      <p class="nf__tag">404</p>
+      <h1 class="display nf__h">Cut.</h1>
+      <p class="nf__p">This page did not make the final edit.</p>
+      <Button href="/" size="lg">Back to home</Button>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .nf {
+    min-height: 100dvh;
+    display: grid;
+    align-items: center;
+  }
+  .nf__inner {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: var(--s-5);
+  }
+  .nf__tag {
+    font-family: var(--font-mono);
+    color: var(--rec-ink);
+  }
+  .nf__p {
+    color: var(--ink-2);
+    margin-bottom: var(--s-4);
+  }
+</style>

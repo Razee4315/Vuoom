@@ -1,0 +1,133 @@
+---
+// Editorial index of features (not a card grid). Rows open on hover or focus to show a
+// visual and detail; on touch they are always open.
+import Icon from './Icon.astro';
+import Shot from './Shot.astro';
+import Video from './Video.astro';
+import { url } from '../lib/site';
+import type { Feature } from '../data/features';
+
+interface Props {
+  items: Feature[];
+}
+const { items } = Astro.props;
+---
+<ol class="fx" role="list">
+  {items.map((f) => (
+    <li class="fx__row" data-reveal>
+      <a class="fx__link" href={url(f.page ?? '/features/')}>
+        <span class="fx__n label">{f.n}</span>
+        <span class="fx__title">{f.title}</span>
+        <span class="fx__line">{f.line}</span>
+        <Icon name="arrow" size={22} class="fx__arrow" />
+      </a>
+      <div class="fx__more">
+        <div class="fx__more-inner">
+          <p class="fx__detail">{f.detail}</p>
+          <div class="fx__media" data-parallax>
+            {f.video ? <Video name={f.video} /> : <Shot name={f.shot ?? 'editor'} sizes="(min-width: 960px) 40vw, 100vw" />}
+          </div>
+        </div>
+      </div>
+    </li>
+  ))}
+</ol>
+
+<style>
+  .fx__row {
+    box-shadow: inset 0 var(--hair) 0 var(--rule);
+  }
+  .fx__row:last-child {
+    box-shadow:
+      inset 0 var(--hair) 0 var(--rule),
+      inset 0 calc(var(--hair) * -1) 0 var(--rule);
+  }
+  .fx__link {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 5fr) minmax(0, 5fr) 2rem;
+    align-items: baseline;
+    gap: var(--col-gap);
+    padding-block: var(--s-5);
+    border-radius: var(--r-ui);
+  }
+  .fx__title {
+    font-family: var(--font-display);
+    font-size: var(--step-2);
+    font-weight: 640;
+    font-stretch: 85%;
+    letter-spacing: var(--track-heading);
+    line-height: 1.1;
+    transition:
+      transform var(--dur-hover) var(--ease-out-quart),
+      color var(--dur-hover) var(--ease-out-quart);
+  }
+  .fx__line {
+    color: var(--ink-2);
+  }
+  .fx__link :global(.fx__arrow) {
+    align-self: center;
+    color: var(--ink-3);
+    transition:
+      transform var(--dur-hover) var(--ease-out-quart),
+      color var(--dur-hover) var(--ease-out-quart);
+  }
+  .fx__more {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 500ms var(--ease-out);
+  }
+  .fx__more-inner {
+    min-height: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 5fr) minmax(0, 5fr) 2rem;
+    gap: var(--col-gap);
+  }
+  .fx__detail {
+    grid-column: 2;
+    color: var(--ink-2);
+    max-width: 44ch;
+    padding-bottom: var(--s-6);
+  }
+  .fx__media {
+    grid-column: 3;
+    padding-bottom: var(--s-6);
+  }
+  .fx__row:focus-within .fx__more {
+    grid-template-rows: 1fr;
+  }
+  @media (hover: hover) {
+    .fx__row:hover .fx__more {
+      grid-template-rows: 1fr;
+    }
+    .fx__row:hover .fx__title {
+      transform: translateX(6px);
+    }
+    .fx__row:hover :global(.fx__arrow) {
+      transform: translateX(4px);
+      color: var(--rec);
+    }
+  }
+  @media (hover: none) {
+    .fx__more {
+      grid-template-rows: 1fr;
+    }
+  }
+  @media (max-width: 960px) {
+    .fx__link,
+    .fx__more-inner {
+      grid-template-columns: 3rem minmax(0, 1fr) 1.5rem;
+    }
+    .fx__line {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    .fx__detail,
+    .fx__media {
+      grid-column: 2;
+    }
+    .fx__detail {
+      padding-bottom: var(--s-4);
+    }
+  }
+</style>

@@ -1,0 +1,192 @@
+---
+// The problem, pinned (M07). The numbers are measured from the owner's real take:
+// "12,408" is 82 px wide on a 1920 px capture, 27 px in a 640 px GIF, 68 px after Vuoom's
+// 2.5x zoom. Without JS every step is visible in order.
+import { Image } from 'astro:assets';
+import flat from '../assets/shots/take-flat.png';
+
+const steps = [
+  { n: '1920', t: 'Your screen.' },
+  { n: '82', t: 'The number you clicked.' },
+  { n: '27', t: 'In a GIF. Unreadable.' },
+  { n: '68', t: 'With Vuoom.' },
+];
+---
+<section class="prob" aria-labelledby="prob-h" data-problem>
+  <div class="prob__pin" data-problem-pin>
+    <div class="wrap grid prob__grid">
+      <div class="prob__text">
+                <h2 id="prob-h" class="visually-hidden">Why flat screen recordings are hard to read</h2>
+        <p class="prob__big num" aria-hidden="true">
+          <span data-problem-num>1920</span><span class="prob__unit">px</span>
+        </p>
+        <ol class="prob__steps" role="list">
+          {steps.map((s, i) => (
+            <li class="prob__step" data-problem-step={i}>
+              <span class="num prob__n">{s.n} px</span>
+              <span>{s.t}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div class="prob__media">
+        <div class="prob__frame" data-problem-frame>
+          <div class="prob__cam" data-problem-cam>
+            <Image
+              src={flat}
+              alt="A launch dashboard recorded at full screen. The sign-up count is a small number near the top left."
+              widths={[640, 1000, 1400]}
+              sizes="(min-width: 960px) 55vw, 100vw"
+              loading="lazy"
+            />
+            <span class="prob__mark" data-problem-mark aria-hidden="true"></span>
+          </div>
+          <span class="prob__tag label" data-problem-tag aria-hidden="true">1920 × 1080</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .prob {
+    position: relative;
+  }
+  .prob__pin {
+    min-height: 100dvh;
+    display: grid;
+    align-items: center;
+    padding-block: var(--section);
+  }
+  :global(html.motion) .prob__pin {
+    padding-block: calc(var(--nav-h) + var(--s-5)) var(--s-7);
+  }
+  .prob__grid {
+    align-items: center;
+    row-gap: var(--s-7);
+  }
+  .prob__text {
+    grid-column: 1 / span 5;
+  }
+  .prob__media {
+    grid-column: 6 / span 7;
+  }
+  .prob__big {
+    font-family: var(--font-display);
+    font-size: clamp(5rem, 2rem + 10vw, 12rem);
+    font-weight: 680;
+    font-stretch: 75%;
+    letter-spacing: var(--track-display);
+    line-height: var(--lh-display);
+    margin-bottom: var(--s-5);
+    display: flex;
+    align-items: baseline;
+    gap: 0.08em;
+  }
+  .prob__unit {
+    font-size: 0.32em;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--ink-3);
+  }
+  .prob__steps {
+    display: grid;
+    gap: var(--s-3);
+  }
+  .prob__step {
+    display: flex;
+    gap: var(--s-4);
+    font-size: var(--step-2);
+    line-height: var(--lh-sub);
+    letter-spacing: var(--track-sub);
+    color: var(--ink-2);
+  }
+  .prob__n {
+    color: var(--ink);
+    min-width: 4.2em;
+  }
+  :global(html.motion) .prob__steps {
+    grid-template-areas: 'one';
+  }
+  :global(html.motion) .prob__step {
+    grid-area: one;
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 400ms var(--ease-out),
+      transform 400ms var(--ease-out);
+  }
+  :global(html.motion) .prob__step.is-on {
+    opacity: 1;
+    transform: none;
+  }
+  :global(html.motion) .prob__n {
+    display: none;
+  }
+  .prob.prob--static .prob__steps {
+    grid-template-areas: none;
+  }
+  .prob.prob--static .prob__step {
+    grid-area: auto;
+    opacity: 1;
+    transform: none;
+  }
+  .prob.prob--static .prob__n {
+    display: inline;
+  }
+  .prob.prob--static .prob__big,
+  :global(html:not(.motion)) .prob__big {
+    display: none;
+  }
+  .prob__frame {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: var(--r-frame);
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+    transform-origin: 50% 50%;
+    will-change: transform;
+  }
+  .prob__cam {
+    position: absolute;
+    inset: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .prob__cam :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .prob__mark {
+    position: absolute;
+    left: 15.6%;
+    top: 23.4%;
+    width: 5.4%;
+    height: 5%;
+    border: 2px solid var(--rec);
+    border-radius: var(--r-ui);
+    box-shadow: 0 0 0 4px rgb(229 72 77 / 0.2);
+  }
+  :global(html.motion) .prob__mark {
+    opacity: 0;
+  }
+  .prob__tag {
+    position: absolute;
+    left: 12px;
+    bottom: 10px;
+    color: var(--ink);
+    background: rgb(11 11 12 / 0.8);
+    padding: 2px 6px;
+    border-radius: var(--r-ui);
+  }
+  @media (max-width: 960px) {
+    .prob__text,
+    .prob__media {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

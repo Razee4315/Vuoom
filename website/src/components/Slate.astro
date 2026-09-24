@@ -1,0 +1,61 @@
+---
+// A film-clapper style slate: mono labels separated by dots, optional live REC light.
+interface Props {
+  items: string[];
+  rec?: boolean;
+  timecode?: boolean;
+  class?: string;
+}
+const { items, rec = false, timecode = false, class: cls } = Astro.props;
+---
+<p class:list={['slate label', cls]}>
+  {items.map((it, i) => (
+    <>
+      {i > 0 && <span class="sep" aria-hidden="true">·</span>}
+      <span>{it}</span>
+    </>
+  ))}
+  {rec && (
+    <>
+      <span class="sep" aria-hidden="true">·</span>
+      <span class="rec"><span class="light" aria-hidden="true" />REC</span>
+    </>
+  )}
+  {timecode && (
+    <span class="tc" data-timecode aria-hidden="true">00:00:00:00</span>
+  )}
+</p>
+<style>
+  .slate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2);
+  }
+  .sep {
+    color: var(--rule);
+  }
+  .rec {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    color: var(--ink);
+  }
+  .light {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+    box-shadow: 0 0 12px var(--rec-glow);
+    animation: blink 1s steps(1, end) infinite;
+  }
+  .tc {
+    margin-left: var(--s-2);
+    color: var(--ink-2);
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+</style>

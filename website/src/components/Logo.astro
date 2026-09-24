@@ -1,0 +1,29 @@
+---
+// The Vuoom mark, redrawn from .github/assets/logo.png as vectors: a white V whose right
+// arm ends in the red record light. `tile` draws it on the rounded app-icon square.
+interface Props {
+  size?: number;
+  tile?: boolean;
+  class?: string;
+}
+const { size = 28, tile = false, class: cls } = Astro.props;
+---
+<svg
+  class={cls}
+  width={size}
+  height={size}
+  viewBox="0 0 1024 1024"
+  aria-hidden="true"
+  focusable="false"
+>
+  {tile && <rect width="1024" height="1024" rx="200" fill="#0E0E0E" />}
+  <path
+    d="M305 338 512 722 700 373"
+    fill="none"
+    stroke="var(--logo-ink, #F2F0EB)"
+    stroke-width="104"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle class="logo-dot" cx="719" cy="338" r="100" fill="#E5484D" />
+</svg>

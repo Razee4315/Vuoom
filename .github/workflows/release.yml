@@ -11,6 +11,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Website-only changes deploy the site (pages.yml), not a new app release.
+    paths-ignore:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
 
 permissions:
   contents: write

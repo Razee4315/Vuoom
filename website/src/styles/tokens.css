@@ -1,0 +1,97 @@
+/* Vuoom website tokens. Source of truth; mirrored in docs/03-design-tokens.md.
+   No raw values in components: everything resolves to one of these. */
+:root {
+  color-scheme: dark;
+
+  /* colour, by role */
+  --ground: #0b0b0c;
+  --ground-raised: #141415;
+  --ground-sunk: #070708;
+  --ink: #f2f0eb;
+  --ink-2: rgb(242 240 235 / 0.7);
+  --ink-3: rgb(242 240 235 / 0.52);
+  --rule: rgb(242 240 235 / 0.12);
+  --wash: rgb(242 240 235 / 0.05);
+  --rec: #e5484d;
+  --rec-ink: #ff7a7e;
+  --rec-glow: rgb(229 72 77 / 0.35);
+  --on-rec: #ffffff;
+  --grain: 0.045;
+
+  /* type */
+  --font-display: 'Bricolage Grotesque Variable', 'Arial Narrow', sans-serif;
+  --font-text: 'Geist Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --step--1: clamp(0.8125rem, 0.79rem + 0.1vw, 0.875rem);
+  --step-0: clamp(1rem, 0.98rem + 0.1vw, 1.0625rem);
+  --step-1: clamp(1.25rem, 1.15rem + 0.5vw, 1.5rem);
+  --step-2: clamp(1.625rem, 1.4rem + 1.1vw, 2.25rem);
+  --step-3: clamp(2.25rem, 1.7rem + 2.6vw, 3.75rem);
+  --step-4: clamp(2.75rem, 1.8rem + 4.6vw, 5.5rem);
+  --step-5: clamp(3.25rem, 1.6rem + 8vw, 8.5rem);
+  --step-6: clamp(3.5rem, 0.8rem + 13vw, 12rem);
+
+  --track-display: -0.032em;
+  --track-heading: -0.03em;
+  --track-sub: -0.01em;
+  --track-label: 0.08em;
+
+  --lh-display: 0.9;
+  --lh-heading: 1.02;
+  --lh-sub: 1.3;
+  --lh-body: 1.6;
+
+  --wdth-display: 75;
+  --wdth-heading: 82;
+
+  /* space */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+  --section: clamp(7rem, 14vw, 14rem);
+
+  /* form */
+  --r-ui: 2px;
+  --r-frame: 14px;
+  --r-pill: 999px;
+  --hair: 1px;
+  --shadow-stage: 0 40px 120px -20px rgb(0 0 0 / 0.4);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --dur-press: 120ms;
+  --dur-hover: 240ms;
+  --dur-reveal: 1000ms;
+  --dur-exit: 700ms;
+
+  /* layout */
+  --max: 1360px;
+  --gutter: clamp(16px, 4vw, 48px);
+  --col-gap: 24px;
+  --nav-h: 72px;
+  --nav-h-compact: 56px;
+
+  /* stacking */
+  --z-nav: 50;
+  --z-menu: 60;
+  --z-grain: 90;
+  --z-pointer: 100;
+  --z-countdown: 110;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --col-gap: 16px;
+    --nav-h: 60px;
+  }
+}

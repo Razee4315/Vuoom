@@ -1,0 +1,115 @@
+---
+// Buttons roll their label on hover (M03) and press on :active (M04). The primary variant
+// carries the record light and is the only red fill on a page.
+import Icon from './Icon.astro';
+import { url } from '../lib/site';
+
+interface Props {
+  href: string;
+  variant?: 'primary' | 'secondary' | 'ghost';
+  icon?: 'github' | 'star' | 'arrow' | 'download' | 'external' | 'windows';
+  size?: 'md' | 'lg';
+  class?: string;
+  [key: string]: unknown;
+}
+const { href, variant = 'primary', icon, size = 'md', class: cls, ...rest } = Astro.props;
+const external = /^https?:/.test(href);
+const target = url(href);
+---
+<a
+  href={target}
+  class:list={['btn', `btn--${variant}`, `btn--${size}`, cls]}
+  {...(external ? { rel: 'noopener' } : {})}
+  {...rest}
+>
+  {variant === 'primary' && <span class="btn__light" aria-hidden="true" />}
+  {icon && <Icon name={icon} size={18} class="btn__icon" />}
+  <span class="btn__roll">
+    <span class="btn__label"><slot /></span>
+    <span class="btn__label btn__label--dup" aria-hidden="true"><slot /></span>
+  </span>
+</a>
+<style>
+  .btn {
+    --h: 48px;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-3);
+    height: var(--h);
+    padding-inline: var(--s-5);
+    border-radius: var(--r-pill);
+    font-weight: 560;
+    font-size: var(--step-0);
+    letter-spacing: var(--track-sub);
+    white-space: nowrap;
+    transition:
+      transform var(--dur-press) var(--ease-out-quart),
+      background-color var(--dur-hover) var(--ease-out-quart),
+      box-shadow var(--dur-hover) var(--ease-out-quart);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn--lg {
+    --h: 52px;
+    padding-inline: 26px;
+    font-size: 1rem;
+  }
+  .btn:active {
+    transform: translateY(1px) scale(0.98);
+  }
+  .btn--primary {
+    background: var(--rec);
+    color: var(--on-rec);
+  }
+  .btn--secondary {
+    color: var(--ink);
+    box-shadow: inset 0 0 0 var(--hair) var(--rule);
+  }
+  .btn--ghost {
+    color: var(--ink-2);
+    padding-inline: var(--s-3);
+  }
+  .btn__light {
+    width: 10px;
+    height: 10px;
+    flex: none;
+    border-radius: var(--r-pill);
+    background: var(--on-rec);
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.28);
+    transition: box-shadow var(--dur-hover) var(--ease-out-quart);
+  }
+  .btn__roll {
+    position: relative;
+    display: inline-grid;
+    overflow: hidden;
+    line-height: 1.25;
+  }
+  .btn__label {
+    grid-area: 1 / 1;
+    transition: transform var(--dur-hover) var(--ease-out-quart);
+  }
+  .btn__label--dup {
+    transform: translateY(110%);
+  }
+  :global(.btn__icon) {
+    flex: none;
+  }
+  @media (hover: hover) {
+    .btn:hover .btn__label {
+      transform: translateY(-110%);
+    }
+    .btn:hover .btn__label--dup {
+      transform: translateY(0);
+    }
+    .btn--primary:hover .btn__light {
+      box-shadow: 0 0 0 5px rgb(255 255 255 / 0.3);
+    }
+    .btn--secondary:hover {
+      background: var(--wash);
+      box-shadow: inset 0 0 0 var(--hair) rgb(242 240 235 / 0.28);
+    }
+    .btn--ghost:hover {
+      color: var(--ink);
+    }
+  }
+</style>

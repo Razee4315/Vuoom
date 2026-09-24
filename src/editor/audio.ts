@@ -6,6 +6,10 @@
 // is; in a sped-up span the tracks stop (the export mutes those spans too); and whenever
 // the playhead and the audio disagree by more than a blink (a seek, a cut jump, a loop,
 // a rate change) the track restarts at the right spot.
+//
+// Voice clean-up (noise removal, even volume) changes the audio itself: the engine
+// processes the track on demand, so toggling it (or undoing a toggle) re-fetches that
+// track while the old one keeps playing.
 import { createSignal } from "solid-js";
 import { invoke } from "../bridge";
 import type { AudioKind, AudioTrack } from "../types";
@@ -47,13 +51,19 @@ export function computePeaks(buf: AudioBuffer): Float32Array {
 
 export const trackLabel = (k: AudioKind) => (k === "mic" ? "Microphone" : "System sound");
 export const effectiveGain = (t: AudioTrack) => (t.muted ? 0 : Math.max(0, Math.min(4, t.gain)));
+/** Which processed version of a track plays (older engines send no clean-up fields). */
+const version = (t: AudioTrack) => `${t.denoise ? "d" : ""}${t.level ? "l" : ""}`;
 
 export function createAudio(opts: { onEdit: () => void }) {
   const [tracks, setTracks] = createSignal<AudioTrack[]>([]);
   const [data, setData] = createSignal<Partial<Record<AudioKind, TrackData>>>({});
+  /** Tracks being re-processed after a clean-up change. */
+  const [cleaning, setCleaning] = createSignal<Partial<Record<AudioKind, boolean>>>({});
   let ctx: AudioContext | null = null;
   const voices = new Map<AudioKind, Voice>();
   let gen = 0;
+  /** Latest re-fetch per track, so a stale one never lands over a newer one. */
+  const refetches = new Map<AudioKind, number>();
 
   const context = (): AudioContext | null => {
     if (ctx) return ctx;
@@ -79,26 +89,51 @@ export function createAudio(opts: { onEdit: () => void }) {
     for (const v of voices.values()) stopVoice(v);
   };
 
+  /** Fetch and decode a track as it plays now; `null` if it can't be read. */
+  const fetchTrack = async (c: AudioContext, kind: AudioKind): Promise<TrackData | null> => {
+    try {
+      const bytes = await invoke<ArrayBuffer>("audio_track", { kind });
+      const buffer = await c.decodeAudioData(bytes);
+      return { buffer, peaks: computePeaks(buffer) };
+    } catch {
+      return null;
+    }
+  };
+
   /** Load a freshly opened clip's tracks (decoding each WAV once). */
   const load = async (list: AudioTrack[]) => {
     const g = ++gen;
     stop();
     setTracks(list);
     setData({});
+    setCleaning({});
     const c = context();
     if (!c) return;
-    const loaded: Partial<Record<AudioKind, TrackData>> = {};
     for (const t of list) {
-      try {
-        const bytes = await invoke<ArrayBuffer>("audio_track", { kind: t.kind });
-        const buffer = await c.decodeAudioData(bytes);
-        if (g !== gen) return;
-        loaded[t.kind] = { buffer, peaks: computePeaks(buffer) };
-        setData({ ...loaded });
-      } catch {
-        /* unreadable track: its lane stays empty and it plays nothing */
-      }
+      const d = await fetchTrack(c, t.kind);
+      if (g !== gen) return;
+      // An unreadable track's lane stays empty and it plays nothing.
+      if (d) setData((m) => ({ ...m, [t.kind]: d }));
     }
+  };
+
+  /** Re-fetch one track after its clean-up changed. The current audio keeps playing until
+   * the processed one is ready; if processing fails, it simply stays. */
+  const refetch = async (kind: AudioKind) => {
+    const c = context();
+    if (!c) return;
+    const g = gen;
+    const mine = (refetches.get(kind) ?? 0) + 1;
+    refetches.set(kind, mine);
+    setCleaning((m) => ({ ...m, [kind]: true }));
+    const d = await fetchTrack(c, kind);
+    if (g !== gen || refetches.get(kind) !== mine) return;
+    setCleaning((m) => ({ ...m, [kind]: false }));
+    if (!d) return;
+    // Restart the voice on the next sync, from the new buffer.
+    const v = voices.get(kind);
+    if (v) stopVoice(v);
+    setData((m) => ({ ...m, [kind]: d }));
   };
 
   const unload = () => {
@@ -106,6 +141,7 @@ export function createAudio(opts: { onEdit: () => void }) {
     stop();
     setTracks([]);
     setData({});
+    setCleaning({});
   };
 
   /** Adopt the engine's track settings (after undo/redo or a clip-state refresh). */
@@ -115,10 +151,13 @@ export function createAudio(opts: { onEdit: () => void }) {
       void load(list);
       return;
     }
+    const before = tracks();
     setTracks(list);
     for (const t of list) {
       const v = voices.get(t.kind);
       if (v) v.gain.gain.value = effectiveGain(t);
+      const prev = before.find((p) => p.kind === t.kind);
+      if (prev && version(prev) !== version(t)) void refetch(t.kind);
     }
   };
 
@@ -184,9 +223,27 @@ export function createAudio(opts: { onEdit: () => void }) {
     }
   };
 
+  /** Turn a track's voice clean-up on or off, then fetch the processed audio. */
+  const setCleanup = async (kind: AudioKind, patch: Partial<Pick<AudioTrack, "denoise" | "level">>) => {
+    const cur = tracks().find((t) => t.kind === kind);
+    if (!cur) return;
+    const next = { ...cur, ...patch };
+    setTracks(tracks().map((t) => (t.kind === kind ? next : t)));
+    try {
+      await invoke("set_audio_cleanup", { kind, denoise: !!next.denoise, level: !!next.level });
+    } catch {
+      // Without the engine the audio can't change, so neither does the switch.
+      setTracks(tracks().map((t) => (t.kind === kind ? cur : t)));
+      return;
+    }
+    opts.onEdit();
+    await refetch(kind);
+  };
+
   return {
     tracks,
     data,
+    cleaning,
     hasAudio: () => tracks().length > 0,
     load,
     unload,
@@ -202,6 +259,8 @@ export function createAudio(opts: { onEdit: () => void }) {
       const t = tracks().find((x) => x.kind === kind);
       if (t) void update(kind, { muted: !t.muted });
     },
+    setDenoise: (kind: AudioKind, on: boolean) => setCleanup(kind, { denoise: on }),
+    setLevel: (kind: AudioKind, on: boolean) => setCleanup(kind, { level: on }),
   };
 }
 

@@ -2,10 +2,12 @@
 //! carrying the WAVs through bundles and crash recovery, and mixing them for export.
 //!
 //! Each take stores its audio next to its frames (`mic.wav`, `system.wav`) plus a small
-//! `audio.json` recording the counter-clock instant sample 0 belongs to. See
-//! `docs/14-Audio.md`.
+//! `audio.json` recording the counter-clock instant sample 0 belongs to. A track with voice
+//! clean-up plays a processed copy cached beside the recording (`mic.denoise.wav`, ...).
+//! See `docs/14-Audio.md` and `docs/16-Voice-Cleanup.md`.
 
 use std::path::Path;
+use std::sync::Mutex;
 
 use serde::Serialize;
 use vuoom_audio::{Anchor, MixTrack, Pcm, Plan, Recorder, Segment, Source};
@@ -120,18 +122,59 @@ pub fn level(captures: &Captures, kind: AudioKind) -> f32 {
         .map_or(0.0, |(_, r)| r.level())
 }
 
-/// Copy the WAVs behind `tracks` from one directory to another (bundle save/open).
+/// Copy the WAVs behind `tracks` from one directory to another (bundle save/open). A
+/// cleaned-up copy travels too when there is one, so it needn't be made again.
 pub fn copy_tracks(from: &Path, to: &Path, tracks: &[AudioTrack]) -> Result<(), String> {
     for t in tracks {
-        let name = t.kind.file_name();
-        let src = from.join(name);
-        if src.is_file() {
-            std::fs::create_dir_all(to)
-                .and_then(|()| std::fs::copy(&src, to.join(name)))
-                .map_err(|e| format!("audio: {e}"))?;
+        let cleaned = t.cleaned_file_name();
+        let names = [Some(t.kind.file_name()), cleaned.as_deref()];
+        for name in names.into_iter().flatten() {
+            let src = from.join(name);
+            if src.is_file() {
+                std::fs::create_dir_all(to)
+                    .and_then(|()| std::fs::copy(&src, to.join(name)))
+                    .map_err(|e| format!("audio: {e}"))?;
+            }
         }
     }
     Ok(())
+}
+
+/// One clean-up at a time: preview and export asking for the same track at once wait for
+/// a single pass and share its cached result.
+static CLEANING: Mutex<()> = Mutex::new(());
+
+/// A track's audio as it plays: the recording itself or, with voice clean-up on, its
+/// processed copy (made on first use and cached beside the recording).
+pub fn track_pcm(dir: &Path, t: &AudioTrack) -> Result<Pcm, String> {
+    let raw = dir.join(t.kind.file_name());
+    let Some(name) = t.cleaned_file_name() else {
+        return vuoom_audio::wav::read(&raw);
+    };
+    let cached = dir.join(name);
+    let _one = CLEANING.lock().unwrap_or_else(|e| e.into_inner());
+    if is_fresh(&cached, &raw) {
+        match vuoom_audio::wav::read(&cached) {
+            Ok(pcm) => return Ok(pcm),
+            Err(e) => tracing::warn!("cached clean-up unreadable, redoing it: {e}"),
+        }
+    }
+    let pcm = vuoom_audio::clean::clean(&vuoom_audio::wav::read(&raw)?, t.denoise, t.level);
+    // Written aside and renamed, so a half-written copy is never mistaken for a cache.
+    let part = cached.with_extension("wav.part");
+    let saved = std::fs::write(&part, vuoom_audio::wav::encode(&pcm))
+        .and_then(|()| std::fs::rename(&part, &cached));
+    if let Err(e) = saved {
+        tracing::warn!("{:?} clean-up not cached: {e}", t.kind);
+        let _ = std::fs::remove_file(&part);
+    }
+    Ok(pcm)
+}
+
+/// Whether `cache` exists and was written no earlier than `source` last changed.
+fn is_fresh(cache: &Path, source: &Path) -> bool {
+    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    matches!((modified(cache), modified(source)), (Some(c), Some(s)) if c >= s)
 }
 
 /// Re-attach a recovered take's audio. A crash leaves only the startup manifest, so tracks
@@ -157,9 +200,9 @@ pub fn recover(dir: &Path, project: &mut Project, first_frame_qpc: i64) {
     }
 }
 
-/// Read one track's WAV for mixing, with its gain and offset; `None` (logged) if unreadable.
+/// Read one track for mixing, with its gain and offset; `None` (logged) if unreadable.
 fn load_track(dir: &Path, t: &AudioTrack) -> Option<(Pcm, f32, f64)> {
-    match vuoom_audio::wav::read(&dir.join(t.kind.file_name())) {
+    match track_pcm(dir, t) {
         Ok(pcm) => Some((pcm, t.effective_gain(), t.offset)),
         Err(e) => {
             tracing::warn!("{:?} audio skipped in export: {e}", t.kind);
@@ -304,6 +347,34 @@ mod tests {
         }];
         let mix = Mix::load(dir.path(), &p, 1.0, 2.0, &[], &cuts).unwrap();
         assert_eq!(mix.frames(), 72_000);
+    }
+
+    #[test]
+    fn cleaned_tracks_are_made_once_and_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let pcm = Pcm {
+            rate: 16_000,
+            channels: 1,
+            samples: vec![0; 16_000],
+        };
+        std::fs::write(dir.path().join("mic.wav"), vuoom_audio::wav::encode(&pcm)).unwrap();
+        let mut t = AudioTrack::new(AudioKind::Mic);
+        // No clean-up: the recording as it is.
+        assert_eq!(track_pcm(dir.path(), &t).unwrap(), pcm);
+        t.denoise = true;
+        let cleaned = track_pcm(dir.path(), &t).unwrap();
+        assert_eq!((cleaned.rate, cleaned.frames()), (48_000, 48_000));
+        let cache = dir.path().join("mic.denoise.wav");
+        assert!(cache.is_file());
+        // A second request reads the cache (a marker sample proves it).
+        let mut marked = cleaned.clone();
+        marked.samples[0] = 123;
+        std::fs::write(&cache, vuoom_audio::wav::encode(&marked)).unwrap();
+        assert_eq!(track_pcm(dir.path(), &t).unwrap().samples[0], 123);
+        // Other settings get their own copy.
+        t.level = true;
+        assert_eq!(track_pcm(dir.path(), &t).unwrap().samples[0], 0);
+        assert!(dir.path().join("mic.denoise-level.wav").is_file());
     }
 
     #[test]

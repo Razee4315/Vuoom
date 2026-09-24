@@ -363,6 +363,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "show_region_border":
     case "hide_region_border":
     case "enter_stopbar":
+    case "set_panel_size":
       return null;
     case "start_recording":
       m.startRecording();

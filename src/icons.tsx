@@ -93,6 +93,9 @@ const P: Record<string, string> = {
   drive: "M22 12H2M5.5 5.1L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1zM6 16h.01M10 16h.01",
   bolt: "M13 2L3 14h9l-1 8 10-12h-9z",
   compact: "M4 9h16M4 15h16",
+  grow: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+  shrink: "M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7",
+  grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
   expand: "M4 6h16M4 12h16M4 18h16",
 };
 

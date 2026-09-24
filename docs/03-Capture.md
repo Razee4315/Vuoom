@@ -18,6 +18,36 @@ This is the exact architecture Cap ships: `windows-capture` → `wgpu` → encod
 
 ---
 
+## Displays: Desktop Duplication first (as built)
+
+Displays and regions are recorded with **DXGI Desktop Duplication** (`crates/vuoom-capture/src/dxgi.rs`),
+with Windows Graphics Capture as the fallback. The reason is the recording panel. Vuoom's own
+windows are marked `WDA_EXCLUDEFROMCAPTURE`, and on Windows 10 WGC records such a window as a
+solid black box wherever it overlaps the captured area (only Windows 11 re-composites what's
+behind it). Desktop Duplication honors the exclusion on both: a test on the owner's Windows 10
+machine put a capture-excluded magenta window over a green one, and GDI and Duplication both
+read green, while the same window without exclusion read magenta. So with Duplication the
+panel and its live preview stay on screen, even right over the region, and never appear in the
+take.
+
+- **Probe first.** `duplication_available` opens and releases a duplication before recording, so
+  the record flow knows whether the panel may stay (no minimize, no drag wall) before frame 0.
+  Window captures always may: other windows are never part of a window's frames.
+- **Fallback.** Duplication can't record a display on another GPU than the device's (some
+  hybrid-GPU laptops) or a rotated one; then WGC runs, and the panel is kept out of the region
+  as before (parked clear of it, minimized when covered, walled while dragged).
+- **Pacing.** Frames arrive when the screen changes. One that arrives before the frame-rate cap
+  allows is held until it's due, so the latest change is never dropped; timestamps come from
+  the frame's present time on the performance counter.
+- **The pointer.** Duplication frames don't include it. The smooth pointer doesn't need it;
+  when a take keeps the real pointer, its shape (color, masked color or monochrome) is drawn
+  into each frame (`pointer.rs`, unit-tested).
+- **Desktop switches** (UAC, lock screen, a mode change) lose the duplication; it's reopened and
+  recording carries on.
+- **One capture.** Duplication allows a single capture of a display per process, so the panel's
+  live preview is fed subsampled copies of the recorded frames instead of running its own
+  capture.
+
 ## Why `windows-capture`
 
 - **Most mature** Rust WGC wrapper, actively maintained (v2.0.0; was 1.5.0 mid-2025). MIT.

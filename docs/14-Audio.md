@@ -2,7 +2,8 @@
 
 How Vuoom records narration and computer sound, keeps them in sync through every edit, and
 writes them into MP4. Code: `crates/vuoom-audio`, `src-tauri/src/audio.rs`,
-`src/editor/audio.ts`.
+`src/editor/audio.ts`. Noise removal and even volume for narration are in
+[`16-Voice-Cleanup.md`](./16-Voice-Cleanup.md).
 
 ## 1. Capture: WASAPI, one thread per source
 
@@ -110,6 +111,5 @@ Volume and mute go through `GainNode`s immediately and persist as undoable proje
 
 ## Not yet
 
-- Noise suppression / loudness normalization for narration.
 - Waveform editing (per-span volume, ducking system sound under speech).
 - Picking a specific output device for system sound (the default device is used).

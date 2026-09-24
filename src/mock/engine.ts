@@ -90,7 +90,7 @@ function demoZooms(): ZoomSeg[] {
 
 type Snapshot = string;
 
-const track = (kind: AudioKind): AudioTrack => ({ kind, offset: 0, gain: 1, muted: false });
+const track = (kind: AudioKind): AudioTrack => ({ kind, offset: 0, gain: 1, muted: false, denoise: false, level: false });
 
 type ClipItem =
   | ({ kind: "text" } & TextAnn)
@@ -268,6 +268,12 @@ class MockEngine {
   setAudioTrack(kind: AudioKind, gain: number, muted: boolean) {
     this.mutate("audio-track", () => {
       this.audio = this.audio.map((t) => (t.kind === kind ? { ...t, gain: Math.max(0, Math.min(4, gain)), muted } : t));
+    });
+  }
+
+  setAudioCleanup(kind: AudioKind, denoise: boolean, level: boolean) {
+    this.mutate(undefined, () => {
+      this.audio = this.audio.map((t) => (t.kind === kind ? { ...t, denoise, level } : t));
     });
   }
 

@@ -147,6 +147,10 @@ export interface AudioTrack {
   /** Linear volume, 0..4. */
   gain: number;
   muted: boolean;
+  /** Voice clean-up: remove background noise (absent from engines that predate it). */
+  denoise?: boolean;
+  /** Voice clean-up: even out the volume. */
+  level?: boolean;
 }
 
 /** Mirrors src-tauri audio::AudioDevices. */

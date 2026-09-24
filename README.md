@@ -75,6 +75,10 @@ The interface is a quiet workspace built from floating panels you control:
   stays in sync through every cut and speed-up; sped-up stretches play silent.
   Waveforms sit on the timeline, with volume and mute per track, and MP4
   exports carry an AAC soundtrack.
+- 🧹 **Studio-clean narration**: one switch removes fan noise, hum and hiss
+  (RNNoise), another evens out a voice that drifts toward and away from the
+  mic, with peaks held safely under clipping. Both work on a copy, so the
+  original recording is always one click away.
 - 🗜️ **Recordings that stay small**: frames are stored losslessly as LZ4
   compressed XOR deltas with periodic keyframes, typically 20x+ smaller than raw
   pixels, streamed to disk as you record so length is bounded by your drive and

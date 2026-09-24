@@ -1028,6 +1028,27 @@ function ClipPanel() {
                   format={(v) => `${Math.round(v * 100)}%`}
                   onInput={(v) => void ed.audio.setGain(t().kind, v)}
                 />
+                <Show when={t().kind === "mic"}>
+                  <Field label="Remove noise" hint="Filters out fans, hum and hiss while keeping your voice">
+                    <Switch
+                      checked={!!t().denoise}
+                      label="Remove noise"
+                      onChange={(v) => void ed.audio.setDenoise(t().kind, v)}
+                    />
+                  </Field>
+                  <Field label="Even out volume" hint="Brings quiet and loud passages to one steady level">
+                    <Switch
+                      checked={!!t().level}
+                      label="Even out volume"
+                      onChange={(v) => void ed.audio.setLevel(t().kind, v)}
+                    />
+                  </Field>
+                  <Show when={ed.audio.cleaning()[t().kind]}>
+                    <p class="note audio-cleaning" role="status">
+                      Cleaning up the voice…
+                    </p>
+                  </Show>
+                </Show>
               </div>
             )}
           </Index>

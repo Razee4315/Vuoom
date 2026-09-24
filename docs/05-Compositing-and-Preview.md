@@ -85,7 +85,8 @@ Pass 0  Background   → styled bg into padded canvas (solid / gradient / image 
 Pass 1  Source       → upload captured BGRA → (GPU) BGRA→RGBA into a source texture
 Pass 2  Composite    → sample source with the camera zoom/pan transform (uniform);
                        apply rounded-corner SDF clip + drop-shadow SDF (drawn behind)
-Pass 3  Motion blur  → optional velocity-based post pass (uses prev-frame transform)
+Pass 3  Motion blur  → folded into Pass 2: the crop is sampled along the camera's path over
+                       the exposure (see "Motion blur (as built)" below)
 Pass 4  Overlays     → custom cursor, click ripple
 Pass 5  Annotations  → text labels (glyphon) + arrows/highlight boxes (lyon) + spotlight/blur
                        region; opacity/position driven by per-frame timeline state
@@ -103,6 +104,25 @@ The camera transform comes from `vuoom-zoom`'s per-frame `(center, zoom)` (see
 Output dims, source crop/bounds, camera `center`+`zoom`, cursor pos/size, background descriptor,
 corner radius, shadow params, padding, aspect-ratio reframe, motion-blur descriptor. One uniform
 buffer updated per frame.
+
+### Motion blur (as built)
+
+A real camera's shutter stays open for part of each frame, so a fast zoom or pan smears
+slightly. Without that, eased zooms in a 30 fps GIF look like a series of hard steps. Vuoom's
+blur is exact and cheap because the only thing that moves the picture is the camera, and the
+camera path is known:
+
+- `scene::blur_origin` evaluates the camera one exposure (`BLUR_EXPOSURE`, 1/60 s, a 180 degree
+  shutter at 30 fps) before the frame and computes that moment's source crop. If no corner
+  of the crop moved half an output pixel, there is no blur (`Scene.blur_from = None`), so a
+  still camera costs one texture sample per pixel as before.
+- While it moves, the composite shader takes 12 samples per pixel, each with the crop
+  interpolated between then and now. That averages exactly what the pixel saw during the
+  exposure: radial streaks during a zoom, directional ones during a pan. No velocity buffer
+  or extra pass is needed.
+- Overlays (pointer, ripples, annotations) stay sharp: they are drawn after the composite.
+- `Project.motion_blur` defaults to on (older projects too), under Clip > Camera. It shows in
+  the live preview and in every export.
 
 ---
 

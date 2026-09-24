@@ -75,6 +75,13 @@ struct Uniforms {
     bg2: [f32; 4],
     bg_dir: [f32; 2],
     _pad2: [f32; 2],
+    /// Motion blur: the source crop one exposure ago (equal to `src_*` when still).
+    prev_min: [f32; 2],
+    prev_size: [f32; 2],
+    /// 1.0 = smear from `prev_*` to `src_*`; 0.0 = one sample.
+    blur: f32,
+    _pad3: f32,
+    _pad4: [f32; 2],
 }
 
 #[repr(C)]
@@ -618,6 +625,7 @@ impl Compositor {
             },
         );
 
+        let prev = scene.blur_from.unwrap_or(layout.src_rect);
         let uniforms = Uniforms {
             out_size: [out_w as f32, out_h as f32],
             src_min: [layout.src_rect.x as f32, layout.src_rect.y as f32],
@@ -630,6 +638,11 @@ impl Compositor {
             bg2: bg.color2,
             bg_dir: bg.dir,
             _pad2: [0.0, 0.0],
+            prev_min: [prev.x as f32, prev.y as f32],
+            prev_size: [prev.w as f32, prev.h as f32],
+            blur: if scene.blur_from.is_some() { 1.0 } else { 0.0 },
+            _pad3: 0.0,
+            _pad4: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -815,6 +828,7 @@ mod tests {
             key_chips: Vec::new(),
             key_texts: Vec::new(),
             cursor: None,
+            blur_from: None,
         };
         let px = compositor.composite_scene(
             &source,

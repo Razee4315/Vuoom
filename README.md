@@ -67,8 +67,9 @@ The interface is a quiet workspace built from floating panels you control:
   frames nobody needs.
 - 🖱️ **A smooth pointer**: record without the real cursor and Vuoom draws a
   clean one from your movements, gliding (jitter smoothed out with no lag),
-  pressing on every click, sized so it stays legible in a small GIF, and
-  scaling with the zoom like the real thing.
+  pressing on every click, sized so it stays legible in a small GIF,
+  scaling with the zoom like the real thing, and (if you like) fading away
+  while it rests, back just before it moves.
 - 🎙️ **Narration and system sound**: record your microphone, everything the
   computer plays, or both, each as its own track with a live level meter while
   you frame the shot. Audio is timed by the same clock as the frames, so it
@@ -87,7 +88,8 @@ The interface is a quiet workspace built from floating panels you control:
   into your cursor (and again to pull back out). Critically damped spring motion,
   never a hard cut. In the editor every zoom is aimable (follow the cursor or lock
   a crosshair), has a feel (Smooth / Snappy / Slow), and **Auto zooms** can
-  re-plan them from your clicks at any strength.
+  re-plan them from your clicks at any strength. Every zoom and pan carries a
+  touch of motion blur, like a camera shutter, so even a 30 fps GIF glides.
 - 🎞️ **A real editor, not a video NLE**: timeline with named, colour-coded tracks,
   magnetic snapping, trim handles (or `I` / `O`), cuts, speed-ups, **Skim idle**
   (2 to 8x on dead stretches), timeline zoom, undo/redo across everything.

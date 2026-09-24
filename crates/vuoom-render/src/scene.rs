@@ -5,7 +5,7 @@
 //! current fade opacity. Pure and unit-tested; the compositor just consumes a [`Scene`].
 
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
-use crate::layout::{compute_layout, CompositeLayout};
+use crate::layout::{compute_layout, CompositeLayout, NormRect};
 use vuoom_project::{ArrowStyle, Color, HighlightShape, InputEvent, Project};
 use vuoom_zoom::CameraTrack;
 
@@ -70,6 +70,12 @@ pub struct ResolvedCursor {
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
 
+/// Motion blur's exposure: the camera movement over this much time before a frame is
+/// smeared across it (a 180 degree shutter at 30 fps).
+pub const BLUR_EXPOSURE: f64 = 1.0 / 60.0;
+/// Camera movement over the exposure below this many output pixels isn't blurred.
+const BLUR_MIN_PX: f64 = 0.5;
+
 /// Everything the compositor draws for one output frame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
@@ -87,10 +93,42 @@ pub struct Scene {
     pub key_texts: Vec<ResolvedText>,
     /// The re-drawn pointer, when the project has one and it's in view.
     pub cursor: Option<ResolvedCursor>,
+    /// Motion blur: the source crop one exposure ago, while the camera is moving visibly.
+    /// The compositor smears the picture from there to `layout.src_rect`.
+    pub blur_from: Option<NormRect>,
 }
 
 fn fade(color: Color, opacity: f64) -> Color {
     color.with_alpha(color.a * opacity as f32)
+}
+
+/// Where the camera's crop was one [`BLUR_EXPOSURE`] before `t`, if motion blur is on and
+/// the move since then shows (some corner moved at least [`BLUR_MIN_PX`] in the output).
+fn blur_origin(
+    project: &Project,
+    camera: &CameraTrack,
+    layout: &CompositeLayout,
+    out_w: u32,
+    out_h: u32,
+    t: f64,
+) -> Option<NormRect> {
+    if !project.motion_blur {
+        return None;
+    }
+    let cam = camera.at((t - BLUR_EXPOSURE).max(0.0));
+    let before = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let (prev, cur, dst) = (before.src_rect, layout.src_rect, layout.dst_rect);
+    // Output pixels per unit of normalized source, across and down.
+    let kx = dst.w / cur.w.max(1e-9);
+    let ky = dst.h / cur.h.max(1e-9);
+    let moved = [
+        (prev.x - cur.x) * kx,
+        (prev.y - cur.y) * ky,
+        (prev.x + prev.w - cur.x - cur.w) * kx,
+        (prev.y + prev.h - cur.y - cur.h) * ky,
+    ];
+    let most = moved.iter().fold(0.0f64, |m, d| m.max(d.abs()));
+    (most >= BLUR_MIN_PX).then_some(prev)
 }
 
 /// Build the draw list for `project` at source time `t` (seconds), at the given output size.
@@ -104,6 +142,7 @@ pub fn build_scene(
 ) -> Scene {
     let cam = camera.at(t);
     let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let blur_from = blur_origin(project, camera, &layout, out_w, out_h, t);
     let ow = f64::from(out_w);
     let oh = f64::from(out_h);
 
@@ -309,6 +348,7 @@ pub fn build_scene(
         key_chips,
         key_texts,
         cursor,
+        blur_from,
     }
 }
 
@@ -382,6 +422,37 @@ mod tests {
         });
         assert!(build_scene(&p, &track, 1000, 1000, 0.5).cursor.is_some());
         assert!(build_scene(&p, &track, 1000, 1000, 4.0).cursor.is_none());
+    }
+
+    #[test]
+    fn motion_blur_follows_the_moving_camera_only() {
+        let mut p = project_with_text();
+        let zoom = vuoom_zoom::ZoomKeyframe {
+            start: 1.0,
+            end: 4.0,
+            amount: 2.0,
+            mode: vuoom_zoom::ZoomMode::Manual {
+                pos: DVec2::new(0.3, 0.3),
+            },
+            edge_snap_ratio: 0.0,
+            style: vuoom_zoom::ZoomStyle::default(),
+        };
+        let track = vuoom_zoom::simulate(&[], &[zoom], 5.0, 60.0, &p.zoom_config);
+        let at = |p: &Project, t: f64| build_scene(p, &track, 1000, 1000, t);
+        // Still before the zoom starts: nothing to blur.
+        assert!(at(&p, 0.5).blur_from.is_none());
+        // Mid zoom-in: blurred from a wider crop an exposure ago.
+        let moving = (10..40)
+            .map(|k| f64::from(k) * 0.05)
+            .map(|t| at(&p, t))
+            .find(|s| s.blur_from.is_some())
+            .expect("the camera moves during the zoom");
+        let from = moving.blur_from.unwrap();
+        assert!(from.w > moving.layout.src_rect.w, "zooming in: the crop was wider");
+        // Off: never.
+        p.motion_blur = false;
+        let still = |k: i32| at(&p, f64::from(k) * 0.05).blur_from.is_none();
+        assert!((10..40).all(still));
     }
 
     #[test]

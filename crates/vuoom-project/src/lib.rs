@@ -110,6 +110,10 @@ pub struct Project {
     /// Draw a clean, smoothed pointer from the input log (`None` = no re-drawn pointer).
     #[serde(default)]
     pub cursor: Option<CursorStyle>,
+    /// Blur the picture along the camera's movement during zooms and pans, like a real
+    /// camera's shutter.
+    #[serde(default = "yes")]
+    pub motion_blur: bool,
 }
 
 fn yes() -> bool {
@@ -187,6 +191,7 @@ impl Project {
             audio: Vec::new(),
             pointer_captured: true,
             cursor: None,
+            motion_blur: true,
         }
     }
 

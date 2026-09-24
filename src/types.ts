@@ -112,6 +112,8 @@ export interface ClipState {
   cuts: Trim[];
   zooms: ZoomSeg[];
   show_clicks: boolean;
+  /** Blur along camera moves (absent from engines that predate it: treated as on). */
+  motion_blur?: boolean;
   show_keys: boolean;
   crop: CropRect | null;
   frame_preset: string;

@@ -45,8 +45,11 @@ pub struct BorderState {
 /// bring it back maximized (the editor's default state). Always runs, even on an error path.
 fn restore_editor(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
-        // Back to an ordinary window: the user's own screenshots and screen shares see it.
+        // Back to an ordinary window: the user's own screenshots and screen shares see it,
+        // and it resizes and maximizes again.
         let _ = include_in_capture(&main);
+        let _ = main.set_resizable(true);
+        let _ = main.set_maximizable(true);
         let _ = main.set_fullscreen(false);
         let _ = main.set_always_on_top(false);
         let _ = main.unminimize();
@@ -328,6 +331,10 @@ fn pick_panel_spot(
 pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
     main.set_fullscreen(false).map_err(|e| e.to_string())?;
+    // The panel has two sizes, toggled from the panel itself (`set_panel_size`); it can't be
+    // dragged to other sizes or maximized.
+    let _ = main.set_resizable(false);
+    let _ = main.set_maximizable(false);
     main.set_min_size(Some(LogicalSize::new(PANEL_W, PANEL_H)))
         .map_err(|e| e.to_string())?;
     main.set_size(LogicalSize::new(PANEL_W, PANEL_H))
@@ -347,6 +354,57 @@ pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> R
         let _ = main.set_position(PhysicalPosition::new(x, y));
     }
     Ok(())
+}
+
+/// The recording panel's larger size (logical px), for a bigger live preview.
+const PANEL_LARGE_W: f64 = 560.0;
+const PANEL_LARGE_H: f64 = 420.0;
+
+/// Switch the recording panel between its compact and large size. It grows away from the
+/// screen edges it's nearest, so a panel parked in a corner stays in that corner, and it is
+/// kept on its monitor.
+#[tauri::command]
+pub fn set_panel_size(app: AppHandle, large: bool) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("no main window")?;
+    let (w, h) = if large {
+        (PANEL_LARGE_W, PANEL_LARGE_H)
+    } else {
+        (PANEL_W, PANEL_H)
+    };
+    let pos = main.outer_position();
+    let size = main.outer_size();
+    let mon = main.current_monitor();
+    let (Ok(pos), Ok(size), Ok(Some(mon))) = (pos, size, mon) else {
+        let _ = main.set_size(LogicalSize::new(w, h));
+        return Ok(());
+    };
+    let scale = mon.scale_factor();
+    let (nw, nh) = ((w * scale) as i32, (h * scale) as i32);
+    let (mp, ms) = (mon.position(), mon.size());
+    let monitor = (mp.x, mp.y, ms.width as i32, ms.height as i32);
+    let rect = (pos.x, pos.y, size.width as i32, size.height as i32);
+    let (x, y) = resize_anchored(rect, (nw, nh), monitor);
+    main.set_size(LogicalSize::new(w, h))
+        .map_err(|e| e.to_string())?;
+    main.set_position(PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
+}
+
+/// Where a window at `rect` (x, y, w, h) goes when resized to `size`: the edges nearest the
+/// monitor's sides stay put, and the result is kept inside the monitor.
+fn resize_anchored(rect: Rect, size: (i32, i32), monitor: Rect) -> (i32, i32) {
+    let (x, y, w, h) = rect;
+    let (nw, nh) = size;
+    let (mx, my, mw, mh) = monitor;
+    // Closer to the right edge than the left: keep the right edge where it is.
+    let right = (mx + mw) - (x + w) < x - mx;
+    let bottom = (my + mh) - (y + h) < y - my;
+    let nx = if right { x + w - nw } else { x };
+    let ny = if bottom { y + h - nh } else { y };
+    (
+        nx.clamp(mx, (mx + mw - nw).max(mx)),
+        ny.clamp(my, (my + mh - nh).max(my)),
+    )
 }
 
 /// Step 3, the user stopped: finish capture, restore the editor, and return the clip
@@ -722,13 +780,17 @@ pub async fn start_recording(
 ) -> Result<(), String> {
     let region = border.region.lock().ok().and_then(|r| *r);
     let (mx, my) = border.origin.lock().map_or((0, 0), |o| *o);
-    // Get the panel out of the captured area BEFORE capture starts, never after: the old
-    // order minimized once recording was already running, so the opening frames recorded
-    // the panel (on Win11 the window itself, on Win10 a solid black rectangle) and the
-    // take visibly jumped as the panel vanished. Minimize first + a short DWM settle makes
-    // frame 0 clean. Region recordings with a panel parked clear of the crop keep it (and
-    // its live preview) on screen the whole time.
-    if let Some(main) = app.get_webview_window("main") {
+    // Can the panel stay on screen over the recorded area? Yes when the capture keeps it out
+    // of the frames: Desktop Duplication (displays) and window capture both do, on Windows 10
+    // as well as 11, so the panel and its live preview stay put wherever the user parks
+    // them. Otherwise (a display only WGC can record: on Windows 10 an excluded window is
+    // recorded as a black box) it has to stay out of the region, as below.
+    let session = engine.session()?;
+    let panel_free = session.capture_hides_panel();
+    // Get the panel out of the captured area BEFORE capture starts, never after: minimizing
+    // once recording runs would record the panel in the opening frames and make the take
+    // jump. Minimize first + a short DWM settle makes frame 0 clean.
+    if let Some(main) = app.get_webview_window("main").filter(|_| !panel_free) {
         let covered = match region {
             None => true,
             Some(r) => {
@@ -747,7 +809,22 @@ pub async fn start_recording(
             std::thread::sleep(std::time::Duration::from_millis(PANEL_HIDE_SETTLE_MS));
         }
     }
-    engine.session()?.start_recording()?;
+    session.start_recording()?;
+    // The probe said the panel could stay, but the capture fell back to WGC after all: get
+    // it out of the way now rather than leave a black box in the take.
+    let panel_free = panel_free && session.recording_hides_panel();
+    if !panel_free {
+        let main = app.get_webview_window("main");
+        if let Some(main) = main.filter(|w| !w.is_minimized().unwrap_or(false)) {
+            let covered = region.is_none_or(|r| {
+                let rect = (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
+                window_rect(&main).is_none_or(|p| rects_overlap(p, inflate(rect, REGION_PAD)))
+            });
+            if covered {
+                let _ = main.minimize();
+            }
+        }
+    }
     // Frame the recorded region so the user always sees what's being captured. The strips
     // sit outside the crop (that is why they never land in the recording, NOT because
     // exclusion reveals what's behind them). Idempotent with `show_region_border`, which
@@ -758,12 +835,10 @@ pub async fn start_recording(
             *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
         }
     }
-    // Keep the panel out of the captured area while it is being dragged: arm the WM_MOVING
-    // drag wall so it slides along the region's edge instead of crossing it (the
-    // parked-overlap case was already minimized above). Full-screen recordings have
-    // nothing to slide against. The window keeps its `WDA_EXCLUDEFROMCAPTURE` affinity
-    // throughout: harmless on Win10, a real second line of defense on Win11.
-    if let Some(r) = region {
+    // When the panel must stay out of the captured area, keep it out while it's dragged too:
+    // the WM_MOVING drag wall makes it slide along the region's edge instead of crossing it.
+    // Full-screen recordings have nothing to slide against.
+    if let Some(r) = region.filter(|_| !panel_free) {
         let forbidden = inflate(
             (mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32),
             REGION_PAD,
@@ -1375,4 +1450,29 @@ pub fn delete_annotation(
     engine
         .session()?
         .delete_annotation(id, tag.as_deref().unwrap_or(""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_resized_panel_keeps_its_corner_and_its_monitor() {
+        let monitor = (0, 0, 1920, 1080);
+        // Parked bottom right: it grows up and to the left.
+        assert_eq!(
+            resize_anchored((1500, 750, 384, 300), (560, 420), monitor),
+            (1324, 630)
+        );
+        // Top left: it grows down and to the right.
+        assert_eq!(
+            resize_anchored((24, 24, 384, 300), (560, 420), monitor),
+            (24, 24)
+        );
+        // Never off the monitor.
+        assert_eq!(
+            resize_anchored((1800, 900, 384, 300), (560, 420), monitor),
+            (1360, 660)
+        );
+    }
 }

@@ -1,20 +1,24 @@
 //! Live recording preview, a "director's monitor" that shows the cinematic zoom in real
-//! time while recording, without ever touching the actual recording pipeline.
+//! time while recording.
 //!
-//! It runs its OWN lightweight screen capture and polls the cursor + the Ctrl+Shift+Z
-//! hotkey, drives an online camera (the same critically-damped springs the final render
-//! uses), crops/downscales each frame to the camera viewport, and publishes it to the
-//! existing preview WebSocket. The recording path is untouched, so a hiccup here can never
-//! corrupt a recording. The preview window is excluded from capture, so it never appears in
-//! the recording and there is no hall-of-mirrors.
+//! It is fed a small copy of the recorded frames (see [`sample`]; the recording's drain hands
+//! one over about 20 times a second and never waits on it), polls the cursor and the
+//! Ctrl+Shift+Z hotkey, drives an online camera (the same critically damped springs the final
+//! render uses), crops and downscales each frame to the camera viewport, and publishes it to
+//! the preview WebSocket. Sharing the recording's frames rather than running a second capture
+//! halves the capture work, and matters for Desktop Duplication, which allows one capture of a
+//! display per process. When the take leaves the pointer out of the frames (the smooth
+//! pointer), a small marker shows where it is. The panel showing the preview is excluded from
+//! capture, so there is no hall of mirrors.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use glam::DVec2;
-use vuoom_capture::{spawn_capture, CaptureOptions, CaptureSource, CapturedFrame, CropRegion};
+use vuoom_capture::{CapturedFrame, CropRegion};
 use vuoom_encode::{downscale_rgba, swizzle_rb, RgbaImage};
 use vuoom_input::Clock;
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
@@ -28,9 +32,45 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 const PREVIEW_WIDTH: u32 = 480;
 /// Preview cadence (~20 fps), independent of the capture rate so it never steals throughput.
 const EMIT_INTERVAL: f64 = 0.05;
-/// The preview runs its own capture next to the recording's; it only ever shows ~20 fps, so
-/// cap its compositor delivery instead of paying a full-screen copy per display refresh.
-const PREVIEW_CAPTURE_FPS: u32 = 30;
+/// How often the recording's drain hands the preview a frame.
+pub const TAP_EVERY: Duration = Duration::from_millis(45);
+/// The widest copy handed over: enough for a 2× zoom into a 480 px preview.
+const TAP_MAX_WIDTH: u32 = 1280;
+
+/// A recorded frame, subsampled for the preview, with the full frame's size (the cursor maps
+/// onto the full frame).
+pub struct PreviewFrame {
+    frame: CapturedFrame,
+    full_w: u32,
+    full_h: u32,
+}
+
+/// A copy of `frame` for the preview: every n-th pixel of every n-th row, so it is at most
+/// [`TAP_MAX_WIDTH`] wide. Cheap enough to run on the recording's drain.
+#[must_use]
+pub fn sample(frame: &CapturedFrame) -> PreviewFrame {
+    let (w, h) = (frame.width, frame.height);
+    let step = w.div_ceil(TAP_MAX_WIDTH).max(1) as usize;
+    let (sw, sh) = (w as usize / step, h as usize / step);
+    let mut bgra = Vec::with_capacity(sw * sh * 4);
+    for y in 0..sh {
+        let row = y * step * w as usize * 4;
+        for x in 0..sw {
+            let i = row + x * step * 4;
+            bgra.extend_from_slice(&frame.bgra[i..i + 4]);
+        }
+    }
+    PreviewFrame {
+        frame: CapturedFrame {
+            width: sw as u32,
+            height: sh as u32,
+            bgra,
+            qpc: frame.qpc,
+        },
+        full_w: w,
+        full_h: h,
+    }
+}
 
 // Virtual-key codes for the manual-zoom chord (Ctrl+Shift+Z).
 const VK_SHIFT: i32 = 0x10;
@@ -44,22 +84,29 @@ pub struct LivePreview {
 }
 
 impl LivePreview {
-    /// Start streaming a live, zoom-tracked preview of `region` (full display if `None`)
-    /// on `monitor` (primary if `None`) to `sink`. `origin` is the monitor's
-    /// virtual-desktop origin (physical px) so the cursor maps correctly; `amount` is the
-    /// chosen zoom multiplier.
+    /// Start streaming a live, zoom-tracked preview of the frames arriving on `frames` (the
+    /// recording's, see [`sample`]) to `sink`. `region` is the recorded crop (full display if
+    /// `None`) and `origin` the monitor's virtual-desktop origin (physical px), so the cursor
+    /// maps correctly; `amount` is the chosen zoom multiplier; `mark_pointer` draws a pointer
+    /// marker for takes whose frames leave the pointer out.
     #[must_use]
     pub fn start(
+        frames: Receiver<PreviewFrame>,
         region: Option<CropRegion>,
-        source: CaptureSource,
         origin: (i32, i32),
         amount: f64,
+        mark_pointer: bool,
         sink: FrameSink,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
-        let handle =
-            std::thread::spawn(move || run(region, source, origin, amount, sink, &stop_worker));
+        let feed = Feed {
+            region,
+            origin,
+            amount,
+            mark_pointer,
+        };
+        let handle = std::thread::spawn(move || run(&frames, &feed, &sink, &stop_worker));
         Self {
             stop,
             handle: Some(handle),
@@ -81,37 +128,28 @@ impl Drop for LivePreview {
     }
 }
 
-fn run(
+/// What the preview shows and how.
+struct Feed {
     region: Option<CropRegion>,
-    source: CaptureSource,
     origin: (i32, i32),
     amount: f64,
-    sink: FrameSink,
-    stop: &AtomicBool,
-) {
-    let opts = CaptureOptions {
-        max_fps: PREVIEW_CAPTURE_FPS,
-        cursor: true,
-    };
-    let (rx, capture) = spawn_capture(region, &source, opts);
+    mark_pointer: bool,
+}
+
+fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &AtomicBool) {
     let cfg = ZoomConfig::default();
-    let mut camera = LiveCamera::new(cfg, amount);
+    let mut camera = LiveCamera::new(cfg, feed.amount);
     let clock = Clock::new();
     let start = clock.now();
     let mut last_emit = -1.0_f64;
     let mut prev_chord = false;
 
     while !stop.load(Ordering::Relaxed) {
-        let frame = match rx.recv_timeout(Duration::from_millis(100)) {
+        let sampled = match frames.recv_timeout(Duration::from_millis(100)) {
             Ok(f) => f,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                // The preview's own capture ended (device lost, session died). This never
-                // touches the recording, but log it so a blank director's monitor isn't a
-                // total mystery, the preview simply stops emitting until the next take.
-                tracing::warn!("live preview capture disconnected, preview stopped");
-                break;
-            }
+            Err(RecvTimeoutError::Timeout) => continue,
+            // The recording ended (or its drain stopped): nothing more to show.
+            Err(RecvTimeoutError::Disconnected) => break,
         };
         let t = clock.seconds_between(start, clock.now());
 
@@ -122,7 +160,7 @@ fn run(
         }
         prev_chord = chord;
 
-        let cursor = cursor_norm(region, origin, frame.width, frame.height);
+        let cursor = cursor_norm(feed.region, feed.origin, sampled.full_w, sampled.full_h);
         let cam = camera.step(t, cursor);
 
         // Throttle the actual pixel work to the preview cadence.
@@ -131,15 +169,20 @@ fn run(
         }
         last_emit = t;
 
-        if let Some(packed) = render_preview(&frame, cam) {
+        let marker = feed.mark_pointer.then_some(cursor);
+        if let Some(packed) = render_preview(&sampled.frame, cam, marker) {
             sink.publish(packed);
         }
     }
-    capture.stop();
 }
 
 /// Crop a frame to the camera viewport, downscale, and pack it for the preview socket.
-fn render_preview(frame: &CapturedFrame, cam: CameraState) -> Option<Vec<u8>> {
+/// `marker` (the pointer, normalized to the frame) is drawn when given.
+fn render_preview(
+    frame: &CapturedFrame,
+    cam: CameraState,
+    marker: Option<DVec2>,
+) -> Option<Vec<u8>> {
     let (fw, fh) = (frame.width, frame.height);
     if fw == 0 || fh == 0 {
         return None;
@@ -162,7 +205,13 @@ fn render_preview(frame: &CapturedFrame, cam: CameraState) -> Option<Vec<u8>> {
     }
     let rgba = RgbaImage::new(vw, vh, swizzle_rb(&cropped));
     let target = PREVIEW_WIDTH.min(vw);
-    let small = downscale_rgba(&rgba, target);
+    let mut small = downscale_rgba(&rgba, target);
+    if let Some(p) = marker {
+        // The pointer in viewport terms, then preview pixels.
+        let px = (p.x * f64::from(fw) - f64::from(x0)) / f64::from(vw) * f64::from(small.width);
+        let py = (p.y * f64::from(fh) - f64::from(y0)) / f64::from(vh) * f64::from(small.height);
+        mark(&mut small, px, py);
+    }
 
     let meta = FrameMeta {
         stride: small.width * 4,
@@ -172,6 +221,29 @@ fn render_preview(frame: &CapturedFrame, cam: CameraState) -> Option<Vec<u8>> {
         target_time_ns: 0,
     };
     Some(pack_frame(&small.pixels, meta))
+}
+
+/// A small pointer marker: a white dot in a dark ring, centered on (`x`, `y`) (preview px).
+/// Nothing is drawn outside the image.
+fn mark(img: &mut RgbaImage, x: f64, y: f64) {
+    const OUTER: f64 = 5.0;
+    const INNER: f64 = 3.2;
+    let (w, h) = (i64::from(img.width), i64::from(img.height));
+    let (cx, cy) = (x.round() as i64, y.round() as i64);
+    for yy in (cy - 6).max(0)..(cy + 7).min(h) {
+        for xx in (cx - 6).max(0)..(cx + 7).min(w) {
+            let d = ((xx as f64 - x).powi(2) + (yy as f64 - y).powi(2)).sqrt();
+            let color = if d <= INNER {
+                [255, 255, 255]
+            } else if d <= OUTER {
+                [20, 20, 24]
+            } else {
+                continue;
+            };
+            let i = ((yy * w + xx) * 4) as usize;
+            img.pixels[i..i + 3].copy_from_slice(&color);
+        }
+    }
 }
 
 /// True while Ctrl AND Shift AND Z are all held.
@@ -250,5 +322,49 @@ impl LiveCamera {
             CameraTarget::Idle
         };
         self.cam.step(cursor, target, &self.cfg, dt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(w: u32, h: u32) -> CapturedFrame {
+        let bgra = (0..w * h)
+            .flat_map(|i| [(i % 256) as u8, (i / 256) as u8, 0, 255])
+            .collect();
+        CapturedFrame {
+            width: w,
+            height: h,
+            bgra,
+            qpc: 7,
+        }
+    }
+
+    #[test]
+    fn small_frames_pass_whole_and_big_ones_are_subsampled() {
+        let small = sample(&frame(640, 360));
+        assert_eq!((small.frame.width, small.frame.height), (640, 360));
+        assert_eq!(small.frame.bgra.len(), 640 * 360 * 4);
+
+        let big = sample(&frame(2560, 1440));
+        assert_eq!((big.frame.width, big.frame.height), (1280, 720));
+        assert_eq!((big.full_w, big.full_h), (2560, 1440));
+        assert_eq!(big.frame.qpc, 7);
+        // Pixel (1, 0) of the copy is pixel (2, 0) of the original.
+        assert_eq!(big.frame.bgra[4], 2);
+    }
+
+    #[test]
+    fn the_marker_is_drawn_in_place_and_clipped() {
+        let mut img = RgbaImage::new(20, 20, vec![0; 20 * 20 * 4]);
+        mark(&mut img, 10.0, 10.0);
+        let at = |x: usize, y: usize| img.pixels[(y * 20 + x) * 4];
+        assert_eq!(at(10, 10), 255, "white center");
+        assert_eq!(at(14, 10), 20, "dark ring");
+        assert_eq!(at(0, 0), 0, "untouched outside");
+        // At the corner, only the part inside the image is drawn.
+        mark(&mut img, 0.0, 0.0);
+        assert_eq!(at(0, 0), 255);
     }
 }

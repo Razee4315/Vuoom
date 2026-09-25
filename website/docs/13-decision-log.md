@@ -61,3 +61,10 @@ title plus a 3 to 6 word line; section spacing raised to clamp(7rem, 14vw, 14rem
 relaxed to weight 600, width 92%; buttons are pills. Countdown preloader and keycap hints
 dropped from the home page. Supersedes the density and motion-inventory choices in 02 and 05
 where they conflict.
+
+## ADR-015, Launch film and the inner pages
+2026-09-25. The owner's 1:57 launch film (re-encoded to 1080p30, 10.7 MB, AAC) sits under the
+hero as "See it in two minutes." and on the Download page. It never autoplays: poster and one
+play button, sound on, native controls after start. All 23 routes are built in the minimal
+style: PageHead (one headline, one line), narrow columns, hairline lists. Per-page share cards
+are rendered at build with satori. llms.txt summarises the site for answer engines.

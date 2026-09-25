@@ -1,0 +1,42 @@
+---
+// Layout for text pages (legal, open source, press): a page head and one readable column.
+import Base from './Base.astro';
+import PageHead from '../components/PageHead.astro';
+import type { PagePath } from '../data/pages';
+
+interface Props {
+  path: PagePath;
+  label: string;
+  title: string;
+  sub?: string;
+  updated?: string;
+}
+const { path, label, title, sub, updated } = Astro.props;
+---
+<Base path={path} crumbs={[{ href: path, label }]} type="article">
+  <PageHead title={title} sub={sub} />
+  <div class="wrap col">
+    {updated && <p class="updated">Last updated {updated}</p>}
+    <article class="prose">
+      <slot />
+    </article>
+  </div>
+</Base>
+
+<style>
+  .col {
+    max-width: calc(720px + var(--gutter) * 2);
+    padding-bottom: var(--section);
+  }
+  .updated {
+    color: var(--ink-3);
+    font-size: 0.875rem;
+    margin-bottom: var(--s-7);
+  }
+  .col :global(.prose) {
+    max-width: none;
+  }
+  .col :global(.prose h2:first-child) {
+    margin-top: 0;
+  }
+</style>

@@ -1,0 +1,149 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/PageHead.astro';
+import Button from '../components/Button.astro';
+import Film from '../components/Film.astro';
+import Faq from '../components/Faq.astro';
+import { SITE, url } from '../lib/site';
+import { latest, mb, humanDate } from '../lib/github';
+import { softwareApp, faqPage } from '../lib/schema';
+
+const r = await latest();
+const exe = r.exe;
+const msi = r.msi;
+const faq = [
+  {
+    q: 'Why does SmartScreen warn me?',
+    a: 'Vuoom is not code-signed yet, and Windows warns about any new unsigned app. Click More info, then Run anyway. Every installer is built in public by GitHub Actions from the source code.',
+  },
+  {
+    q: 'Which file should I pick?',
+    a: 'The .exe for most people. The .msi suits managed or company machines. Both install the same app.',
+  },
+  {
+    q: 'How do I update?',
+    a: 'Vuoom checks GitHub Releases when it starts. When a new version is out, an Update button appears in the top bar. Nothing installs until you click it.',
+  },
+  {
+    q: 'How do I uninstall?',
+    a: 'Settings, Apps, Installed apps, Vuoom, Uninstall. Your saved projects stay where you saved them.',
+  },
+];
+---
+<Base path="/download/" crumbs={[{ href: '/download/', label: 'Download' }]} schema={[await softwareApp(), faqPage(faq)]}>
+  <PageHead title="Download Vuoom." sub="Free for Windows 10 and 11. No account, no watermark.">
+    <Button href={exe?.url ?? SITE.latestUrl} size="lg" data-dl="exe">Download .exe · <span data-dl-size="exe">{mb(exe?.size)}</span></Button>
+    <Button href={msi?.url ?? SITE.latestUrl} variant="secondary" size="lg" data-dl="msi">.msi installer</Button>
+  </PageHead>
+
+  <div class="wrap narrow">
+    <p class="ver">Version <span data-dl-version>{r.version}</span>{r.date && ` · ${humanDate(r.date)}`} · <a class="link" href={url('/changelog/')}>What is new</a> · <a class="link" href={SITE.releasesUrl} rel="noopener">All releases</a></p>
+
+    <section class="block" aria-labelledby="install-h">
+      <h2 id="install-h" class="h3">Install in three steps.</h2>
+      <ol class="steps" role="list">
+        <li><span class="n">1</span><p>Open the file you downloaded.</p></li>
+        <li><span class="n">2</span><p>If SmartScreen appears, click <strong>More info</strong>, then <strong>Run anyway</strong>.</p></li>
+        <li><span class="n">3</span><p>Open Vuoom and press <strong>Record</strong>.</p></li>
+      </ol>
+    </section>
+
+    <section class="block" aria-labelledby="req-h">
+      <h2 id="req-h" class="h3">What you need.</h2>
+      <dl class="req">
+        <div><dt>System</dt><dd>Windows 10 (1809 or later) or Windows 11, 64-bit. Windows 11 gives borderless window capture.</dd></div>
+        <div><dt>Space</dt><dd>The installer is {mb(exe?.size) || 'under 11 MB'}. Recordings are stored compressed on your drive.</dd></div>
+        <div><dt>Graphics</dt><dd>Any modern GPU. MP4 export uses NVIDIA, Intel or AMD hardware encoding when present.</dd></div>
+        <div><dt>Internet</dt><dd>Not needed to record. Only for updates and the one-time captions model.</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="film-h">
+    <div class="wrap film-wrap">
+      <h2 id="film-h" class="h3 center">See it first.</h2>
+      <Film />
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="faq-h" style="padding-top:0">
+    <div class="wrap narrow">
+      <h2 id="faq-h" class="h3 center">Install questions.</h2>
+      <Faq items={faq} />
+    </div>
+  </section>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(760px + var(--gutter) * 2);
+  }
+  .ver {
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 0.9375rem;
+  }
+  .ver .link {
+    color: var(--ink-2);
+  }
+  .block {
+    margin-top: var(--s-9);
+  }
+  .block h2 {
+    margin-bottom: var(--s-6);
+  }
+  .steps {
+    display: grid;
+    gap: var(--s-4);
+  }
+  .steps li {
+    display: flex;
+    gap: var(--s-4);
+    align-items: baseline;
+    font-size: var(--step-1);
+    line-height: var(--lh-sub);
+    color: var(--ink-2);
+  }
+  .steps strong {
+    color: var(--ink);
+    font-weight: 560;
+  }
+  .n {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: var(--r-pill);
+    font-size: 0.875rem;
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--rule);
+    transform: translateY(-3px);
+  }
+  .req div {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: var(--s-4);
+    padding-block: var(--s-4);
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .req dt {
+    color: var(--ink-3);
+  }
+  .req dd {
+    color: var(--ink-2);
+  }
+  .film-wrap {
+    max-width: 1100px;
+  }
+  .center {
+    text-align: center;
+    margin-bottom: var(--s-7);
+  }
+  @media (max-width: 560px) {
+    .req div {
+      grid-template-columns: 1fr;
+      gap: var(--s-1);
+    }
+  }
+</style>

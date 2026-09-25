@@ -1,0 +1,119 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/PageHead.astro';
+import Keycap from '../components/Keycap.astro';
+
+// Mirrors README "Keyboard shortcuts".
+const GROUPS = [
+  {
+    t: 'Recording',
+    rows: [
+      { k: [['Ctrl', 'Shift', 'R']], d: 'Start the record flow' },
+      { k: [['Ctrl', 'Shift', 'Z']], d: 'Zoom in or out at the pointer' },
+      { k: [['Ctrl', 'Shift', 'X']], d: 'Stop recording, from anywhere' },
+    ],
+  },
+  {
+    t: 'Playback and trim',
+    rows: [
+      { k: [['Space']], d: 'Play or pause' },
+      { k: [['←'], ['→']], d: 'Scrub the playhead. Shift jumps 1 s, Home and End go to the trim bounds' },
+      { k: [['I'], ['O']], d: 'Trim start or end at the playhead. Shift clears' },
+      { k: [['Z'], ['X'], ['C']], d: 'Insert a zoom, a speed-up or a cut at the playhead' },
+    ],
+  },
+  {
+    t: 'Tools',
+    rows: [
+      { k: [['V']], d: 'Select' },
+      { k: [['T']], d: 'Text' },
+      { k: [['A']], d: 'Arrow' },
+      { k: [['P']], d: 'Pen' },
+      { k: [['S']], d: 'Shape' },
+      { k: [['H']], d: 'Highlight' },
+      { k: [['L']], d: 'Spotlight' },
+      { k: [['M']], d: 'Hide (blur mask)' },
+    ],
+  },
+  {
+    t: 'Editing',
+    rows: [
+      { k: [['Ctrl', 'Z'], ['Ctrl', 'Y']], d: 'Undo or redo any edit' },
+      { k: [['Ctrl', 'D']], d: 'Duplicate the selected annotation' },
+      { k: [['Ctrl', 'C'], ['Ctrl', 'V']], d: 'Copy or paste annotations' },
+      { k: [['Ctrl', ']'], ['Ctrl', '[']], d: 'Bring forward or send backward. Shift goes to front or back' },
+      { k: [['Delete']], d: 'Remove the selected item' },
+      { k: [['↑'], ['↓']], d: 'Nudge the selected annotation. Shift for bigger steps' },
+    ],
+  },
+  {
+    t: 'App',
+    rows: [
+      { k: [['Ctrl', 'K']], d: 'Search every action' },
+      { k: [['Ctrl', '1'], ['Ctrl', '2'], ['Ctrl', '3']], d: 'Show or hide tools, inspector, timeline' },
+      { k: [['Ctrl', '0']], d: 'Reset the layout' },
+      { k: [['Ctrl', 'S'], ['Ctrl', 'O']], d: 'Save or open a project' },
+      { k: [['Ctrl', 'E']], d: 'Export GIF or MP4' },
+      { k: [['Ctrl', ',']], d: 'Settings' },
+      { k: [['?']], d: 'Keyboard cheat sheet' },
+    ],
+  },
+];
+---
+<Base path="/shortcuts/" crumbs={[{ href: '/guide/', label: 'Guide' }, { href: '/shortcuts/', label: 'Shortcuts' }]}>
+  <PageHead title="Every shortcut." sub="Press ? inside Vuoom to see them any time." />
+
+  <div class="wrap narrow">
+    {GROUPS.map((g) => (
+      <section class="grp" aria-label={g.t}>
+        <h2 class="grp__h">{g.t}</h2>
+        <dl>
+          {g.rows.map((r) => (
+            <div class="row">
+              <dt class="row__k">{r.k.map((k) => <Keycap keys={k} />)}</dt>
+              <dd class="row__d">{r.d}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    ))}
+  </div>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(860px + var(--gutter) * 2);
+    padding-bottom: var(--section);
+  }
+  .grp + .grp {
+    margin-top: var(--s-9);
+  }
+  .grp__h {
+    font-size: 0.875rem;
+    color: var(--ink-3);
+    font-weight: 400;
+    margin-bottom: var(--s-4);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 16rem 1fr;
+    gap: var(--s-5);
+    align-items: center;
+    padding-block: var(--s-4);
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .row__k {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+  .row__d {
+    color: var(--ink-2);
+  }
+  @media (max-width: 640px) {
+    .row {
+      grid-template-columns: 1fr;
+      gap: var(--s-2);
+    }
+  }
+</style>

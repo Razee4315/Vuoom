@@ -1,0 +1,57 @@
+---
+// The top of every inner page: an eyebrow, one headline, one line, optional actions.
+interface Props {
+  eyebrow?: string;
+  title: string;
+  sub?: string;
+  align?: 'center' | 'left';
+}
+const { eyebrow, title, sub, align = 'center' } = Astro.props;
+---
+<header class:list={['ph', `ph--${align}`]}>
+  <div class="wrap ph__inner">
+    {eyebrow && <p class="ph__eyebrow">{eyebrow}</p>}
+    <h1 class="display ph__h" data-split>{title}</h1>
+    {sub && <p class="ph__sub">{sub}</p>}
+    {Astro.slots.has('default') && <div class="ph__actions"><slot /></div>}
+  </div>
+</header>
+
+<style>
+  .ph {
+    padding-top: clamp(4rem, 8vw, 7rem);
+    padding-bottom: clamp(4rem, 8vw, 7rem);
+  }
+  .ph__inner {
+    display: grid;
+    gap: var(--s-5);
+  }
+  .ph--center .ph__inner {
+    justify-items: center;
+    text-align: center;
+  }
+  .ph__eyebrow {
+    font-size: 0.875rem;
+    color: var(--rec-ink);
+  }
+  .ph__h {
+    font-size: clamp(2.5rem, 1rem + 4.4vw, 5.25rem);
+    max-width: 16ch;
+  }
+  .ph__sub {
+    font-size: var(--step-1);
+    line-height: var(--lh-sub);
+    color: var(--ink-2);
+    max-width: 40ch;
+  }
+  .ph__actions {
+    margin-top: var(--s-4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    justify-content: center;
+  }
+  .ph--left .ph__actions {
+    justify-content: flex-start;
+  }
+</style>

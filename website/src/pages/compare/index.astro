@@ -1,0 +1,71 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
+import CompareTable from '../../components/CompareTable.astro';
+import { COMPARE_PAGES, PRODUCTS } from '../../data/compare';
+import { url } from '../../lib/site';
+
+const name = (id: string) => PRODUCTS.find((p) => p.id === id)?.name ?? id;
+---
+<Base path="/compare/" crumbs={[{ href: '/compare/', label: 'Compare' }]}>
+  <PageHead title="How it stacks up." sub="An honest look at screen recorders for product demos." />
+
+  <section class="wrap" aria-label="Comparison table" data-reveal>
+    <CompareTable />
+  </section>
+
+  <section class="section" aria-labelledby="vs-h">
+    <div class="wrap narrow">
+      <h2 id="vs-h" class="h3 sub">One by one.</h2>
+      <ul class="vs" role="list">
+        {COMPARE_PAGES.map((c) => (
+          <li data-reveal>
+            <a class="vs__a" href={url(c.path)}>
+              <span class="vs__t">Vuoom vs {name(c.them)}</span>
+              <span class="vs__s">{c.h1}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(860px + var(--gutter) * 2);
+  }
+  .sub {
+    margin-bottom: var(--s-7);
+  }
+  .vs {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border-radius: var(--r-frame);
+    overflow: hidden;
+  }
+  .vs__a {
+    display: grid;
+    grid-template-columns: 16rem 1fr;
+    gap: var(--s-5);
+    padding: var(--s-6);
+    background: var(--ground);
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .vs__a:hover {
+    background: var(--ground-raised);
+  }
+  .vs__t {
+    font-weight: 560;
+  }
+  .vs__s {
+    color: var(--ink-3);
+  }
+  @media (max-width: 720px) {
+    .vs__a {
+      grid-template-columns: 1fr;
+      gap: var(--s-2);
+    }
+  }
+</style>

@@ -1,0 +1,29 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE } from '../lib/site';
+---
+<Doc path="/security/" label="Security" title="Security." sub="Vuoom records your screen, so the boundary matters. Here is how to report a problem.">
+  <h2>Report a vulnerability</h2>
+  <p>Please do not open a public issue. Instead use <a href={SITE.securityUrl} rel="noopener">GitHub private vulnerability reporting</a> or email <a href={`mailto:${SITE.securityEmail}`}>{SITE.securityEmail}</a> with steps to reproduce. You will get an answer within a few days, and credit in the release notes unless you prefer otherwise.</p>
+
+  <h2>Worth reporting</h2>
+  <ul>
+    <li>Recordings, audio or input logs leaving the machine</li>
+    <li>Capture or the input hook continuing after Stop</li>
+    <li>File read or write outside expected folders through a crafted <code>.vuoom</code> project</li>
+    <li>Any network request other than the two listed below</li>
+  </ul>
+
+  <h2>What the app does on the network</h2>
+  <ol>
+    <li>An update check against GitHub Releases on launch. Updates are signed; the public key is pinned in the app.</li>
+    <li>A one-time captions model download from Hugging Face, verified by SHA-256, only when you ask for captions.</li>
+  </ol>
+  <p>Plus a local connection on <code>127.0.0.1</code> between the editor and the engine.</p>
+
+  <h2>Supported versions</h2>
+  <p>Only the <a href={SITE.latestUrl} rel="noopener">latest release</a> receives fixes. Vuoom updates itself, so updating is the patch.</p>
+
+  <h2>Builds</h2>
+  <p>Every installer is built by GitHub Actions from the public source. The workflow is in <a href={`${SITE.repoUrl}/blob/main/.github/workflows/release.yml`} rel="noopener">release.yml</a>. Installers are not yet Authenticode-signed, which is why SmartScreen warns.</p>
+</Doc>

@@ -1,0 +1,23 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE } from '../lib/site';
+---
+<Doc path="/terms/" label="Terms" title="Terms of use." sub="Short, because Vuoom is free software." updated="25 September 2026">
+  <h2>The licence</h2>
+  <p>Vuoom is licensed under the <a href={`${SITE.repoUrl}/blob/main/LICENSE`} rel="noopener">Apache License 2.0</a>. You may use it for any purpose, personal or commercial, copy it, change it and share it, under the terms of that licence. Third-party components keep their own licences, listed on the <a href="../licenses/">licences page</a> and in <a href={`${SITE.repoUrl}/blob/main/NOTICE`} rel="noopener">NOTICE</a>.</p>
+
+  <h2>Your content</h2>
+  <p>Everything you record and export is yours. Vuoom adds no watermark and claims no rights to it. You are responsible for having permission to record what is on your screen and anyone you record, and for following the laws where you live.</p>
+
+  <h2>No warranty</h2>
+  <p>Vuoom is provided "as is", without warranties or conditions of any kind, as set out in sections 7 and 8 of the Apache License 2.0. Keep copies of recordings that matter to you.</p>
+
+  <h2>Trademarks</h2>
+  <p>The Vuoom name and logo identify this project. Please do not use them in a way that suggests your fork or product is the official Vuoom. Other product names on this site belong to their owners and are used only to describe and compare.</p>
+
+  <h2>This website</h2>
+  <p>You may link to and quote this site. Assets in the <a href="../press/">press kit</a> may be used to write about Vuoom.</p>
+
+  <h2>Contact</h2>
+  <p><a href={SITE.discussionsUrl} rel="noopener">GitHub Discussions</a>.</p>
+</Doc>

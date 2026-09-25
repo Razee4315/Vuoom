@@ -1,0 +1,38 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE } from '../lib/site';
+---
+<Doc path="/privacy/" label="Privacy" title="Your recordings stay yours." sub="Vuoom collects no personal data. Here is exactly what touches the network, and what never does." updated="25 September 2026">
+  <h2>The short version</h2>
+  <ul>
+    <li>No account, no sign-in, no telemetry, no analytics, no ads.</li>
+    <li>Recordings, audio, webcam video, captions and input logs stay on your computer.</li>
+    <li>This website sets no cookies and runs no trackers.</li>
+  </ul>
+
+  <h2>The Vuoom app</h2>
+  <h3>What stays on your computer</h3>
+  <p>Everything you record: screen frames, microphone and system audio, webcam video, the log of clicks and key presses used to plan zooms and draw the keystroke overlay, captions, projects and exports. Input is only logged while you record. Unsaved takes are kept in your temporary folder so they can be recovered after a crash; preferences and log files are kept in your app data folders. Delete them any time.</p>
+
+  <h3>The only two network requests</h3>
+  <ol>
+    <li><strong>Update check.</strong> When Vuoom starts, it downloads a small file, <code>latest.json</code>, from GitHub Releases to see if a newer signed version exists. If you click Update, it downloads the installer from GitHub. GitHub sees your IP address, as with any download. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub's privacy statement</a>.</li>
+    <li><strong>Captions model.</strong> The first time you click Make captions, Vuoom downloads a 57 MB speech model file from Hugging Face and checks its SHA-256. Nothing is uploaded. After that, captions work offline. See <a href="https://huggingface.co/privacy" rel="noopener">Hugging Face's privacy policy</a>.</li>
+  </ol>
+  <p>Vuoom's editor also talks to its own engine over a local connection on <code>127.0.0.1</code>. That never leaves your computer.</p>
+
+  <h3>Sharing</h3>
+  <p>Vuoom never uploads your videos. When you press Copy or save a file, where it goes next is up to you.</p>
+
+  <h2>This website</h2>
+  <p>The site is static and hosted on GitHub Pages, which may log your IP address for security, as described in GitHub's privacy statement. The site itself sets no cookies, stores nothing about you, and loads no analytics or third-party scripts. Fonts are served from this site. Pages ask the public GitHub API for the star count and the latest version; that request goes from your browser to GitHub.</p>
+
+  <h2>Children</h2>
+  <p>Vuoom does not collect personal data from anyone, including children.</p>
+
+  <h2>Changes</h2>
+  <p>If this ever changes, this page and the <a href={`${SITE.repoUrl}/blob/main/PRIVACY.md`} rel="noopener">PRIVACY.md</a> file in the repository will say so first, with the date. The full history is in git.</p>
+
+  <h2>Contact</h2>
+  <p>Questions: <a href={SITE.discussionsUrl} rel="noopener">GitHub Discussions</a> or <a href={`mailto:${SITE.securityEmail}`}>{SITE.securityEmail}</a>.</p>
+</Doc>

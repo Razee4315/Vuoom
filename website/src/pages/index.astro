@@ -7,6 +7,7 @@ import BeforeAfter from '../components/BeforeAfter.astro';
 import Video from '../components/Video.astro';
 import EditorPin from '../components/EditorPin.astro';
 import Faq from '../components/Faq.astro';
+import Film from '../components/Film.astro';
 import { FAQ_GENERAL } from '../data/faq';
 import { SITE, absolute, url } from '../lib/site';
 import { softwareApp, faqPage } from '../lib/schema';
@@ -23,6 +24,15 @@ const schema = [
     contentUrl: absolute('/media/demo.mp4'),
     uploadDate: '2026-09-25',
     duration: 'PT24S',
+  },
+  {
+    '@type': 'VideoObject',
+    name: 'Vuoom: the launch film',
+    description: 'Two minutes on Vuoom, the free auto-zoom screen recorder for Windows: auto-zoom, a smooth pointer, narration, webcam, offline captions and GIF or MP4 export.',
+    thumbnailUrl: absolute('/media/launch-poster.jpg'),
+    contentUrl: absolute('/media/launch.mp4'),
+    uploadDate: '2026-09-25',
+    duration: 'PT1M57S',
   },
 ];
 
@@ -50,6 +60,16 @@ const FEATURES = [
     </div>
     <div class="wrap hero__stage" data-hero-stage>
       <Stage />
+    </div>
+  </section>
+
+  <!-- Launch film -->
+  <section class="section film-sec" aria-labelledby="film-h">
+    <div class="wrap film-wrap">
+      <h2 id="film-h" class="h2 title" data-split>See it in two minutes.</h2>
+      <div data-reveal>
+        <Film />
+      </div>
     </div>
   </section>
 
@@ -154,6 +174,13 @@ const FEATURES = [
   }
   .hero__stage {
     margin-top: clamp(4rem, 10vw, 8rem);
+    max-width: 1180px;
+  }
+
+  .film-sec {
+    padding-top: 0;
+  }
+  .film-wrap {
     max-width: 1180px;
   }
 

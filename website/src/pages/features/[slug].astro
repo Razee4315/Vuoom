@@ -1,0 +1,191 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
+import Button from '../../components/Button.astro';
+import Video from '../../components/Video.astro';
+import Shot from '../../components/Shot.astro';
+import Keycap from '../../components/Keycap.astro';
+import Faq from '../../components/Faq.astro';
+import { FEATURE_PAGES, type FeaturePage } from '../../data/featurePages';
+import { url } from '../../lib/site';
+import { softwareApp, faqPage, howTo } from '../../lib/schema';
+import type { PagePath } from '../../data/pages';
+
+export function getStaticPaths() {
+  return FEATURE_PAGES.map((p) => ({ params: { slug: p.slug }, props: { page: p } }));
+}
+
+const { page } = Astro.props as { page: FeaturePage };
+const path = `/features/${page.slug}/` as PagePath;
+const related = page.related.map((s) => FEATURE_PAGES.find((p) => p.slug === s)!);
+const schema = [
+  await softwareApp(),
+  faqPage(page.faq),
+  howTo(page.title.replace(/\.$/, ''), page.steps.map((s, i) => ({ name: `Step ${i + 1}`, text: s }))),
+];
+---
+<Base path={path} crumbs={[{ href: '/features/', label: 'Features' }, { href: path, label: page.label }]} schema={schema}>
+  <PageHead eyebrow={page.label} title={page.title} sub={page.sub}>
+    <Button href="/download/" size="lg">Download free</Button>
+  </PageHead>
+
+  <div class="wrap media" data-reveal>
+    {page.media.video ? <Video name={page.media.video} /> : <Shot name={page.media.shot ?? 'editor'} eager sizes="(min-width: 1180px) 1100px, 100vw" />}
+  </div>
+
+  <section class="section" aria-labelledby="how-h">
+    <div class="wrap narrow">
+      <h2 id="how-h" class="h3">How it works.</h2>
+      <ol class="steps" role="list">
+        {page.steps.map((s, i) => (
+          <li data-reveal><span class="n">{i + 1}</span><p>{s}</p></li>
+        ))}
+      </ol>
+    </div>
+  </section>
+
+  <section class="section tight" aria-labelledby="det-h">
+    <div class="wrap">
+      <h2 id="det-h" class="visually-hidden">Details</h2>
+      <ul class="det" role="list">
+        {page.details.map((d) => (
+          <li data-reveal>
+            <h3 class="det__h">{d.h}</h3>
+            <p class="det__p">{d.p}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  {page.keys && (
+    <section class="section tight" aria-labelledby="keys-h">
+      <div class="wrap narrow">
+        <h2 id="keys-h" class="h3">Shortcuts.</h2>
+        <dl class="keys">
+          {page.keys.map((k) => (
+            <div><dt><Keycap keys={k.k} /></dt><dd>{k.d}</dd></div>
+          ))}
+        </dl>
+        <p class="more"><a class="link" href={url('/shortcuts/')}>All shortcuts</a></p>
+      </div>
+    </section>
+  )}
+
+  <section class="section tight" aria-labelledby="faq-h">
+    <div class="wrap narrow">
+      <h2 id="faq-h" class="h3">Questions.</h2>
+      <Faq items={page.faq} />
+    </div>
+  </section>
+
+  <section class="section tight" aria-labelledby="rel-h">
+    <div class="wrap narrow">
+      <h2 id="rel-h" class="h3">Also in Vuoom.</h2>
+      <ul class="rel" role="list">
+        {related.map((r) => (
+          <li><a class="rel__a" href={url(`/features/${r.slug}/`)}><span>{r.label}</span><span class="rel__s">{r.sub}</span></a></li>
+        ))}
+      </ul>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .media {
+    max-width: 1180px;
+  }
+  .narrow {
+    max-width: calc(760px + var(--gutter) * 2);
+  }
+  .tight {
+    padding-top: 0;
+  }
+  .h3 {
+    margin-bottom: var(--s-7);
+  }
+  .steps {
+    display: grid;
+    gap: var(--s-5);
+  }
+  .steps li {
+    display: flex;
+    gap: var(--s-4);
+    align-items: baseline;
+    font-size: var(--step-1);
+    line-height: var(--lh-sub);
+    color: var(--ink-2);
+  }
+  .n {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: var(--r-pill);
+    font-size: 0.875rem;
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--rule);
+    transform: translateY(-3px);
+  }
+  .det {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-8) var(--s-7);
+    max-width: 1000px;
+    margin-inline: auto;
+  }
+  .det__h {
+    font-size: var(--step-1);
+    font-weight: 560;
+    letter-spacing: var(--track-sub);
+    margin-bottom: var(--s-3);
+  }
+  .det__p {
+    color: var(--ink-2);
+  }
+  .keys div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--s-5);
+    padding-block: var(--s-4);
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .keys dd {
+    color: var(--ink-2);
+    text-align: right;
+  }
+  .more {
+    margin-top: var(--s-6);
+    color: var(--ink-2);
+  }
+  .rel {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border-radius: var(--r-frame);
+    overflow: hidden;
+  }
+  .rel__a {
+    display: grid;
+    gap: var(--s-1);
+    padding: var(--s-5) var(--s-6);
+    background: var(--ground);
+    font-weight: 560;
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .rel__a:hover {
+    background: var(--ground-raised);
+  }
+  .rel__s {
+    font-weight: 400;
+    color: var(--ink-3);
+  }
+  @media (max-width: 720px) {
+    .det {
+      grid-template-columns: 1fr;
+      gap: var(--s-7);
+    }
+  }
+</style>

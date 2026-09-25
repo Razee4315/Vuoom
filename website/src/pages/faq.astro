@@ -1,0 +1,31 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/PageHead.astro';
+import Faq from '../components/Faq.astro';
+import { FAQ_GENERAL, FAQ_MORE } from '../data/faq';
+import { SITE } from '../lib/site';
+import { faqPage } from '../lib/schema';
+
+const all = [...FAQ_GENERAL, ...FAQ_MORE];
+---
+<Base path="/faq/" crumbs={[{ href: '/faq/', label: 'FAQ' }]} schema={[faqPage(all)]}>
+  <PageHead title="Questions, answered." sub="Something missing? Ask on GitHub Discussions." />
+  <div class="wrap narrow">
+    <Faq items={all} />
+    <p class="ask">Still stuck? <a class="link" href={SITE.discussionsUrl} rel="noopener">Ask in Discussions</a> or <a class="link" href={SITE.newIssueUrl} rel="noopener">report a bug</a>.</p>
+  </div>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(760px + var(--gutter) * 2);
+    padding-bottom: var(--section);
+  }
+  .ask {
+    margin-top: var(--s-8);
+    color: var(--ink-3);
+  }
+  .ask .link {
+    color: var(--ink-2);
+  }
+</style>

@@ -1,0 +1,54 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE, url } from '../lib/site';
+
+const FILES = [
+  ['Logo, app icon (SVG)', '/press/vuoom-logo.svg'],
+  ['Logo, app icon (PNG, 1024)', '/press/vuoom-logo-1024.png'],
+  ['Mark only, for dark backgrounds (SVG)', '/press/vuoom-mark.svg'],
+  ['Screenshot: editor', '/press/vuoom-editor.png'],
+  ['Screenshot: editor, light theme', '/press/vuoom-editor-light.png'],
+  ['Screenshot: home', '/press/vuoom-home.png'],
+  ['Screenshot: picking a region', '/press/vuoom-record.png'],
+  ['Screenshot: export', '/press/vuoom-export.png'],
+  ['Launch film (MP4, 2 min)', '/media/launch.mp4'],
+];
+---
+<Doc path="/press/" label="Press kit" title="Press kit." sub="Everything you need to write about Vuoom. Free to use for that.">
+  <h2>In one line</h2>
+  <p>Vuoom is a free, open-source screen recorder for Windows whose camera zooms into what you click.</p>
+
+  <h2>In 50 words</h2>
+  <p>Vuoom is a free, open-source screen recorder for Windows 10 and 11. As you record, the camera zooms into each click with smooth spring motion, so small interface text stays readable. Trim, cut, add captions made offline, then export a small GIF or MP4. No account, no watermark, no cloud. Apache-2.0.</p>
+
+  <h2>In 100 words</h2>
+  <p>Vuoom is a free, open-source screen recorder for Windows that makes demos readable. A flat recording of a whole screen shrinks every button to a few pixels; Vuoom's camera glides into each click instead, on a critically damped spring, with a redrawn smooth pointer. It records narration, system sound and a webcam bubble, cleans noise, makes captions offline with whisper.cpp, and exports GIF or MP4 with a live size estimate. It is built in Rust with Tauri and wgpu, ships as an installer under 11 MB, needs no account, adds no watermark and uploads nothing. Licensed Apache-2.0.</p>
+
+  <h2>Files</h2>
+  <ul>{FILES.map(([n, f]) => <li><a href={url(f)} download>{n}</a></li>)}</ul>
+
+  <h2>Colours and type</h2>
+  <table>
+    <tbody>
+      <tr><td>Ground</td><td><code>#0B0B0C</code></td></tr>
+      <tr><td>Ink</td><td><code>#F2F0EB</code></td></tr>
+      <tr><td>Record red</td><td><code>#E5484D</code></td></tr>
+      <tr><td>Type</td><td>Bricolage Grotesque, Geist</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Facts</h2>
+  <ul>
+    <li>Name: Vuoom (one word, capital V)</li>
+    <li>Platform: Windows 10 and 11</li>
+    <li>Price: free</li>
+    <li>Licence: Apache-2.0</li>
+    <li>Built with: Rust, Tauri, wgpu, SolidJS</li>
+    <li>Website: <a href={url('/')}>razee4315.github.io/Vuoom</a></li>
+    <li>Source: <a href={SITE.repoUrl} rel="noopener">github.com/Razee4315/Vuoom</a></li>
+    <li>Maker: <a href={SITE.authorUrl} rel="noopener">Saqlain Razee</a></li>
+  </ul>
+
+  <h2>Please</h2>
+  <p>Do not change the logo's colours or proportions, and do not use it to suggest something is made by Vuoom when it is not.</p>
+</Doc>

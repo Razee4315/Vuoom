@@ -73,6 +73,7 @@ export async function initMotion(keys: Keycaps) {
     // ---- M09 hero load sequence + M10 stage ----
     const stageEl = document.querySelector<HTMLElement>('[data-stage]');
     const stage = stageEl ? initStage(stageEl, { onZoom: (zin) => zin && keys.press() }) : null;
+    stage?.start();
     const heroH = document.querySelector<HTMLElement>('[data-hero-h]');
     if (heroH) {
       const lines = splits.get(heroH)?.lines ?? [];
@@ -81,26 +82,16 @@ export async function initMotion(keys: Keycaps) {
         .from(lines, { yPercent: 110, duration: 1, stagger: 0.08 }, 0.15)
         .from('[data-hero-lead]', { y: 14, opacity: 0, duration: 0.8 }, 0.45)
         .from('[data-hero-cta] > *', { y: 16, opacity: 0, duration: 0.7, stagger: 0.06 }, 0.55)
-        .fromTo(
-          '.stage__well',
-          { clipPath: 'inset(48% 48% 48% 48% round 14px)' },
-          { clipPath: 'inset(0% 0% 0% 0% round 14px)', duration: 1.1, clearProps: 'clipPath' },
-          0.5,
-        )
-        .from('.stage__img', { scale: 1.08, duration: 1.4, transformOrigin: '50% 50%' }, 0.5)
-        .add(() => stage?.start(), 1.3);
+        .from('[data-hero-stage]', { y: 40, opacity: 0, duration: 1.2 }, 0.55);
       countdown.then(() => tl.play());
 
       // ---- M06 hero exit, scroll-linked ----
-      gsap.to('[data-hero-stage]', {
-        scale: 0.94,
-        opacity: 0.5,
-        yPercent: -4,
+      gsap.to('[data-hero-copy]', {
+        opacity: 0,
+        yPercent: -10,
         ease: 'none',
         scrollTrigger: { trigger: '[data-hero]', start: 'top top', end: 'bottom top', scrub: 1 },
       });
-    } else {
-      stage?.start();
     }
 
     // ---- M13 parallax ----

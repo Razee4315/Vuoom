@@ -74,3 +74,10 @@ are rendered at build with satori. llms.txt summarises the site for answer engin
 Geist (the text face) at weight 540 to 580, tracking -0.028em to -0.035em, line-height 1.04 to
 1.1, with smaller heading steps. Bricolage is removed, one fewer font download. The footer
 wordmark moves to the very bottom and is cropped by the page edge. Supersedes ADR-007.
+
+## ADR-017, The film is the hero
+2026-09-25. Owner asked for the launch film in place of the animated stage under the hero
+buttons. The film now sits there with a custom player (big play button on the open right half
+of the poster, a pill control bar with scrubber, time, mute and fullscreen that hides while
+playing, keyboard support). Poster is the "it zooms where you point." frame at 0:38. The stage
+animation moves to /features/auto-zoom/, where it demonstrates exactly that feature.

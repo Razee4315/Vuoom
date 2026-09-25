@@ -1,7 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
 import Button from '../components/Button.astro';
-import Stage from '../components/Stage.astro';
 import Problem from '../components/Problem.astro';
 import BeforeAfter from '../components/BeforeAfter.astro';
 import Video from '../components/Video.astro';
@@ -48,7 +47,7 @@ const FEATURES = [
 <Base path="/" schema={schema}>
   <!-- Hero -->
   <section class="hero" aria-labelledby="hero-h" data-hero>
-    <div class="wrap hero__copy">
+    <div class="wrap hero__copy" data-hero-copy>
       <h1 id="hero-h" class="display hero__h" data-split data-hero-h>
         Screen recordings that zoom where it matters.
       </h1>
@@ -59,17 +58,7 @@ const FEATURES = [
       </div>
     </div>
     <div class="wrap hero__stage" data-hero-stage>
-      <Stage />
-    </div>
-  </section>
-
-  <!-- Launch film -->
-  <section class="section film-sec" aria-labelledby="film-h">
-    <div class="wrap film-wrap">
-      <h2 id="film-h" class="h2 title" data-split>See it in two minutes.</h2>
-      <div data-reveal>
-        <Film />
-      </div>
+      <Film />
     </div>
   </section>
 
@@ -141,7 +130,7 @@ const FEATURES = [
 <style>
   /* hero */
   .hero {
-    padding-top: clamp(9rem, 18vh, 13rem);
+    padding-top: clamp(7rem, 15vh, 10rem);
     padding-bottom: var(--section);
   }
   .hero__copy {
@@ -154,13 +143,13 @@ const FEATURES = [
     font-size: clamp(2.5rem, 1rem + 4.4vw, 5.25rem);
   }
   .hero__sub {
-    margin-top: var(--s-6);
+    margin-top: var(--s-5);
     font-size: var(--step-1);
     color: var(--ink-2);
     letter-spacing: var(--track-sub);
   }
   .hero__cta {
-    margin-top: var(--s-7);
+    margin-top: var(--s-6);
     display: flex;
     align-items: center;
     gap: var(--s-3);
@@ -173,14 +162,7 @@ const FEATURES = [
     color: var(--ink);
   }
   .hero__stage {
-    margin-top: clamp(4rem, 10vw, 8rem);
-    max-width: 1180px;
-  }
-
-  .film-sec {
-    padding-top: 0;
-  }
-  .film-wrap {
+    margin-top: clamp(3rem, 7vh, 4.5rem);
     max-width: 1180px;
   }
 

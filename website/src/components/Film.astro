@@ -20,10 +20,12 @@ const { class: cls } = Astro.props;
     <source src={url('/media/launch.mp4')} type="video/mp4" />
   </video>
   <button class="film__play" type="button" data-film-play>
+    <span class="film__pill">
     <span class="film__icon" aria-hidden="true">
-      <svg width="22" height="22" viewBox="0 0 20 20"><path d="M6.5 4.2v11.6L16 10z" fill="currentColor" /></svg>
+      <svg width="16" height="16" viewBox="0 0 20 20"><path d="M6.5 4.2v11.6L16 10z" fill="currentColor" /></svg>
     </span>
     <span class="film__label">Watch the film <span class="film__len">2 min</span></span>
+    </span>
   </button>
 </figure>
 
@@ -43,26 +45,36 @@ const { class: cls } = Astro.props;
   .film__play {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: var(--s-4);
-    background: rgb(11 11 12 / 0.35);
-    transition: background-color var(--dur-hover) var(--ease-out-quart);
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-start;
+    padding: var(--s-5);
+    background: linear-gradient(to top, rgb(11 11 12 / 0.55), transparent 45%);
   }
-  .film__play:hover {
-    background: rgb(11 11 12 / 0.2);
+  .film__play > * {
+    position: relative;
+  }
+  .film__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: 6px 18px 6px 6px;
+    border-radius: var(--r-pill);
+    background: rgb(22 22 24 / 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: inset 0 0 0 1px rgb(242 240 235 / 0.1);
   }
   .film__icon {
-    width: 76px;
-    height: 76px;
+    width: 44px;
+    height: 44px;
     display: grid;
     place-items: center;
-    padding-left: 4px;
+    padding-left: 2px;
     border-radius: var(--r-pill);
     background: var(--rec);
     color: var(--on-rec);
-    box-shadow: 0 0 0 8px rgb(229 72 77 / 0.2);
+    
     transition: transform var(--dur-hover) var(--ease-out-quart);
   }
   .film__play:hover .film__icon {
@@ -85,8 +97,8 @@ const { class: cls } = Astro.props;
   }
   @media (max-width: 560px) {
     .film__icon {
-      width: 56px;
-      height: 56px;
+      width: 40px;
+      height: 40px;
     }
   }
 </style>

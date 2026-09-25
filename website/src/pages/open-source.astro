@@ -1,0 +1,39 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE } from '../lib/site';
+---
+<Doc path="/open-source/" label="Open source" title="Built in the open." sub="Apache-2.0. Read it, fork it, ship it in your own product.">
+  <h2>How it is built</h2>
+  <p>The interface is a SolidJS app in a Tauri window. Everything heavy runs natively in Rust:</p>
+  <table>
+    <tbody>
+      <tr><td><code>vuoom-capture</code></td><td>Windows Graphics Capture, any monitor</td></tr>
+      <tr><td><code>vuoom-audio</code></td><td>Microphone and system sound (WASAPI), edit-aware mixer</td></tr>
+      <tr><td><code>vuoom-input</code></td><td>Clicks and keys, timestamped, only while recording</td></tr>
+      <tr><td><code>vuoom-zoom</code></td><td>Auto-zoom planner and the spring camera</td></tr>
+      <tr><td><code>vuoom-render</code></td><td>wgpu compositor: zoom, text, shapes, overlays</td></tr>
+      <tr><td><code>vuoom-encode</code></td><td>GIF encoding and size estimates</td></tr>
+      <tr><td><code>vuoom-captions</code></td><td>whisper.cpp speech to text</td></tr>
+      <tr><td><code>vuoom-project</code></td><td>The .vuoom project model, with undo</td></tr>
+    </tbody>
+  </table>
+  <p>MP4 goes through Windows Media Foundation. The same <code>render(t)</code> path draws the preview and the export, so what you see is what you ship.</p>
+
+  <h2>Build it</h2>
+  <pre><code>pnpm install
+pnpm tauri dev      # run locally
+pnpm tauri build    # make installers</code></pre>
+  <p>Only working on the interface? It runs in a plain browser with a mock engine, no Rust needed:</p>
+  <pre><code>pnpm dev    # then open the local URL with ?mock=1&amp;demo=1</code></pre>
+
+  <h2>Contribute</h2>
+  <ul>
+    <li><a href={SITE.newIssueUrl} rel="noopener">Report a bug</a> with your Windows version and steps.</li>
+    <li><a href={SITE.discussionsUrl} rel="noopener">Share an idea</a> in Discussions.</li>
+    <li>Read <a href={`${SITE.repoUrl}/blob/main/CONTRIBUTING.md`} rel="noopener">CONTRIBUTING.md</a>, then open a pull request.</li>
+    <li>Star the <a href={SITE.repoUrl} rel="noopener">repository</a>. It helps people find Vuoom.</li>
+  </ul>
+
+  <h2>Releases</h2>
+  <p>GitHub Actions checks every change (type check, lint, clippy, tests) and builds the installers. Published releases reach users through the signed in-app updater.</p>
+</Doc>

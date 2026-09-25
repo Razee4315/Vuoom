@@ -11,6 +11,8 @@ Record your screen, the camera glides into the action, and you export a small,
 crisp **demo GIF or MP4** ready for your GitHub README, changelog, Slack, or
 product post. No account, no watermark, no subscription.
 
+**[Website](https://razee4315.github.io/Vuoom/)** · **[Download](https://razee4315.github.io/Vuoom/download/)** · **[Guide](https://razee4315.github.io/Vuoom/guide/)**
+
 [![Latest release](https://img.shields.io/github/v/release/Razee4315/Vuoom?label=download&color=e5484d)](https://github.com/Razee4315/Vuoom/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Razee4315/Vuoom/total?color=2ea44f)](https://github.com/Razee4315/Vuoom/releases)
 [![CI](https://img.shields.io/badge/CI-Windows%20checks-0078d4)](https://github.com/Razee4315/Vuoom/actions/workflows/ci.yml)

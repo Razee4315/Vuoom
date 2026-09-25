@@ -22,8 +22,7 @@ interface Props {
 const { path, crumbs, schema = [], countdown = false, type = 'website' } = Astro.props;
 const meta = PAGES[path];
 const canonical = absolute(path === '/404/' ? '/' : path);
-// Per-page cards come with the inner pages; until then every page shares the home card.
-const og = absolute(`/og/${ogSlug("/")}.png`);
+const og = absolute(`/og/${ogSlug(path)}.png`);
 const release = await latest();
 
 const org = {

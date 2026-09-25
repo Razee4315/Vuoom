@@ -21,8 +21,14 @@ write/read via crafted `.vuoom` project bundles.
 You'll get an acknowledgment within a few days. Fixes ship through the normal
 release pipeline, with credit to the reporter (unless you prefer otherwise).
 
-## What Vuoom never does
+## What Vuoom does on the network
 
-No telemetry, no network calls except the preview WebSocket on `127.0.0.1`,
-no account, no cloud. If you observe network traffic that contradicts this,
-that alone is report-worthy.
+No telemetry, no account, no cloud. The app makes exactly two outbound requests:
+
+1. **Update check** on launch: `latest.json` from this repo's GitHub Releases. Updates are
+   signed and the public key is pinned in `src-tauri/tauri.conf.json`.
+2. **Captions model**, once, only when you click Make captions: `ggml-base-q5_1.bin` from
+   Hugging Face, verified by SHA-256 before use.
+
+Plus the preview WebSocket on `127.0.0.1`, which never leaves the machine. If you observe any
+other network traffic from Vuoom, that alone is report-worthy. See also [PRIVACY.md](./PRIVACY.md).

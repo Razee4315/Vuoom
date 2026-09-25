@@ -1,0 +1,122 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
+import Button from '../../components/Button.astro';
+import FeatureIndex from '../../components/FeatureIndex.astro';
+import { FEATURES } from '../../data/features';
+import { FEATURE_PAGES } from '../../data/featurePages';
+import { url } from '../../lib/site';
+import { softwareApp } from '../../lib/schema';
+
+const MORE = [
+  'Region, full screen or a single window, on any monitor',
+  'Aspect presets: 16:9, 9:16, 1:1, 4:5',
+  '24, 30 or 60 fps, paced to save CPU',
+  'Pause and resume while recording',
+  'Click ripples and a keystroke overlay',
+  'Frames and backdrops, or your own picture',
+  'Five themes and a reduced-motion mode',
+  'Search every action with Ctrl+K',
+  'Recordings about 20 times smaller than raw pixels',
+  'Crash recovery for the last take',
+  'Projects saved as .vuoom files',
+  'Signed automatic updates',
+];
+---
+<Base path="/features/" crumbs={[{ href: '/features/', label: 'Features' }]} schema={[await softwareApp()]}>
+  <PageHead title="Everything a demo needs." sub="Record, zoom, edit and export in one small Windows app.">
+    <Button href="/download/" size="lg">Download free</Button>
+  </PageHead>
+
+  <section class="wrap narrow" aria-label="Feature pages">
+    <ul class="pages" role="list">
+      {FEATURE_PAGES.map((p) => (
+        <li data-reveal>
+          <a class="pages__a" href={url(`/features/${p.slug}/`)}>
+            <span class="pages__t">{p.label}</span>
+            <span class="pages__s">{p.sub}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="section" aria-labelledby="all-h">
+    <div class="wrap">
+      <h2 id="all-h" class="h2 title" data-split>In detail.</h2>
+      <FeatureIndex items={FEATURES} />
+    </div>
+  </section>
+
+  <section class="section tight" aria-labelledby="more-h">
+    <div class="wrap narrow">
+      <h2 id="more-h" class="h3 sub">And the small things.</h2>
+      <ul class="more" role="list">
+        {MORE.map((m) => <li data-reveal>{m}</li>)}
+      </ul>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(860px + var(--gutter) * 2);
+  }
+  .tight {
+    padding-top: 0;
+  }
+  .title {
+    text-align: center;
+    margin-bottom: clamp(3rem, 7vw, 6rem);
+  }
+  .sub {
+    margin-bottom: var(--s-7);
+  }
+  .pages {
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border-radius: var(--r-frame);
+    overflow: hidden;
+  }
+  .pages__a {
+    display: grid;
+    grid-template-columns: 14rem 1fr;
+    gap: var(--s-5);
+    padding: var(--s-6);
+    background: var(--ground);
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .pages__a:hover {
+    background: var(--ground-raised);
+  }
+  .pages__t {
+    font-family: var(--font-display);
+    font-size: var(--step-1);
+    font-weight: 600;
+    font-stretch: 92%;
+    letter-spacing: var(--track-sub);
+  }
+  .pages__s {
+    color: var(--ink-3);
+  }
+  .more {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-4) var(--s-7);
+    color: var(--ink-2);
+  }
+  .more li {
+    padding-block: var(--s-3);
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  @media (max-width: 720px) {
+    .pages__a {
+      grid-template-columns: 1fr;
+      gap: var(--s-2);
+    }
+    .more {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -1,0 +1,51 @@
+---
+import Doc from '../layouts/Doc.astro';
+import { SITE } from '../lib/site';
+
+// Declared licences, read from crates.io and npm on 25 September 2026.
+const APP = [
+  ['Tauri', 'https://tauri.app', 'MIT or Apache-2.0'],
+  ['wgpu', 'https://wgpu.rs', 'MIT or Apache-2.0'],
+  ['windows-capture', 'https://github.com/NiiightmareXD/windows-capture', 'MIT'],
+  ['windows (Rust for Windows)', 'https://github.com/microsoft/windows-rs', 'MIT or Apache-2.0'],
+  ['whisper.cpp and the Whisper base model', 'https://github.com/ggml-org/whisper.cpp', 'MIT'],
+  ['whisper-rs', 'https://github.com/tazz4843/whisper-rs', 'Unlicense'],
+  ['nnnoiseless (RNNoise)', 'https://github.com/jneem/nnnoiseless', 'BSD-3-Clause'],
+  ['gif', 'https://github.com/image-rs/image-gif', 'MIT or Apache-2.0'],
+  ['png', 'https://github.com/image-rs/image-png', 'MIT or Apache-2.0'],
+  ['lz4_flex', 'https://github.com/PSeitz/lz4_flex', 'MIT'],
+  ['glyphon', 'https://github.com/grovesNL/glyphon', 'MIT, Apache-2.0 or Zlib'],
+  ['glam', 'https://github.com/bitshifter/glam-rs', 'MIT or Apache-2.0'],
+  ['tokio', 'https://tokio.rs', 'MIT'],
+  ['reqwest', 'https://github.com/seanmonstar/reqwest', 'MIT or Apache-2.0'],
+  ['rayon', 'https://github.com/rayon-rs/rayon', 'MIT or Apache-2.0'],
+  ['serde', 'https://serde.rs', 'MIT or Apache-2.0'],
+  ['SolidJS', 'https://www.solidjs.com', 'MIT'],
+  ['Inter (app interface font)', 'https://rsms.me/inter/', 'SIL Open Font License 1.1'],
+];
+const SITE_DEPS = [
+  ['Astro', 'https://astro.build', 'MIT'],
+  ['GSAP, ScrollTrigger, SplitText', 'https://gsap.com', "GSAP Standard 'no charge' licence"],
+  ['Lenis', 'https://lenis.darkroom.engineering', 'MIT'],
+  ['marked', 'https://marked.js.org', 'MIT'],
+  ['Bricolage Grotesque', 'https://github.com/ateliertriay/bricolage', 'SIL Open Font License 1.1'],
+  ['Geist and Geist Mono', 'https://vercel.com/font', 'SIL Open Font License 1.1'],
+];
+---
+<Doc path="/licenses/" label="Licences" title="Standing on open source." sub="Vuoom is Apache-2.0. These projects make it possible.">
+  <h2>The Vuoom app</h2>
+  <p>The main components, with the licence each project declares. The full list of every dependency is generated from <code>Cargo.lock</code> and <code>pnpm-lock.yaml</code> in the <a href={SITE.repoUrl} rel="noopener">repository</a>.</p>
+  <table>
+    <thead><tr><th>Project</th><th>Licence</th></tr></thead>
+    <tbody>{APP.map(([n, u, l]) => <tr><td><a href={u} rel="noopener">{n}</a></td><td>{l}</td></tr>)}</tbody>
+  </table>
+
+  <h2>This website</h2>
+  <table>
+    <thead><tr><th>Project</th><th>Licence</th></tr></thead>
+    <tbody>{SITE_DEPS.map(([n, u, l]) => <tr><td><a href={u} rel="noopener">{n}</a></td><td>{l}</td></tr>)}</tbody>
+  </table>
+
+  <h2>Vuoom itself</h2>
+  <p>Copyright 2026 the Vuoom authors. Licensed under the <a href={`${SITE.repoUrl}/blob/main/LICENSE`} rel="noopener">Apache License 2.0</a>. See also <a href={`${SITE.repoUrl}/blob/main/NOTICE`} rel="noopener">NOTICE</a>.</p>
+</Doc>

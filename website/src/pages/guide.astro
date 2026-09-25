@@ -1,0 +1,136 @@
+---
+import Base from '../layouts/Base.astro';
+import PageHead from '../components/PageHead.astro';
+import Shot from '../components/Shot.astro';
+import { SITE, url } from '../lib/site';
+import { howTo } from '../lib/schema';
+
+const TOC = [
+  ['install', 'Install'],
+  ['record', 'Your first take'],
+  ['zoom', 'Zooms'],
+  ['edit', 'Editing'],
+  ['annotate', 'Annotations'],
+  ['audio', 'Audio and webcam'],
+  ['captions', 'Captions'],
+  ['export', 'Export'],
+  ['projects', 'Projects and recovery'],
+  ['help', 'Troubleshooting'],
+];
+const schema = [
+  howTo('Record your first screen recording with Vuoom', [
+    { name: 'Install', text: 'Download the installer from the Vuoom website and run it.' },
+    { name: 'Record', text: 'Press Record, pick a region, a window or a full screen, and press Start.' },
+    { name: 'Zoom', text: 'Press Ctrl+Shift+Z while recording to zoom into the pointer.' },
+    { name: 'Stop', text: 'Press Ctrl+Shift+X to stop.' },
+    { name: 'Export', text: 'Press Ctrl+E, choose GIF or MP4, then Copy.' },
+  ]),
+];
+---
+<Base path="/guide/" crumbs={[{ href: '/guide/', label: 'Guide' }]} schema={schema}>
+  <PageHead title="Your first take." sub="From install to a GIF in your clipboard, in about two minutes." />
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="On this page">
+      <ol role="list">
+        {TOC.map(([id, label]) => <li><a class="toc__a" href={`#${id}`}>{label}</a></li>)}
+      </ol>
+    </nav>
+
+    <article class="prose">
+      <h2 id="install">Install</h2>
+      <ol>
+        <li><a href={url('/download/')}>Download</a> the <code>.exe</code> installer (or the <code>.msi</code>).</li>
+        <li>Windows SmartScreen may warn because the app is not code-signed yet. Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+        <li>Open Vuoom from the Start menu.</li>
+      </ol>
+
+      <h2 id="record">Your first take</h2>
+      <Shot name="home" sizes="(min-width: 960px) 680px, 100vw" />
+      <ol>
+        <li>On the home screen choose <strong>Region</strong>, <strong>Full screen</strong> or <strong>Window</strong>. Set the frame rate, zoom strength and countdown right there.</li>
+        <li>Press <strong>Record</strong>. Drag the region, or pick an aspect preset: 16:9, 9:16, 1:1 or 4:5.</li>
+        <li>Turn on the microphone, system sound or webcam if you want them, then press <strong>Start</strong>.</li>
+        <li>Work as normal. <strong>Pause</strong> any time. Press <code>Ctrl+Shift+X</code> to stop.</li>
+      </ol>
+
+      <h2 id="zoom">Zooms</h2>
+      <p>While recording, press <code>Ctrl+Shift+Z</code> to glide the camera into your pointer, and again to pull back out. You do not have to: after you stop, <strong>Auto zooms</strong> in the Clip tab can plan zooms from your clicks at any strength.</p>
+      <p>In the editor every zoom is a red block on the Zoom track. Select one to change its strength, its aim (follow the pointer or lock a spot) and its feel: Smooth, Snappy or Slow. Press <code>Z</code> to add one at the playhead.</p>
+
+      <h2 id="edit">Editing</h2>
+      <ul>
+        <li><strong>Trim</strong> the ends with <code>I</code> and <code>O</code>, or drag the trim handles.</li>
+        <li><strong>Cut</strong> a fumble with <code>C</code>. <strong>Speed up</strong> a slow part with <code>X</code>.</li>
+        <li><strong>Skim idle</strong> in the Clip tab plays dead stretches at 2 to 8 times speed.</li>
+        <li><strong>Crop</strong> right on the video with aspect locks and thirds guides.</li>
+        <li><strong>Frame</strong> the video with padding, corners and a shadow on a backdrop, or your own picture.</li>
+        <li>Everything undoes with <code>Ctrl+Z</code>.</li>
+      </ul>
+
+      <h2 id="annotate">Annotations</h2>
+      <p>Pick a tool from the rail and draw on the video: text (<code>T</code>), arrows (<code>A</code>), a pen and marker (<code>P</code>), shapes (<code>S</code>), highlights (<code>H</code>), a spotlight that dims everything else (<code>L</code>) and blur masks for secrets (<code>M</code>). Each gets its own bar on the timeline with colour, opacity and fades.</p>
+
+      <h2 id="audio">Audio and webcam</h2>
+      <p>Microphone and system sound record to separate tracks with live meters. On the timeline set volume or mute per track. In the inspector, <strong>Remove noise</strong> cleans fan hum and hiss, and <strong>Even out volume</strong> levels a voice that drifts from the mic. The webcam bubble can move to any corner, change shape and size, and mirror, all after recording.</p>
+
+      <h2 id="captions">Captions</h2>
+      <p>Record with your microphone, then click <strong>Make captions</strong>. The first time, Vuoom downloads a 57 MB speech model once; after that captions are made offline on your PC with whisper.cpp. Fix any word in the inspector, drag a caption to retime it, and choose top or bottom and a size.</p>
+
+      <h2 id="export">Export</h2>
+      <Shot name="export" sizes="(min-width: 960px) 680px, 100vw" />
+      <p>Press <code>Ctrl+E</code>. Choose <strong>GIF</strong> or <strong>MP4</strong>, a preset, and watch the size estimate. Use <strong>Fit under</strong> to keep a GIF below a limit such as GitHub's 10 MB. Press <strong>Copy</strong> to paste the file straight into GitHub, Slack or a document, or reveal it in Explorer. Captions can be burned in or saved as <code>.srt</code>.</p>
+
+      <h2 id="projects">Projects and recovery</h2>
+      <p>Press <code>Ctrl+S</code> to save a <code>.vuoom</code> project; it saves in seconds because the compressed frames are copied, not re-encoded. Recent projects appear on the home screen. Frames are written to disk while you record, so if Vuoom or Windows crashes, the next launch offers to recover the take.</p>
+
+      <h2 id="help">Troubleshooting</h2>
+      <h3>A yellow border appears around the window I record</h3>
+      <p>That is Windows 10 marking a captured window. Windows 11 records without it. Full-screen capture is borderless on both.</p>
+      <h3>The GIF is too big</h3>
+      <p>Lower the width or frame rate, trim or skim idle parts, or set Fit under. MP4 is usually far smaller for the same video.</p>
+      <h3>Something else</h3>
+      <p>Check the <a href={url('/faq/')}>FAQ</a>, ask in <a href={SITE.discussionsUrl} rel="noopener">Discussions</a>, or <a href={SITE.newIssueUrl} rel="noopener">report a bug</a> with your Windows version and steps to reproduce. See all <a href={url('/shortcuts/')}>keyboard shortcuts</a>.</p>
+    </article>
+  </div>
+</Base>
+
+<style>
+  .layout {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr);
+    gap: var(--s-9);
+    max-width: calc(1040px + var(--gutter) * 2);
+    padding-bottom: var(--section);
+  }
+  .toc ol {
+    position: sticky;
+    top: 110px;
+    display: grid;
+    gap: var(--s-2);
+  }
+  .toc__a {
+    color: var(--ink-3);
+    font-size: 0.9375rem;
+    transition: color var(--dur-hover) var(--ease-out-quart);
+  }
+  .toc__a:hover {
+    color: var(--ink);
+  }
+  .prose :global(.shot) {
+    margin-block: var(--s-6);
+  }
+  .prose h2:first-child {
+    margin-top: 0;
+  }
+  @media (max-width: 860px) {
+    .layout {
+      grid-template-columns: 1fr;
+      gap: var(--s-7);
+    }
+    .toc ol {
+      position: static;
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

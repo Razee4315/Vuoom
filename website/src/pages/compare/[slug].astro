@@ -1,0 +1,148 @@
+---
+import Base from '../../layouts/Base.astro';
+import PageHead from '../../components/PageHead.astro';
+import Button from '../../components/Button.astro';
+import CompareTable from '../../components/CompareTable.astro';
+import Faq from '../../components/Faq.astro';
+import { COMPARE_PAGES, PRODUCTS, type ComparePage } from '../../data/compare';
+import { url } from '../../lib/site';
+import { faqPage } from '../../lib/schema';
+
+export function getStaticPaths() {
+  return COMPARE_PAGES.map((c) => ({ params: { slug: c.slug }, props: { page: c } }));
+}
+
+const { page } = Astro.props as { page: ComparePage };
+const them = PRODUCTS.find((p) => p.id === page.them)!;
+const others = COMPARE_PAGES.filter((c) => c.slug !== page.slug);
+---
+<Base
+  path={page.path}
+  crumbs={[{ href: '/compare/', label: 'Compare' }, { href: page.path, label: `vs ${them.name}` }]}
+  schema={[faqPage(page.faq)]}
+>
+  <PageHead eyebrow={`Vuoom vs ${them.name}`} title={page.h1} sub={page.verdict}>
+    <Button href="/download/" size="lg">Try Vuoom free</Button>
+  </PageHead>
+
+  <section class="wrap narrow" aria-labelledby="choose-h">
+    <h2 id="choose-h" class="visually-hidden">Which one to choose</h2>
+    <div class="choose">
+      <div class="choose__col" data-reveal>
+        <h3 class="choose__h">Choose {them.name} if</h3>
+        <ul role="list">{page.chooseThem.map((c) => <li>{c}</li>)}</ul>
+      </div>
+      <div class="choose__col choose__col--us" data-reveal>
+        <h3 class="choose__h"><span class="dot" aria-hidden="true"></span>Choose Vuoom if</h3>
+        <ul role="list">{page.chooseUs.map((c) => <li>{c}</li>)}</ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="tbl-h">
+    <div class="wrap narrow">
+      <h2 id="tbl-h" class="h3 sub">Side by side.</h2>
+      <CompareTable only={['vuoom', page.them]} caption={`Vuoom and ${them.name}, checked September 2026.`} />
+    </div>
+  </section>
+
+  <section class="section tight" aria-labelledby="notes-h">
+    <div class="wrap narrow">
+      <h2 id="notes-h" class="visually-hidden">Notes</h2>
+      <div class="notes">
+        {page.notes.map((n) => (
+          <div data-reveal>
+            <h3 class="notes__h">{n.h}</h3>
+            <p class="notes__p">{n.p}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section tight" aria-labelledby="faq-h">
+    <div class="wrap narrow">
+      <h2 id="faq-h" class="h3 sub">Questions.</h2>
+      <Faq items={page.faq} />
+      <p class="others">
+        Also compare:
+        {others.map((o, i) => (
+          <>
+            {i > 0 && ' · '}
+            <a class="link" href={url(o.path)}>{PRODUCTS.find((p) => p.id === o.them)?.name}</a>
+          </>
+        ))}
+      </p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .narrow {
+    max-width: calc(860px + var(--gutter) * 2);
+  }
+  .tight {
+    padding-top: 0;
+  }
+  .sub {
+    margin-bottom: var(--s-7);
+  }
+  .choose {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--rule);
+    border-radius: var(--r-frame);
+    overflow: hidden;
+  }
+  .choose__col {
+    padding: var(--s-7) var(--s-6);
+    background: var(--ground);
+  }
+  .choose__col--us {
+    background: var(--ground-raised);
+  }
+  .choose__h {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--step-1);
+    font-weight: 560;
+    margin-bottom: var(--s-5);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+  }
+  .choose li {
+    color: var(--ink-2);
+    padding-block: var(--s-2);
+  }
+  .notes {
+    display: grid;
+    gap: var(--s-7);
+  }
+  .notes__h {
+    font-size: var(--step-1);
+    font-weight: 560;
+    margin-bottom: var(--s-3);
+  }
+  .notes__p {
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+  .others {
+    margin-top: var(--s-8);
+    color: var(--ink-3);
+  }
+  .others .link {
+    color: var(--ink-2);
+  }
+  @media (max-width: 720px) {
+    .choose {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

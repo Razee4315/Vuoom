@@ -1,0 +1,105 @@
+---
+// The launch film. Poster and one play button; it only loads and plays, with sound, when
+// the visitor asks. Native controls appear once it starts.
+import { url } from '../lib/site';
+
+interface Props {
+  class?: string;
+}
+const { class: cls } = Astro.props;
+---
+<figure class:list={['film', cls]} data-film>
+  <video
+    width="1920"
+    height="1080"
+    playsinline
+    preload="none"
+    poster={url('/media/launch-poster.jpg')}
+    aria-label="Vuoom launch film, about two minutes"
+  >
+    <source src={url('/media/launch.mp4')} type="video/mp4" />
+  </video>
+  <button class="film__play" type="button" data-film-play>
+    <span class="film__icon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 20 20"><path d="M6.5 4.2v11.6L16 10z" fill="currentColor" /></svg>
+    </span>
+    <span class="film__label">Watch the film <span class="film__len">2 min</span></span>
+  </button>
+</figure>
+
+<style>
+  .film {
+    position: relative;
+    border-radius: var(--r-frame);
+    overflow: hidden;
+    background: var(--ground-raised);
+    box-shadow:
+      var(--shadow-stage),
+      0 0 0 var(--hair) var(--rule);
+  }
+  video {
+    width: 100%;
+  }
+  .film__play {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: var(--s-4);
+    background: rgb(11 11 12 / 0.35);
+    transition: background-color var(--dur-hover) var(--ease-out-quart);
+  }
+  .film__play:hover {
+    background: rgb(11 11 12 / 0.2);
+  }
+  .film__icon {
+    width: 76px;
+    height: 76px;
+    display: grid;
+    place-items: center;
+    padding-left: 4px;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+    color: var(--on-rec);
+    box-shadow: 0 0 0 8px rgb(229 72 77 / 0.2);
+    transition: transform var(--dur-hover) var(--ease-out-quart);
+  }
+  .film__play:hover .film__icon {
+    transform: scale(1.06);
+  }
+  .film__play:active .film__icon {
+    transform: scale(0.97);
+  }
+  .film__label {
+    font-weight: 560;
+    color: var(--ink);
+  }
+  .film__len {
+    color: var(--ink-2);
+    font-weight: 400;
+    margin-left: var(--s-2);
+  }
+  .film.is-playing .film__play {
+    display: none;
+  }
+  @media (max-width: 560px) {
+    .film__icon {
+      width: 56px;
+      height: 56px;
+    }
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-film]').forEach((fig) => {
+    const v = fig.querySelector('video')!;
+    fig.querySelector('[data-film-play]')?.addEventListener('click', () => {
+      fig.classList.add('is-playing');
+      v.controls = true;
+      v.preload = 'auto';
+      v.play().catch(() => {});
+      v.focus();
+    });
+  });
+</script>

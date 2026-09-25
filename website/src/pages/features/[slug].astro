@@ -5,6 +5,7 @@ import Button from '../../components/Button.astro';
 import Video from '../../components/Video.astro';
 import Shot from '../../components/Shot.astro';
 import Keycap from '../../components/Keycap.astro';
+import Stage from '../../components/Stage.astro';
 import Faq from '../../components/Faq.astro';
 import { FEATURE_PAGES, type FeaturePage } from '../../data/featurePages';
 import { url } from '../../lib/site';
@@ -30,8 +31,18 @@ const schema = [
   </PageHead>
 
   <div class="wrap media" data-reveal>
-    {page.media.video ? <Video name={page.media.video} /> : <Shot name={page.media.shot ?? 'editor'} eager sizes="(min-width: 1180px) 1100px, 100vw" />}
+    {page.media.stage ? <Stage /> : page.media.video ? <Video name={page.media.video} /> : <Shot name={page.media.shot ?? 'editor'} eager sizes="(min-width: 1180px) 1100px, 100vw" />}
+    {page.media.stage && <p class="try">Hover the picture and press <Keycap keys={['Ctrl', 'Shift', 'Z']} class="hero__keycaps" /> to zoom yourself.</p>}
   </div>
+
+  {page.media.stage && page.media.video && (
+    <section class="section" aria-labelledby="take-h">
+      <div class="wrap media">
+        <h2 id="take-h" class="h3">A real take.</h2>
+        <Video name={page.media.video} />
+      </div>
+    </section>
+  )}
 
   <section class="section" aria-labelledby="how-h">
     <div class="wrap narrow">
@@ -94,6 +105,12 @@ const schema = [
 <style>
   .media {
     max-width: 1180px;
+  }
+  .try {
+    margin-top: var(--s-5);
+    text-align: center;
+    color: var(--ink-3);
+    font-size: 0.9375rem;
   }
   .narrow {
     max-width: calc(760px + var(--gutter) * 2);

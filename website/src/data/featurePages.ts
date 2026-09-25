@@ -8,7 +8,7 @@ export interface FeaturePage {
   label: string;
   title: string;
   sub: string;
-  media: { video?: 'demo' | 'github' | 'voice'; shot?: 'editor' | 'home' | 'record' | 'export' | 'editor-light' };
+  media: { stage?: boolean; video?: 'demo' | 'github' | 'voice'; shot?: 'editor' | 'home' | 'record' | 'export' | 'editor-light' };
   steps: string[];
   details: { h: string; p: string }[];
   keys?: { k: string[]; d: string }[];
@@ -22,7 +22,7 @@ export const FEATURE_PAGES: FeaturePage[] = [
     label: 'Auto-zoom',
     title: 'Auto-zoom that follows your clicks.',
     sub: 'The camera glides to what you click, then back out. On Windows, for free.',
-    media: { video: 'github' },
+    media: { stage: true, video: 'github' },
     steps: [
       'Press Ctrl+Shift+Z while you record. The camera glides to your pointer.',
       'Press it again to pull back out.',

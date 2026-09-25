@@ -68,3 +68,9 @@ hero as "See it in two minutes." and on the Download page. It never autoplays: p
 play button, sound on, native controls after start. All 23 routes are built in the minimal
 style: PageHead (one headline, one line), narrow columns, hairline lists. Per-page share cards
 are rendered at build with satori. llms.txt summarises the site for answer engines.
+
+## ADR-016, One typeface: Geist
+2026-09-25. Owner found Bricolage Grotesque condensed congested and off-brand. Headings now use
+Geist (the text face) at weight 540 to 580, tracking -0.028em to -0.035em, line-height 1.04 to
+1.1, with smaller heading steps. Bricolage is removed, one fewer font download. The footer
+wordmark moves to the very bottom and is cropped by the page edge. Supersedes ADR-007.

@@ -1,14 +1,6 @@
-@import '@fontsource-variable/bricolage-grotesque/standard.css';
 @import '@fontsource-variable/geist/index.css';
 @import '@fontsource-variable/geist-mono/index.css';
 @import './tokens.css';
-
-/* ---------- fallback metrics, to keep the swap from shifting layout ---------- */
-@font-face {
-  font-family: 'Arial Narrow';
-  src: local('Arial Narrow'), local('ArialNarrow');
-  size-adjust: 96%;
-}
 
 /* ---------- reset ---------- */
 *,
@@ -142,32 +134,28 @@ table {
 .display {
   font-family: var(--font-display);
   font-size: var(--step-6);
-  font-weight: 600;
-  font-stretch: 92%;
+  font-weight: 560;
   letter-spacing: var(--track-display);
   line-height: var(--lh-display);
 }
 .h1 {
   font-family: var(--font-display);
   font-size: var(--step-5);
-  font-weight: 700;
-  font-stretch: 75%;
+  font-weight: 580;
   letter-spacing: var(--track-display);
   line-height: var(--lh-display);
 }
 .h2 {
   font-family: var(--font-display);
   font-size: var(--step-4);
-  font-weight: 600;
-  font-stretch: 92%;
+  font-weight: 560;
   letter-spacing: var(--track-heading);
   line-height: var(--lh-heading);
 }
 .h3 {
   font-family: var(--font-display);
   font-size: var(--step-3);
-  font-weight: 640;
-  font-stretch: 85%;
+  font-weight: 560;
   letter-spacing: var(--track-heading);
   line-height: var(--lh-heading);
 }
@@ -219,8 +207,7 @@ table {
 .prose h2 {
   font-family: var(--font-display);
   font-size: var(--step-2);
-  font-weight: 660;
-  font-stretch: 85%;
+  font-weight: 560;
   letter-spacing: var(--track-heading);
   line-height: var(--lh-heading);
   color: var(--ink);

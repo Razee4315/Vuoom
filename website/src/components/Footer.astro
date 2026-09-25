@@ -31,16 +31,16 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     </nav>
   </div>
 
-  <p class="foot__mark" aria-hidden="true" data-wordmark>
-    <span class="foot__word">VUOOM</span><span class="foot__dot"></span>
-  </p>
-
   <div class="wrap foot__base">
     <span>© {year} Vuoom · Apache-2.0 · v{release.version}</span>
     <span class="foot__legal">
       {legal.map((l) => <a class="foot__link" href={url(l.href)}>{l.label}</a>)}
     </span>
   </div>
+
+  <p class="foot__mark" aria-hidden="true" data-wordmark>
+    <span class="foot__word">VUOOM</span><span class="foot__dot"></span>
+  </p>
 </footer>
 
 <style>
@@ -78,14 +78,15 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    margin-top: var(--s-9);
-    line-height: 0.78;
+    margin-top: var(--s-7);
+    /* the bottom of the letters runs off the page edge */
+    margin-bottom: -0.2em;
+    line-height: 0.8;
     font-family: var(--font-display);
-    font-weight: 800;
-    font-stretch: 75%;
-    font-size: clamp(5rem, 26vw, 25rem);
-    letter-spacing: -0.05em;
-    color: rgb(242 240 235 / 0.9);
+    font-weight: 700;
+    font-size: clamp(5rem, 24vw, 23rem);
+    letter-spacing: -0.06em;
+    color: rgb(242 240 235 / 0.92);
     user-select: none;
     white-space: nowrap;
   }
@@ -104,7 +105,7 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     flex-wrap: wrap;
     justify-content: space-between;
     gap: var(--s-3) var(--s-6);
-    padding-block: var(--s-5) var(--s-6);
+    padding-block: var(--s-8) 0;
     font-size: 0.8125rem;
     color: var(--ink-3);
   }

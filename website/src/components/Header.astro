@@ -74,14 +74,18 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
     const dark = theme === 'dark';
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     toggle?.setAttribute('aria-pressed', String(dark));
+    toggle?.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#192830' : '#f5f1e8');
     document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', dark ? 'dark' : 'light');
   };
   updateTheme(document.documentElement.dataset.theme || 'light');
-  let chosenTheme = document.documentElement.dataset.theme || 'light';
+  const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+  let manualChoice = false;
+  try { manualChoice = ['dark', 'light'].includes(localStorage.getItem('vuoom-theme') || ''); } catch {}
   let transition: { skipTransition(): void } | undefined;
   toggle?.addEventListener('click', () => {
-    const theme = chosenTheme = chosenTheme === 'dark' ? 'light' : 'dark';
+    const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    manualChoice = true;
     transition?.skipTransition();
     if (document.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       transition = document.startViewTransition(() => updateTheme(theme));
@@ -89,10 +93,13 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
     try { localStorage.setItem('vuoom-theme', theme); } catch {}
     window.dispatchEvent(new Event('vuoom:theme'));
   });
+  systemTheme.addEventListener('change', event => {
+    if (!manualChoice) updateTheme(event.matches ? 'dark' : 'light');
+  });
   window.addEventListener('storage', event => {
     if (event.key === 'vuoom-theme') {
-      chosenTheme = event.newValue === 'dark' ? 'dark' : 'light';
-      updateTheme(chosenTheme);
+      manualChoice = event.newValue === 'dark' || event.newValue === 'light';
+      updateTheme(manualChoice ? event.newValue! : systemTheme.matches ? 'dark' : 'light');
     }
   });
 </script>

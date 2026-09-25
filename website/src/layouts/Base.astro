@@ -107,7 +107,11 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
       (function () {
         var d = document.documentElement;
         d.classList.add('js');
-        try { d.dataset.theme = localStorage.getItem('vuoom-theme') === 'dark' ? 'dark' : 'light'; } catch (e) { d.dataset.theme = 'light'; }
+        var savedTheme = null;
+        try { savedTheme = localStorage.getItem('vuoom-theme'); } catch (e) {}
+        d.dataset.theme = savedTheme === 'dark' || savedTheme === 'light'
+          ? savedTheme
+          : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (!reduce) d.classList.add('motion');
 

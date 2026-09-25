@@ -87,3 +87,6 @@ Owner requested replacement of the existing design, cursor and animation. Adopt 
 
 ## 2026-09-26: Navigation, themes and microinteractions
 Owner approved paper palette and requested modern navigation, optional dark theme, custom SVG art, FAQ motion, and deployment to main. See docs/15-paper-cut-redesign.md for the extended direction and the bounded FAQ height-animation exception.
+
+## 2026-09-26: Product copy and system theme
+The owner requested clearer hero labels, removal of the handwritten click note, and system-based initial theme. Saved explicit theme choices still take priority. See docs/15-paper-cut-redesign.md.

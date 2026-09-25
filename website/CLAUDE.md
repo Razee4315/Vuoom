@@ -26,7 +26,7 @@ Motion: docs/05-motion-spec.md · Pages: docs/06 · Copy + SEO: docs/10
 ## Forbidden
 No purple (#6366F1, #8B5CF6 or any). No gradient text. No Inter. No three-card icon grids.
 No 1px gray card borders. No soft drop shadows beyond --shadow-stage. No bounce or elastic.
-No stock imagery. No lorem ipsum. No emoji as icons. Warm paper is the default theme.
+No stock imagery. No lorem ipsum. No emoji as icons. Follow the system theme until the visitor chooses one.
 
 ## Signature move
 Paper textures, torn edges, editing motifs, real product footage and an accessible

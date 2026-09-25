@@ -15,7 +15,7 @@ let assets: Promise<{ display: Buffer; text: Buffer; shot: string }> | undefined
 function load() {
   assets ??= (async () => {
     const [display, text, shotBuf] = await Promise.all([
-      font('@fontsource/bricolage-grotesque/files/bricolage-grotesque-latin-600-normal.woff'),
+      font('@fontsource/geist/files/geist-latin-600-normal.woff'),
       font('@fontsource/geist/files/geist-latin-400-normal.woff'),
       sharp(join(process.cwd(), 'src/assets/shots/take-zoom.png'))
         .resize(900)
@@ -42,7 +42,7 @@ const h = (type: string, style: Record<string, unknown>, children?: unknown, ext
 export const GET: APIRoute = async ({ props }) => {
   const { title, kicker } = props as { title: string; kicker: string };
   const { display, text, shot } = await load();
-  const size = title.length > 34 ? 64 : 76;
+  const size = title.length > 34 ? 58 : 68;
 
   const tree = h('div', { width: 1200, height: 630, display: 'flex', background: '#0B0B0C', position: 'relative', fontFamily: 'Geist' }, [
     h('div', { position: 'absolute', left: 72, top: 64, display: 'flex', alignItems: 'center', gap: 14 }, [
@@ -53,7 +53,7 @@ export const GET: APIRoute = async ({ props }) => {
       h('div', { fontFamily: 'Bricolage', fontSize: 34, color: '#F2F0EB', letterSpacing: -0.6 }, 'Vuoom'),
     ]),
     h('div', { position: 'absolute', left: 72, top: 150, fontSize: 22, color: '#FF7A7E' }, kicker),
-    h('div', { position: 'absolute', left: 72, top: 190, width: 600, fontFamily: 'Bricolage', fontSize: size, lineHeight: 1, letterSpacing: -2.4, color: '#F2F0EB' }, title),
+    h('div', { position: 'absolute', left: 72, top: 190, width: 600, fontFamily: 'Bricolage', fontSize: size, lineHeight: 1, letterSpacing: -2.2, color: '#F2F0EB' }, title),
     h('div', { position: 'absolute', left: 72, bottom: 64, fontSize: 24, color: 'rgba(242,240,235,0.6)' }, 'Free, open-source screen recorder for Windows'),
     h('img', { position: 'absolute', left: 720, top: 120, width: 760, height: 428, borderRadius: 18, border: '1px solid rgba(242,240,235,0.12)', objectFit: 'cover' }, undefined, { src: shot, width: 760, height: 428 }),
   ]);

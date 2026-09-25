@@ -2,7 +2,6 @@
 // The shell every page renders in: full SEO head, structured data, header, footer, grain,
 // the smooth pointer and the motion runtime.
 import '../styles/global.css';
-import brico from '@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-standard-normal.woff2?url';
 import geist from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -98,7 +97,6 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <link rel="sitemap" href={url('/sitemap-index.xml')} />
     <link rel="alternate" type="application/atom+xml" title="Vuoom releases" href={`${SITE.releasesUrl}.atom`} />
 
-    <link rel="preload" href={brico} as="font" type="font/woff2" crossorigin />
     <link rel="preload" href={geist} as="font" type="font/woff2" crossorigin />
 
     <script type="application/ld+json" set:html={JSON.stringify(graph)} />

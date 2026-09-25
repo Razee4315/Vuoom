@@ -81,3 +81,9 @@ buttons. The film now sits there with a custom player (big play button on the op
 of the poster, a pill control bar with scrubber, time, mute and fullscreen that hides while
 playing, keyboard support). Poster is the "it zooms where you point." frame at 0:38. The stage
 animation moves to /features/auto-zoom/, where it demonstrates exactly that feature.
+
+## 2026-09-26: Paper Cut redesign
+Owner requested replacement of the existing design, cursor and animation. Adopt docs/15-paper-cut-redesign.md as current direction, superseding dark-only and custom-pointer rules. Retain genuine product assets, accessible controls, truthful claims and base-path-safe links.
+
+## 2026-09-26: Navigation, themes and microinteractions
+Owner approved paper palette and requested modern navigation, optional dark theme, custom SVG art, FAQ motion, and deployment to main. See docs/15-paper-cut-redesign.md for the extended direction and the bounded FAQ height-animation exception.

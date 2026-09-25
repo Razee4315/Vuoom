@@ -65,3 +65,6 @@ The signature relies on a screenshot, not live video, so it can look like a slid
 spring timing is off. Mitigation: camera moves reuse the app's spring maths, and each click has
 ripple + pointer press so the cause of every zoom is visible. When the owner's launch video
 arrives, it replaces the stage loop in the hero and the stage moves to The Problem section.
+
+## Superseded 2026-09-26
+The current direction is docs/15-paper-cut-redesign.md, following the owner's redesign request.

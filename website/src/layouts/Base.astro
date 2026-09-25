@@ -1,7 +1,8 @@
 ---
 // The shell every page renders in: full SEO head, structured data, header, footer, grain,
-// the smooth pointer and the motion runtime.
+// and the progressively enhanced motion runtime.
 import '../styles/global.css';
+import '../styles/paper-shared.css';
 import geist from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -14,11 +15,11 @@ interface Props {
   path: PagePath;
   crumbs?: { href: string; label: string }[];
   schema?: Record<string, unknown>[];
-  countdown?: boolean;
+
   type?: 'website' | 'article';
 }
 
-const { path, crumbs, schema = [], countdown = false, type = 'website' } = Astro.props;
+const { path, crumbs, schema = [], type = 'website' } = Astro.props;
 const meta = PAGES[path];
 const canonical = absolute(path === '/404/' ? '/' : path);
 const og = absolute(`/og/${ogSlug(path)}.png`);
@@ -59,7 +60,7 @@ const graph = {
 const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
 ---
 <!doctype html>
-<html lang="en" dir="ltr" data-version={release.version} data-countdown={countdown ? '1' : undefined}>
+<html lang="en" dir="ltr" data-version={release.version}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -68,7 +69,7 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <link rel="canonical" href={canonical} />
     {path === '/404/' ? <meta name="robots" content="noindex" /> : <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />}
     <meta name="theme-color" content={SITE.themeColor} />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light" />
     <meta name="application-name" content="Vuoom" />
     <meta name="author" content={SITE.author} />
     <meta name="generator" content={Astro.generator} />
@@ -102,30 +103,20 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <script type="application/ld+json" set:html={JSON.stringify(graph)} />
 
     <script is:inline>
-      // Decide the motion mode before first paint so reveal states never flash.
+      // Read the accessibility preference before initializing optional motion.
       (function () {
         var d = document.documentElement;
         d.classList.add('js');
+        try { d.dataset.theme = localStorage.getItem('vuoom-theme') === 'dark' ? 'dark' : 'light'; } catch (e) { d.dataset.theme = 'light'; }
         var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (!reduce) d.classList.add('motion');
-        if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) d.classList.add('fine');
-        try {
-          if (!reduce && d.dataset.countdown === '1' && !sessionStorage.getItem('vuoom-take')) {
-            d.classList.add('is-counting');
-          }
-        } catch (e) {}
+
       })();
     </script>
   </head>
   <body>
     <a class="skip" href="#content">Skip to content</a>
     <Header path={path} />
-    {countdown && (
-      <div class="countdown" aria-hidden="true" data-countdown>
-        <span class="countdown__num mono">3</span>
-        <span class="countdown__rec label"><span class="countdown__light" />REC</span>
-      </div>
-    )}
     <main id="content" tabindex="-1">
       {crumbs && (
         <div class="wrap crumbs-wrap">
@@ -136,10 +127,7 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     </main>
     <Footer release={release} />
     <div class="grain" aria-hidden="true"></div>
-    <div class="pointer" aria-hidden="true" data-pointer>
-      <svg width="22" height="22" viewBox="0 0 22 22"><path d="M3 2.5 18.5 9l-6.7 2.2L9 18z" fill="#F2F0EB" stroke="#0B0B0C" stroke-width="1.4" stroke-linejoin="round"/></svg>
-      <span class="pointer__ring"></span>
-    </div>
+
     <script>
       import '../scripts/main';
     </script>
@@ -172,99 +160,4 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     padding-top: calc(var(--nav-h) + var(--s-7));
   }
 
-  /* smooth pointer (M12): only with a fine pointer and motion on */
-  .pointer {
-    display: none;
-  }
-  :global(html.motion.fine) .pointer {
-    display: block;
-    position: fixed;
-    left: 0;
-    top: 0;
-    z-index: var(--z-pointer);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity var(--dur-hover) var(--ease-out-quart);
-    will-change: transform;
-  }
-  :global(html.motion.fine.pointer-on) .pointer {
-    opacity: 1;
-  }
-  :global(html.motion.fine.pointer-on body),
-  :global(html.motion.fine.pointer-on a),
-  :global(html.motion.fine.pointer-on button),
-  :global(html.motion.fine.pointer-on [role='slider']) {
-    cursor: none;
-  }
-  .pointer svg {
-    position: relative;
-    transform-origin: 3px 2.5px;
-    transition: transform var(--dur-press) var(--ease-out-quart);
-    filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.5));
-  }
-  :global(.pointer.is-hot) svg {
-    transform: scale(1.18);
-  }
-  :global(.pointer.is-down) svg {
-    transform: scale(0.86);
-  }
-  .pointer__ring {
-    position: absolute;
-    left: 3px;
-    top: 3px;
-    width: 34px;
-    height: 34px;
-    margin: -17px 0 0 -17px;
-    border-radius: var(--r-pill);
-    border: 2px solid var(--rec);
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  :global(.pointer.is-down) .pointer__ring {
-    animation: ring 600ms var(--ease-out) forwards;
-  }
-  @keyframes ring {
-    from {
-      opacity: 0.9;
-      transform: scale(0.3);
-    }
-    to {
-      opacity: 0;
-      transform: scale(1.4);
-    }
-  }
-
-  /* countdown preloader (M11) */
-  .countdown {
-    display: none;
-  }
-  :global(html.is-counting) .countdown {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-countdown);
-    display: grid;
-    place-items: center;
-    background: var(--ground);
-  }
-  .countdown__num {
-    font-size: var(--step-6);
-    font-weight: 400;
-    line-height: 1;
-    color: var(--ink);
-  }
-  .countdown__rec {
-    position: absolute;
-    left: var(--gutter);
-    top: var(--s-5);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--s-2);
-    color: var(--ink);
-  }
-  .countdown__light {
-    width: 8px;
-    height: 8px;
-    border-radius: var(--r-pill);
-    background: var(--rec);
-  }
 </style>

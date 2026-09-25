@@ -7,6 +7,9 @@ export function initVideos(motion: boolean) {
     const btn = fig.querySelector<HTMLButtonElement>('[data-video-toggle]');
     const snd = fig.querySelector<HTMLButtonElement>('[data-video-sound]');
     let userPaused = !motion;
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => {
+      if (e.matches) { userPaused = true; v.pause(); }
+    });
 
     const sync = () => btn?.setAttribute('aria-pressed', String(!v.paused));
     v.addEventListener('play', sync);

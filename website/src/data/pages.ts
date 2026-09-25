@@ -11,10 +11,10 @@ export interface PageMeta {
 
 export const PAGES = {
   '/': {
-    title: 'Vuoom: free auto-zoom screen recorder for Windows',
+    title: 'Vuoom | Free Screen Recorder for Windows, No Watermark',
     description:
-      'Free, open-source screen recorder for Windows. The camera zooms into every click, then export a small GIF or MP4. No account, no watermark.',
-    og: 'Screen recordings that zoom where it matters.',
+      'Record polished demos with Vuoom, the free Windows screen recorder. Automatic zoom, video editing, offline captions and GIF or MP4 export. No watermark.',
+    og: 'Hit record. Make it Vuoom.',
     kicker: 'Free for Windows 10 and 11',
   },
   '/download/': {

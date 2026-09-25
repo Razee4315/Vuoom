@@ -1,25 +1,34 @@
 /* Vuoom website tokens. Source of truth; mirrored in docs/03-design-tokens.md.
    No raw values in components: everything resolves to one of these. */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   /* colour, by role */
-  --ground: #0b0b0c;
-  --ground-raised: #141415;
-  --ground-sunk: #070708;
-  --ink: #f2f0eb;
-  --ink-2: rgb(242 240 235 / 0.7);
-  --ink-3: rgb(242 240 235 / 0.52);
-  --rule: rgb(242 240 235 / 0.12);
-  --wash: rgb(242 240 235 / 0.05);
-  --rec: #e5484d;
-  --rec-ink: #ff7a7e;
+  --ground: #f5f1e8;
+  --ground-raised: #eae5d9;
+  --ground-sunk: #242720;
+  --ink: #242720;
+  --ink-2: #575a50;
+  --ink-3: #63665c;
+  --rule: rgb(36 39 32 / 0.2);
+  --wash: rgb(36 39 32 / 0.05);
+  --rec: #c8412d;
+  --rec-ink: #b83b28;
   --rec-glow: rgb(229 72 77 / 0.35);
   --on-rec: #ffffff;
   --grain: 0.045;
 
+  --paper: #f5f1e8;
+  --paper-white: #fffdf7;
+  --studio: #252a24;
+  --blue: #2949d5;
+  --coral: #f49b7f;
+  --butter: #f5dc82;
+  --mint: #c7dccb;
+  --tape: rgb(235 207 142 / .85);
+
   /* type */
-  --font-display: 'Geist Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
   --font-text: 'Geist Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
@@ -55,7 +64,7 @@
   --s-7: 48px;
   --s-8: 64px;
   --s-9: 96px;
-  --section: clamp(7rem, 14vw, 14rem);
+  --section: clamp(4rem, 8vw, 8rem);
 
   /* form */
   --r-ui: 2px;
@@ -75,7 +84,7 @@
   --dur-exit: 700ms;
 
   /* layout */
-  --max: 1360px;
+  --max: 1240px;
   --gutter: clamp(16px, 4vw, 48px);
   --col-gap: 24px;
   --nav-h: 72px;
@@ -94,4 +103,32 @@
     --col-gap: 16px;
     --nav-h: 60px;
   }
+}
+
+/* Theme roles: light is always the first-visit default. */
+:root {
+  --nav-glass: rgb(255 253 247 / .88);
+  --nav-rule: rgb(36 39 32 / .13);
+  --nav-shadow: 0 10px 35px -18px rgb(36 39 32 / .28), inset 0 1px 0 rgb(255 255 255 / .6);
+  --card-shadow: #242720;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ground: #192830;
+  --ground-raised: #263942;
+  --ground-sunk: #132127;
+  --ink: #f2eadb;
+  --ink-2: #c0cbc9;
+  --ink-3: #a8b8b8;
+  --rule: rgb(211 226 221 / .23);
+  --wash: rgb(211 226 221 / .08);
+  --rec: #f39c82;
+  --rec-ink: #ffc3a6;
+  --on-rec: #192830;
+  --blue: #9bbcff;
+  --studio: #12232b;
+  --nav-glass: rgb(34 53 62 / .93);
+  --nav-rule: rgb(192 211 215 / .24);
+  --nav-shadow: 0 14px 45px -18px rgb(4 15 22 / .7), inset 0 1px 0 rgb(232 242 238 / .08);
+  --card-shadow: #0e1d23;
 }

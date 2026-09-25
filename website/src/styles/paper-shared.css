@@ -1,0 +1,66 @@
+/* Shared Paper Cut treatment for every route, including documentation and download. */
+html { scroll-behavior:smooth; }
+html.menu-open { overflow:hidden; }
+html.motion [data-reveal] { opacity:1; transform:none; }
+html.motion [data-split] { visibility:visible; }
+body { background-image:radial-gradient(rgb(36 39 32 / .065) .6px,transparent .6px); background-size:5px 5px; }
+main { background:transparent !important; }
+.grain { opacity:.08; mix-blend-mode:multiply; }
+.btn { border-radius:3px !important; }
+.btn--primary { box-shadow:4px 4px 0 var(--ink); }
+.btn--primary:hover { transform:translate(-1px,-2px); }
+.btn--primary:active { transform:translate(2px,2px); box-shadow:1px 1px 0 var(--ink); }
+.btn--secondary { box-shadow:inset 0 0 0 1px var(--ink) !important; }
+.btn__light { display:none; }
+.vid__btn,.ba__tag { color:var(--paper) !important; }
+.foot { position:relative !important; background:var(--studio) !important; --ink:var(--paper); --ink-2:#cfcec3; --ink-3:#afafa3; --rule:#4e5147; padding-top:64px !important; }
+.foot .foot__mark { color:var(--paper); font-family:var(--font-display); }
+.foot .foot__dot { background:var(--coral); box-shadow:none; }
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+
+.faq-section .faq__q { font-size:17px; }
+
+/* Evening studio: deep teal and ink blue, with warm paper accents. */
+[data-theme=dark] body { background-image:radial-gradient(rgb(211 226 221 / .08) .6px,transparent .6px); }
+[data-theme=dark] .grain { mix-blend-mode:soft-light; }
+[data-theme=dark] .workflow-section { background:#244940; }
+[data-theme=dark] .workbench,[data-theme=dark] .sound-card { background:#243740; }
+[data-theme=dark] .workbench,[data-theme=dark] .demo-window { border-color:#627a79; box-shadow:6px 6px 0 var(--card-shadow); }
+[data-theme=dark] .workflow-copy { border-color:#627a79; }
+[data-theme=dark] .toolkit-section { background:#3b3a2c; }
+[data-theme=dark] .captions-card { background:#294a77; }
+[data-theme=dark] .export-card { background:#593d36; color:var(--ink); }
+[data-theme=dark] .tool-card { border-color:#87958b; }
+[data-theme=dark] .comparison-paper { background:#30444a; border-color:#87958b; box-shadow:6px 6px 0 #847148; }
+[data-theme=dark] .sticker,[data-theme=dark] .clip-row,[data-theme=dark] .export-art > span,[data-theme=dark] .caption-art mark { color:#242720; }
+[data-theme=dark] .export-art > span { border-color:#242720; box-shadow:3px 3px 0 #242720; }
+[data-theme=dark] .final-cut { background:#793d32; color:var(--paper); }
+[data-theme=dark] .final-cut .btn { color:#242720; box-shadow:4px 4px 0 var(--card-shadow); }
+[data-theme=dark] .btn--primary { box-shadow:4px 4px 0 var(--card-shadow); }
+[data-theme=dark] .open-stamp { color:var(--blue); border-color:var(--blue); }
+[data-theme=dark] .foot { --ink:var(--paper); }
+[data-theme=dark] .ba__grip { color:var(--ground); }
+/* A small visual response to a deliberate change of scene. */
+@media(prefers-reduced-motion:no-preference) {
+  [data-scene-panel]:not([hidden]) { animation:scene-enter 360ms var(--ease-out) both; }
+  [data-scene-image]:not([hidden]) { animation:scene-image 450ms var(--ease-out) both; }
+  .nav__brand:hover svg { transform:rotate(-9deg); }
+  .nav__brand svg { transition:transform 280ms var(--ease-out); }
+  .tool-card:hover .wave-art span { animation:wave-in 650ms ease-in-out 2 alternate; animation-delay:var(--delay); }
+  .tool-card:hover .caption-art { transform:rotate(0) translateY(-3px); }
+  .caption-art { transition:transform 320ms var(--ease-out); }
+  .export-art > span { transition:transform 400ms var(--ease-out); }
+  .export-card:hover .export-art > span:first-child { transform:rotate(-17deg) translate(-5px,-5px); }
+  .export-card:hover .export-art > span:nth-child(2) { transform:rotate(17deg) translate(5px,-3px); }
+  .hero-copy { animation:scene-enter 650ms var(--ease-out) both; }
+  .open-note:hover .open-stamp { transform:rotate(-3deg); }
+  .open-stamp { transition:transform 400ms var(--ease-out); }
+}
+@keyframes scene-enter { from { opacity:0; transform:translateY(9px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scene-image { from { opacity:.25; transform:translateY(8px) scale(.985); } to { opacity:1; transform:none; } }
+
+[data-theme=dark] .clip-row span { color:#242720; }
+::view-transition-old(root),::view-transition-new(root) { animation-duration:240ms; animation-timing-function:ease-out; }
+@media(prefers-reduced-motion:reduce) { ::view-transition-old(root),::view-transition-new(root) { animation:none; } }
+
+@media(hover:none) { .theme-tooltip { display:none !important; } }

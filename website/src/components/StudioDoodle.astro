@@ -1,0 +1,19 @@
+---
+interface Props { kind: 'focus' | 'spark' | 'orbit'; class?: string; }
+const { kind, class: cls } = Astro.props;
+---
+<svg class:list={['studio-doodle', `studio-doodle--${kind}`, cls]} width="100" height="100" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+  {kind === 'focus' && <><g class="doodle-frame"><path d="M12 34V15h19m38 0h19v19M88 66v19H69m-38 0H12V66"/></g><g class="doodle-pointer"><path d="m38 29 4 39 10-12 13 13 7-7-13-13 15-6Z" fill="var(--ground)"/><path d="m22 42-8-3m19-16-3-8m29 12 6-6"/></g><circle cx="81" cy="12" r="5" fill="var(--rec)" stroke="none"/></>}
+  {kind === 'spark' && <><path class="doodle-star" d="m50 12 8 26 25-11-18 22 23 14-28-2-3 28-11-25-23 16 14-25-25-9 28-4Z"/><path d="m83 12 2 6 6 2-6 2-2 6-2-6-6-2 6-2Z" fill="currentColor" stroke="none"/><circle cx="15" cy="79" r="3" fill="currentColor" stroke="none"/></>}
+  {kind === 'orbit' && <><ellipse class="doodle-orbit" cx="50" cy="50" rx="43" ry="18" transform="rotate(-28 50 50)"/><circle cx="50" cy="50" r="27"/><path d="m44 35 18 15-18 15Z" fill="currentColor" stroke="none"/><circle cx="84" cy="28" r="5" fill="var(--coral)" stroke="none"/><path d="M14 20h10m-5-5v10"/></>}
+</svg>
+<style>
+  .studio-doodle { color:var(--blue); overflow:visible; flex:none; }
+  .doodle-frame,.doodle-pointer,.doodle-star,.doodle-orbit { transform-origin:center; transition:transform 500ms var(--ease-out); }
+  @media(prefers-reduced-motion:no-preference) {
+    :global(.zoom-copy:hover) .doodle-frame { transform:scale(.9); }
+    :global(.zoom-copy:hover) .doodle-pointer { transform:translate(4px,3px); }
+    :global(.section-heading:hover) .doodle-star { transform:rotate(35deg); }
+    :global(.final-cut:hover) .doodle-orbit { transform:rotate(25deg); }
+  }
+</style>

@@ -18,7 +18,7 @@ export const SITE = {
   author: 'Saqlain Razee',
   authorUrl: 'https://github.com/Razee4315',
   license: 'Apache-2.0',
-  themeColor: '#0B0B0C',
+  themeColor: '#f5f1e8',
   locale: 'en_US',
   gscVerification: import.meta.env.PUBLIC_GSC_VERIFICATION ?? '',
 } as const;

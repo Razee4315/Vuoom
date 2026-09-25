@@ -1,83 +1,64 @@
 ---
 import type { QA } from '../data/faq';
-interface Props {
-  items: QA[];
-}
+interface Props { items: QA[]; }
 const { items } = Astro.props;
 ---
 <div class="faq">
-  {items.map((it) => (
-    <details class="faq__item" data-reveal>
-      <summary class="faq__q">
-        <span>{it.q}</span>
-        <span class="faq__icon" aria-hidden="true"></span>
-      </summary>
-      <p class="faq__a">{it.a}</p>
+  {items.map((it, index) => (
+    <details class="faq__item" data-faq data-reveal>
+      <summary class="faq__q"><span class="faq__number mono" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><span class="faq__question">{it.q}</span><span class="faq__icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 10h12"/><path class="faq__vertical" d="M10 4v12"/></svg></span></summary>
+      <div class="faq__answer"><p class="faq__a">{it.a}</p></div>
     </details>
   ))}
 </div>
 <style>
-  .faq__item {
-    box-shadow: inset 0 var(--hair) 0 var(--rule);
-  }
-  .faq__item:last-child {
-    box-shadow:
-      inset 0 var(--hair) 0 var(--rule),
-      inset 0 calc(var(--hair) * -1) 0 var(--rule);
-  }
-  .faq__q {
-    list-style: none;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--s-5);
-    padding-block: var(--s-5);
-    font-size: var(--step-1);
-    font-weight: 500;
-    letter-spacing: var(--track-sub);
-    line-height: var(--lh-sub);
-    cursor: pointer;
-    border-radius: var(--r-ui);
-  }
-  .faq__q::-webkit-details-marker {
-    display: none;
-  }
-  .faq__icon {
-    position: relative;
-    flex: none;
-    width: 16px;
-    height: 16px;
-    transition: transform var(--dur-hover) var(--ease-out-quart);
-  }
-  .faq__icon::before,
-  .faq__icon::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 7px;
-    width: 16px;
-    height: 1.5px;
-    background: var(--ink-2);
-  }
-  .faq__icon::after {
-    transform: rotate(90deg);
-  }
-  details[open] .faq__icon {
-    transform: rotate(45deg);
-  }
-  details[open] .faq__icon::before,
-  details[open] .faq__icon::after {
-    background: var(--rec);
-  }
-  .faq__a {
-    color: var(--ink-2);
-    max-width: 62ch;
-    padding-bottom: var(--s-5);
-  }
-  @media (hover: hover) {
-    .faq__q:hover .faq__icon::before,
-    .faq__q:hover .faq__icon::after {
-      background: var(--ink);
-    }
-  }
+  .faq__item { position:relative; isolation:isolate; border-top:var(--hair) solid var(--rule); padding-inline:var(--s-3); }
+  .faq__item:last-child { border-bottom:var(--hair) solid var(--rule); }
+  .faq__item::before { content:''; position:absolute; inset:0; z-index:-1; background:var(--wash); opacity:0; transition:opacity 250ms; }
+  .faq__item[open]::before,.faq__item:hover::before { opacity:1; }
+  .faq__q { list-style:none; display:flex; align-items:center; gap:var(--s-4); padding-block:var(--s-5); font-size:var(--step-1); font-weight:500; letter-spacing:var(--track-sub); line-height:var(--lh-sub); cursor:pointer; border-radius:var(--r-ui); }
+  .faq__q::-webkit-details-marker { display:none; }
+  .faq__question { flex:1; }
+  .faq__number { color:var(--ink-3); font-size:10px; letter-spacing:.04em; }
+  .faq__icon { flex:none; width:32px; height:32px; display:grid; place-items:center; border-radius:50%; background:var(--wash); color:var(--ink); transition:transform 280ms var(--ease-out); }
+  .faq__vertical { transform-origin:10px 10px; transition:transform 280ms var(--ease-out),opacity 180ms; }
+  .faq__item[data-expanded=true] .faq__vertical,.faq__item[open]:not([data-expanded]) .faq__vertical { opacity:0; transform:rotate(90deg); }
+  .faq__item[data-expanded=true] .faq__icon,.faq__item[open]:not([data-expanded]) .faq__icon { background:var(--rec); color:var(--on-rec); transform:rotate(180deg); }
+  .faq__q:hover .faq__icon { transform:rotate(90deg); }
+  .faq__a { color:var(--ink-2); max-width:62ch; padding:0 var(--s-7) var(--s-5) 30px; font-size:var(--step-0); line-height:1.8; }
+  @media(max-width:560px) { .faq__q { gap:var(--s-3); font-size:17px; } .faq__a { padding-inline:var(--s-5) var(--s-2); font-size:14px; } .faq__item { padding-inline:var(--s-2); } }
 </style>
+<script>
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  document.querySelectorAll<HTMLDetailsElement>('[data-faq]').forEach(details => {
+    const summary = details.querySelector('summary')!;
+    const answer = details.querySelector<HTMLElement>('.faq__answer')!;
+    let animation: Animation | null = null;
+    let answerAnimation: Animation | null = null;
+    let expanded = details.open;
+    const settle = () => {
+      animation?.cancel(); answerAnimation?.cancel(); animation = answerAnimation = null;
+      details.open = expanded;
+      details.style.removeProperty('height'); details.style.removeProperty('overflow');
+      details.dataset.expanded = String(expanded);
+      window.dispatchEvent(new Event('vuoom:layout'));
+    };
+    summary.addEventListener('click', event => {
+      event.preventDefault();
+      expanded = !expanded;
+      const start = details.getBoundingClientRect().height;
+      animation?.cancel(); answerAnimation?.cancel();
+      details.dataset.expanded = String(expanded);
+      if (reduce.matches) { settle(); return; }
+      details.open = true;
+      details.style.height = 'auto';
+      const border = parseFloat(getComputedStyle(details).borderTopWidth) + parseFloat(getComputedStyle(details).borderBottomWidth);
+      const end = expanded ? details.getBoundingClientRect().height : summary.getBoundingClientRect().height + border;
+      details.style.overflow = 'hidden';
+      animation = details.animate({ height: [`${start}px`, `${end}px`] }, { duration:260, easing:'cubic-bezier(.22,1,.36,1)', fill:'both' });
+      answerAnimation = answer.animate(expanded ? {opacity:[0,1],transform:['translateY(-5px)','translateY(0)']} : {opacity:[1,0],transform:['translateY(0)','translateY(-3px)']}, { duration:200, fill:'both' });
+      animation.onfinish = settle;
+    });
+    reduce.addEventListener('change', () => { if (reduce.matches) settle(); });
+  });
+</script>

@@ -37,3 +37,6 @@ Icons: one hand-drawn set in `src/components/Icon.astro`, 20px grid, 1.5px strok
 
 **Drop-in:** put files in `website/public/media/` with the names in `src/data/media.ts`; the
 components switch from screenshot to video automatically.
+
+## Paper Cut inline SVGs
+StudioDoodle.astro: original viewfinder/pointer, cut-paper sparkle and play-button orbit; decorative, currentColor, hidden from assistive technology. Header.astro: original sun/moon toggle, download arrow and animated menu strokes. Faq.astro: original plus/minus disclosure mark. All are code-native SVGs with explicit dimensions.

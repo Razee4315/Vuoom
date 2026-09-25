@@ -1,9 +1,3 @@
-// Header states (scrolled, compact) and the mobile menu sheet with a focus trap.
-const MENU_ICON =
-  '<span class="visually-hidden">Menu</span><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.5 7h13M3.5 13h13"/></svg>';
-const CLOSE_ICON =
-  '<span class="visually-hidden">Close menu</span><svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15"/></svg>';
-
 export function initNav() {
   const nav = document.querySelector<HTMLElement>('[data-nav]');
   if (!nav) return;
@@ -22,7 +16,7 @@ export function initNav() {
   const html = document.documentElement;
 
   const focusables = () =>
-    [...sheet.querySelectorAll<HTMLElement>('a, button'), btn].filter(
+    [...nav.querySelectorAll<HTMLElement>('a, button')].filter(
       (el) => el.offsetParent !== null,
     );
 
@@ -30,7 +24,8 @@ export function initNav() {
     btn.setAttribute('aria-expanded', String(open));
     sheet.hidden = !open;
     html.classList.toggle('menu-open', open);
-    btn.innerHTML = open ? CLOSE_ICON : MENU_ICON;
+    btn.setAttribute('aria-label', open ? 'Close menu' : 'Menu');
+    document.querySelectorAll<HTMLElement>('main, footer').forEach(el => { el.inert = open; });
     window.dispatchEvent(new CustomEvent(open ? 'vuoom:lock' : 'vuoom:unlock'));
     if (open) sheet.querySelector<HTMLElement>('a')?.focus();
     else btn.focus();
@@ -56,7 +51,7 @@ export function initNav() {
   sheet.addEventListener('click', (e) => {
     if ((e.target as HTMLElement).closest('a')) setOpen(false);
   });
-  window.matchMedia('(min-width: 961px)').addEventListener('change', (e) => {
+  window.matchMedia('(min-width: 721px)').addEventListener('change', (e) => {
     if (e.matches && !sheet.hidden) setOpen(false);
   });
 }

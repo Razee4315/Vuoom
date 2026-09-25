@@ -7,7 +7,7 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
 ---
 <header class="nav" data-nav>
   <div class="nav__pill">
-    <a class="nav__brand" href={url('/')} aria-label="Vuoom home"><Logo size={30} /><span class="nav__word">Vuoom</span><span class="nav__badge">STUDIO</span></a>
+    <a class="nav__brand" href={url('/')} aria-label="Vuoom home"><Logo size={40} /><span class="nav__word">Vuoom</span><span class="nav__badge">STUDIO</span></a>
     <nav class="nav__links" aria-label="Main">{links.map(l => <a class="nav__link" href={url(l.href)} aria-current={path.startsWith(l.href) ? 'page' : undefined}>{l.label}<span class="nav__link-dot" aria-hidden="true"></span></a>)}</nav>
     <div class="nav__actions">
       <button class="theme-toggle" type="button" aria-label="Dark theme" aria-pressed="false" data-theme-toggle title="Switch color theme">
@@ -66,7 +66,7 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
   @keyframes menu-in { from { opacity:0; transform:translateY(-14px); } to { opacity:1; transform:none; } }
   @media(max-width:900px) { .nav__badge { display:none; } .nav__pill { gap:var(--s-2); } }
   @media(max-width:720px) { .nav { top:var(--s-3); padding-inline:var(--s-3); } .nav__pill { height:62px; padding:var(--s-2) var(--s-2) var(--s-2) var(--s-3); gap:0; } .nav__links { display:none; } .nav__menu { display:grid; } .nav__word { font-size:22px; } .nav__dl { padding-inline:var(--s-4); margin-left:0; } .nav__dl svg { display:none; } .nav__brand { gap:var(--s-1); } .nav__actions { gap:0; } }
-  @media(max-width:360px) { .nav__brand :global(svg) { width:22px; } .nav__word { font-size:20px; } .nav__dl { padding-inline:var(--s-3); font-size:11px; } .theme-toggle,.nav__menu { width:38px; } }
+  @media(max-width:360px) { .nav__brand :global(svg) { width:28px; height:28px; } .nav__word { font-size:20px; } .nav__dl { padding-inline:var(--s-3); font-size:11px; } .theme-toggle,.nav__menu { width:38px; } }
 </style>
 <script>
   const toggle = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');

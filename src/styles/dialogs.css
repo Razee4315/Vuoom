@@ -301,6 +301,21 @@
 .storage-card small {
   color: var(--muted);
 }
+/* A long folder path stays on one line; the full path is in its tooltip. */
+.storage-card > .save-dir {
+  min-width: 0;
+}
+.save-dir strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+}
+.save-dir-actions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
 .shortcut-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

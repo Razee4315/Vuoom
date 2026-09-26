@@ -383,6 +383,34 @@
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
+.rec-live-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px 0 5px;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+  user-select: none;
+}
+.rec-live-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.rec-live-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #e5484d;
+  cursor: pointer;
+}
+.rec-live-toggle:has(input:focus-visible) {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
 .rec-grip {
   display: grid;
   place-items: center;
@@ -412,6 +440,27 @@
   height: 100%;
   object-fit: contain;
   display: block;
+}
+.rec-canvas.off {
+  visibility: hidden;
+}
+.rec-preview-off {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+}
+.rec-preview-off strong {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 600;
 }
 .rec-previewtag {
   position: absolute;

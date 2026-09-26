@@ -5,7 +5,8 @@
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
 import { batch, createSignal, createEffect, onMount, onCleanup } from "solid-js";
-import { invoke, isMock, save, open, ask, check, relaunch, type Update } from "../bridge";
+import { invoke, isMock, open, ask, check, relaunch, type Update } from "../bridge";
+import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
@@ -2124,6 +2125,7 @@ export function createEditor() {
     setRecordTarget(target);
     // The capture rate is a preference; older engines without the command just keep theirs.
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
+    void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
     pushCursorMode();
     pushAudioChoice();
     pushCameraChoice();
@@ -3636,10 +3638,8 @@ export function createEditor() {
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
 
   const onSaveProject = async () => {
-    const dir = await save({
-      defaultPath: `${safeName()}.vuoom`,
-      filters: [{ name: "Vuoom project", extensions: ["vuoom"] }],
-    });
+    // Projects are always named by hand, in the save folder.
+    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
     if (!dir) return;
     setStatus("Saving project…");
     try {

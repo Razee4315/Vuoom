@@ -2,13 +2,15 @@
 //! time while recording.
 //!
 //! It is fed a small copy of the recorded frames (see [`sample`]; the recording's drain hands
-//! one over up to 60 times a second and never waits on it). On its own clock, about 120 times
+//! one over up to 30 times a second and never waits on it). On its own clock, about 120 times
 //! a second whether or not the screen changed, it polls the cursor and the Ctrl+Shift+Z
 //! hotkey and steps an online camera (the same critically damped springs the final render
 //! uses), so a zoom starts the moment the keys go down. Whenever the picture changed (a new
 //! frame, the camera moving, the pointer marker moving) it crops the newest frame to the
-//! camera viewport and downscales it in one pass, up to 60 times a second, and publishes it
-//! to the preview WebSocket. Sharing the recording's frames rather than running a second capture
+//! camera viewport and downscales it in one pass, up to 30 times a second, and publishes it
+//! to the preview WebSocket. 30 is plenty for a monitor the user glances at, and half the
+//! copying, socket traffic and canvas drawing of 60 (OBS users turn their preview down or
+//! off for the same reason). The panel can switch the preview off entirely. Sharing the recording's frames rather than running a second capture
 //! halves the capture work, and matters for Desktop Duplication, which allows one capture of a
 //! display per process. When the take leaves the pointer out of the frames (the smooth
 //! pointer), a small marker shows where it is. The panel showing the preview is excluded from
@@ -33,12 +35,12 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 /// Downscaled preview width (px): sharp in the large panel, still cheap to make.
 const PREVIEW_WIDTH: u32 = 640;
-/// Fastest the preview repaints (60 fps). It repaints only when the picture changed.
-const EMIT_INTERVAL: f64 = 1.0 / 60.0;
+/// Fastest the preview repaints (30 fps). It repaints only when the picture changed.
+const EMIT_INTERVAL: f64 = 1.0 / 30.0;
 /// How often the camera and the zoom hotkey are checked, whether or not a frame arrived.
 const TICK: Duration = Duration::from_millis(8);
-/// How often the recording's drain hands the preview a frame (60 fps).
-pub const TAP_EVERY: Duration = Duration::from_millis(16);
+/// How often the recording's drain hands the preview a frame (30 fps).
+pub const TAP_EVERY: Duration = Duration::from_millis(33);
 /// The widest copy handed over: enough for a 2× zoom into a 480 px preview.
 const TAP_MAX_WIDTH: u32 = 1280;
 
@@ -93,7 +95,8 @@ impl LivePreview {
     /// recording's, see [`sample`]) to `sink`. `region` is the recorded crop (full display if
     /// `None`) and `origin` the monitor's virtual-desktop origin (physical px), so the cursor
     /// maps correctly; `amount` is the chosen zoom multiplier; `mark_pointer` draws a pointer
-    /// marker for takes whose frames leave the pointer out.
+    /// marker for takes whose frames leave the pointer out. Nothing is drawn while `enabled`
+    /// is false (the panel's preview switch).
     #[must_use]
     pub fn start(
         frames: Receiver<PreviewFrame>,
@@ -102,6 +105,7 @@ impl LivePreview {
         amount: f64,
         mark_pointer: bool,
         sink: FrameSink,
+        enabled: Arc<AtomicBool>,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
@@ -110,6 +114,7 @@ impl LivePreview {
             origin,
             amount,
             mark_pointer,
+            enabled,
         };
         let handle = std::thread::spawn(move || run(&frames, &feed, &sink, &stop_worker));
         Self {
@@ -139,6 +144,8 @@ struct Feed {
     origin: (i32, i32),
     amount: f64,
     mark_pointer: bool,
+    /// The panel's preview switch.
+    enabled: Arc<AtomicBool>,
 }
 
 /// What the last published preview showed, to skip repainting an unchanged picture.
@@ -162,6 +169,9 @@ impl Shown {
 }
 
 fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &AtomicBool) {
+    // The preview is the least important work of a take: let the app being recorded and
+    // the frame encoder win the processor.
+    crate::frame_store::lower_thread_priority();
     let cfg = ZoomConfig::default();
     let mut camera = LiveCamera::new(cfg, feed.amount);
     let clock = Clock::new();
@@ -196,6 +206,12 @@ fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &At
         }
         prev_chord = chord;
 
+        if !feed.enabled.load(Ordering::Relaxed) {
+            // Switched off: hold nothing, so switching it back on repaints at once.
+            latest = None;
+            shown = None;
+            continue;
+        }
         let Some(frame) = latest.as_ref() else {
             continue;
         };

@@ -526,6 +526,52 @@ pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<
     engine.session()?.set_zoom_amount(amount)
 }
 
+/// Show or hide the recording panel's live picture (applies at once, also mid-take).
+#[tauri::command]
+pub fn set_live_preview(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
+    engine.session()?.set_live_preview(on)
+}
+
+/// Where exports and projects are saved until the user picks a folder: `Videos\Vuoom`.
+#[tauri::command]
+pub fn default_save_dir(app: AppHandle) -> Result<String, String> {
+    let videos = app.path().video_dir().map_err(|e| e.to_string())?;
+    Ok(videos.join("Vuoom").to_string_lossy().into_owned())
+}
+
+/// A path for `name.ext` in `dir` (created if missing) that no file uses yet: `name.ext`,
+/// else `name (2).ext`, `name (3).ext` and so on, so saving straight to the folder never
+/// overwrites an earlier export.
+#[tauri::command]
+pub fn next_save_path(dir: String, name: String, ext: String) -> Result<String, String> {
+    let dir = std::path::PathBuf::from(dir);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    for n in 1..10_000 {
+        let file = if n == 1 {
+            format!("{name}.{ext}")
+        } else {
+            format!("{name} ({n}).{ext}")
+        };
+        let path = dir.join(file);
+        if !path.exists() {
+            return Ok(path.to_string_lossy().into_owned());
+        }
+    }
+    Err("no free file name left in that folder".into())
+}
+
+/// Open `dir` in File Explorer, creating it first so a fresh default folder opens too.
+#[tauri::command]
+pub fn open_folder(dir: String) -> Result<(), String> {
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir}: {e}"))?;
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("could not open {dir}: {e}"))?;
+    Ok(())
+}
+
 /// Show or hide the mouse cursor in the next recording.
 #[tauri::command]
 pub fn set_capture_cursor(

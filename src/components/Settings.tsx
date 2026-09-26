@@ -2,12 +2,13 @@
 // sheet and app info, in one tabbed dialog (Ctrl+, / "?" opens it on Shortcuts).
 import { createResource, For, Show } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
-import { isMock } from "../bridge";
+import { invoke, isMock } from "../bridge";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { fmtBytes } from "../format";
 import { Icon, type IconName } from "../icons";
 import { layout, prefs, resetLayout } from "../prefs";
+import { chooseSaveDir, openSaveDir, useSaveDir } from "../saveDir";
 import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
 import { Field, Seg, Switch } from "../ui";
@@ -39,6 +40,7 @@ export default function Settings() {
   const ed = useEditor();
   const tab = () => ed.settingsTab() as Tab;
   const close = () => ed.setSettingsTab(null);
+  const saveDir = useSaveDir();
   const [version] = createResource(async () => (isMock ? "dev" : await getVersion().catch(() => "?")));
 
   return (
@@ -141,6 +143,16 @@ export default function Settings() {
             <Field label="Camera" hint="Your webcam as a bubble over the recording, placed and shaped in the editor">
               <CameraPicker />
             </Field>
+            <Field label="Live preview" hint="Watch the take in the recording panel. Turn off to save processor time on a slower PC">
+              <Switch
+                checked={prefs.livePreview()}
+                label="Live preview"
+                onChange={(v) => {
+                  prefs.livePreview.set(v);
+                  void invoke("set_live_preview", { on: v }).catch(() => undefined);
+                }}
+              />
+            </Field>
             <Field label="Countdown">
               <Seg
                 value={prefs.countdown()}
@@ -215,6 +227,34 @@ export default function Settings() {
           </Show>
 
           <Show when={tab() === "storage"}>
+            <h3>Save location</h3>
+            <div class="storage-card">
+              <Icon name="folder" size={20} />
+              <div class="save-dir">
+                <strong data-tip={saveDir() ?? ""}>{saveDir() || "Measuring…"}</strong>
+                <small>{prefs.saveDir() ? "where exports and projects go" : "the default folder, in Videos"}</small>
+              </div>
+              <button type="button" class="btn sm" onClick={() => void chooseSaveDir()}>
+                Change…
+              </button>
+            </div>
+            <div class="save-dir-actions">
+              <button type="button" class="btn sm ghost" onClick={() => void openSaveDir()}>
+                <Icon name="external" size={13} /> Open folder
+              </button>
+              <Show when={prefs.saveDir()}>
+                <button type="button" class="btn sm ghost" onClick={() => prefs.saveDir.set(null)}>
+                  <Icon name="reset" size={13} /> Use default
+                </button>
+              </Show>
+            </div>
+            <Field label="Ask where to save" hint="Off: every export goes straight into this folder, never overwriting an earlier one">
+              <Switch
+                checked={prefs.askWhereToSave()}
+                label="Ask where to save"
+                onChange={(v) => prefs.askWhereToSave.set(v)}
+              />
+            </Field>
             <h3>Crash recovery</h3>
             <p class="note">
               Every take streams to a recovery folder while you record, so a crash or an accidental close

@@ -1,5 +1,6 @@
 import { batch, createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
-import { invoke, listen, save, revealItemInDir } from "./bridge";
+import { invoke, listen, revealItemInDir } from "./bridge";
+import { pickSavePath } from "./saveDir";
 import { Icon } from "./icons";
 import { prefs } from "./prefs";
 import { Field, Slider, Switch, toast } from "./ui";
@@ -177,14 +178,11 @@ export function ExportDialog(props: {
     const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
     setPhase("starting"); // dialog locks while the OS save dialog is open
     try {
-      const path = await save({
-        defaultPath: `${safe}.${f}`,
-        filters: [
-          f === "gif"
-            ? { name: "GIF", extensions: ["gif"] }
-            : { name: "MP4 video", extensions: ["mp4"] },
-        ],
-      });
+      const path = await pickSavePath(
+        safe,
+        f,
+        f === "gif" ? { name: "GIF", extensions: ["gif"] } : { name: "MP4 video", extensions: ["mp4"] },
+      );
       if (!path) {
         setPhase("configure");
         exportStarted = false;

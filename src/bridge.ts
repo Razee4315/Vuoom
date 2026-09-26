@@ -273,7 +273,13 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       m.setCursorStyle(a.style as CursorStyle | null);
       return null;
     case "set_capture_fps":
+    case "set_live_preview":
+    case "open_folder":
       return null;
+    case "default_save_dir":
+      return `${VIDEOS}\\Vuoom`;
+    case "next_save_path":
+      return `${a.dir as string}\\${a.name as string}.${a.ext as string}`;
     case "list_audio_devices":
       return {
         inputs: [

@@ -67,6 +67,12 @@ export const prefs = {
   recordCamera: persisted<boolean>("record-camera", false),
   /** The chosen camera's id; `null` is the first camera. */
   cameraDevice: persisted<string | null>("camera-device", null),
+  /** Show the live picture in the recording panel. Off frees processor time on slower PCs. */
+  livePreview: persisted<boolean>("live-preview", true),
+  /** Folder exports and projects are saved in; `null` = the default, Videos\Vuoom. */
+  saveDir: persisted<string | null>("save-dir", null),
+  /** Ask for a name and place on every export; off saves straight into `saveDir`. */
+  askWhereToSave: persisted<boolean>("ask-where-to-save", true),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */

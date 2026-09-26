@@ -334,6 +334,9 @@
   font-size: var(--fs-sm);
   color: var(--text-2);
 }
+.about .update-error {
+  color: var(--record);
+}
 .about {
   display: flex;
   flex-direction: column;

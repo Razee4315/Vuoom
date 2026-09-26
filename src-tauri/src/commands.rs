@@ -564,8 +564,7 @@ pub fn next_save_path(dir: String, name: String, ext: String) -> Result<String, 
 /// Open `dir` in File Explorer, creating it first so a fresh default folder opens too.
 #[tauri::command]
 pub fn open_folder(dir: String) -> Result<(), String> {
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("could not create {dir}: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {dir}: {e}"))?;
     std::process::Command::new("explorer")
         .arg(&dir)
         .spawn()

@@ -215,6 +215,9 @@ export function createEditor() {
   // Auto-update: a pending update (if any) and whether we're mid-download.
   const [update, setUpdate] = createSignal<Update | null>(null);
   const [updating, setUpdating] = createSignal(false);
+  // The outcome of the last manual "Check for updates", shown under the button.
+  const [updateNote, setUpdateNote] = createSignal<{ text: string; error?: boolean } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   // The GPU compositor failed at boot: preview and export are dead (recording to disk
   // still works). Drives a persistent, dismissible warning strip under the top bar.
   const [gpuLost, setGpuLost] = createSignal(false);
@@ -553,12 +556,25 @@ export function createEditor() {
 
   // ── auto-update (signed GitHub releases) ───────────────────────────────────────
   // Check once on launch; surfaces an "Update" pill in the top bar if one is ready.
-  const checkForUpdate = async () => {
+  /** Look for a newer release. The launch check stays quiet; a check the user asked for
+   *  (`manual`) always answers: the update found, "up to date", or why it failed. */
+  const checkForUpdate = async (manual = false) => {
+    if (checkingUpdate()) return;
+    setCheckingUpdate(true);
+    if (manual) setUpdateNote(null);
     try {
       const u = await check();
-      if (u) setUpdate(u);
-    } catch {
-      /* updater not configured (dev) or offline, silently ignore */
+      if (u) {
+        setUpdate(u);
+        if (manual) setUpdateNote({ text: `Version ${u.version} is ready to install.` });
+      } else if (manual) {
+        setUpdateNote({ text: "You have the latest version." });
+      }
+    } catch (e) {
+      // Offline, GitHub unreachable, or the updater isn't configured (dev builds).
+      if (manual) setUpdateNote({ text: `Could not check for updates: ${friendlyError(e)}`, error: true });
+    } finally {
+      setCheckingUpdate(false);
     }
   };
   const runUpdate = async () => {
@@ -3971,6 +3987,8 @@ export function createEditor() {
     setUpdate,
     updating,
     setUpdating,
+    updateNote,
+    checkingUpdate,
     gpuLost,
     setGpuLost,
     showWelcome,

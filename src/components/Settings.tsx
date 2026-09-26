@@ -310,14 +310,24 @@ export default function Settings() {
               <Show
                 when={ed.update()}
                 fallback={
-                  <button type="button" class="btn sm" onClick={() => void ed.checkForUpdate()}>
-                    <Icon name="reset" size={13} /> Check for updates
+                  <button
+                    type="button"
+                    class="btn sm"
+                    disabled={ed.checkingUpdate()}
+                    onClick={() => void ed.checkForUpdate(true)}
+                  >
+                    <Icon name="reset" size={13} /> {ed.checkingUpdate() ? "Checking…" : "Check for updates"}
                   </button>
                 }
               >
                 <button type="button" class="btn primary sm" disabled={ed.updating()} onClick={() => void ed.runUpdate()}>
                   <Icon name="download" size={13} /> Install v{ed.update()!.version}
                 </button>
+              </Show>
+              <Show when={ed.updateNote()}>
+                <p class="note" classList={{ "update-error": !!ed.updateNote()!.error }} role="status">
+                  {ed.updateNote()!.text}
+                </p>
               </Show>
             </div>
           </Show>

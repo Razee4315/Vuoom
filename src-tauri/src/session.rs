@@ -407,6 +407,9 @@ pub struct Session {
     pending_zoom: Mutex<f64>,
     /// Frame-rate cap for the next recording (see [`Session::set_capture_fps`]).
     pending_fps: AtomicU32,
+    /// Whether the recording panel shows the live picture (see [`Session::set_live_preview`]).
+    /// Shared with the running take, so switching it applies at once.
+    live_preview_on: Arc<AtomicBool>,
     /// Whether the next recording draws the mouse cursor (see [`Session::set_capture_cursor`]).
     pending_cursor: AtomicBool,
     /// Whether the next take gets a re-drawn, smoothed pointer.
@@ -467,6 +470,7 @@ impl Session {
             pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
+            live_preview_on: Arc::new(AtomicBool::new(true)),
             pending_cursor: AtomicBool::new(true),
             pending_smooth: AtomicBool::new(false),
             audio_choice: Mutex::new(AudioChoice::default()),
@@ -580,6 +584,14 @@ impl Session {
     /// Set the zoom multiplier for the next recording (clamped to a sane range).
     pub fn set_zoom_amount(&self, amount: f64) -> Result<(), String> {
         *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner()) = amount.clamp(1.0, 4.0);
+        Ok(())
+    }
+
+    /// Show or hide the live picture in the recording panel. Off, the recording's drain
+    /// stops copying frames for it and nothing is drawn, which frees processor time on a
+    /// slower computer. Takes effect at once, also during a take.
+    pub fn set_live_preview(&self, on: bool) -> Result<(), String> {
+        self.live_preview_on.store(on, Ordering::Relaxed);
         Ok(())
     }
 
@@ -936,8 +948,17 @@ impl Session {
         // a single capture of a display per process.
         let (tap_tx, tap_rx) = std::sync::mpsc::sync_channel(1);
         let sink = self.preview.sink();
-        let preview =
-            LivePreview::start(tap_rx, region, mon_origin, amount, !pointer_captured, sink);
+        let preview_on = Arc::clone(&self.live_preview_on);
+        let tap_on = Arc::clone(&preview_on);
+        let preview = LivePreview::start(
+            tap_rx,
+            region,
+            mon_origin,
+            amount,
+            !pointer_captured,
+            sink,
+            preview_on,
+        );
         // Audio opens after video so device setup never delays frame 0; each track lays its
         // packets onto the timeline by their counter timestamps. The mic check is stopped
         // first so it doesn't hold a second stream on the same device.
@@ -989,7 +1010,9 @@ impl Session {
             loop {
                 match frames_rx.recv_timeout(Duration::from_millis(200)) {
                     Ok(f) => {
-                        if last_tap.is_none_or(|t| t.elapsed() >= live_preview::TAP_EVERY) {
+                        let tap_due =
+                            last_tap.is_none_or(|t| t.elapsed() >= live_preview::TAP_EVERY);
+                        if tap_due && tap_on.load(Ordering::Relaxed) {
                             last_tap = Some(std::time::Instant::now());
                             let _ = tap_tx.try_send(live_preview::sample(&f));
                         }

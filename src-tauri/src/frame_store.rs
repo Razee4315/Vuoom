@@ -117,7 +117,9 @@ fn strip_ranges(w: u32, h: u32) -> Vec<std::ops::Range<usize>> {
 
 /// The threads that compress frames: half the processor (2 to 6 threads). A full-screen take
 /// at 60 fps kept every core busy on rayon's global pool, which made the app being recorded
-/// (and the whole computer) sluggish; half leaves room for it.
+/// (and the whole computer) sluggish; half leaves room for it. The threads also run below
+/// normal priority, so whenever the processor is contended the app being recorded and
+/// Vuoom's own panel go first; the encoder still gets every idle cycle.
 fn encode_pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
@@ -125,10 +127,25 @@ fn encode_pool() -> &'static rayon::ThreadPool {
         rayon::ThreadPoolBuilder::new()
             .num_threads((cores / 2).clamp(2, 6))
             .thread_name(|i| format!("vuoom-encode-{i}"))
+            .start_handler(|_| lower_thread_priority())
             .build()
             .expect("frame encoder threads")
     })
 }
+
+/// Run the calling thread below normal priority (background work: frame encoding, the
+/// live preview). Best-effort: a thread left at normal priority still works.
+#[cfg(windows)]
+pub fn lower_thread_priority() {
+    use windows::Win32::System::Threading::{
+        GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
+    };
+    let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) };
+}
+
+/// Non-Windows stub (the app is Windows-only; keeps the crate portable for `cargo check`).
+#[cfg(not(windows))]
+pub fn lower_thread_priority() {}
 
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the
 /// strip container: `u8 n`, `n × u32 compressed len`, then the concatenated LZ4 blocks.

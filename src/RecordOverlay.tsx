@@ -582,6 +582,12 @@ export default function RecordOverlay(props: {
 
   const windowMode = () => props.target?.kind === "window";
   const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
+  /** Show or hide the live picture. Applies at once, also mid-take: off, the engine stops
+   *  copying and drawing preview frames, which frees processor time on slower PCs. */
+  const setLivePreview = (on: boolean) => {
+    prefs.livePreview.set(on);
+    void invoke("set_live_preview", { on }).catch(() => undefined);
+  };
   /** Switch the panel between its compact size and a bigger live preview. */
   const togglePanelSize = () => {
     const next = !layout.panelLarge();
@@ -622,6 +628,17 @@ export default function RecordOverlay(props: {
                 </Show>
               </span>
               <span class="rec-drag-end" data-tauri-drag-region>
+                <label
+                  class="rec-live-toggle"
+                  data-tip={prefs.livePreview() ? "Hide the live preview to save processor time" : "Show what is being recorded"}
+                >
+                  <input
+                    type="checkbox"
+                    checked={prefs.livePreview()}
+                    onChange={(e) => setLivePreview(e.currentTarget.checked)}
+                  />
+                  <span>Live preview</span>
+                </label>
                 <button
                   type="button"
                   class="rec-size"
@@ -637,7 +654,14 @@ export default function RecordOverlay(props: {
               </span>
             </div>
             <div class="rec-screen" onDblClick={togglePanelSize}>
-              <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" />
+              <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" classList={{ off: !prefs.livePreview() }} />
+              <Show when={!prefs.livePreview() && phase() !== "countdown"}>
+                <div class="rec-preview-off">
+                  <Icon name="eye" size={18} />
+                  <strong>Preview off</strong>
+                  <span>{phase() === "recording" ? "Still recording. Tick Live preview to watch." : "Tick Live preview to watch the take."}</span>
+                </div>
+              </Show>
               <Show when={phase() === "countdown"}>
                 <div class="rec-countdown">
                   <div class="rec-ring" style={{ "--total": String(Math.max(1, prefs.countdown())) }}>
@@ -882,6 +906,12 @@ export default function RecordOverlay(props: {
                   pushCursorMode(c.value);
                 },
               })),
+              { heading: "Recording panel" },
+              {
+                label: "Show live preview",
+                checked: prefs.livePreview(),
+                onSelect: () => setLivePreview(!prefs.livePreview()),
+              },
               { heading: "Countdown" },
               ...COUNTDOWN_CHOICES.map((c) => ({
                 label: c.value === 0 ? "Start immediately" : `${c.value} seconds`,

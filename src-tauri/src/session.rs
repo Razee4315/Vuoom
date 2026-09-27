@@ -4244,6 +4244,7 @@ mod tests {
             keys: true,
             frame: "subtle".into(),
             denoise: true,
+            auto_zoom: true,
         };
         d.apply(&mut p);
         assert!(p.show_clicks && p.show_keys);

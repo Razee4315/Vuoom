@@ -15,6 +15,12 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 - `CHANGELOG.md`, `PRIVACY.md` and `SUPPORT.md`.
 
 ### Fixed
+- Saving a project is now all-or-nothing: the new save is written beside the folder and
+  swapped in only once complete, so a full disk or a crash mid-save can no longer break an
+  earlier save. Vuoom checks for enough free space before writing anything (#30).
+- Opening a project that can't be opened keeps the clip you had, and says why in plain words
+  (folder gone, save cut short, damaged file). A project cut short opens with the frames that
+  survive instead of failing outright.
 - `SECURITY.md` and `NOTICE` now describe the app as it is: the two network requests it makes
   (the update check and the one-time captions model) and the built-in GIF encoder.
 

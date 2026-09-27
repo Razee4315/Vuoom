@@ -306,28 +306,35 @@ export function createEditor() {
   };
   const [recentSearch, setRecentSearch] = createSignal("");
 
-  const openRecent = async (dir: string) => {
+  // Open a project folder. A failed open leaves the current clip as it was; a folder that
+  // is gone (moved or deleted) can be dropped from the recents grid.
+  const openProjectAt = async (dir: string) => {
     setStatus("Opening project…");
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      setProjectName(
-        dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.replace(/\.vuoom$/i, "") || "Untitled",
-      );
+      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
+      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
       rememberRecent(dir);
-      setStatus("Project opened");
-      toast("Project opened", "success");
+      if (summary.warning) {
+        setStatus(`Project opened. ${summary.warning}`);
+        toast(`Project opened. ${summary.warning}`, "error", 9000);
+      } else {
+        setStatus("Project opened");
+        toast("Project opened", "success");
+      }
     } catch (e) {
       setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error");
-      // The folder is likely gone (moved or deleted): offer to drop it from the grid.
+      toast(`Could not open project: ${friendlyError(e)}`, "error", 9000);
+      if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
-        "This project folder could not be opened. It may have been moved or deleted. Remove it from the recents list?",
+        "This project folder is gone. It may have been moved or deleted. Remove it from the recents list?",
         { title: "Project unavailable", kind: "warning", okLabel: "Remove", cancelLabel: "Keep" },
       );
       if (remove) removeRecent(dir);
     }
   };
+  const openRecent = (dir: string) => openProjectAt(dir);
   const fmtAgo = (ts: number) => {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return "just now";
@@ -3722,19 +3729,7 @@ export function createEditor() {
   const onOpenProject = async () => {
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
-    setStatus("Opening project…");
-    try {
-      const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
-      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
-      await loadFinishedClip(summary);
-      rememberRecent(dir);
-      setStatus("Project opened");
-      toast("Project opened", "success");
-    } catch (e) {
-      setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error");
-    }
+    await openProjectAt(dir);
   };
 
 

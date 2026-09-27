@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod audio;
+mod bundle;
 mod camera;
 mod captions;
 mod commands;

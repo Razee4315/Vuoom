@@ -16,6 +16,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::audio::AudioChoice;
+use crate::bundle;
 use crate::camera::{CameraChoice, Decoded};
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::{self, LivePreview};
@@ -286,7 +287,7 @@ struct Edited {
     track: Option<CameraTrack>,
     start_qpc: i64,
     /// The clip's webcam frames, opened on first use. Dropped with the clip, so no file
-    /// handle outlives it (a bundle opened next reuses the scratch folder).
+    /// handle outlives it (the scratch folder of an opened bundle is deleted after the next open).
     camera: Option<Arc<crate::camera::Frames>>,
     /// Undo history: `(coalesce_tag, project_before_the_edit)`. The tag lets rapid-fire
     /// edits (typing, slider drags) collapse into one undo step.
@@ -361,19 +362,6 @@ const MAX_AIMED_ZOOM: f64 = 4.0;
 /// Timestamp unit of a saved bundle's frame index (ticks per second). The QPC epoch and
 /// frequency are machine-specific, so bundles store time from the first frame at 10 MHz.
 const BUNDLE_TIMEBASE: i64 = 10_000_000;
-
-/// Delete the per-frame PNGs (and their JSON index) an older build saved into `frames_dir`.
-fn remove_legacy_frames(frames_dir: &Path) {
-    let _ = std::fs::remove_file(frames_dir.join("index.json"));
-    if let Ok(entries) = std::fs::read_dir(frames_dir) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("png")) {
-                let _ = std::fs::remove_file(p);
-            }
-        }
-    }
-}
 
 /// Legacy bundle format (read-only): one entry in `frames/index.json`, giving the frame
 /// number, time from start in seconds, and dimensions of one PNG frame.
@@ -450,7 +438,9 @@ impl Session {
         })?;
         // Clear any scratch store left by a previous run's bundle open, its gigabytes would
         // otherwise linger. Recorded sessions are pruned per-take (see `new_session_dir`).
-        let _ = std::fs::remove_dir_all(frame_store::scratch_dir());
+        for scratch in frame_store::scratch_dirs() {
+            let _ = std::fs::remove_dir_all(scratch);
+        }
         // The GPU compositor backs both preview and export. If it can't be created (no adapter,
         // driver failure) every seek/export downstream returns "no GPU compositor", log it
         // once here at the source instead of leaving those failures unexplained.
@@ -3178,29 +3168,48 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
             .ok_or("no recording")?;
+        // Nothing is written until the drive has room for the whole project, and the new
+        // save goes into a folder beside `dir` that is swapped in once complete: a save cut
+        // off half way (full disk, crash) never touches an earlier save of this project.
+        let staging = bundle::sibling(dir, "saving")?;
+        if let Some(free) = frame_store::free_space_bytes(&staging) {
+            let need = frame_store::dir_size(&src);
+            bundle::check_space(free, need, "save this project")?;
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        if let Err(e) = self.write_bundle(&project, start_qpc, &src, &staging) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+        bundle::swap_in(&staging, dir)
+    }
+
+    /// Write a complete project folder at `dir`: the compressed frame store copied
+    /// byte-for-byte (not re-encoded) with its timestamps rebased to a portable 10 MHz
+    /// timebase, the audio and camera tracks, then the manifest.
+    fn write_bundle(
+        &self,
+        project: &Project,
+        start_qpc: i64,
+        src: &Path,
+        dir: &Path,
+    ) -> Result<(), String> {
         let frames_dir = dir.join("frames");
         std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
-        // Bundles used to hold one PNG per frame (minutes to write, gigabytes on disk). They
-        // now hold the compressed frame store itself, copied byte-for-byte, with timestamps
-        // rebased to a portable 10 MHz timebase. Remove an older save's PNGs so the folder
-        // doesn't keep both.
-        remove_legacy_frames(&frames_dir);
         let freq = i128::from(self.clock.freq().max(1));
-        frame_store::copy_store(&src, &frames_dir, |q| {
+        frame_store::copy_store(src, &frames_dir, |q| {
             (i128::from(q - start_qpc) * i128::from(BUNDLE_TIMEBASE) / freq) as i64
         })?;
-        crate::audio::copy_tracks(&src, &dir.join("audio"), &project.audio)?;
-        crate::camera::copy_track(&src, &dir.join("camera"))?;
-        std::fs::write(
-            dir.join("project.json"),
-            project.to_json().map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
+        crate::audio::copy_tracks(src, &dir.join("audio"), &project.audio)?;
+        crate::camera::copy_track(src, &dir.join("camera"))?;
+        let json = project.to_json().map_err(|e| e.to_string())?;
+        let manifest = dir.join("project.json");
+        std::fs::write(&manifest, json).map_err(|e| e.to_string())
     }
 
     /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
     /// the camera from the persisted events, and repopulate the editor. Returns a summary.
+    /// A bundle that can't be opened leaves the current clip as it was.
     pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
         self.open_bundle_impl(dir).map_err(|e| {
             tracing::error!(dir = %dir.display(), "opening bundle failed: {e}");
@@ -3209,74 +3218,156 @@ impl Session {
     }
 
     fn open_bundle_impl(&self, dir: &Path) -> Result<RecordingSummary, String> {
-        let project = Project::from_json(
-            &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        let project = bundle::read_manifest(dir)?;
         let frames_dir = dir.join("frames");
         if frame_store::has_store(&frames_dir) {
-            return self.open_store_bundle(project, &frames_dir);
+            return self.open_store_bundle(project, dir);
         }
-        let index: Vec<FrameIndex> = serde_json::from_str(
-            &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        if !frames_dir.join("index.json").is_file() {
+            return Err("This project's frames are missing, so it can't be opened.".into());
+        }
+        self.open_png_bundle(project, &frames_dir)
+    }
 
-        let freq = self.clock.freq();
-        let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
-
-        // Decode into the dedicated scratch store, NOT a rotated recording session, so
-        // opening a bundle never buries the last recording's recoverable take. One frame in
-        // memory at a time. Drop the current clip first: its store handles may point at the
-        // scratch files we're about to truncate.
-        let scratch = frame_store::scratch_dir();
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let mut writer = FrameWriter::create(scratch.clone())?;
-        for fi in &index {
-            let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
-                .map_err(|e| e.to_string())?;
-            writer.push(CapturedFrame {
-                width: fi.w,
-                height: fi.h,
-                bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
-                qpc: base + (fi.t * freq as f64) as i64,
-            })?;
-        }
-        let store = writer.finish()?;
-        if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(frame_store::project_path(&scratch), json);
-        }
-        self.install_opened(project, store, scratch, base)
+    /// The scratch dir an open copies into: the one the current clip isn't reading from,
+    /// emptied. Opening never writes where the current clip lives, so a failed open leaves
+    /// it playable.
+    fn scratch_for_open(&self) -> PathBuf {
+        let current = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let target = frame_store::free_scratch_dir(current.as_deref());
+        let _ = std::fs::remove_dir_all(&target);
+        target
     }
 
     /// Open a bundle whose frames are a compressed store (see [`Self::save_bundle`]): one
-    /// file copy into the scratch dir, timestamps rebased onto this run's clock.
+    /// file copy into a scratch dir, timestamps rebased onto this run's clock.
     fn open_store_bundle(
+        &self,
+        project: Project,
+        bundle_dir: &Path,
+    ) -> Result<RecordingSummary, String> {
+        // Check the frames before copying anything. A store cut short opens with the frames
+        // that read back cleanly, and says so.
+        let frames_dir = bundle_dir.join("frames");
+        let readable = FrameStore::open(&frames_dir)?.len();
+        let total = frame_store::record_count(&frames_dir);
+        if readable == 0 {
+            return Err("This project has no readable frames, so it can't be opened.".into());
+        }
+        let mut warning = None;
+        if readable < total {
+            warning = Some(format!(
+                "Only {readable} of {total} frames could be read, the end is missing."
+            ));
+        }
+        let target = self.scratch_for_open();
+        if let Some(free) = frame_store::free_space_bytes(&target) {
+            let need = frame_store::dir_size(bundle_dir);
+            bundle::check_space(free, need, "open this project")?;
+        }
+        let base = self.clock.now();
+        let store = match self.copy_bundle_in(&project, bundle_dir, &target, base) {
+            Ok(store) => store,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
+        };
+        let mut summary = self.install_opened(project, store, target, base)?;
+        summary.warning = warning;
+        Ok(summary)
+    }
+
+    /// Copy a bundle's frames, audio and camera track into the scratch dir `target`, frame
+    /// timestamps rebased onto this run's clock at `base`.
+    fn copy_bundle_in(
+        &self,
+        project: &Project,
+        bundle_dir: &Path,
+        target: &Path,
+        base: i64,
+    ) -> Result<FrameStore, String> {
+        let freq = i128::from(self.clock.freq());
+        frame_store::copy_store(&bundle_dir.join("frames"), target, |t| {
+            base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
+        })?;
+        crate::audio::copy_tracks(&bundle_dir.join("audio"), target, &project.audio)?;
+        crate::camera::copy_track(&bundle_dir.join("camera"), target)?;
+        let store = FrameStore::open(target)?;
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(target), json);
+        }
+        Ok(store)
+    }
+
+    /// Open a bundle from an older build: one PNG per frame, listed in `frames/index.json`.
+    /// A frame that can't be read (a save cut off by a full disk) is skipped, not fatal.
+    fn open_png_bundle(
         &self,
         project: Project,
         frames_dir: &Path,
     ) -> Result<RecordingSummary, String> {
-        let freq = i128::from(self.clock.freq());
-        let base = self.clock.now();
-        let scratch = frame_store::scratch_dir();
-        // Drop the current clip first: its store handles may point at the scratch files.
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let _ = std::fs::remove_dir_all(&scratch);
-        frame_store::copy_store(frames_dir, &scratch, |t| {
-            base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
-        })?;
-        if let Some(bundle) = frames_dir.parent() {
-            crate::audio::copy_tracks(&bundle.join("audio"), &scratch, &project.audio)?;
-            crate::camera::copy_track(&bundle.join("camera"), &scratch)?;
+        let list = frames_dir.join("index.json");
+        let text = std::fs::read_to_string(&list).map_err(|e| e.to_string())?;
+        let index: Vec<FrameIndex> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+
+        let freq = self.clock.freq();
+        let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
+
+        // Decode into a scratch store, NOT a rotated recording session, so opening a bundle
+        // never buries the last recording's recoverable take. One frame in memory at a time.
+        let target = self.scratch_for_open();
+        let mut writer = FrameWriter::create(target.clone())?;
+        let mut skipped = 0;
+        for fi in &index {
+            let img = match read_png(&frames_dir.join(format!("{:05}.png", fi.n))) {
+                Ok(img) => img,
+                Err(e) => {
+                    tracing::warn!(frame = fi.n, "skipping an unreadable frame: {e}");
+                    skipped += 1;
+                    continue;
+                }
+            };
+            let pushed = writer.push(CapturedFrame {
+                width: fi.w,
+                height: fi.h,
+                bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
+                qpc: base + (fi.t * freq as f64) as i64,
+            });
+            if let Err(e) = pushed {
+                drop(writer);
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
         }
-        let store = FrameStore::open(&scratch)?;
+        let store = match writer.finish() {
+            Ok(store) if !store.is_empty() => store,
+            Ok(empty) => {
+                drop(empty);
+                let _ = std::fs::remove_dir_all(&target);
+                return Err("This project has no readable frames, so it can't be opened.".into());
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
+        };
         if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(frame_store::project_path(&scratch), json);
+            let _ = std::fs::write(frame_store::project_path(&target), json);
         }
-        self.install_opened(project, store, scratch, base)
+        let mut summary = self.install_opened(project, store, target, base)?;
+        if skipped > 0 {
+            summary.warning = Some(format!("{skipped} unreadable frames were skipped."));
+        }
+        Ok(summary)
     }
 
-    /// Make an opened bundle's frames + project the current clip.
+    /// Make an opened bundle's frames + project the current clip, then free the scratch dir
+    /// the previous clip read from (when that was an opened bundle too).
     fn install_opened(
         &self,
         project: Project,
@@ -3284,10 +3375,11 @@ impl Session {
         dir: PathBuf,
         base: i64,
     ) -> Result<RecordingSummary, String> {
-        *self
+        let previous = self
             .current_recovery
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+            .unwrap_or_else(|e| e.into_inner())
+            .replace(dir.clone());
         let track = simulate(
             &project.events,
             &project.zooms,
@@ -3301,15 +3393,21 @@ impl Session {
             zooms: project.zooms.len(),
             warning: None,
         };
-        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Fresh clip → fresh (empty) undo history.
-        *edited = Edited {
-            frames: Some(Arc::new(store)),
-            project: Some(project),
-            track: Some(track),
-            start_qpc: base,
-            ..Edited::default()
-        };
+        {
+            let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            // Fresh clip → fresh (empty) undo history.
+            *edited = Edited {
+                frames: Some(Arc::new(store)),
+                project: Some(project),
+                track: Some(track),
+                start_qpc: base,
+                ..Edited::default()
+            };
+        }
+        // The previous clip's file handles went with it: drop its scratch copy (gigabytes).
+        if let Some(prev) = previous.filter(|p| *p != dir && frame_store::is_scratch(p)) {
+            let _ = std::fs::remove_dir_all(prev);
+        }
         Ok(summary)
     }
 

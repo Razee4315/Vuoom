@@ -272,11 +272,30 @@ pub fn free_space_bytes(_path: &Path) -> Option<u64> {
     None
 }
 
-/// Fixed scratch subdir backing an opened `.vuoom` bundle. Named non-numerically so recovery
-/// scanning skips it, opening a bundle must never bury the last recording's recoverable
-/// session. Truncated (not rotated) on each reuse, so it holds at most one bundle's frames.
-pub fn scratch_dir() -> PathBuf {
-    recovery_root().join("scratch")
+/// The two scratch subdirs that back an opened `.vuoom` bundle. Named non-numerically so
+/// recovery scanning skips them: opening a bundle must never bury the last recording's
+/// recoverable session. There are two so a bundle can be copied in while the current clip
+/// still reads from the other one, and a failed open leaves that clip untouched.
+pub fn scratch_dirs() -> [PathBuf; 2] {
+    let root = recovery_root();
+    [root.join("scratch"), root.join("scratch-2")]
+}
+
+/// The scratch subdir the next open should use: whichever one `in_use` (the current clip's
+/// store) isn't.
+pub fn free_scratch_dir(in_use: Option<&Path>) -> PathBuf {
+    let [a, b] = scratch_dirs();
+    let a_in_use = in_use.is_some_and(|p| p == a);
+    if a_in_use {
+        b
+    } else {
+        a
+    }
+}
+
+/// Whether `dir` is one of the [`scratch_dirs`].
+pub fn is_scratch(dir: &Path) -> bool {
+    scratch_dirs().iter().any(|s| s == dir)
 }
 
 /// How many recorded sessions to retain: the current one plus the immediately previous, so a
@@ -370,7 +389,7 @@ pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
 /// Recursively sum the byte size of every file under `dir`. Best-effort: an entry that can't
 /// be read is skipped rather than failing the whole walk. Cheap here, the recovery root only
 /// ever holds a couple of session dirs plus scratch.
-fn dir_size(dir: &Path) -> u64 {
+pub fn dir_size(dir: &Path) -> u64 {
     let mut total = 0;
     if let Ok(entries) = fs::read_dir(dir) {
         for e in entries.flatten() {
@@ -396,9 +415,10 @@ pub fn recovery_usage() -> (u64, usize) {
 /// dir: one that fails to delete is left in place and not counted.
 pub fn clear_recovery(keep: Option<&Path>) -> u64 {
     let mut targets = session_dirs();
-    let scratch = scratch_dir();
-    if scratch.is_dir() {
-        targets.push(scratch);
+    for scratch in scratch_dirs() {
+        if scratch.is_dir() {
+            targets.push(scratch);
+        }
     }
     let mut freed = 0;
     for dir in targets {
@@ -782,6 +802,13 @@ pub fn copy_store(src: &Path, dst: &Path, map_qpc: impl Fn(i64) -> i64) -> Resul
     }
     fs::write(index_path(dst), idx).map_err(|e| format!("write index: {e}"))?;
     Ok(store.len())
+}
+
+/// How many frame records `dir`'s index holds, readable or not. More than
+/// [`FrameStore::len`] means the store was cut short (its tail is dropped on open).
+pub fn record_count(dir: &Path) -> usize {
+    let len = fs::metadata(index_path(dir)).map_or(0, |m| m.len());
+    usize::try_from(len).unwrap_or(0) / REC_SIZE
 }
 
 /// Whether `dir` holds a frame store (used to tell new project bundles from PNG ones).

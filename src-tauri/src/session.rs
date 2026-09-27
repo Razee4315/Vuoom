@@ -54,6 +54,11 @@ pub struct TakeDefaults {
     pub frame: String,
     /// Noise removal on a new microphone track.
     pub denoise: bool,
+    /// Auto zooms: a take recorded without pressing the zoom hotkey gets a few calm zooms
+    /// planned from its clicks. Pressing the hotkey even once means you're directing the
+    /// camera yourself, and only your zooms are used.
+    #[serde(default)]
+    pub auto_zoom: bool,
 }
 
 impl Default for TakeDefaults {
@@ -64,6 +69,7 @@ impl Default for TakeDefaults {
             keys: false,
             frame: "none".into(),
             denoise: false,
+            auto_zoom: false,
         }
     }
 }
@@ -88,6 +94,8 @@ pub struct RecordingSummary {
     pub duration: f64,
     pub frames: usize,
     pub zooms: usize,
+    /// The zooms were planned from clicks (auto zoom), not placed with the hotkey.
+    pub auto_zooms: bool,
     /// Set when the recording was truncated (e.g. the disk filled mid-capture): the clip keeps
     /// every frame written before the failure, and this message explains the shortfall so the
     /// editor can warn the user instead of the whole take failing.
@@ -1180,8 +1188,16 @@ impl Session {
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
+        let auto_zoom = self
+            .take_defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .auto_zoom;
+        let hotkey_used = events.iter().any(InputEvent::is_zoom_mark);
+        let auto_zooms = auto_zoom && amount > 1.0 && !hotkey_used;
         let cfg = ZoomConfig {
             amount,
+            auto_zoom_on_click: auto_zooms,
             ..ZoomConfig::default()
         };
         let zooms = plan_zooms(&events, duration, &cfg);
@@ -1276,6 +1292,7 @@ impl Session {
             duration,
             frames: frame_count,
             zooms: zoom_count,
+            auto_zooms,
             warning,
         })
     }
@@ -2626,6 +2643,16 @@ impl Session {
         Ok(zooms)
     }
 
+    /// Remove every zoom segment (undoable as one step); returns the now-empty list.
+    pub fn clear_zooms(&self) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        project.zooms.clear();
+        resimulate(&mut edited);
+        Ok(Vec::new())
+    }
+
     /// Delete the zoom segment at `index` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {
@@ -3299,6 +3326,7 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            auto_zooms: false,
             warning: None,
         };
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -3418,6 +3446,7 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            auto_zooms: false,
             warning: None,
         };
         // The recovered take is now the loaded clip, so later recovery checks skip it and

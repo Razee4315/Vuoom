@@ -77,6 +77,8 @@ export const prefs = {
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */
   recordZoom: persisted<number>("record-zoom", 1.8),
+  /** A take recorded without pressing Ctrl+Shift+Z gets a few calm zooms from its clicks. */
+  recordAutoZoom: persisted<boolean>("record-auto-zoom", true),
   /** What every new take starts with (each can be changed per clip in the editor). */
   newClicks: persisted<boolean>("new-clicks", true),
   newKeys: persisted<boolean>("new-keys", true),

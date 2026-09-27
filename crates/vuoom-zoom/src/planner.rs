@@ -151,19 +151,36 @@ fn click_segments(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec
         }
     }
 
-    // 4. Frequency limiting: merge segments closer than the min re-zoom interval so the
-    //    result never feels like motion sickness.
+    // 4. Frequency limiting: a segment starting within the min re-zoom interval of the
+    //    previous one joins it, so the result never feels like motion sickness. A join
+    //    that would outgrow `max_zoom_len` is dropped instead: the camera settles back
+    //    out rather than staying zoomed through a whole busy stretch.
     let mut merged: Vec<ZoomKeyframe> = Vec::with_capacity(segments.len());
     for seg in segments {
         if let Some(prev) = merged.last_mut() {
             if seg.start < prev.end + cfg.min_rezoom_interval {
-                prev.end = prev.end.max(seg.end);
+                let end = prev.end.max(seg.end);
+                if cfg.max_zoom_len <= 0.0 || end - prev.start <= cfg.max_zoom_len {
+                    prev.end = end;
+                }
                 continue;
             }
         }
         merged.push(seg);
     }
-    merged
+
+    // 5. At most `max_per_minute` zooms start in any 60 s window (earliest ones win).
+    if cfg.max_per_minute <= 0.0 {
+        return merged;
+    }
+    let mut kept: Vec<ZoomKeyframe> = Vec::with_capacity(merged.len());
+    for seg in merged {
+        let recent = kept.iter().filter(|k| seg.start - k.start < 60.0).count();
+        if (recent as f64) < cfg.max_per_minute {
+            kept.push(seg);
+        }
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -266,6 +283,48 @@ mod tests {
         assert!(!cfg.auto_zoom_on_click);
         let events = [click(1.0, 0.3, 0.3), click(5.0, 0.7, 0.7)];
         assert!(plan_zooms(&events, 8.0, &cfg).is_empty());
+    }
+
+    /// A busy minute (a click every 2 s, hopping around the screen) must stay calm: a few
+    /// zooms, none longer than the cap, never two starting within 3 s, and at most the
+    /// per-minute limit in any 60 s window.
+    #[test]
+    fn a_busy_minute_of_clicks_gets_a_few_calm_zooms() {
+        let cfg = click_cfg();
+        // Five spots, each more than a merge radius from the one before it.
+        let events: Vec<InputEvent> = (0..30_u32)
+            .map(|i| {
+                let a = f64::from(i % 5);
+                click(f64::from(i) * 2.0, 0.15 + a * 0.17, 0.8 - a * 0.13)
+            })
+            .collect();
+        let zooms = plan_zooms(&events, 62.0, &cfg);
+        let n = zooms.len();
+        assert!((3..=6).contains(&n), "got {n} zooms");
+        for w in zooms.windows(2) {
+            let gap = w[1].start - w[0].start;
+            assert!(gap >= 3.0, "zooms start {gap}s apart");
+        }
+        for z in &zooms {
+            let len = z.end - z.start;
+            assert!(len <= cfg.max_zoom_len + 1e-9, "a {len}s zoom");
+            let in_window = |o: &&ZoomKeyframe| o.start >= z.start && o.start - z.start < 60.0;
+            assert!(zooms.iter().filter(in_window).count() <= 4);
+        }
+    }
+
+    #[test]
+    fn no_limits_when_the_caps_are_off() {
+        let cfg = ZoomConfig {
+            max_zoom_len: 0.0,
+            max_per_minute: 0.0,
+            ..click_cfg()
+        };
+        let events: Vec<InputEvent> = (0..30_u32)
+            .map(|i| click(f64::from(i) * 2.0, 0.2, 0.2))
+            .collect();
+        let zooms = plan_zooms(&events, 62.0, &cfg);
+        assert_eq!(zooms.len(), 1, "one spot clicked steadily is one long zoom");
     }
 
     #[test]

@@ -1259,6 +1259,12 @@ pub async fn set_zoom_style(
     engine.session()?.set_zoom_style(index, style)
 }
 
+/// Remove every zoom segment; returns the (empty) segment list.
+#[tauri::command]
+pub async fn clear_zooms(engine: tauri::State<'_, Engine>) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.clear_zooms()
+}
+
 /// Delete the zoom segment at `index`; returns the updated segment list.
 #[tauri::command]
 pub async fn delete_zoom(

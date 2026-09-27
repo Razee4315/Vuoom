@@ -2172,10 +2172,16 @@ export function createEditor() {
     setBackdrop(null);
     setRecordTarget(null);
     await loadFinishedClip(summary);
-    toast(
-      `Recording loaded: ${summary.duration.toFixed(1)}s, ${summary.zooms} zoom${summary.zooms === 1 ? "" : "s"}`,
-      "success",
-    );
+    const n = summary.zooms;
+    if (summary.auto_zooms && n > 0) {
+      // Auto zoom planned these from the clicks: say so, and make them one click to drop.
+      toast(`Added ${n} zoom${n === 1 ? "" : "s"} where you clicked`, "success", 8000, {
+        label: "Remove",
+        run: () => void clearZooms(),
+      });
+    } else {
+      toast(`Recording loaded: ${summary.duration.toFixed(1)}s, ${n} zoom${n === 1 ? "" : "s"}`, "success");
+    }
   };
   const onRecordCancel = () => {
     setRecordPhase("idle");
@@ -2486,6 +2492,20 @@ export function createEditor() {
     } catch (e) {
       setStatus(`Auto zoom failed: ${String(e)}`);
       toast(`Auto zoom failed: ${friendlyError(e)}`, "error");
+    }
+  };
+
+  // Drop every zoom (one undo step).
+  const clearZooms = async () => {
+    if (!hasClip()) return;
+    try {
+      setZooms(await invoke<ZoomSeg[]>("clear_zooms"));
+      setDirty(true);
+      setSelZoom(null);
+      setStatus("Zooms removed. Ctrl+Z brings them back.");
+      await pushSeek(playhead());
+    } catch (e) {
+      toast(`Couldn't remove the zooms: ${friendlyError(e)}`, "error");
     }
   };
 

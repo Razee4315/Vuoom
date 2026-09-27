@@ -91,7 +91,9 @@ fn move_entries(staging: &Path, dir: &Path, old: &Path) -> Result<(), String> {
                 remove_entry(&dir.join(placed_name));
             }
             restore(old, dir, &aside);
-            return Err(format!("couldn't move the new save into place ({name}): {e}"));
+            return Err(format!(
+                "couldn't move the new save into place ({name}): {e}"
+            ));
         }
         placed.push(name);
     }

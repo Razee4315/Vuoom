@@ -286,7 +286,11 @@ pub fn scratch_dirs() -> [PathBuf; 2] {
 pub fn free_scratch_dir(in_use: Option<&Path>) -> PathBuf {
     let [a, b] = scratch_dirs();
     let a_in_use = in_use.is_some_and(|p| p == a);
-    if a_in_use { b } else { a }
+    if a_in_use {
+        b
+    } else {
+        a
+    }
 }
 
 /// Whether `dir` is one of the [`scratch_dirs`].

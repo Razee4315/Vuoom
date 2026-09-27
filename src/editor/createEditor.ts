@@ -5,7 +5,7 @@
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
 import { batch, createSignal, createEffect, onMount, onCleanup } from "solid-js";
-import { invoke, isMock, open, ask, check, relaunch, type Update } from "../bridge";
+import { invoke, isMock, open, openUrl, ask, check, relaunch, type Update } from "../bridge";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
@@ -539,6 +539,16 @@ export function createEditor() {
         invoke<number | null>("check_recovery")
           .then((d) => setRecoverable(d ?? null))
           .catch(() => setRecoverable(null));
+        // The last run didn't exit normally: offer the report that would help fix it.
+        invoke<boolean>("last_run_cut_short")
+          .then((cut) => {
+            if (!cut) return;
+            toast("Vuoom didn't close normally last time. A report helps get it fixed.", "error", 15000, {
+              label: "Copy report",
+              run: () => void copyDiagnostics(),
+            });
+          })
+          .catch(() => undefined);
         return;
       } catch (e) {
         const msg = String(e);
@@ -552,6 +562,30 @@ export function createEditor() {
     }
     setStatus("The engine did not start. Try restarting Vuoom.");
     hideSplash();
+  };
+
+  // ── problem reports ─────────────────────────────────────────────────────────────
+  // Versions, GPU, displays and the end of the log, gathered locally. Nothing is sent: the
+  // text goes on the clipboard for the user to paste into a bug report.
+  const BUG_REPORT_URL = "https://github.com/Razee4315/Vuoom/issues/new?template=bug_report.yml";
+  const copyDiagnostics = async () => {
+    try {
+      const text = await invoke<string>("diagnostics");
+      await navigator.clipboard.writeText(text);
+      toast("Report copied. Paste it into a bug report.", "success", 8000, {
+        label: "New bug report",
+        run: () => void openUrl(BUG_REPORT_URL),
+      });
+    } catch (e) {
+      toast(`Couldn't make the report: ${friendlyError(e)}`, "error");
+    }
+  };
+  const openLogsFolder = async () => {
+    try {
+      await invoke("open_folder", { dir: await invoke<string>("log_folder") });
+    } catch (e) {
+      toast(`Couldn't open the logs folder: ${friendlyError(e)}`, "error");
+    }
   };
 
   // ── auto-update (signed GitHub releases) ───────────────────────────────────────
@@ -4037,6 +4071,8 @@ export function createEditor() {
     connectEngine,
     checkForUpdate,
     runUpdate,
+    copyDiagnostics,
+    openLogsFolder,
     maybeShowWelcome,
     dismissWelcome,
     pushSeek,

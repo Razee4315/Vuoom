@@ -49,6 +49,14 @@ body:
       description: Helps a lot for capture/zoom bugs.
       placeholder: "Single 2560×1440 @ 125% scaling / dual monitor mixed-DPI / …"
   - type: textarea
+    id: diagnostics
+    attributes:
+      label: Report from Vuoom
+      description: >-
+        In Vuoom, open Settings > About > Copy report and paste it here. It holds your
+        versions, GPU, displays and the end of the log (your user folder is hidden).
+      render: text
+  - type: textarea
     id: extra
     attributes:
       label: Anything else?

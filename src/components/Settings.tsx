@@ -329,6 +329,21 @@ export default function Settings() {
                   {ed.updateNote()!.text}
                 </p>
               </Show>
+              <div class="about-report">
+                <h4>Something went wrong?</h4>
+                <p class="note">
+                  Copy a report with your Vuoom and Windows versions, GPU, displays and the last lines of the
+                  log, then paste it into a bug report. Nothing is sent from here.
+                </p>
+                <div class="about-report-actions">
+                  <button type="button" class="btn sm" onClick={() => void ed.copyDiagnostics()}>
+                    <Icon name="copy" size={13} /> Copy report
+                  </button>
+                  <button type="button" class="btn ghost sm" onClick={() => void ed.openLogsFolder()}>
+                    <Icon name="folder" size={13} /> Open logs folder
+                  </button>
+                </div>
+              </div>
             </div>
           </Show>
         </div>

@@ -192,6 +192,8 @@ pub struct Compositor {
     camera_cache: Mutex<Option<CameraCache>>,
     /// The picture behind the framed recording, for picture backdrops.
     backdrop: Mutex<Backdrop>,
+    /// The GPU in use (name, graphics API, type, driver), for diagnostics.
+    adapter: String,
 }
 
 /// A backdrop placeholder: one opaque black pixel.
@@ -268,7 +270,26 @@ fn cover_scale(frame: (u32, u32), pic: (u32, u32)) -> [f32; 2] {
     }
 }
 
+/// "NVIDIA GeForce RTX 3060 (Dx12, DiscreteGpu, driver 560.94)".
+fn describe_adapter(info: &wgpu::AdapterInfo) -> String {
+    let driver = format!("{} {}", info.driver, info.driver_info);
+    let driver = match driver.trim() {
+        "" => "unknown",
+        d => d,
+    };
+    format!(
+        "{} ({:?}, {:?}, driver {driver})",
+        info.name, info.backend, info.device_type
+    )
+}
+
 impl Compositor {
+    /// The GPU this compositor renders on (name, graphics API, type, driver).
+    #[must_use]
+    pub fn adapter(&self) -> &str {
+        &self.adapter
+    }
+
     /// Bring up a headless GPU compositor, or `None` if no adapter is available.
     #[must_use]
     pub fn new() -> Option<Self> {
@@ -281,6 +302,7 @@ impl Compositor {
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
             .ok()?;
+        let adapter_desc = describe_adapter(&adapter.get_info());
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
@@ -532,6 +554,7 @@ impl Compositor {
 
         let backdrop = make_backdrop(&device, &queue, &BLANK_BACKDROP, (1, 1), 0);
         Some(Self {
+            adapter: adapter_desc,
             device,
             queue,
             pipeline,

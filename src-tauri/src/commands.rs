@@ -808,6 +808,37 @@ pub struct EngineHealth {
     pub gpu: bool,
 }
 
+/// A plain-text report for bug reports (see `diagnostics`), built on this PC. The UI puts
+/// it on the clipboard when the user asks; nothing is sent.
+#[tauri::command]
+pub fn diagnostics(app: AppHandle, engine: tauri::State<'_, Engine>) -> String {
+    let gpu = match engine.session() {
+        Ok(session) => session.gpu_summary(),
+        Err(e) => format!("unknown, the engine isn't running ({e})"),
+    };
+    let version = app.package_info().version.to_string();
+    crate::diagnostics::report(&version, &gpu, &crate::log_dir(&app))
+}
+
+/// The folder holding Vuoom's daily log files.
+#[tauri::command]
+pub fn log_folder(app: AppHandle) -> String {
+    crate::log_dir(&app).display().to_string()
+}
+
+/// Whether the previous run ended without a normal exit (true once per launch).
+#[tauri::command]
+pub fn last_run_cut_short(last: tauri::State<'_, crate::diagnostics::LastRun>) -> bool {
+    last.take_cut_short()
+}
+
+/// Called just before an update relaunches the app, which skips the normal exit path, so
+/// the next launch doesn't mistake the restart for a crash.
+#[tauri::command]
+pub fn mark_clean_exit(app: AppHandle) {
+    crate::diagnostics::end_run(&crate::log_dir(&app));
+}
+
 #[tauri::command]
 pub fn engine_health(engine: tauri::State<'_, Engine>) -> Result<EngineHealth, String> {
     Ok(EngineHealth {

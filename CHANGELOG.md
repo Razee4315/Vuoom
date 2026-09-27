@@ -13,6 +13,10 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 - The Vuoom website at <https://razee4315.github.io/Vuoom/>: download, features, comparisons,
   guide, shortcuts, FAQ, changelog, privacy, terms, security, licences and a press kit.
 - `CHANGELOG.md`, `PRIVACY.md` and `SUPPORT.md`.
+- Settings > About > Copy report: your Vuoom and Windows versions, GPU, displays and the
+  end of the log, ready to paste into a bug report (your user folder is hidden, nothing is
+  sent). Open logs folder sits next to it. If Vuoom didn't close normally last time, it
+  offers the report on the next launch.
 
 ### Fixed
 - `SECURITY.md` and `NOTICE` now describe the app as it is: the two network requests it makes

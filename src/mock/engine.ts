@@ -149,7 +149,7 @@ class MockEngine {
   showClicks = false;
   motionBlur = true;
   /** What the next mock take starts with (set_take_defaults). */
-  takeDefaults = { clicks: false, keys: false, frame: "none", denoise: false };
+  takeDefaults = { clicks: false, keys: false, frame: "none", denoise: false, auto_zoom: false };
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
   audio: AudioTrack[] = [];
@@ -597,7 +597,18 @@ class MockEngine {
     const frame = this.takeDefaults.frame === "studio" ? FRAME_STUDIO : this.takeDefaults.frame === "subtle" ? FRAME_SUBTLE : FRAME_NONE;
     this.frame = { ...this.frame, ...frame, ...(frame === FRAME_NONE ? {} : bgInfo("graphite")) };
     this.audio = this.audio.map((t) => (t.kind === "mic" ? { ...t, denoise: this.takeDefaults.denoise } : t));
-    return this.summary();
+    // Auto zoom: the mock has no clicks to plan from, so it spreads a few calm zooms instead.
+    const auto = this.takeDefaults.auto_zoom && this.zoomAmount > 1;
+    if (auto) {
+      this.zooms = [0.1, 0.45, 0.75].map((f) => ({
+        start: elapsed * f,
+        end: Math.min(elapsed, elapsed * f + Math.min(3, elapsed * 0.2)),
+        amount: this.zoomAmount,
+        mode: "Auto" as const,
+        style: "Smooth" as const,
+      }));
+    }
+    return { ...this.summary(), auto_zooms: auto };
   }
   recoverSession(): RecordingSummary {
     this.loadDemo();
@@ -937,6 +948,12 @@ class MockEngine {
       if (z) z.style = style;
     });
     return [...this.zooms];
+  }
+  clearZooms(): ZoomSeg[] {
+    this.mutate(undefined, () => {
+      this.zooms = [];
+    });
+    return [];
   }
   deleteZoom(index: number): ZoomSeg[] {
     this.mutate(undefined, () => {

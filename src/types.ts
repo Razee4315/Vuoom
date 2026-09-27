@@ -9,6 +9,8 @@ export interface RecordingSummary {
   duration: number;
   frames: number;
   zooms: number;
+  /** The zooms were planned from the take's clicks (auto zoom), not the hotkey. */
+  auto_zooms?: boolean;
   /** Set when the take was truncated (e.g. the disk filled mid-recording). */
   warning?: string | null;
 }

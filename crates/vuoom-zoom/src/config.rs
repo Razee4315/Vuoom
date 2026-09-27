@@ -33,6 +33,13 @@ pub struct ZoomConfig {
     pub edge_snap_ratio: f64,
     /// Minimum seconds between the end of one zoom and the start of the next.
     pub min_rezoom_interval: f64,
+    /// Click zooms that would start within [`Self::min_rezoom_interval`] of each other
+    /// merge into one, but never into a zoom longer than this many seconds; past it the
+    /// later one is dropped, so a busy stretch doesn't keep the camera zoomed in for good
+    /// (0 = no limit).
+    pub max_zoom_len: f64,
+    /// At most this many click zooms start in any 60 s stretch (0 = no limit).
+    pub max_per_minute: f64,
     /// When `true`, every mouse click seeds a zoom (the original behaviour). When `false`,
     /// only the manual zoom hotkey ([`crate::InputEvent::ZoomMark`]) seeds a zoom.
     pub auto_zoom_on_click: bool,
@@ -51,7 +58,9 @@ impl Default for ZoomConfig {
             merge_radius: 0.15,
             dead_zone: 0.10,
             edge_snap_ratio: 0.25,
-            min_rezoom_interval: 1.0,
+            min_rezoom_interval: 1.5,
+            max_zoom_len: 8.0,
+            max_per_minute: 4.0,
             auto_zoom_on_click: false,
         }
     }

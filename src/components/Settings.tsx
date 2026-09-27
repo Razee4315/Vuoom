@@ -167,6 +167,16 @@ export default function Settings() {
                 options={ZOOM_CHOICES}
               />
             </Field>
+            <Field
+              label="Auto zoom"
+              hint="A take where you don't press Ctrl+Shift+Z gets a few calm zooms where you clicked"
+            >
+              <Switch
+                checked={prefs.recordAutoZoom()}
+                label="Auto zoom"
+                onChange={(v) => prefs.recordAutoZoom.set(v)}
+              />
+            </Field>
             <h3>Every new take starts with</h3>
             <Field label="Click ripples" hint="A ring at every click, so viewers see where you clicked">
               <Switch checked={prefs.newClicks()} label="Click ripples" onChange={(v) => prefs.newClicks.set(v)} />

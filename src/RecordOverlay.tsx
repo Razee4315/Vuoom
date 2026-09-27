@@ -24,6 +24,7 @@ import {
 } from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
+import { pushTakeDefaults } from "./takeDefaults";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -882,7 +883,15 @@ export default function RecordOverlay(props: {
           <Menu
             class="hud-menu"
             items={() => [
-              { heading: "Zoom with Ctrl+Shift+Z" },
+              { heading: "Zoom" },
+              {
+                label: "Auto zoom where I click",
+                checked: prefs.recordAutoZoom(),
+                onSelect: () => {
+                  prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
+                  pushTakeDefaults();
+                },
+              },
               ...ZOOM_CHOICES.map((z) => ({
                 label: z.value === 1 ? "No zoom" : `Zoom ${z.label}`,
                 checked: Math.abs(props.zoom - z.value) < 0.001,

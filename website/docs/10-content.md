@@ -34,7 +34,8 @@ canonical; `og:*` + `twitter:card=summary_large_image` with a 1200×630 image; o
 h2/h3; descriptive alt; internal links from every feature and compare page to Download and to
 two siblings; `BreadcrumbList`; site-wide `Organization` + `WebSite`; `SoftwareApplication` on
 home, download and feature pages; `FAQPage` where there is a FAQ; `HowTo` on the guide.
-`sitemap-index.xml`, `robots.txt` pointing at it, `llms.txt` (a plain summary for AI search
+`sitemap-index.xml` (each `<lastmod>` is the last commit to that page's own content, see
+astro.config.mjs), `robots.txt` pointing at it, `llms.txt` (a plain summary for AI search
 engines, which now drive a share of software discovery), `manifest.webmanifest`, favicons
 (svg + 32 png + apple-touch 180), `theme-color #0B0B0C`, `lang="en"`.
 

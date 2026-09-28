@@ -23,7 +23,8 @@ flowchart LR
 `--step-3`, focus-trapped, `lenis.stop()`. Skip link "Skip to content" first in tab order.
 
 **Footer** (all pages): curtain reveal. Row 1: closing line + Download. Row 2: 5 sitemap
-columns (Product, Compare, Help, Project, Legal). Row 3: oversized `VUOOM●` wordmark (step-6,
+columns (Product, Compare, Help, Project, Legal), then a small "More by Saqlain Razee" line
+linking the author's other projects (`MORE_BY` in src/lib/site.ts). Row 3: oversized `VUOOM●` wordmark (step-6,
 bleeds to edges). Row 4: "© 2026 Vuoom contributors. Apache-2.0." + version + "Made on
 Windows, for Windows."
 

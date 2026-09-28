@@ -1,6 +1,6 @@
 ---
 // Quiet footer: a compact sitemap, then the oversized VUOOM● wordmark. Curtain reveal.
-import { FOOTER, url } from '../lib/site';
+import { FOOTER, MORE_BY, SITE, url } from '../lib/site';
 import type { Release } from '../lib/github';
 
 interface Props {
@@ -29,6 +29,11 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
         </div>
       ))}
     </nav>
+  </div>
+
+  <div class="wrap foot__more">
+    <span>More by {SITE.author}:</span>
+    {MORE_BY.map((l) => <a class="foot__link" href={l.href}>{l.label}</a>)}
   </div>
 
   <div class="wrap foot__base">
@@ -106,6 +111,14 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     justify-content: space-between;
     gap: var(--s-3) var(--s-6);
     padding-block: var(--s-8) 0;
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+  }
+  .foot__more {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2) var(--s-5);
+    padding-top: var(--s-8);
     font-size: 0.8125rem;
     color: var(--ink-3);
   }

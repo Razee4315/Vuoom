@@ -4,11 +4,12 @@ export function initNav() {
 
   const onScroll = () => {
     const y = window.scrollY;
-    nav.classList.toggle('is-scrolled', y > 8);
-
+    const compact = nav.classList.contains('is-scrolled');
+    nav.classList.toggle('is-scrolled', y > (compact ? 16 : 48));
   };
   onScroll();
   window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('pageshow', onScroll);
 
   const btn = nav.querySelector<HTMLButtonElement>('[data-menu-toggle]');
   const sheet = nav.querySelector<HTMLElement>('[data-menu]');

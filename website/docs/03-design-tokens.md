@@ -3,6 +3,35 @@
 Source of truth: `website/src/styles/tokens.css`. This table is for humans. **No raw values in
 components**; every colour, size, duration and curve resolves to a token.
 
+## Centered homepage additions, 2026-09-30
+
+The current paper palette remains authoritative in `src/styles/tokens.css`.
+Homepage additions: `--hero-title` (responsive 3.25rem to 6rem, bounded by width and height),
+`--hero-title-mobile` (responsive 2.25rem to 3.25rem),
+`--hero-copy-max` (900px), `--hero-description-max` (580px),
+`--hero-demo-max` (960px), `--hero-demo-tilt` (-1deg),
+`--hero-focus-stroke` (2px), `--hero-sprite-size` (64px),
+`--hero-sprite-small` (48px), `--hero-sprite-mobile` (44px),
+`--hero-sprite-tilt` (12deg), `--hero-sprite-inset` (8%), and
+`--hero-sprite-inner` (16%). Floating motifs use the theme's recording and blue
+ink roles. The refined SVG objects add `--hero-art-ink` (#242720),
+`--hero-art-blue` (#2949d5), `--hero-art-rec` (#c8412d),
+`--hero-sprite-label` (12px), and `--hero-sprite-active-tilt` (4deg).
+Their colored paper surfaces retain dark outlines in both page themes.
+Motion uses GSAP matchMedia, finite gestures, and a static fallback.
+
+Full-screen sizing: `--hero-screen` (100svh, 100vh fallback),
+`--hero-pad-top` (navigation height plus 32px to 64px), and
+`--hero-pad-bottom` (48px to 96px). Objects use `--hero-sprite-top` (28%),
+`--hero-sprite-top-high` (22%), `--hero-sprite-bottom` (18%), and
+`--hero-sprite-bottom-mobile` (24px to 64px). Phone layouts reserve an extra
+lower band for their four objects; short screens reduce content spacing.
+
+Compact navigation: `--nav-max` (1120px), `--nav-max-compact` (920px),
+`--nav-h-compact` (56px), `--nav-logo-compact` (32px),
+`--nav-word-compact` (22px), `--nav-word-small` (20px), and
+`--nav-compact-duration` (280ms). Phones use the small wordmark token.
+
 ## Colour (by role)
 
 | Token | Value | Use |

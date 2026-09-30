@@ -1,0 +1,23 @@
+---
+const sprites = [
+  { name: 'record', label: 'record light', path: '<rect x="10" y="12" width="46" height="44" rx="9" fill="var(--hero-art-ink)" stroke="none"/><rect x="7" y="8" width="46" height="44" rx="9" fill="var(--coral)"/><path d="M7 20h46"/><circle cx="15" cy="14" r="1.5" fill="var(--hero-art-ink)" stroke="none"/><path d="M22 14h12"/><circle cx="30" cy="35" r="10" fill="var(--paper-white)"/><circle cx="30" cy="35" r="5" fill="var(--hero-art-rec)" stroke="none"/>' },
+  { name: 'zoom', label: 'zoom frame', path: '<rect x="11" y="12" width="45" height="43" rx="5" fill="var(--hero-art-ink)" stroke="none"/><rect x="8" y="8" width="45" height="43" rx="5" fill="var(--mint)"/><path d="M16 25v-9h9m11 0h9v9m0 11v8h-9m-11 0h-9v-8" stroke="var(--hero-art-blue)"/><path d="m25 24 2 18 5-6 7 7 4-4-7-7 6-4Z" fill="var(--paper-white)"/><path d="m40 7 2-4m7 9 4-1" stroke="var(--hero-art-blue)"/>' },
+  { name: 'play', label: 'play mark', path: '<rect x="11" y="13" width="45" height="44" rx="13" fill="var(--hero-art-ink)" stroke="none"/><rect x="7" y="8" width="45" height="44" rx="13" fill="var(--butter)"/><path d="m25 20 17 11-17 11Z" fill="var(--hero-art-blue)" stroke="var(--hero-art-blue)"/><path d="M14 17h5m-5 0v5m30 23h-5m5 0v-5" stroke="var(--paper-white)"/>' },
+  { name: 'gif', label: 'GIF file', path: '<path d="M16 10h23l13 13v34H16Z" fill="var(--hero-art-ink)" stroke="none"/><path d="M12 6h23l13 13v34H12Z" fill="var(--paper-white)"/><path d="M35 6v14h13" fill="var(--mint)"/><rect x="7" y="28" width="43" height="18" rx="4" fill="var(--hero-art-blue)" stroke="var(--hero-art-blue)"/><text x="28.5" y="40.5" text-anchor="middle" class="sprite-file-label" fill="var(--paper-white)" stroke="none">GIF</text><path d="m51 10 3-4m-1 12h5" stroke="var(--hero-art-blue)"/>' },
+  { name: 'spark', label: 'sparkle', path: '<path d="m35 8 5 14 15-4-10 13 13 9-16 1-3 16-8-13-13 9 4-16-15-6 16-4Z" fill="var(--hero-art-ink)" stroke="none"/><path d="m32 4 5 14 15-4-10 13 13 9-16 1-3 16-8-13-13 9 4-16-15-6 16-4Z" fill="var(--butter)"/><path d="m27 22 10 10m0-10L27 32" stroke="var(--hero-art-rec)"/><circle cx="55" cy="9" r="2" fill="var(--hero-art-rec)" stroke="none"/>' },
+  { name: 'motion', label: 'motion arrow', path: '<path d="M13 18h36l9 17-9 18H13Z" fill="var(--hero-art-ink)" stroke="none"/><path d="M9 14h36l9 17-9 18H9Z" fill="var(--mint)"/><path d="M18 31h25m-9-9 9 9-9 9" stroke="var(--hero-art-blue)"/><path d="M2 23h3M1 31h4m-3 8h3" stroke="var(--hero-art-blue)"/>' },
+];
+---
+<div class="hero-sprites" data-hero-sprites>
+  {sprites.map(sprite => <div class:list={['hero-sprite', `hero-sprite--${sprite.name}`]} data-hero-sprite>
+    <button type="button" disabled aria-label={`Send the ${sprite.label} flying`} aria-describedby="hero-motion-help" title="Drag or tap to give it a little nudge" data-sprite-button>
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="var(--hero-art-ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={sprite.path} />
+    </button>
+  </div>)}
+</div>
+<p class="visually-hidden" id="hero-motion-help">Tap or press Enter to send a mark flying. Drag it a little and release to let it glide home.</p>
+<script>
+  import { initHeroSprites } from '../scripts/hero';
+  const hero = document.querySelector<HTMLElement>('.paper-hero');
+  if (hero) initHeroSprites(hero);
+</script>

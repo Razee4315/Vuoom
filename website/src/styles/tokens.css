@@ -89,6 +89,39 @@
   --col-gap: 24px;
   --nav-h: 72px;
   --nav-h-compact: 56px;
+  --nav-max: 1120px;
+  --nav-max-compact: 920px;
+  --nav-logo-compact: 32px;
+  --nav-word-compact: 22px;
+  --nav-word-small: 20px;
+  --nav-compact-duration: 280ms;
+
+  /* Full-screen centered homepage and floating recording motifs */
+  --hero-screen: 100vh;
+  --hero-pad-top: calc(var(--nav-h) + clamp(var(--s-6), 6svh, var(--s-8)));
+  --hero-pad-bottom: clamp(var(--s-7), 8svh, var(--s-9));
+  --hero-title: clamp(3.25rem, min(7vw, 12svh), 6rem);
+  --hero-title-mobile: clamp(2.25rem, 10vw, 3.25rem);
+  --hero-copy-max: 900px;
+  --hero-description-max: 580px;
+  --hero-demo-max: 960px;
+  --hero-demo-tilt: -1deg;
+  --hero-focus-stroke: 2px;
+  --hero-sprite-size: 64px;
+  --hero-sprite-small: 48px;
+  --hero-sprite-mobile: 44px;
+  --hero-sprite-tilt: 12deg;
+  --hero-sprite-inset: 8%;
+  --hero-sprite-inner: 16%;
+  --hero-art-ink: #242720;
+  --hero-art-blue: #2949d5;
+  --hero-art-rec: #c8412d;
+  --hero-sprite-label: 12px;
+  --hero-sprite-active-tilt: 4deg;
+  --hero-sprite-top: 28%;
+  --hero-sprite-top-high: 22%;
+  --hero-sprite-bottom: 18%;
+  --hero-sprite-bottom-mobile: clamp(var(--s-5), 7svh, var(--s-8));
 
   /* stacking */
   --z-nav: 50;
@@ -96,6 +129,10 @@
   --z-grain: 90;
   --z-pointer: 100;
   --z-countdown: 110;
+}
+
+@supports (min-height: 100svh) {
+  :root { --hero-screen: 100svh; }
 }
 
 @media (max-width: 640px) {

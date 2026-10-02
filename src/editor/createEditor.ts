@@ -80,6 +80,13 @@ export function createEditor() {
     setToolLock(true);
   };
   const [status, setStatus] = createSignal("Ready");
+  /** Report a failed action where the user will see it: a toast, and the status line for
+   *  as long as nothing replaces it. `what` says what failed ("Save failed"). */
+  const fail = (what: string, e: unknown, ttl?: number) => {
+    const text = `${what}: ${friendlyError(e)}`;
+    setStatus(text);
+    toast(text, "error", ttl);
+  };
   const [projectName, setProjectName] = createSignal("Untitled");
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
@@ -333,8 +340,7 @@ export function createEditor() {
         toast("Project opened", "success");
       }
     } catch (e) {
-      setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error", 9000);
+      fail("Could not open project", e, 9000);
       if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
         "This project folder is gone. It may have been moved or deleted. Remove it from the recents list?",
@@ -652,7 +658,7 @@ export function createEditor() {
       await relaunch();
     } catch (e) {
       setUpdating(false);
-      setStatus(`Update failed: ${String(e)}`);
+      fail("Update failed", e);
     }
   };
 
@@ -1982,7 +1988,7 @@ export function createEditor() {
       await refreshAll();
       setStatus("Undone");
     } catch (e) {
-      setStatus(`Undo failed: ${String(e)}`);
+      fail("Undo failed", e);
     }
   };
   const doRedo = async () => {
@@ -1995,7 +2001,7 @@ export function createEditor() {
       await refreshAll();
       setStatus("Redone");
     } catch (e) {
-      setStatus(`Redo failed: ${String(e)}`);
+      fail("Redo failed", e);
     }
   };
 
@@ -2012,7 +2018,7 @@ export function createEditor() {
       setSelected({ kind: s.kind, id });
       setStatus("Duplicated. Drag the copy into place.");
     } catch (e) {
-      setStatus(`Duplicate failed: ${String(e)}`);
+      fail("Duplicate failed", e);
     }
   };
 
@@ -2035,7 +2041,7 @@ export function createEditor() {
         }[dir],
       );
     } catch (e) {
-      setStatus(`Reorder failed: ${String(e)}`);
+      fail("Reorder failed", e);
     }
   };
 
@@ -2100,7 +2106,7 @@ export function createEditor() {
       }
       setStatus(`Pasted ${refs.length} annotation${refs.length > 1 ? "s" : ""}`);
     } catch (e) {
-      setStatus(`Paste failed: ${String(e)}`);
+      fail("Paste failed", e);
     }
   };
 
@@ -2240,8 +2246,7 @@ export function createEditor() {
       setBackdrop(shot || null);
     } catch (e) {
       setRecordPhase("idle");
-      setStatus(`Error: ${String(e)}`);
-      toast(`Could not start: ${friendlyError(e)}`, "error");
+      fail("Could not start", e);
     }
   };
 
@@ -2401,7 +2406,7 @@ export function createEditor() {
       setSelZoom(null);
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Zoom delete failed: ${String(e)}`);
+      fail("Zoom delete failed", e);
     }
   };
 
@@ -2421,7 +2426,7 @@ export function createEditor() {
       await pushSeek(playhead());
       setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the pointer");
     } catch (e) {
-      setStatus(`Zoom focus failed: ${String(e)}`);
+      fail("Zoom focus failed", e);
     }
   };
   // ── zoom easing/feel preset ──────────────────────────────────────────────────────
@@ -2433,7 +2438,7 @@ export function createEditor() {
       setDirty(true);
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Zoom feel failed: ${String(e)}`);
+      fail("Zoom feel failed", e);
     }
   };
   // Crosshair dragging on the canvas.
@@ -2502,8 +2507,7 @@ export function createEditor() {
       await pushSeek(playhead());
       setStatus(c ? "Crop applied. Annotations kept their on-screen placement." : "Crop reset to full frame.");
     } catch (e) {
-      setStatus(`Crop failed: ${String(e)}`);
-      toast(`Crop failed: ${friendlyError(e)}`, "error");
+      fail("Crop failed", e);
     }
   };
 
@@ -2570,8 +2574,7 @@ export function createEditor() {
       toast(`Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"}`, "success");
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Auto zoom failed: ${String(e)}`);
-      toast(`Auto zoom failed: ${friendlyError(e)}`, "error");
+      fail("Auto zoom failed", e);
     }
   };
 
@@ -2614,7 +2617,7 @@ export function createEditor() {
       setSelSpeed(idx >= 0 ? idx : null);
       setStatus("Speed region added. Drag it to retime.");
     } catch (e) {
-      setStatus(`Could not add speed region: ${String(e)}`);
+      fail("Could not add speed region", e);
     }
   };
   const applySpeedEdit = async (index: number, start: number, end: number, factor: number) => {
@@ -2638,7 +2641,7 @@ export function createEditor() {
       setDirty(true);
       setSelSpeed(null);
     } catch (e) {
-      setStatus(`Speed delete failed: ${String(e)}`);
+      fail("Speed delete failed", e);
     }
   };
 
@@ -2661,7 +2664,7 @@ export function createEditor() {
       setSelCut(idx >= 0 ? idx : null);
       setStatus("Section cut. Drag the band to adjust.");
     } catch (e) {
-      setStatus(`Could not cut: ${String(e)}`);
+      fail("Could not cut", e);
     }
   };
   const applyCutEdit = async (index: number, start: number, end: number) => {
@@ -2686,7 +2689,7 @@ export function createEditor() {
       setSelCut(null);
       setStatus("Section restored");
     } catch (e) {
-      setStatus(`Restore failed: ${String(e)}`);
+      fail("Restore failed", e);
     }
   };
 
@@ -3765,8 +3768,7 @@ export function createEditor() {
       setStatus(`Saved ${dir}`);
       toast("Project saved", "success");
     } catch (e) {
-      setStatus(`Save failed: ${String(e)}`);
-      toast(`Save failed: ${friendlyError(e)}`, "error");
+      fail("Save failed", e);
     }
   };
 
@@ -3780,8 +3782,7 @@ export function createEditor() {
       toast("Last session recovered", "success");
     } catch (e) {
       setRecoverable(null);
-      setStatus(`Recovery failed: ${String(e)}`);
-      toast(`Recovery failed: ${friendlyError(e)}`, "error");
+      fail("Recovery failed", e);
     }
   };
 
@@ -3813,7 +3814,7 @@ export function createEditor() {
       await refreshStorage();
       setStatus(`Cleared ${fmtBytes(freed)} of recovery data`);
     } catch (e) {
-      setStatus(`Couldn't clear storage: ${String(e)}`);
+      fail("Couldn't clear storage", e);
     } finally {
       setClearingStorage(false);
     }

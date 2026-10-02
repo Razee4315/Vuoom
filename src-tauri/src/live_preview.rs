@@ -73,6 +73,7 @@ pub fn sample(frame: &CapturedFrame) -> PreviewFrame {
             height: sh as u32,
             bgra,
             qpc: frame.qpc,
+            dirty: None,
         },
         full_w: w,
         full_h: h,
@@ -427,6 +428,7 @@ mod tests {
             height: h,
             bgra,
             qpc: 7,
+            dirty: None,
         }
     }
 

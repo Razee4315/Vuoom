@@ -994,6 +994,7 @@ impl Session {
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
         let probe_dir = recovery_dir.clone();
+        let recycler = capture.clone();
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
             let mut last_tap: Option<std::time::Instant> = None;
@@ -1037,6 +1038,11 @@ impl Session {
                         if write_err.is_none() {
                             if let Err(e) = writer.push(f) {
                                 write_err = Some(e);
+                            }
+                            // The buffer of the frame the store is done with goes back to
+                            // the capture, to be filled again instead of allocating one.
+                            if let Some(buffer) = writer.take_spare() {
+                                recycler.recycle(buffer);
                             }
                         }
                     }
@@ -3371,6 +3377,7 @@ impl Session {
                 height: fi.h,
                 bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
                 qpc: base + (fi.t * freq as f64) as i64,
+                dirty: None,
             });
             if let Err(e) = pushed {
                 drop(writer);

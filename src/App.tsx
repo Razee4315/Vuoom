@@ -117,7 +117,7 @@ export default function App() {
           hasCaptions={ed.captions.list().length > 0}
           onClose={() => ed.setShowExport(false)}
           onStatus={ed.setStatus}
-          onExported={() => ed.setDirty(false)}
+          onExported={ed.markExported}
         />
       </Show>
 

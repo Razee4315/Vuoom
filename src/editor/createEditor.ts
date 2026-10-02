@@ -91,16 +91,27 @@ export function createEditor() {
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
   const [hasClip, setHasClip] = createSignal(false);
-  // True once the loaded clip has unsaved edits (annotations, zooms, trim, cuts, speed,
-  // frame, click/key overlays). Drives the "discard edits?" guard before a new recording
-  // replaces the clip. Set wherever an edit lands; cleared on load / save / export.
+  // True once the loaded clip has edits its project file doesn't hold (annotations, zooms,
+  // trim, cuts, speed, frame, click/key overlays). Shown as the dot by the project name.
+  // Set wherever an edit lands; cleared on load / save.
   const [dirty, setDirtyRaw] = createSignal(false);
   // Bumped on every edit; the autosave loop compares it with the last persisted version.
   let editVersion = 0;
   let persistedVersion = 0;
+  // The edit version the last export rendered: those edits made it into a file.
+  let exportedVersion = -1;
   const setDirty = (v: boolean) => {
     if (v) editVersion++;
     setDirtyRaw(v);
+  };
+  const markExported = () => {
+    exportedVersion = editVersion;
+  };
+  /** Ask before an action replaces a clip whose edits are neither saved nor exported.
+   *  Resolves true when there is nothing to lose or the user chose to go on. */
+  const confirmDiscard = async (message: string, okLabel: string): Promise<boolean> => {
+    if (!hasClip() || !dirty() || editVersion === exportedVersion) return true;
+    return ask(message, { title: "Discard edits?", kind: "warning", okLabel, cancelLabel: "Cancel" });
   };
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
@@ -349,7 +360,10 @@ export function createEditor() {
       if (remove) removeRecent(dir);
     }
   };
-  const openRecent = (dir: string) => openProjectAt(dir);
+  const OPEN_DISCARD = "Open another project? Unsaved edits to the current clip will be discarded.";
+  const openRecent = async (dir: string) => {
+    if (await confirmDiscard(OPEN_DISCARD, "Discard & open")) await openProjectAt(dir);
+  };
   const fmtAgo = (ts: number) => {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return "just now";
@@ -2211,13 +2225,11 @@ export function createEditor() {
   const startRecord = async (mode: RecordMode = recordMode()) => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
     // Soft copy: the previous session's recovery dir survives one more recording.
-    if (hasClip() && dirty()) {
-      const ok = await ask(
-        "Start new recording? Unsaved edits to the current clip will be discarded.",
-        { title: "Discard edits?", kind: "warning", okLabel: "Discard & record", cancelLabel: "Cancel" },
-      );
-      if (!ok) return;
-    }
+    const ok = await confirmDiscard(
+      "Start new recording? Unsaved edits to the current clip will be discarded.",
+      "Discard & record",
+    );
+    if (!ok) return;
     setCoachRecord(false);
     setRecordMode(mode);
     let displays: DisplayInfo[] = [];
@@ -3798,6 +3810,11 @@ export function createEditor() {
   };
 
   const onRecover = async () => {
+    const ok = await confirmDiscard(
+      "Recover your last take? Unsaved edits to the current clip will be discarded.",
+      "Discard & recover",
+    );
+    if (!ok) return;
     setStatus("Recovering your last session…");
     try {
       const summary = await invoke<RecordingSummary>("recover_session");
@@ -3846,6 +3863,7 @@ export function createEditor() {
   };
 
   const onOpenProject = async () => {
+    if (!(await confirmDiscard(OPEN_DISCARD, "Discard & open"))) return;
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
     await openProjectAt(dir);
@@ -4003,6 +4021,7 @@ export function createEditor() {
     setHasClip,
     dirty,
     setDirty,
+    markExported,
     duration,
     setDuration,
     playhead,

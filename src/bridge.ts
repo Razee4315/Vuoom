@@ -9,7 +9,7 @@ import { listen as tauriListen } from "@tauri-apps/api/event";
 import { save as tauriSave, open as tauriOpen, ask as tauriAsk } from "@tauri-apps/plugin-dialog";
 import { check as tauriCheck, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch as tauriRelaunch } from "@tauri-apps/plugin-process";
-import { revealItemInDir as tauriReveal } from "@tauri-apps/plugin-opener";
+import { openUrl as tauriOpenUrl, revealItemInDir as tauriReveal } from "@tauri-apps/plugin-opener";
 import { mockTrackWav, mockLevel } from "./mock/audio";
 import { MOCK_CAMERAS, mockCameraJpeg } from "./mock/camera";
 import { mockEngine, paintDesktop } from "./mock/engine";
@@ -89,8 +89,16 @@ export function check(): Promise<Update | null> {
   if (!isMock) return tauriCheck();
   return Promise.resolve(null);
 }
-export function relaunch(): Promise<void> {
-  if (!isMock) return tauriRelaunch();
+export async function relaunch(): Promise<void> {
+  if (isMock) return;
+  // A relaunch skips the normal exit, so say it's a clean one first: otherwise the next
+  // launch would take the update's restart for a crash.
+  await tauriInvoke("mark_clean_exit").catch(() => undefined);
+  return tauriRelaunch();
+}
+export function openUrl(url: string): Promise<void> {
+  if (!isMock) return tauriOpenUrl(url);
+  window.open(url, "_blank", "noopener");
   return Promise.resolve();
 }
 export function revealItemInDir(path: string): Promise<void> {
@@ -106,6 +114,23 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return { port: 0, token: "mock" };
     case "engine_health":
       return { gpu: true };
+    case "diagnostics":
+      return [
+        "Vuoom 2.0.1 (mock)",
+        "Windows 11 (10.0.26100.4061), x86_64",
+        "GPU: Mock GPU (Dx12, DiscreteGpu, driver 1.0)",
+        "Display 1: 1920x1080, primary",
+        "Recovery storage: 412 MB in 2 takes",
+        "",
+        "Last 200 log lines (vuoom.log.2026-09-27):",
+        "INFO vuoom_lib: Vuoom starting version=2.0.1",
+      ].join("\n");
+    case "log_folder":
+      return "%LOCALAPPDATA%\\dev.vuoom.desktop\\logs";
+    case "last_run_cut_short":
+      return params.has("cutshort");
+    case "mark_clean_exit":
+      return null;
     case "get_pref":
       return localStorage.getItem(`vuoom-mock-pref-${a.key as string}`);
     case "set_pref":

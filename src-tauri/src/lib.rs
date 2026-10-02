@@ -9,6 +9,7 @@ mod bundle;
 mod camera;
 mod captions;
 mod commands;
+mod diagnostics;
 mod displays;
 mod drag_wall;
 mod frame_store;
@@ -182,13 +183,10 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // Stand logging up first so engine-boot warnings are captured. Logs land in
-            // the OS app-log dir (Windows: %LOCALAPPDATA%\dev.vuoom.desktop\logs); if that
-            // can't be resolved we fall back to a `logs/` dir under the working dir.
-            let log_dir = app
-                .path()
-                .app_log_dir()
-                .unwrap_or_else(|_| PathBuf::from("logs"));
+            // Stand logging up first so engine-boot warnings are captured (see `log_dir`).
+            let log_dir = log_dir(app.handle());
+            // Note a previous run that was cut short (the UI offers a diagnostics report).
+            app.manage(diagnostics::LastRun::begin(&log_dir));
             init_logging(log_dir);
 
             // Boot the engine off the main thread: blocking here would stall the event
@@ -213,6 +211,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::preview_port,
             commands::engine_health,
+            commands::diagnostics,
+            commands::log_folder,
+            commands::last_run_cut_short,
+            commands::mark_clean_exit,
             commands::start_recording,
             commands::set_record_paused,
             commands::seek,
@@ -328,6 +330,19 @@ pub fn run() {
             prefs::get_pref,
             prefs::set_pref,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                diagnostics::end_run(&log_dir(app));
+            }
+        });
+}
+
+/// Where the daily logs go: the OS app-log dir (Windows:
+/// `%LOCALAPPDATA%\dev.vuoom.desktop\logs`), else a `logs/` dir under the working dir.
+fn log_dir(app: &tauri::AppHandle) -> PathBuf {
+    app.path()
+        .app_log_dir()
+        .unwrap_or_else(|_| PathBuf::from("logs"))
 }

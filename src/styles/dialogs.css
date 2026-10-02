@@ -369,6 +369,31 @@
   letter-spacing: -0.01em !important;
   text-transform: none !important;
 }
+.about-report {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.about-report h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.about-report .note {
+  margin: 0;
+}
+.about-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
 .about-mark {
   display: grid;
   place-items: center;

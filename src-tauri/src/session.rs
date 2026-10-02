@@ -817,6 +817,14 @@ impl Session {
         self.compositor.is_some()
     }
 
+    /// The GPU preview and export run on, for diagnostics.
+    pub fn gpu_summary(&self) -> String {
+        match &self.compositor {
+            Some(c) => c.adapter().to_string(),
+            None => "none found (preview and export can't run)".into(),
+        }
+    }
+
     /// Whether the next recording keeps Vuoom's capture-excluded windows (the recording panel)
     /// out of its frames wherever they sit, so the panel may stay on screen over the recorded
     /// area. True for window captures (other windows are never part of a window's frames) and

@@ -448,6 +448,14 @@ export default function Settings() {
                   <Icon name="download" size={13} /> Install v{ed.update()!.version}
                 </button>
               </Show>
+              <Show when={ed.update()?.body?.trim()}>
+                {(notes) => (
+                  <div class="update-notes">
+                    <h4>What's new in v{ed.update()!.version}</h4>
+                    <p>{notes()}</p>
+                  </div>
+                )}
+              </Show>
               <Show when={ed.updateNote()}>
                 <p class="note" classList={{ "update-error": !!ed.updateNote()!.error }} role="status">
                   {ed.updateNote()!.text}

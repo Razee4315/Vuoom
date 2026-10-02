@@ -3697,29 +3697,6 @@ export function createEditor() {
     return barsCache;
   };
 
-  // ── resizable inspector ────────────────────────────────────────────────────────
-  const [inspectorW, setInspectorW] = createSignal(
-    Number(localStorage.getItem("vuoom-inspector-w")) || 296,
-  );
-  let inspectorDrag = false;
-  const onInspDown = (e: PointerEvent) => {
-    e.stopPropagation();
-    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
-    inspectorDrag = true;
-  };
-  const onInspMove = (e: PointerEvent) => {
-    if (!inspectorDrag) return;
-    setInspectorW(Math.min(440, Math.max(240, window.innerWidth - e.clientX)));
-  };
-  const onInspUp = () => {
-    if (!inspectorDrag) return;
-    inspectorDrag = false;
-    try {
-      localStorage.setItem("vuoom-inspector-w", String(inspectorW()));
-    } catch {
-      /* storage unavailable */
-    }
-  };
   const somethingSelected = () =>
     !!selected() ||
     selZoom() !== null ||
@@ -4396,11 +4373,6 @@ export function createEditor() {
     onAnnMove,
     onAnnUp,
     annBars,
-    inspectorW,
-    setInspectorW,
-    onInspDown,
-    onInspMove,
-    onInspUp,
     somethingSelected,
     drawingToolActive,
     selectedStroke,

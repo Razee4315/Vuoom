@@ -154,6 +154,10 @@ pub struct ResolvedCursor {
     pub opacity: f64,
     /// Which pointer to draw: what the real one looked like at this moment.
     pub shape: PointerShape,
+    /// The pointer's own color (RGB), or `None` for the classic white one.
+    pub color: Option<[f32; 3]>,
+    /// Draw a highlight disc under the pointer.
+    pub halo: bool,
 }
 
 /// The webcam bubble resolved to output pixels.
@@ -512,6 +516,8 @@ pub fn build_scene(
             press: press_at(&project.events, t),
             opacity,
             shape: pointer_shape_at(&project.pointer_shapes, t),
+            color: style.color,
+            halo: style.halo,
         })
     });
 
@@ -719,6 +725,7 @@ mod tests {
         assert!(c.press.abs() < 1e-9);
         assert!((c.opacity - 1.0).abs() < 1e-9);
         assert_eq!(c.shape, PointerShape::Arrow);
+        assert!(c.color.is_none() && !c.halo);
 
         // It takes the shape the real pointer had at that moment.
         p.pointer_shapes = vec![vuoom_project::PointerShapeAt {

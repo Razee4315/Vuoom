@@ -3059,6 +3059,12 @@ export function createEditor() {
   const setCursorSize = (size: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), size });
   const setCursorSmoothing = (smoothing: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), smoothing });
   const setCursorHideIdle = (hide_idle: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), hide_idle });
+  /** The pointer's color as "#rrggbb", or null for the classic white pointer. */
+  const setCursorColor = (hex: string | null) => {
+    const c = hex ? hexRgb(hex) : null;
+    applyCursor({ ...(cursorStyle() ?? lastCursor), color: c ? [c.r, c.g, c.b] : null });
+  };
+  const setCursorHalo = (halo: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), halo });
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
   const keysSync = createSyncSlot<boolean>();
@@ -4148,6 +4154,8 @@ export function createEditor() {
     setCursorSize,
     setCursorSmoothing,
     setCursorHideIdle,
+    setCursorColor,
+    setCursorHalo,
     looping,
     setLooping,
     anns,

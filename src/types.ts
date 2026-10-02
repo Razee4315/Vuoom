@@ -191,6 +191,10 @@ export interface CursorStyle {
   smoothing: number;
   /** Fade out while resting, back in before moving (absent from older engines). */
   hide_idle?: boolean;
+  /** The pointer's own color as RGB 0..1; null or absent is the classic white pointer. */
+  color?: [number, number, number] | null;
+  /** A soft highlight disc under the pointer. */
+  halo?: boolean;
 }
 
 /** How new takes handle the mouse pointer. */

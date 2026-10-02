@@ -128,6 +128,11 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
   );
 }
 
+/** Quick picks for the re-drawn pointer's color; the first is the classic white. */
+const POINTER_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
+const pointerHex = (c: [number, number, number] | null | undefined) =>
+  c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : POINTER_COLORS[0];
+
 /** The roundest a spotlight's corners go (a fraction of the height). Mirrors
  *  vuoom_project::HighlightBox::MAX_RADIUS. */
 const SPOTLIGHT_MAX_RADIUS = 0.25;
@@ -1395,7 +1400,7 @@ function ClipPanel() {
         title="Pointer"
         icon="cursor"
         defaultOpen={false}
-        keywords="cursor mouse arrow size smooth hide still"
+        keywords="cursor mouse arrow size smooth hide still color colour custom highlight halo"
         aside={<span class="badge">{ed.cursorStyle() ? "Smooth" : ed.pointerCaptured() ? "Recorded" : "Hidden"}</span>}
       >
         <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
@@ -1432,6 +1437,35 @@ function ClipPanel() {
                   label="Hide pointer when still"
                   onChange={(v) => ed.setCursorHideIdle(v)}
                 />
+              </Field>
+              <Field label="Color" stack>
+                <div class="color-row">
+                  <For each={POINTER_COLORS}>
+                    {(hex) => (
+                      <button
+                        type="button"
+                        class="swatch"
+                        classList={{ on: pointerHex(c().color) === hex }}
+                        style={{ background: hex }}
+                        aria-label={`Pointer color ${hex}`}
+                        aria-pressed={pointerHex(c().color) === hex}
+                        data-tip={hex === POINTER_COLORS[0] ? "White, the classic pointer" : hex}
+                        onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
+                      />
+                    )}
+                  </For>
+                  <label class="swatch swatch-custom" data-tip="Custom color">
+                    <input
+                      type="color"
+                      value={pointerHex(c().color)}
+                      aria-label="Custom pointer color"
+                      onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+              </Field>
+              <Field label="Highlight" hint="A soft yellow disc under the pointer, so viewers never lose it">
+                <Switch checked={!!c().halo} label="Highlight the pointer" onChange={(v) => ed.setCursorHalo(v)} />
               </Field>
             </>
           )}

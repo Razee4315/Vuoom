@@ -65,6 +65,13 @@ pub struct CursorStyle {
     /// Fade the pointer out while it rests, and back in just before it moves.
     #[serde(default)]
     pub hide_idle: bool,
+    /// The pointer's own color, RGB 0 to 1. `None` (what older projects load as) is the
+    /// classic white pointer. The outline turns light on a dark color so it stays visible.
+    #[serde(default)]
+    pub color: Option<[f32; 3]>,
+    /// Draw a soft highlight disc under the pointer, so viewers never lose it.
+    #[serde(default)]
+    pub halo: bool,
 }
 
 impl CursorStyle {
@@ -81,6 +88,8 @@ impl CursorStyle {
             size: self.size.clamp(Self::MIN_SIZE, Self::MAX_SIZE),
             smoothing: self.smoothing.clamp(0.0, Self::MAX_SMOOTHING),
             hide_idle: self.hide_idle,
+            color: self.color.map(|c| c.map(|v| v.clamp(0.0, 1.0))),
+            halo: self.halo,
         }
     }
 }
@@ -91,6 +100,8 @@ impl Default for CursorStyle {
             size: Self::DEFAULT_SIZE,
             smoothing: Self::DEFAULT_SMOOTHING,
             hide_idle: false,
+            color: None,
+            halo: false,
         }
     }
 }
@@ -123,10 +134,14 @@ mod tests {
             size: 9.0,
             smoothing: -1.0,
             hide_idle: true,
+            color: Some([2.0, 0.5, -1.0]),
+            halo: true,
         }
         .clamped();
         assert!((wild.size - CursorStyle::MAX_SIZE).abs() < f32::EPSILON);
         assert!(wild.smoothing.abs() < f32::EPSILON);
         assert!(wild.hide_idle);
+        assert_eq!(wild.color, Some([1.0, 0.5, 0.0]));
+        assert!(wild.halo);
     }
 }

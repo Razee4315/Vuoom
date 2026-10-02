@@ -4,6 +4,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { Icon, type IconName } from "../icons";
+import { RECORD_KEYS, stopKeys, zoomKeys } from "../hotkeys";
 import { prefs } from "../prefs";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES, type Choice } from "../recordOptions";
 import { Kbd, Seg } from "../ui";
@@ -44,11 +45,11 @@ export default function Home() {
               when={prefs.recordAutoZoom() && prefs.recordZoom() > 1}
               fallback={
                 <>
-                  Choose what to capture. Press <Kbd keys="Ctrl+Shift+Z" /> while you record to zoom in.
+                  Choose what to capture. Press <Kbd keys={zoomKeys()} /> while you record to zoom in.
                 </>
               }
             >
-              Choose what to capture. Vuoom zooms in where you click, or press <Kbd keys="Ctrl+Shift+Z" /> to
+              Choose what to capture. Vuoom zooms in where you click, or press <Kbd keys={zoomKeys()} /> to
               zoom yourself.
             </Show>
           </p>
@@ -112,7 +113,7 @@ export default function Home() {
                   onChange={(v) => prefs.recordAutoZoom.set(v === "auto")}
                   options={[
                     { value: "auto", label: "Auto", tip: "Calm zooms where you click, unless you use the hotkey" },
-                    { value: "hotkey", label: "Hotkey only", tip: "Zoom only when you press Ctrl+Shift+Z" },
+                    { value: "hotkey", label: "Hotkey only", tip: `Zoom only when you press ${zoomKeys()}` },
                   ]}
                 />
               </div>
@@ -159,7 +160,7 @@ export default function Home() {
                 <Icon name="folder" size={14} /> Open a saved project
               </button>
               <span class="home-keys">
-                <Kbd keys="Ctrl+Shift+R" /> record <span class="home-keys-sep" /> <Kbd keys="Ctrl+Shift+X" /> stop
+                <Kbd keys={RECORD_KEYS} /> record <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> stop
               </span>
             </div>
           }

@@ -48,6 +48,22 @@ function legacyCursorMode(): CursorMode {
   return old === null ? "smooth" : old ? "show" : "hide";
 }
 
+/** The area a region take recorded, kept so the next one can start from it. */
+export interface LastRegion {
+  /** The rectangle, in the region picker's CSS pixels. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** The picker's size when it was drawn: the rectangle only fits a screen that size. */
+  vw: number;
+  vh: number;
+  /** The aspect chip it was drawn with ("16:9", "free", ...). */
+  preset: string;
+  /** The display it was drawn on. */
+  display: string;
+}
+
 /** Recording, editing and interface preferences (Settings dialog). */
 export const prefs = {
   /** Capture frame-rate cap for new recordings. */
@@ -73,6 +89,13 @@ export const prefs = {
   saveDir: persisted<string | null>("save-dir", null),
   /** Ask for a name and place on every export; off saves straight into `saveDir`. */
   askWhereToSave: persisted<boolean>("ask-where-to-save", true),
+  /** How the last take was framed; Record and Ctrl+Shift+R start the next one the same way. */
+  recordMode: persisted<"region" | "full" | "window">("record-mode", "region"),
+  /** The area the last region take recorded, offered again by the region picker. */
+  lastRegion: persisted<LastRegion | null>("last-region", null),
+  /** The hotkeys that zoom and stop while another app has the keyboard (see hotkeys.ts). */
+  hotkeyZoom: persisted<string>("hotkey-zoom", "Ctrl+Shift+Z"),
+  hotkeyStop: persisted<string>("hotkey-stop", "Ctrl+Shift+X"),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */

@@ -1168,7 +1168,9 @@ impl Session {
             .filter_map(|e| normalize(e, &region, session.start_qpc, freq))
             .collect();
         // Manual zoom: each Ctrl+Shift+Z press becomes a deliberate zoom at the cursor.
-        events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
+        let zoom_key = vuoom_input::zoom_chord();
+        let marks = zoom_marks(&raw_events, &region, session.start_qpc, freq, zoom_key);
+        events.extend(marks);
 
         // Merge in poll-detected chord presses the hook missed (e.g. elevated-window
         // focus), without this, the live preview can show a zoom that the final edit
@@ -3717,16 +3719,15 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
 /// Vuoom's own control chords, these drive the app, not the demo, so they must never render
 /// as keystroke-overlay chips. Kept here next to `extract_key_taps` (the layer that builds
 /// chips) and cross-referenced to their definitions so a future chord change updates both:
-///   - `Ctrl+Shift+X`, the stop-recording hotkey (`hotkey.rs`).
-///   - `Ctrl+Shift+Z`, the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+///   - the stop-recording hotkey (`hotkey.rs`), Ctrl+Shift+X unless rebound;
+///   - the manual zoom chord (`zoom_chord.rs` / `normalize.rs`), Ctrl+Shift+Z unless rebound.
 ///
-/// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
-/// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
-/// chip because bare modifiers never emit a tap on their own (they only set flags below).
-const VK_X: u16 = 0x58;
-const VK_Z: u16 = 0x5A;
-fn is_app_control_chord(ctrl: bool, shift: bool, vk: u16) -> bool {
-    ctrl && shift && (vk == VK_X || vk == VK_Z)
+/// Matched on the chord's exact modifiers, like the triggers themselves
+/// (`vuoom_input::Chord`). Suppressing the whole chord leaves no stray `Ctrl+Shift` chip
+/// because bare modifiers never emit a tap on their own (they only set flags below).
+fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
+    let is = |chord: vuoom_input::Chord| chord.matches(ctrl, shift, alt, vk);
+    is(vuoom_input::zoom_chord()) || is(vuoom_input::stop_chord())
 }
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
@@ -3765,7 +3766,7 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
             continue;
         }
         let Some(name) = key_name(vk) else { continue };
-        if is_app_control_chord(ctrl, shift, vk) {
+        if is_app_control_chord(ctrl, shift, alt, vk) {
             continue; // Vuoom's own stop / zoom chord, not demo content
         }
         let chord = ctrl || alt || win;

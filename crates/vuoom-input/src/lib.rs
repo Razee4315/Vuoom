@@ -5,6 +5,7 @@
 //! recorder (a dedicated thread + message-only window + `RIDEV_INPUTSINK`) lands on top of
 //! these. See `docs/04-Input-and-AutoZoom.md` Part A.
 
+mod chords;
 mod clock;
 mod dpi;
 mod event;
@@ -13,6 +14,9 @@ mod normalize;
 #[cfg(windows)]
 mod recorder;
 
+#[cfg(windows)]
+pub use chords::ChordWatch;
+pub use chords::{set_chords, stop_chord, zoom_chord, Chord, Hotkey};
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
 pub use event::{MouseButton, RawEvent, RawEventKind};

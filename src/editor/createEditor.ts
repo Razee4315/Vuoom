@@ -17,6 +17,7 @@ import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
+import { pushHotkeys } from "../hotkeys";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -2126,7 +2127,13 @@ export function createEditor() {
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
   type RecordMode = "full" | "region" | "window";
-  const [recordMode, setRecordMode] = createSignal<RecordMode>("region");
+  // Remembered between launches: someone who records the full screen every time shouldn't
+  // land on the region picker each morning.
+  const recordMode = (): RecordMode => {
+    const m = prefs.recordMode();
+    return m === "full" || m === "window" ? m : "region";
+  };
+  const setRecordMode = (m: RecordMode) => prefs.recordMode.set(m);
   const [sourceTab, setSourceTab] = createSignal<"display" | "window">("display");
 
   const startRecord = async (mode: RecordMode = recordMode()) => {
@@ -2173,6 +2180,7 @@ export function createEditor() {
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
     void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
     pushCursorMode();
+    pushHotkeys();
     pushAudioChoice();
     pushCameraChoice();
     pushTakeDefaults();

@@ -526,6 +526,15 @@ pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<
     engine.session()?.set_zoom_amount(amount)
 }
 
+/// Rebind the two hotkeys that work while another app has the keyboard: `zoom` and `stop`,
+/// written like `"Ctrl+Shift+Z"`. Applies at once, also mid-take.
+#[tauri::command]
+pub fn set_hotkeys(zoom: String, stop: String) -> Result<(), String> {
+    let zoom = vuoom_input::Chord::parse(&zoom)?;
+    let stop = vuoom_input::Chord::parse(&stop)?;
+    vuoom_input::set_chords(zoom, stop)
+}
+
 /// Show or hide the recording panel's live picture (applies at once, also mid-take).
 #[tauri::command]
 pub fn set_live_preview(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {

@@ -276,6 +276,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "set_capture_fps":
     case "set_live_preview":
+    case "set_hotkeys":
     case "open_folder":
       return null;
     case "default_save_dir":

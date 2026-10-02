@@ -58,6 +58,8 @@ export interface BoxAnn {
   thickness: number;
   filled: boolean;
   shape: "Rect" | "Ellipse" | "Mask" | "Spotlight";
+  /** A spotlight's corner radius, as a fraction of the height (absent from older engines). */
+  radius?: number;
   range: TimeRange;
 }
 /** A freehand pen stroke, mirrors vuoom_project::StrokeAnnotation. */

@@ -128,6 +128,10 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
   );
 }
 
+/** The roundest a spotlight's corners go (a fraction of the height). Mirrors
+ *  vuoom_project::HighlightBox::MAX_RADIUS. */
+const SPOTLIGHT_MAX_RADIUS = 0.25;
+
 const KIND_ICON: Record<string, IconName> = {
   Text: "text",
   Arrow: "arrow",
@@ -495,6 +499,17 @@ function AnnotationProps() {
 
       <Show when={ed.isSpotlight()}>
         <Section id="ann-spotlight" title="Spotlight" icon="spotlight">
+          <Field label="Corners" hint="Round the lit area's corners. All the way up, its short ends become half circles">
+            <Slider
+              value={ed.selectedBox()?.radius ?? 0}
+              min={0}
+              max={SPOTLIGHT_MAX_RADIUS}
+              step={0.005}
+              label="Corner radius"
+              format={(v) => (v === 0 ? "Square" : `${Math.round(v * 100)}%`)}
+              onInput={(v) => ed.editStyle({ radius: v })}
+            />
+          </Field>
           <p class="note">
             Everything around this area goes dark, so eyes go straight to it. Opacity sets how dark; drag
             its handles to reframe it.

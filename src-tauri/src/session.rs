@@ -1371,6 +1371,7 @@ impl Session {
         scene.texts.clear();
         scene.arrows.clear();
         scene.highlights.clear();
+        scene.spot_corners.clear();
         scene.strokes.clear();
         let cam_frames = scene.camera.and_then(|_| self.camera_frames());
         let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
@@ -1900,6 +1901,7 @@ impl Session {
             thickness: 0.005,
             filled: false,
             shape,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1920,6 +1922,7 @@ impl Session {
             thickness: 0.005,
             filled: true,
             shape: HighlightShape::Rect,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1939,6 +1942,7 @@ impl Session {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Spotlight,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1960,6 +1964,7 @@ impl Session {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Mask,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -2940,10 +2945,12 @@ impl Session {
         id: u32,
         thickness: Option<f64>,
         filled: Option<bool>,
+        radius: Option<f64>,
     ) -> Result<(), String> {
         // The thickness slider streams values while dragging, coalesce per element.
         self.with_project(&format!("style:{id}"), |p| {
             let th = thickness.map(|t| (t as f32).clamp(0.001, 0.05));
+            let rad = radius.map(|r| (r as f32).clamp(0.0, HighlightBox::MAX_RADIUS));
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 if let Some(t) = th {
                     a.thickness = t;
@@ -2956,6 +2963,9 @@ impl Session {
                 }
                 if let Some(f) = filled {
                     b.filled = f;
+                }
+                if let Some(r) = rad {
+                    b.radius = r;
                 }
                 return Ok(());
             }

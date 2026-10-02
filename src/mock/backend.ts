@@ -179,6 +179,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       m.setAnnStyle(a.id as number, {
         thickness: a.thickness as number | undefined,
         filled: a.filled as boolean | undefined,
+        radius: a.radius as number | undefined,
       });
       return null;
     case "set_highlight_shape":

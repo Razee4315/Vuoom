@@ -1608,17 +1608,19 @@ pub fn set_annotation_color(
     engine.session()?.set_annotation_color(id, r, g, b)
 }
 
-/// Restyle an arrow or highlight: thickness and (for highlights) filled vs outlined.
+/// Restyle an arrow or highlight: thickness, (for highlights) filled vs outlined, and a
+/// spotlight's corner radius.
 #[tauri::command]
 pub fn set_annotation_style(
     engine: tauri::State<'_, Engine>,
     id: u32,
     thickness: Option<f64>,
     filled: Option<bool>,
+    radius: Option<f64>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .set_annotation_style(id, thickness, filled)
+        .set_annotation_style(id, thickness, filled, radius)
 }
 
 /// Set the alpha/opacity (0..1) of an annotation's color.

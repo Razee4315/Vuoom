@@ -3,7 +3,9 @@
 //! drawn with `shaders/shapes.wgsl`.
 
 use crate::cursor::{offset_polygon, pointer_parts, ARROW, ARROW_TRIS};
-use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene};
+use crate::scene::{
+    ResolvedArrow, ResolvedCorner, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene,
+};
 use std::f32::consts::{PI, TAU};
 use vuoom_project::Color;
 
@@ -95,6 +97,28 @@ fn ellipse(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
             let q0 = [cx + irx * a0.cos(), cy + iry * a0.sin()];
             let q1 = [cx + irx * a1.cos(), cy + iry * a1.sin()];
             push_quad(out, [p0, p1, q1, q0], color);
+        }
+    }
+}
+
+/// Segments in a spotlight's rounded corner (a quarter circle).
+const CORNER_SEGS: u32 = 12;
+
+/// The dark sliver outside a spotlight's rounded corner: a fan from the square corner to
+/// the quarter circle, whose centre sits one radius into the clear area on both axes.
+fn corner_fill(out: &mut Vec<ShapeVertex>, c: &ResolvedCorner) {
+    let color = col(c.color);
+    let corner = [c.x as f32, c.y as f32];
+    let (rx, ry) = ((c.dx * c.r) as f32, (c.dy * c.r) as f32);
+    let (cx, cy) = (corner[0] + rx, corner[1] + ry);
+    let step = std::f32::consts::FRAC_PI_2 / CORNER_SEGS as f32;
+    for i in 0..CORNER_SEGS {
+        let a0 = i as f32 * step;
+        let a1 = a0 + step;
+        let p0 = [cx - rx * a0.cos(), cy - ry * a0.sin()];
+        let p1 = [cx - rx * a1.cos(), cy - ry * a1.sin()];
+        for pos in [corner, p0, p1] {
+            out.push(ShapeVertex { pos, color });
         }
     }
 }
@@ -332,6 +356,10 @@ fn fill_arrow(
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
+    // Spotlight corners go with the dark bands they round off: under everything else.
+    for c in &scene.spot_corners {
+        corner_fill(&mut out, c);
+    }
     for h in scene
         .highlights
         .iter()
@@ -384,6 +412,27 @@ mod tests {
             let [x, y] = v.pos;
             assert!((7.99..=52.01).contains(&x), "x {x}");
             assert!((7.99..=42.01).contains(&y), "y {y}");
+        }
+    }
+
+    #[test]
+    fn a_rounded_corner_stays_inside_its_square() {
+        let mut out = Vec::new();
+        let c = ResolvedCorner {
+            x: 100.0,
+            y: 50.0,
+            dx: -1.0,
+            dy: 1.0,
+            r: 20.0,
+            color: Color::WHITE,
+        };
+        corner_fill(&mut out, &c);
+        assert_eq!(out.len(), CORNER_SEGS as usize * 3);
+        // Top-right corner of a clear rect: the sliver lies left of x and below y.
+        for v in &out {
+            let [x, y] = v.pos;
+            assert!((79.99..=100.01).contains(&x), "x {x}");
+            assert!((49.99..=70.01).contains(&y), "y {y}");
         }
     }
 

@@ -1799,7 +1799,7 @@ export function createEditor() {
   // every pointer-move or keystroke, so they run through pushEdit, the same edit throttle
   // the inline text editor uses, to bound the invoke→refresh→seek round-trips. pushEdit
   // appends the seek and always lets the trailing value land, so the drag-end value sticks.
-  const editStyle = (patch: { thickness?: number; filled?: boolean }) => {
+  const editStyle = (patch: { thickness?: number; filled?: boolean; radius?: number }) => {
     const s = selected();
     if (!s) return;
     const { id, kind } = s;
@@ -1809,6 +1809,7 @@ export function createEditor() {
         patchAnn(kind, id, (a) => {
           if (patch.thickness !== undefined) (a as ArrowAnn).thickness = patch.thickness;
           if (patch.filled !== undefined && kind === "box") (a as BoxAnn).filled = patch.filled;
+          if (patch.radius !== undefined && kind === "box") (a as BoxAnn).radius = patch.radius;
         }),
       async () => {
         await invoke("set_annotation_style", { id, ...patch });

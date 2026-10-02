@@ -775,12 +775,13 @@ class MockEngine {
       if (ann) ann.color.a = a;
     });
   }
-  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean }) {
+  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean; radius?: number }) {
     this.mutate(`sty:${id}`, () => {
       const b = this.anns.highlights.find((x) => x.id === id);
       if (b) {
         if (patch.thickness !== undefined) b.thickness = patch.thickness;
         if (patch.filled !== undefined) b.filled = patch.filled;
+        if (patch.radius !== undefined) b.radius = patch.radius;
       }
       const ar = this.anns.arrows.find((x) => x.id === id);
       if (ar && patch.thickness !== undefined) ar.thickness = patch.thickness;

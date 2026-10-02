@@ -64,6 +64,21 @@ pub struct ResolvedHighlight {
     pub color: Color,
 }
 
+/// One rounded corner of a spotlight's clear area: the dark sliver between the square
+/// corner at (`x`, `y`) and the quarter circle of radius `r` that bulges toward it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedCorner {
+    /// The square corner, in output pixels.
+    pub x: f64,
+    pub y: f64,
+    /// Which way the clear area lies from the corner: +1 or -1 on each axis.
+    pub dx: f64,
+    pub dy: f64,
+    /// Corner radius in output pixels.
+    pub r: f64,
+    pub color: Color,
+}
+
 /// The caption on screen, placed on the framed recording (it doesn't follow the zoom). The
 /// compositor wraps the text to `max_w`, centers each line on `center_x` and draws a plate
 /// behind it, grown up from `edge_y` (or down from it, for captions at the top).
@@ -209,6 +224,34 @@ fn spotlight_bands(r: Rect, ow: f64, oh: f64, color: Color) -> [ResolvedHighligh
     ]
 }
 
+/// The four rounded corners of a spotlight's clear rect `r` (normalized) on an `ow`×`oh`
+/// frame, for a corner `radius` given as a fraction of the height. None when the radius
+/// is too small to see; never more than half the clear rect's shorter side.
+fn corners_of(r: Rect, radius: f64, ow: f64, oh: f64, color: Color) -> Vec<ResolvedCorner> {
+    let x0 = r.x.clamp(0.0, 1.0) * ow;
+    let y0 = r.y.clamp(0.0, 1.0) * oh;
+    let x1 = (r.x + r.w).clamp(0.0, 1.0) * ow;
+    let y1 = (r.y + r.h).clamp(0.0, 1.0) * oh;
+    let rad = (radius * oh).min((x1 - x0) / 2.0).min((y1 - y0) / 2.0);
+    if rad < 0.5 {
+        return Vec::new();
+    }
+    let corner = |x: f64, y: f64, dx: f64, dy: f64| ResolvedCorner {
+        x,
+        y,
+        dx,
+        dy,
+        r: rad,
+        color,
+    };
+    vec![
+        corner(x0, y0, 1.0, 1.0),
+        corner(x1, y0, -1.0, 1.0),
+        corner(x0, y1, 1.0, -1.0),
+        corner(x1, y1, -1.0, -1.0),
+    ]
+}
+
 /// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
@@ -226,6 +269,8 @@ pub struct Scene {
     pub texts: Vec<ResolvedText>,
     pub arrows: Vec<ResolvedArrow>,
     pub highlights: Vec<ResolvedHighlight>,
+    /// The rounded corners of spotlights, drawn with their dark bands.
+    pub spot_corners: Vec<ResolvedCorner>,
     /// Pen strokes, drawn over the highlights and under the arrows.
     pub strokes: Vec<ResolvedStroke>,
     /// Click ripples (expanding fading rings), kept separate from `highlights` because
@@ -376,13 +421,16 @@ pub fn build_scene(
 
     // A spotlight's dark bands go first, so everything else stays bright over them.
     let mut dim = Vec::new();
+    let mut spot_corners = Vec::new();
     for h in &project.highlights {
         let o = h.range.opacity_at(t);
         if o <= 0.0 {
             continue;
         }
         if h.shape == HighlightShape::Spotlight {
-            dim.extend(spotlight_bands(h.rect, ow, oh, fade(h.color, o)));
+            let color = fade(h.color, o);
+            dim.extend(spotlight_bands(h.rect, ow, oh, color));
+            spot_corners.extend(corners_of(h.rect, f64::from(h.radius), ow, oh, color));
             continue;
         }
         // A mask is an OPAQUE redaction block: the compositor forces a near-black fill
@@ -534,6 +582,7 @@ pub fn build_scene(
         texts,
         arrows,
         highlights,
+        spot_corners,
         strokes,
         ripples,
         key_chips,
@@ -600,6 +649,7 @@ mod tests {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Spotlight,
+            radius: 0.0,
             range: TimeRange::new(1.0, 3.0),
         });
         let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
@@ -610,6 +660,21 @@ mod tests {
         let area: f64 = bands.iter().map(|b| b.w * b.h).sum();
         assert!((area - (1_000_000.0 - 400.0 * 500.0)).abs() < 1e-6);
         assert!(bands.iter().all(|b| b.filled && b.color.a > 0.5));
+        // Square corners by default.
+        assert!(scene.spot_corners.is_empty());
+
+        // Rounded: one sliver per corner, each pointing into the clear rect.
+        p.highlights[0].radius = 0.05;
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        assert_eq!(scene.spot_corners.len(), 4);
+        let first = scene.spot_corners[0];
+        assert!((first.x - 200.0).abs() < 1e-6 && (first.y - 300.0).abs() < 1e-6);
+        assert!((first.r - 50.0).abs() < 1e-3);
+        assert!(first.dx > 0.0 && first.dy > 0.0);
+        // Never past half the shorter side (400 px wide: at most 200).
+        p.highlights[0].radius = 0.25;
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        assert!((scene.spot_corners[0].r - 200.0).abs() < 1e-3);
     }
 
     #[test]

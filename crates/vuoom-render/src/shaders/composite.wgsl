@@ -107,8 +107,11 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let center = u.dst_min + u.dst_size * 0.5;
     let half = u.dst_size * 0.5;
     let d = sd_rounded_box(px - center, half, u.corner_px);
-    let aa = max(fwidth(d), 0.0001);
-    let inside = 1.0 - smoothstep(-aa, aa, d);
+    // How much of this pixel the box covers: all of it for a pixel wholly inside (so a
+    // recording drawn on whole pixels keeps its edge pixels exactly as recorded, with no
+    // backdrop mixed into its outermost row), fading over the one pixel on the edge. `d`
+    // is already in output pixels, so the edge is one unit wide.
+    let inside = clamp(0.5 - d, 0.0, 1.0);
 
     var bg = backdrop(in.uv);
     if u.shadow.w > 0.0 {

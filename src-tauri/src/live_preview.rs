@@ -25,12 +25,11 @@ use std::time::Duration;
 use glam::DVec2;
 use vuoom_capture::{CapturedFrame, CropRegion};
 use vuoom_encode::RgbaImage;
-use vuoom_input::Clock;
+use vuoom_input::{ChordWatch, Clock, Hotkey};
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
 use vuoom_zoom::{CameraFilter, CameraState, CameraTarget, ZoomConfig};
 
 use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 /// Downscaled preview width (px): sharp in the large panel, still cheap to make.
@@ -73,16 +72,12 @@ pub fn sample(frame: &CapturedFrame) -> PreviewFrame {
             height: sh as u32,
             bgra,
             qpc: frame.qpc,
+            dirty: None,
         },
         full_w: w,
         full_h: h,
     }
 }
-
-// Virtual-key codes for the manual-zoom chord (Ctrl+Shift+Z).
-const VK_SHIFT: i32 = 0x10;
-const VK_CONTROL: i32 = 0x11;
-const VK_Z: i32 = 0x5A;
 
 /// A running live-preview worker. Dropping or calling [`LivePreview::stop`] ends it.
 pub struct LivePreview {
@@ -177,7 +172,7 @@ fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &At
     let clock = Clock::new();
     let start = clock.now();
     let mut last_emit = -1.0_f64;
-    let mut prev_chord = false;
+    let mut zoom_key = ChordWatch::new(Hotkey::Zoom);
     let mut latest: Option<PreviewFrame> = None;
     let mut fresh = false;
     let mut shown: Option<Shown> = None;
@@ -199,12 +194,10 @@ fn run(frames: &Receiver<PreviewFrame>, feed: &Feed, sink: &FrameSink, stop: &At
         }
         let t = clock.seconds_between(start, clock.now());
 
-        // Rising edge of Ctrl+Shift+Z toggles the zoom (mirrors the real recorder's hotkey).
-        let chord = chord_down();
-        if chord && !prev_chord {
+        // Each press of the zoom chord toggles the zoom (mirrors the real recorder's hotkey).
+        if zoom_key.pressed() {
             camera.toggle_zoom();
         }
-        prev_chord = chord;
 
         if !feed.enabled.load(Ordering::Relaxed) {
             // Switched off: hold nothing, so switching it back on repaints at once.
@@ -335,16 +328,6 @@ fn mark(img: &mut RgbaImage, x: f64, y: f64) {
     }
 }
 
-/// True while Ctrl AND Shift AND Z are all held.
-fn chord_down() -> bool {
-    key_down(VK_CONTROL) && key_down(VK_SHIFT) && key_down(VK_Z)
-}
-
-fn key_down(vk: i32) -> bool {
-    // The high-order bit of GetAsyncKeyState is set while the key is down.
-    (unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000) != 0
-}
-
 /// The cursor position normalized into the captured `region` (full display if `None`).
 /// The primary monitor's origin is (0,0) in virtual-desktop coords, and per-monitor DPI
 /// awareness is enabled, so screen px map directly onto the captured frame.
@@ -427,6 +410,7 @@ mod tests {
             height: h,
             bgra,
             qpc: 7,
+            dirty: None,
         }
     }
 

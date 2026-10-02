@@ -10,6 +10,47 @@ fn default_smoothing() -> f32 {
     CursorStyle::DEFAULT_SMOOTHING
 }
 
+/// The shape of the pointer: what the system showed at that moment of the take.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PointerShape {
+    /// The I-beam over text.
+    Text,
+    /// The pointing hand over a link.
+    Hand,
+    Cross,
+    /// Resize arrows: left-right, up-down, and the two diagonals.
+    ResizeH,
+    ResizeV,
+    ResizeNwse,
+    ResizeNesw,
+    /// The four-way move arrow.
+    Move,
+    /// The arrow. Also what any shape this build doesn't know reads as (so it is listed
+    /// last: serde's catch-all must be).
+    #[default]
+    #[serde(other)]
+    Arrow,
+}
+
+/// The pointer took `shape` at source time `t` (seconds), until the next change.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PointerShapeAt {
+    pub t: f64,
+    pub shape: PointerShape,
+}
+
+/// The pointer's shape at source time `t`, from a take's changes in time order: the last
+/// one at or before `t` (the arrow before the first).
+#[must_use]
+pub fn pointer_shape_at(changes: &[PointerShapeAt], t: f64) -> PointerShape {
+    let after = changes.partition_point(|c| c.t <= t);
+    match after.checked_sub(1) {
+        Some(i) => changes[i].shape,
+        None => PointerShape::Arrow,
+    }
+}
+
 /// A clean pointer drawn from the input log in place of the recorded one. Meant for takes
 /// recorded with the pointer hidden (see [`crate::Project::pointer_captured`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -57,6 +98,22 @@ impl Default for CursorStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pointer_shape_holds_until_the_next_change() {
+        let at = |t: f64, shape: PointerShape| PointerShapeAt { t, shape };
+        let changes = [at(1.0, PointerShape::Text), at(2.5, PointerShape::Hand)];
+        assert_eq!(pointer_shape_at(&changes, 0.5), PointerShape::Arrow);
+        assert_eq!(pointer_shape_at(&changes, 1.0), PointerShape::Text);
+        assert_eq!(pointer_shape_at(&changes, 2.4), PointerShape::Text);
+        assert_eq!(pointer_shape_at(&changes, 9.0), PointerShape::Hand);
+        assert_eq!(pointer_shape_at(&[], 1.0), PointerShape::Arrow);
+        // Saved by name; a name this build doesn't know is an arrow, not an error.
+        let json = serde_json::to_string(&PointerShape::ResizeNwse).unwrap();
+        assert_eq!(json, "\"resize_nwse\"");
+        let unknown: PointerShape = serde_json::from_str("\"sparkles\"").unwrap();
+        assert_eq!(unknown, PointerShape::Arrow);
+    }
 
     #[test]
     fn missing_fields_take_defaults_and_values_clamp() {

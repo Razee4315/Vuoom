@@ -4,7 +4,7 @@
 //
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
-import { batch, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "solid-js";
 import { invoke, isMock, open, ask, check, relaunch, type Update } from "../bridge";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
@@ -17,6 +17,7 @@ import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
+import { pushHotkeys } from "../hotkeys";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -668,6 +669,19 @@ export function createEditor() {
     preview.disconnect();
   });
 
+  // The engine composites the preview at the size the stage shows it, not the take's: a
+  // full-size frame would only be scaled down again here, after being rendered, read back,
+  // sent and drawn at several times the pixels. The width is in screen pixels, rounded up
+  // to a step so dragging a panel doesn't ask for a new size on every pixel.
+  const PREVIEW_STEP = 160;
+  const previewWidth = (): number | undefined => {
+    const w = canvasEl?.clientWidth ?? 0;
+    if (w <= 0) return undefined; // not laid out yet: full size
+    return Math.ceil((w * (window.devicePixelRatio || 1)) / PREVIEW_STEP) * PREVIEW_STEP;
+  };
+  /** The width the last frame was asked for at. */
+  let sentWidth = 0;
+
   // ── seek throttling (shared by scrubbing, playback, live edits) ────────────────
   let seekBusy = false;
   let seekPending: number | null = null;
@@ -678,7 +692,9 @@ export function createEditor() {
     }
     seekBusy = true;
     try {
-      await invoke("seek", { t });
+      const maxWidth = previewWidth();
+      sentWidth = maxWidth ?? Number.POSITIVE_INFINITY;
+      await invoke("seek", { t, maxWidth });
     } catch {
       /* no clip yet */
     }
@@ -693,6 +709,14 @@ export function createEditor() {
     setPlayhead(t);
     void pushSeek(t);
   };
+  // The stage grew past the last frame's size (a panel dragged away, the window
+  // maximized): ask for a sharper frame. Playback asks again on its own every frame.
+  createEffect(() => {
+    stage();
+    untrack(() => {
+      if (hasClip() && !playing() && (previewWidth() ?? 0) > sentWidth) void pushSeek(playhead());
+    });
+  });
 
   // Reconcile a fresh engine snapshot into the model: an item whose snapshot is UNCHANGED
   // keeps its object reference (Solid <For> keeps that DOM row), a CHANGED item takes the
@@ -2103,7 +2127,13 @@ export function createEditor() {
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
   type RecordMode = "full" | "region" | "window";
-  const [recordMode, setRecordMode] = createSignal<RecordMode>("region");
+  // Remembered between launches: someone who records the full screen every time shouldn't
+  // land on the region picker each morning.
+  const recordMode = (): RecordMode => {
+    const m = prefs.recordMode();
+    return m === "full" || m === "window" ? m : "region";
+  };
+  const setRecordMode = (m: RecordMode) => prefs.recordMode.set(m);
   const [sourceTab, setSourceTab] = createSignal<"display" | "window">("display");
 
   const startRecord = async (mode: RecordMode = recordMode()) => {
@@ -2150,6 +2180,7 @@ export function createEditor() {
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
     void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
     pushCursorMode();
+    pushHotkeys();
     pushAudioChoice();
     pushCameraChoice();
     pushTakeDefaults();

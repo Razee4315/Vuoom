@@ -298,6 +298,7 @@ pub fn run() {
             commands::screenshot,
             commands::set_zoom_amount,
             commands::set_live_preview,
+            commands::set_hotkeys,
             commands::default_save_dir,
             commands::next_save_path,
             commands::open_folder,

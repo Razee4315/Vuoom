@@ -328,6 +328,9 @@ class MockEngine {
       camera: this.camera ? { ...this.camera } : null,
       captions: structuredClone(this.captions),
       caption_style: { ...this.captionStyle },
+      out_width: 1920,
+      out_height: 1080,
+      source_fps: 60,
     };
   }
 

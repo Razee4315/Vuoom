@@ -35,6 +35,20 @@ pub fn pack_frame(rgba: &[u8], meta: FrameMeta) -> Vec<u8> {
     buf
 }
 
+/// Pack RGBA pixels + metadata into one binary message without copying the pixels: the
+/// trailer is appended to the pixel buffer itself. A buffer with [`META_LEN`] bytes of
+/// spare capacity (the compositor's readback leaves that much) is not reallocated.
+#[must_use]
+pub fn pack_frame_owned(mut rgba: Vec<u8>, meta: FrameMeta) -> Vec<u8> {
+    rgba.reserve(META_LEN);
+    rgba.extend_from_slice(&meta.stride.to_le_bytes());
+    rgba.extend_from_slice(&meta.height.to_le_bytes());
+    rgba.extend_from_slice(&meta.width.to_le_bytes());
+    rgba.extend_from_slice(&meta.frame_number.to_le_bytes());
+    rgba.extend_from_slice(&meta.target_time_ns.to_le_bytes());
+    rgba
+}
+
 /// Read the trailing [`FrameMeta`] from a packed message (`None` if too short).
 #[must_use]
 pub fn parse_meta(buf: &[u8]) -> Option<FrameMeta> {
@@ -76,6 +90,8 @@ mod tests {
         assert_eq!(buf.len(), rgba.len() + META_LEN);
         assert_eq!(parse_meta(&buf), Some(meta));
         assert_eq!(payload(&buf), &rgba[..]);
+        // The in-place variant packs the same message.
+        assert_eq!(pack_frame_owned(rgba, meta), buf);
     }
 
     #[test]

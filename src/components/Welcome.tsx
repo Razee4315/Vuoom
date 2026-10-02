@@ -2,24 +2,26 @@
 import { For, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
+import { zoomKeys } from "../hotkeys";
 import { Icon, type IconName } from "../icons";
 import { LogoMark } from "../Logo";
 
-const STEPS: { icon: IconName; title: string; text: string }[] = [
+const STEPS: { icon: IconName; title: string; text: () => string }[] = [
   {
     icon: "region",
     title: "Record",
-    text: "Pick a region, a window or the whole screen. Press Ctrl+Shift+Z to zoom in while you record.",
+    text: () =>
+      `Pick a region, a window or the whole screen. Vuoom zooms in where you click, or press ${zoomKeys()} to zoom yourself.`,
   },
   {
     icon: "sparkle",
     title: "Polish",
-    text: "Trim, cut the fumbles, skim idle time, add labels, arrows and highlights.",
+    text: () => "Trim, cut the fumbles, skim idle time, add labels, arrows and highlights.",
   },
   {
     icon: "export",
     title: "Ship",
-    text: "Export a crisp GIF or MP4 and paste it straight into Slack or GitHub.",
+    text: () => "Export a crisp GIF or MP4 and paste it straight into Slack or GitHub.",
   },
 ];
 
@@ -46,7 +48,7 @@ export default function Welcome() {
                       <Icon name={s.icon} size={18} />
                     </span>
                     <strong>{s.title}</strong>
-                    <small>{s.text}</small>
+                    <small>{s.text()}</small>
                   </div>
                 )}
               </For>

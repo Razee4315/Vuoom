@@ -11,10 +11,13 @@
 //! into one staging texture kept for the whole take, and the duplication's frame goes straight
 //! back to Windows. When the frame-rate cap allows the next frame, only the rows that changed
 //! since the last one (from Duplication's dirty and move rectangles) are read back to the CPU,
-//! so typing or a moving pointer costs a sliver of the screen, not all of it.
+//! so typing or a moving pointer costs a sliver of the screen, not all of it. Each frame out
+//! says which rows those were ([`CapturedFrame::dirty`]), so the frame store compresses only
+//! that sliver too, and is filled into a buffer the consumer handed back rather than a fresh
+//! allocation.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, TrySendError};
 use std::time::Duration;
 
 use vuoom_input::Clock;
@@ -32,7 +35,7 @@ use windows_capture::dxgi_duplication_api::{
 };
 use windows_capture::monitor::Monitor;
 
-use crate::capture::{clamp_region, CaptureOptions, CapturedFrame, CropRegion};
+use crate::capture::{clamp_region, CaptureOptions, CapturedFrame, CropRegion, Output};
 use crate::pointer::{self, PointerShape, ShapeKind};
 
 /// How long one acquire waits for a change before checking for a stop request (ms).
@@ -251,6 +254,54 @@ fn union(a: Option<(u32, u32)>, b: (u32, u32)) -> (u32, u32) {
     a.map_or(b, |(p, q)| (p.min(b.0), q.max(b.1)))
 }
 
+/// Two optional row spans as one.
+fn union_opt(a: Option<(u32, u32)>, b: Option<(u32, u32)>) -> Option<(u32, u32)> {
+    match b {
+        Some(b) => Some(union(a, b)),
+        None => a,
+    }
+}
+
+/// The rows of a `height`-row frame a pointer image `rows` tall covers with its top at
+/// row `y` (which may be off the frame). `None` when none of it is on the frame.
+fn pointer_span(y: i32, rows: u32, height: u32) -> Option<(u32, u32)> {
+    let top = i64::from(y).clamp(0, i64::from(height));
+    let bottom = (i64::from(y) + i64::from(rows)).clamp(0, i64::from(height));
+    (bottom > top).then_some((top as u32, bottom as u32))
+}
+
+/// What the next frame out owes for frames that were made but never delivered (the
+/// consumer's queue was full): the consumer compares each frame with the last one it GOT,
+/// so the rows those lost frames changed have to be reported again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Owed {
+    #[default]
+    Nothing,
+    Rows((u32, u32)),
+    /// A lost frame couldn't say what it changed: the next one can't either.
+    Everything,
+}
+
+impl Owed {
+    /// Add a lost frame's changed rows.
+    fn add(self, lost: Option<(u32, u32)>) -> Self {
+        match (self, lost) {
+            (Self::Everything, _) | (_, None) => Self::Everything,
+            (Self::Nothing, Some(rows)) => Self::Rows(rows),
+            (Self::Rows(owed), Some(rows)) => Self::Rows(union(Some(owed), rows)),
+        }
+    }
+
+    /// The rows a frame that changed `rows` must report, owing this.
+    fn settle(self, rows: Option<(u32, u32)>) -> Option<(u32, u32)> {
+        match self {
+            Self::Nothing => Some(rows.unwrap_or((0, 0))),
+            Self::Rows(owed) => Some(union(rows, owed)),
+            Self::Everything => None,
+        }
+    }
+}
+
 /// A running capture's state between frames.
 ///
 /// Every acquired desktop image is copied into [`Readback`] on the GPU right away (cheap) and
@@ -281,11 +332,20 @@ struct Pacer {
     presented: i64,
     /// The crop origin in the desktop image.
     origin: (u32, u32),
+    /// The rows the pointer was drawn over in the last frame out: the next one shows the
+    /// screen there again, so they changed even if the screen didn't.
+    pointer_rows: Option<(u32, u32)>,
+    /// Changed rows of frames the consumer never got.
+    owed: Owed,
+    /// Whether a frame has gone out yet (the first can't say what changed).
+    sent_any: bool,
+    /// A buffer to fill the next frame into, when one is at hand.
+    spare: Option<Vec<u8>>,
 }
 
 impl Pacer {
     /// Wait for the next change or until a pending frame is due, and send one when it is.
-    fn next(&mut self, api: &mut DxgiDuplicationApi) -> Outcome {
+    fn next(&mut self, api: &mut DxgiDuplicationApi, recycle: &Receiver<Vec<u8>>) -> Outcome {
         let wait = self.wait_ms();
         match api.acquire_next_frame(wait) {
             Ok(frame) => {
@@ -298,9 +358,16 @@ impl Pacer {
             Err(e) => return Outcome::Failed(e.to_string()),
         }
         if self.pending() && self.due() {
-            return self.emit();
+            return self.emit(recycle);
         }
         Outcome::Nothing
+    }
+
+    /// A frame that was made couldn't be delivered: remember what it changed for the next
+    /// one to report, and keep its buffer to fill again.
+    fn undelivered(&mut self, frame: CapturedFrame) {
+        self.owed = self.owed.add(frame.dirty);
+        self.spare = Some(frame.bgra);
     }
 
     /// Whether something changed since the last frame out.
@@ -348,6 +415,9 @@ impl Pacer {
             self.readback = Some(Readback::new(frame, cw, ch)?);
             self.clean = vec![0; cw as usize * ch as usize * 4];
             self.rows = None;
+            // A new size: the next frame is new all over, whatever it reports.
+            self.pointer_rows = None;
+            self.owed = Owed::Everything;
         }
         let moved = self.origin != (x0, y0);
         self.origin = (x0, y0);
@@ -364,23 +434,43 @@ impl Pacer {
     }
 
     /// Send the recorded area as it is now, with the pointer drawn when the take keeps it.
-    fn emit(&mut self) -> Outcome {
+    fn emit(&mut self, recycle: &Receiver<Vec<u8>>) -> Outcome {
         let Some(rb) = self.readback.as_ref() else {
             return Outcome::Nothing;
         };
-        if let Some(rows) = self.rows.take() {
+        let screen_rows = self.rows;
+        if let Some(rows) = screen_rows {
             if let Err(e) = rb.read(rows, &mut self.clean) {
                 return Outcome::Failed(e);
             }
         }
+        self.rows = None;
         let (cw, ch) = (rb.width, rb.height);
-        let mut bgra = self.clean.clone();
+        // Into a buffer the consumer is done with, when there is one: it already has its
+        // memory, where a fresh one this size has every page zeroed by the OS on first touch.
+        let recycled = self.spare.take().or_else(|| recycle.try_recv().ok());
+        let mut bgra = recycled.unwrap_or_default();
+        bgra.clear();
+        bgra.extend_from_slice(&self.clean);
         let drawn = self.cursor && self.pointer.visible;
+        let mut pointer_rows = None;
         if let Some(shape) = self.pointer.shape.as_ref().filter(|_| drawn) {
             let (x0, y0) = self.origin;
             let (px, py) = (self.pointer.x - x0 as i32, self.pointer.y - y0 as i32);
             pointer::draw(&mut bgra, cw, ch, px, py, shape);
+            pointer_rows = pointer_span(py, shape.rows(), ch);
         }
+        // What differs from the last frame out: the rows the screen changed, the rows the
+        // pointer was over then (they show the screen again) and the rows it is over now.
+        let was = std::mem::replace(&mut self.pointer_rows, pointer_rows);
+        let changed = union_opt(union_opt(screen_rows, was), pointer_rows);
+        let owed = std::mem::take(&mut self.owed);
+        let dirty = if self.sent_any {
+            owed.settle(changed)
+        } else {
+            None
+        };
+        self.sent_any = true;
         let now = self.clock.now();
         // The present time is read from the same performance counter; trust it only when
         // it's plausibly recent and after the last frame out.
@@ -399,6 +489,7 @@ impl Pacer {
             height: ch,
             bgra,
             qpc,
+            dirty,
         })
     }
 }
@@ -411,12 +502,11 @@ impl Pacer {
 ///
 /// # Errors
 /// Returns a message if the duplication can't be opened.
-pub fn run(
+pub(crate) fn run(
     monitor: Monitor,
-    tx: &SyncSender<CapturedFrame>,
+    out: &Output,
     stop: &AtomicBool,
     crop: Option<CropRegion>,
-    dropped: &AtomicU64,
     opts: CaptureOptions,
     started: impl FnOnce(),
 ) -> Result<(), String> {
@@ -441,6 +531,10 @@ pub fn run(
         pointer_moved: false,
         presented: 0,
         origin: (0, 0),
+        pointer_rows: None,
+        owed: Owed::Nothing,
+        sent_any: false,
+        spare: None,
     };
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {
@@ -449,11 +543,12 @@ pub fn run(
             dup = open(monitor).ok();
             continue;
         };
-        match pacer.next(api) {
-            Outcome::Frame(frame) => match tx.try_send(frame) {
+        match pacer.next(api, &out.recycle) {
+            Outcome::Frame(frame) => match out.tx.try_send(frame) {
                 Ok(()) => {}
-                Err(TrySendError::Full(_)) => {
-                    let n = dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                Err(TrySendError::Full(frame)) => {
+                    pacer.undelivered(frame);
+                    let n = out.dropped.fetch_add(1, Ordering::Relaxed) + 1;
                     if n == 1 || n.is_multiple_of(60) {
                         tracing::warn!("frame drain can't keep up, dropped {n} frame(s) so far");
                     }
@@ -474,4 +569,46 @@ pub fn run(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pointer_span_is_clipped_to_the_frame() {
+        assert_eq!(pointer_span(10, 32, 100), Some((10, 42)));
+        // Hanging off the top and the bottom.
+        assert_eq!(pointer_span(-8, 32, 100), Some((0, 24)));
+        assert_eq!(pointer_span(90, 32, 100), Some((90, 100)));
+        // Off the frame altogether.
+        assert_eq!(pointer_span(-40, 32, 100), None);
+        assert_eq!(pointer_span(100, 32, 100), None);
+    }
+
+    #[test]
+    fn a_frame_reports_its_rows_and_what_lost_frames_changed() {
+        // Nothing owed: just this frame's rows, or an empty span when nothing changed.
+        assert_eq!(Owed::Nothing.settle(Some((5, 9))), Some((5, 9)));
+        assert_eq!(Owed::Nothing.settle(None), Some((0, 0)));
+        // Two frames were lost: their rows ride along with the next frame's.
+        let owed = Owed::Nothing.add(Some((40, 50))).add(Some((2, 4)));
+        assert_eq!(owed, Owed::Rows((2, 50)));
+        assert_eq!(owed.settle(Some((60, 70))), Some((2, 70)));
+        assert_eq!(owed.settle(None), Some((2, 50)));
+        // A lost frame that couldn't say what changed: the next can't either, however
+        // many more are lost after it.
+        let owed = owed.add(None).add(Some((1, 2)));
+        assert_eq!(owed, Owed::Everything);
+        assert_eq!(owed.settle(Some((5, 9))), None);
+    }
+
+    #[test]
+    fn row_spans_merge() {
+        assert_eq!(union(None, (3, 7)), (3, 7));
+        assert_eq!(union(Some((10, 20)), (3, 7)), (3, 20));
+        assert_eq!(union_opt(None, None), None);
+        assert_eq!(union_opt(Some((1, 2)), None), Some((1, 2)));
+        assert_eq!(union_opt(Some((1, 2)), Some((8, 9))), Some((1, 9)));
+    }
 }

@@ -7,8 +7,8 @@
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
 use vuoom_project::{
-    caption_at, ArrowStyle, CameraOverlay, CaptionPosition, Color, Corner, HighlightShape,
-    InputEvent, Project, Rect,
+    caption_at, pointer_shape_at, ArrowStyle, CameraOverlay, CaptionPosition, Color, Corner,
+    HighlightShape, InputEvent, PointerShape, Project, Rect,
 };
 use vuoom_zoom::CameraTrack;
 
@@ -137,6 +137,8 @@ pub struct ResolvedCursor {
     pub press: f64,
     /// 1 = fully shown; lower while a pointer that hides when idle fades.
     pub opacity: f64,
+    /// Which pointer to draw: what the real one looked like at this moment.
+    pub shape: PointerShape,
 }
 
 /// The webcam bubble resolved to output pixels.
@@ -264,7 +266,8 @@ fn blur_origin(
         return None;
     }
     let cam = camera.at((t - BLUR_EXPOSURE).max(0.0));
-    let before = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let content = project.effective_source_dims();
+    let before = compute_layout(out_w, out_h, &project.frame, &cam, project.crop, content);
     let (prev, cur, dst) = (before.src_rect, layout.src_rect, layout.dst_rect);
     // Output pixels per unit of normalized source, across and down.
     let kx = dst.w / cur.w.max(1e-9);
@@ -289,7 +292,8 @@ pub fn build_scene(
     t: f64,
 ) -> Scene {
     let cam = camera.at(t);
-    let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let content = project.effective_source_dims();
+    let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop, content);
     let blur_from = blur_origin(project, camera, &layout, out_w, out_h, t);
     let ow = f64::from(out_w);
     let oh = f64::from(out_h);
@@ -459,6 +463,7 @@ pub fn build_scene(
             size: f64::from(style.size) * CURSOR_BASE * dst.h / src.h.max(1e-9),
             press: press_at(&project.events, t),
             opacity,
+            shape: pointer_shape_at(&project.pointer_shapes, t),
         })
     });
 
@@ -648,6 +653,20 @@ mod tests {
         assert!((c.size - expected).abs() < 1e-6);
         assert!(c.press.abs() < 1e-9);
         assert!((c.opacity - 1.0).abs() < 1e-9);
+        assert_eq!(c.shape, PointerShape::Arrow);
+
+        // It takes the shape the real pointer had at that moment.
+        p.pointer_shapes = vec![vuoom_project::PointerShapeAt {
+            t: 0.5,
+            shape: PointerShape::Text,
+        }];
+        let shape_at = |t: f64| {
+            let scene = build_scene(&p, &track, 1000, 1000, t);
+            scene.cursor.unwrap().shape
+        };
+        assert_eq!(shape_at(0.25), PointerShape::Arrow);
+        assert_eq!(shape_at(1.0), PointerShape::Text);
+        p.pointer_shapes.clear();
 
         // Hidden when idle: gone once it has rested a while.
         p.cursor = Some(CursorStyle {

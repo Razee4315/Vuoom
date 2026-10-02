@@ -19,6 +19,9 @@ struct Uniforms {
     blur: f32,             // 1 = smear from prev_* to src_*, 0 = a single sample
     bg_image: f32,         // 1 = the backdrop is the picture in bg_tex, 0 = the stops above
     bg_scale: vec2<f32>,   // the picture's visible UV extent, so it covers the frame
+    shadow: vec4<f32>,     // the recording's shadow: offset x, y, blur (pixels), strength
+    taps: vec2<f32>,       // samples across and down per output pixel (1 = a single sample)
+    _pad3: vec2<f32>,
 };
 
 // Samples along the camera's path for motion blur.
@@ -74,6 +77,29 @@ fn backdrop(uv: vec2<f32>) -> vec4<f32> {
     return mix(u.bg, u.bg2, t);
 }
 
+// The recording at `uv`, averaged over `span`: the stretch of it (in uv) that one output
+// pixel covers. Drawn smaller than it was recorded, a pixel covers several source pixels,
+// and a single sample would skip most of them (thin strokes of text flicker and break
+// up); a taps.x by taps.y grid of bilinear samples spread over the span takes them all in.
+// At 1:1 or magnified it is one sample.
+fn sample_area(uv: vec2<f32>, span: vec2<f32>) -> vec4<f32> {
+    let nx = i32(u.taps.x);
+    let ny = i32(u.taps.y);
+    if nx <= 1 && ny <= 1 {
+        return textureSampleLevel(src_tex, src_samp, uv, 0.0);
+    }
+    var acc = vec4<f32>(0.0);
+    for (var j = 0; j < ny; j = j + 1) {
+        let oy = (f32(j) + 0.5) / f32(ny) - 0.5;
+        for (var i = 0; i < nx; i = i + 1) {
+            let ox = (f32(i) + 0.5) / f32(nx) - 0.5;
+            let at = uv + vec2<f32>(ox, oy) * span;
+            acc = acc + textureSampleLevel(src_tex, src_samp, at, 0.0);
+        }
+    }
+    return acc / f32(nx * ny);
+}
+
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let px = in.uv * u.out_size;
@@ -81,10 +107,20 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let center = u.dst_min + u.dst_size * 0.5;
     let half = u.dst_size * 0.5;
     let d = sd_rounded_box(px - center, half, u.corner_px);
-    let aa = max(fwidth(d), 0.0001);
-    let inside = 1.0 - smoothstep(-aa, aa, d);
+    // How much of this pixel the box covers: all of it for a pixel wholly inside (so a
+    // recording drawn on whole pixels keeps its edge pixels exactly as recorded, with no
+    // backdrop mixed into its outermost row), fading over the one pixel on the edge. `d`
+    // is already in output pixels, so the edge is one unit wide.
+    let inside = clamp(0.5 - d, 0.0, 1.0);
 
-    let bg = backdrop(in.uv);
+    var bg = backdrop(in.uv);
+    if u.shadow.w > 0.0 {
+        // The recording's shadow on the backdrop: its own outline, moved by the offset
+        // and faded across the blur.
+        let ds = sd_rounded_box(px - center - u.shadow.xy, half, u.corner_px);
+        let shade = u.shadow.w * (1.0 - smoothstep(-u.shadow.z, u.shadow.z, ds));
+        bg = vec4<f32>(bg.rgb * (1.0 - shade), bg.a);
+    }
     if inside <= 0.0 {
         return bg;
     }
@@ -100,11 +136,11 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
             let k = f32(i) / f32(BLUR_TAPS - 1);
             let crop_min = mix(u.prev_min, u.src_min, k);
             let crop_size = mix(u.prev_size, u.src_size, k);
-            acc = acc + textureSampleLevel(src_tex, src_samp, crop_min + local * crop_size, 0.0);
+            acc = acc + sample_area(crop_min + local * crop_size, crop_size / u.dst_size);
         }
         col = acc / f32(BLUR_TAPS);
     } else {
-        col = textureSampleLevel(src_tex, src_samp, u.src_min + local * u.src_size, 0.0);
+        col = sample_area(u.src_min + local * u.src_size, u.src_size / u.dst_size);
     }
     return mix(bg, col, inside);
 }

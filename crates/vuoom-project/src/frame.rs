@@ -138,6 +138,38 @@ impl Default for FrameStyle {
     }
 }
 
+impl FrameStyle {
+    /// The most padding a frame may have, as a fraction of the smaller output dimension.
+    pub const MAX_PADDING: f64 = 0.4;
+    /// The largest output side a frame's mat may grow the picture to (a GPU texture limit
+    /// every adapter meets). Past it the output keeps the recording's size and the recording
+    /// is drawn smaller inside the mat instead.
+    pub const MAX_FRAMED_SIDE: u32 = 8192;
+
+    /// Output dimensions for a `w`×`h` recording (even numbers) with this frame around it.
+    ///
+    /// The mat is ADDED around the recording: the output grows so the recording keeps every
+    /// one of its pixels, 1:1, and its shape. (Shrinking the recording into an output of its
+    /// own size would resample every pixel, softening text, for nothing.) Both margins grow
+    /// in proportion, so the output keeps the recording's aspect ratio.
+    #[must_use]
+    pub fn framed_dims(&self, w: u32, h: u32) -> (u32, u32) {
+        if self.padding <= 0.0 {
+            return (w, h);
+        }
+        let p = self.padding.min(Self::MAX_PADDING);
+        // A margin of `p` of the grown side on each edge leaves `1 - 2p` for the recording.
+        let grow = p / (1.0 - 2.0 * p);
+        let mx = (f64::from(w) * grow).round() as u32;
+        let my = (f64::from(h) * grow).round() as u32;
+        let (fw, fh) = (w + 2 * mx, h + 2 * my);
+        if fw > Self::MAX_FRAMED_SIDE || fh > Self::MAX_FRAMED_SIDE {
+            return (w, h);
+        }
+        (fw, fh)
+    }
+}
+
 /// Output aspect-ratio presets (spec §5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AspectRatio {

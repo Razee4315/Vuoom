@@ -34,12 +34,13 @@ use vuoom_encode::{
     export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
-use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
+use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
     AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
-    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
-    SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, PointerShape, PointerShapeAt, Project, Rect,
+    Shadow, SourceInfo, SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig,
+    ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -191,6 +192,12 @@ pub struct ClipState {
     /// Timed captions (source time) and how they look.
     pub captions: Vec<Caption>,
     pub caption_style: CaptionStyle,
+    /// The picture's full size in pixels (after the crop, with the frame around it): the
+    /// most an export can hold.
+    pub out_width: u32,
+    pub out_height: u32,
+    /// Frames per second the take was recorded at.
+    pub source_fps: f64,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -988,6 +995,7 @@ impl Session {
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
         let probe_dir = recovery_dir.clone();
+        let recycler = capture.clone();
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
             let mut last_tap: Option<std::time::Instant> = None;
@@ -1031,6 +1039,11 @@ impl Session {
                         if write_err.is_none() {
                             if let Err(e) = writer.push(f) {
                                 write_err = Some(e);
+                            }
+                            // The buffer of the frame the store is done with goes back to
+                            // the capture, to be filled again instead of allocating one.
+                            if let Some(buffer) = writer.take_spare() {
+                                recycler.recycle(buffer);
                             }
                         }
                     }
@@ -1156,7 +1169,9 @@ impl Session {
             .filter_map(|e| normalize(e, &region, session.start_qpc, freq))
             .collect();
         // Manual zoom: each Ctrl+Shift+Z press becomes a deliberate zoom at the cursor.
-        events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
+        let zoom_key = vuoom_input::zoom_chord();
+        let marks = zoom_marks(&raw_events, &region, session.start_qpc, freq, zoom_key);
+        events.extend(marks);
 
         // Merge in poll-detected chord presses the hook missed (e.g. elevated-window
         // focus), without this, the live preview can show a zoom that the final edit
@@ -1226,6 +1241,10 @@ impl Session {
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(CursorStyle::default);
+        // The real pointer's shape through the take (arrow, text beam, hand...), for the
+        // re-drawn pointer to follow.
+        project.pointer_shapes =
+            extract_pointer_shapes(&raw_events, self.clock, session.start_qpc, duration);
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -1288,7 +1307,12 @@ impl Session {
     }
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
-    pub fn seek(&self, t: f64) -> Result<(), String> {
+    ///
+    /// `max_width` is how wide the editor's stage shows it, in screen pixels. The frame is
+    /// composited at that size, not the take's: the stage would only scale a full-size
+    /// frame down again, after it had been rendered, read back, sent and drawn at up to
+    /// ten times the pixels. `None` renders at full size.
+    pub fn seek(&self, t: f64, max_width: Option<u32>) -> Result<(), String> {
         // Snapshot the consistent (project, track, frames, epoch) tuple under a short lock, then
         // release it before the disk read + GPU composite + readback (~50-150ms at 4K) so a
         // scrub never serializes with edits. Cloning the four together preserves a coherent
@@ -1308,6 +1332,8 @@ impl Session {
         let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
+        let max_width = max_width.map(|w| w.max(PREVIEW_MIN_WIDTH));
+        let (out_w, out_h) = scaled_dims(out_w, out_h, max_width, false);
         let mut scene = build_scene(&project, &track, out_w, out_h, t);
         // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
         // the preview, a baked copy would lag the overlay during a drag and look glitchy.
@@ -1335,7 +1361,7 @@ impl Session {
             frame_number: 0,
             target_time_ns: (t * 1e9) as u64,
         };
-        self.preview.sink().publish(pack_frame(&rgba, meta));
+        self.preview.sink().publish(pack_frame_owned(rgba, meta));
         Ok(())
     }
 
@@ -1358,12 +1384,13 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
         // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
-        self.export_gif_impl(out_path, fps, width, quality, progress)
+        self.export_gif_impl(out_path, fps, width, quality, dither, progress)
             .map_err(|e| {
                 tracing::error!("GIF export failed: {e}");
                 e
@@ -1376,6 +1403,7 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Clear any stale cancel request from a prior export before we begin (see
@@ -1400,7 +1428,11 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the GIF's size: the GPU scales the picture as it draws it
+        // (averaging every source pixel), so no frame is rendered large, read back and then
+        // shrunk on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1409,8 +1441,9 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
 
@@ -1511,23 +1544,14 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the encoded size (H.264 wants even dimensions): the GPU
+        // scales the picture as it draws it, so no frame is resized on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, true);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
-
-        // Optional max-width downscale; H.264 wants even dimensions, so floor to even and
-        // let the encoder crop the stray right/bottom line.
-        let scale_w = width.filter(|&w| w > 0 && w < out_w);
-        let (enc_src_w, enc_src_h) = match scale_w {
-            Some(w) => (
-                w,
-                ((u64::from(out_h) * u64::from(w)) / u64::from(out_w)).max(1) as u32,
-            ),
-            None => (out_w, out_h),
-        };
-        let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
 
         // The mixed soundtrack for the played timeline, if there's anything audible.
         let dir = self
@@ -1542,8 +1566,8 @@ impl Session {
         };
         let encoder = crate::mp4::Mp4Encoder::new(
             Path::new(&out_path),
-            enc_w,
-            enc_h,
+            out_w,
+            out_h,
             fps,
             quality,
             mix.is_some(),
@@ -1590,13 +1614,7 @@ impl Session {
                 bg,
                 cam.as_deref().map(Decoded::image),
             );
-            let img = RgbaImage::new(out_w, out_h, rgba);
-            let img = if scale_w.is_some() {
-                downscale_rgba(&img, enc_src_w)
-            } else {
-                img
-            };
-            if let Err(e) = encoder.write_rgba(&img.pixels, img.width, img.height, i as u32) {
+            if let Err(e) = encoder.write_rgba(&rgba, i as u32) {
                 frame_err = Some(e);
                 break;
             }
@@ -1634,7 +1652,13 @@ impl Session {
     /// Windows must be contiguous: the encoder delta-compresses consecutive frames, so a
     /// strided sample would see artificially large frame-to-frame changes and wildly
     /// overestimate. A 1-frame encode per window isolates keyframe cost from delta cost.
-    pub fn estimate_gif(&self, fps: u32, width: Option<u32>, quality: u8) -> Result<u64, String> {
+    pub fn estimate_gif(
+        &self,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        dither: bool,
+    ) -> Result<u64, String> {
         /// Sample windows can still miss the clip's busiest stretch; nudge up.
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
@@ -1664,15 +1688,16 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
         let mut windows: Vec<(u64, u64, usize)> = Vec::with_capacity(starts.len());
         for (k, &start) in starts.iter().enumerate() {
             let start = start.min(total - win);
             let indices: Vec<usize> = (start..start + win).collect();
-            let frames = self.composite_indices(&edited, fps, &indices, &|_, _| {})?;
+            let frames = self.composite_indices(&edited, fps, width, &indices)?;
             if frames.is_empty() {
                 continue;
             }
@@ -1691,13 +1716,14 @@ impl Session {
         Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
     }
 
-    /// Composite specific output-timeline frame indices (honoring trim + speed regions).
+    /// Composite specific output-timeline frame indices (honoring trim + speed regions),
+    /// at most `width` wide (the size the export would render them at).
     fn composite_indices(
         &self,
         edited: &Edited,
         fps: u32,
+        width: Option<u32>,
         indices: &[usize],
-        progress: &dyn Fn(u32, u32),
     ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
@@ -1709,6 +1735,7 @@ impl Session {
         }
 
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1722,7 +1749,7 @@ impl Session {
         let cam_frames = cam_frames.map(Arc::new);
 
         let mut images = Vec::with_capacity(indices.len());
-        for (done, &i) in indices.iter().enumerate() {
+        for &i in indices {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
@@ -1741,7 +1768,6 @@ impl Session {
                 cam.as_deref().map(Decoded::image),
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
-            progress(done as u32 + 1, indices.len() as u32);
         }
         Ok(images)
     }
@@ -1971,6 +1997,7 @@ impl Session {
     pub fn clip_state(&self) -> Result<ClipState, String> {
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
+        let (out_width, out_height) = project.output_dims();
         Ok(ClipState {
             duration: project.source.duration,
             trim: project.trim,
@@ -1999,6 +2026,9 @@ impl Session {
             motion_blur: project.motion_blur,
             captions: project.captions.clone(),
             caption_style: project.caption_style,
+            out_width,
+            out_height,
+            source_fps: project.source.fps,
         })
     }
 
@@ -3364,6 +3394,7 @@ impl Session {
                 height: fi.h,
                 bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
                 qpc: base + (fi.t * freq as f64) as i64,
+                dirty: None,
             });
             if let Err(e) = pushed {
                 drop(writer);
@@ -3631,6 +3662,27 @@ impl Session {
     }
 }
 
+/// The narrowest the editor's preview is composited, however small its panel is.
+const PREVIEW_MIN_WIDTH: u32 = 480;
+
+/// `out_w`x`out_h` scaled down to at most `max_w` wide (never up), keeping its shape.
+/// With `even`, both sides come out even, as H.264 needs.
+fn scaled_dims(out_w: u32, out_h: u32, max_w: Option<u32>, even: bool) -> (u32, u32) {
+    let (w, h) = match max_w.filter(|&w| w > 0 && w < out_w) {
+        Some(w) => {
+            let (ow, oh) = (u64::from(out_w), u64::from(out_h));
+            let h = (oh * u64::from(w) + ow / 2) / ow;
+            (w, (h as u32).max(1))
+        }
+        None => (out_w, out_h),
+    };
+    if even {
+        ((w & !1).max(2), (h & !1).max(2))
+    } else {
+        (w, h)
+    }
+}
+
 /// Encode `frames` to a throwaway GIF in the temp dir and return its byte size, the
 /// measurement step of the sample-and-extrapolate size estimate.
 fn encode_sample_bytes(
@@ -3682,16 +3734,52 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
 /// Vuoom's own control chords, these drive the app, not the demo, so they must never render
 /// as keystroke-overlay chips. Kept here next to `extract_key_taps` (the layer that builds
 /// chips) and cross-referenced to their definitions so a future chord change updates both:
-///   - `Ctrl+Shift+X`, the stop-recording hotkey (`hotkey.rs`).
-///   - `Ctrl+Shift+Z`, the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+///   - the stop-recording hotkey (`hotkey.rs`), Ctrl+Shift+X unless rebound;
+///   - the manual zoom chord (`zoom_chord.rs` / `normalize.rs`), Ctrl+Shift+Z unless rebound.
 ///
-/// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
-/// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
-/// chip because bare modifiers never emit a tap on their own (they only set flags below).
-const VK_X: u16 = 0x58;
-const VK_Z: u16 = 0x5A;
-fn is_app_control_chord(ctrl: bool, shift: bool, vk: u16) -> bool {
-    ctrl && shift && (vk == VK_X || vk == VK_Z)
+/// Matched on the chord's exact modifiers, like the triggers themselves
+/// (`vuoom_input::Chord`). Suppressing the whole chord leaves no stray `Ctrl+Shift` chip
+/// because bare modifiers never emit a tap on their own (they only set flags below).
+fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
+    let is = |chord: vuoom_input::Chord| chord.matches(ctrl, shift, alt, vk);
+    is(vuoom_input::zoom_chord()) || is(vuoom_input::stop_chord())
+}
+
+/// The changes of the real pointer's shape in the raw log, as source times: one entry per
+/// change (a shape repeated in a row is one), clamped into the take. A pointer an app drew
+/// itself is shown as the arrow.
+fn extract_pointer_shapes(
+    raw: &[RawEvent],
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<PointerShapeAt> {
+    use vuoom_input::{CursorKind, RawEventKind};
+
+    let mut shapes: Vec<PointerShapeAt> = Vec::new();
+    for e in raw {
+        let RawEventKind::Cursor(kind) = e.kind else {
+            continue;
+        };
+        let shape = match kind {
+            CursorKind::Arrow | CursorKind::Other => PointerShape::Arrow,
+            CursorKind::Text => PointerShape::Text,
+            CursorKind::Hand => PointerShape::Hand,
+            CursorKind::Cross => PointerShape::Cross,
+            CursorKind::ResizeH => PointerShape::ResizeH,
+            CursorKind::ResizeV => PointerShape::ResizeV,
+            CursorKind::ResizeNwse => PointerShape::ResizeNwse,
+            CursorKind::ResizeNesw => PointerShape::ResizeNesw,
+            CursorKind::Move => PointerShape::Move,
+        };
+        let t = clock.seconds_between(start_qpc, e.qpc).clamp(0.0, duration);
+        // The arrow is what a take starts with, and a repeat changes nothing.
+        let current = shapes.last().map_or(PointerShape::Arrow, |s| s.shape);
+        if shape != current {
+            shapes.push(PointerShapeAt { t, shape });
+        }
+    }
+    shapes
 }
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
@@ -3730,7 +3818,7 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
             continue;
         }
         let Some(name) = key_name(vk) else { continue };
-        if is_app_control_chord(ctrl, shift, vk) {
+        if is_app_control_chord(ctrl, shift, alt, vk) {
             continue; // Vuoom's own stop / zoom chord, not demo content
         }
         let chord = ctrl || alt || win;
@@ -4651,6 +4739,52 @@ mod tests {
         assert_eq!(info.bg_kind, "gradient");
         assert!((info.padding - 0.05).abs() < 1e-9);
         assert!((info.shadow - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pointer_shape_changes_are_kept_once_each() {
+        use vuoom_input::{CursorKind, RawEventKind};
+        let clock = Clock::new();
+        let f = clock.freq();
+        let at = |t: f64, kind: CursorKind| rawk((t * f as f64) as i64, RawEventKind::Cursor(kind));
+        let raw = [
+            at(0.1, CursorKind::Arrow), // what a take starts with: nothing to note
+            at(1.0, CursorKind::Text),
+            at(1.2, CursorKind::Text), // a repeat
+            rawk((1.5 * f as f64) as i64, RawEventKind::KeyDown(0x41)),
+            at(2.0, CursorKind::Other), // an app's own pointer: drawn as the arrow
+            at(3.0, CursorKind::Hand),
+            at(99.0, CursorKind::Move), // past the end: clamped onto it
+        ];
+        let shapes = extract_pointer_shapes(&raw, clock, 0, 10.0);
+        let got: Vec<PointerShape> = shapes.iter().map(|s| s.shape).collect();
+        let want = [
+            PointerShape::Text,
+            PointerShape::Arrow,
+            PointerShape::Hand,
+            PointerShape::Move,
+        ];
+        assert_eq!(got, want);
+        assert!((shapes[0].t - 1.0).abs() < 1e-6);
+        assert!((shapes[3].t - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scaled_dims_shrink_but_never_grow() {
+        // No cap, a cap at the size, a cap above it: unchanged.
+        assert_eq!(scaled_dims(1920, 1080, None, false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(1920), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(4000), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(0), false), (1920, 1080));
+        // Scaled down, keeping the shape (the height rounds to nearest).
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), false), (1000, 563));
+        assert_eq!(scaled_dims(1920, 1080, Some(1280), false), (1280, 720));
+        // H.264 gets even sides.
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), true), (1000, 562));
+        assert_eq!(scaled_dims(1920, 1080, Some(1001), true), (1000, 562));
+        // A sliver stays at least a pixel (two for H.264) tall.
+        assert_eq!(scaled_dims(4000, 4, Some(400), false), (400, 1));
+        assert_eq!(scaled_dims(4000, 4, Some(400), true), (400, 2));
     }
 
     #[test]

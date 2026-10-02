@@ -30,6 +30,62 @@ pub struct CapturedFrame {
     pub height: u32,
     pub bgra: Vec<u8>,
     pub qpc: i64,
+    /// The rows `(top, bottom)`, bottom exclusive, that may differ from the frame this
+    /// capture sent just before this one; every other row is identical to it. An empty span
+    /// means nothing changed. `None` when the capture can't tell (any row may differ): the
+    /// first frame, and every frame from a capture that isn't told what changed.
+    ///
+    /// Typing or a moving pointer changes a sliver of the screen; knowing which lets the
+    /// frame store compress that sliver instead of the whole frame.
+    pub dirty: Option<(u32, u32)>,
+}
+
+/// Admits frames at a steady rate from a source that offers them faster: the compositor
+/// offers one per screen refresh (60, 144, 240 a second), and each one taken is a full
+/// copy from the GPU.
+///
+/// It keeps a schedule rather than a minimum gap, so the rate comes out exact whatever the
+/// refresh rate is (a "wait at least 1/60 s" rule would take every THIRD frame of a 144 Hz
+/// screen, 48 fps), and frames that arrive a little early (jitter) still count.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FramePacer {
+    /// Ticks between frames (0 = take every frame).
+    interval: i64,
+    /// When the next frame is due.
+    next_due: i64,
+}
+
+impl FramePacer {
+    /// A pacer for `max_fps` frames a second (`0` = no cap) on a clock of `freq` ticks a
+    /// second.
+    pub(crate) fn new(max_fps: u32, freq: i64) -> Self {
+        let interval = if max_fps == 0 {
+            0
+        } else {
+            freq / i64::from(max_fps)
+        };
+        Self {
+            interval,
+            next_due: i64::MIN / 2,
+        }
+    }
+
+    /// Whether to take the frame offered at `now` (ticks).
+    pub(crate) fn admit(&mut self, now: i64) -> bool {
+        if self.interval == 0 {
+            return true;
+        }
+        // A quarter of an interval early still counts as on time.
+        if now + self.interval / 4 < self.next_due {
+            return false;
+        }
+        // Keep to the schedule, unless it has fallen behind (the screen was still for a
+        // while): then start a new one from now.
+        let behind = self.next_due + self.interval < now;
+        let base = if behind { now } else { self.next_due };
+        self.next_due = base + self.interval;
+        true
+    }
 }
 
 /// A sub-rectangle (physical px) of the captured monitor to keep, the rest is discarded.
@@ -147,6 +203,8 @@ pub struct CaptureHandle {
     /// that the take is choppy, see [`CaptureHandle::dropped`].
     dropped: Arc<AtomicU64>,
     backend: Backend,
+    /// Frame buffers the consumer is done with, on their way back to the capture.
+    recycle: SyncSender<Vec<u8>>,
 }
 
 impl CaptureHandle {
@@ -167,6 +225,23 @@ impl CaptureHandle {
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
+
+    /// Hand back the pixel buffer of a frame that is done with, for the capture to fill
+    /// again. A frame is megabytes, and a fresh allocation that size is zeroed page by page
+    /// by the OS on first touch; reusing one skips that for every frame. Buffers the capture
+    /// has no use for are simply freed.
+    pub fn recycle(&self, buffer: Vec<u8>) {
+        let _ = self.recycle.try_send(buffer);
+    }
+}
+
+/// Where a capture's frames go, and what comes back.
+pub(crate) struct Output {
+    pub tx: SyncSender<CapturedFrame>,
+    /// Frames dropped because `tx` was full.
+    pub dropped: Arc<AtomicU64>,
+    /// Buffers of frames the consumer is done with (see [`CaptureHandle::recycle`]).
+    pub recycle: Receiver<Vec<u8>>,
 }
 
 struct Handler {
@@ -177,6 +252,10 @@ struct Handler {
     /// Frames dropped because the bounded channel was full (drain couldn't keep up). Shared
     /// with the owning [`CaptureHandle`] so the caller can surface the count to the user.
     dropped: Arc<AtomicU64>,
+    /// Holds the take to its frame rate. The compositor's own throttle (see
+    /// [`update_interval`]) only exists on Windows 11 and lands a little above the target;
+    /// on Windows 10 every screen refresh arrives here.
+    pacer: FramePacer,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
@@ -185,17 +264,20 @@ impl GraphicsCaptureApiHandler for Handler {
         Arc<AtomicBool>,
         Option<CropRegion>,
         Arc<AtomicU64>,
+        u32,
     );
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let (tx, stop, crop, dropped) = ctx.flags;
+        let (tx, stop, crop, dropped, max_fps) = ctx.flags;
+        let clock = Clock::new();
         Ok(Self {
             tx,
-            clock: Clock::new(),
+            clock,
             stop,
             crop,
             dropped,
+            pacer: FramePacer::new(max_fps, clock.freq()),
         })
     }
 
@@ -220,6 +302,10 @@ impl GraphicsCaptureApiHandler for Handler {
         // time), fall back to the callback time. `now` here is the capture instant to within the
         // WGC→callback latency, so a sane frame time is at most ~1 s away.
         let now = self.clock.now();
+        // Not due yet: leave the frame on the GPU. Asking for its buffer is what copies it.
+        if !self.pacer.admit(now) {
+            return Ok(());
+        }
         let freq = i128::from(self.clock.freq());
         let qpc = frame
             .timestamp()
@@ -246,6 +332,8 @@ impl GraphicsCaptureApiHandler for Handler {
             height: h,
             bgra,
             qpc,
+            // Graphics Capture doesn't say what changed.
+            dirty: None,
         };
         match self.tx.try_send(captured) {
             Ok(()) => {}
@@ -309,7 +397,7 @@ pub fn run_window(
         update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (tx, stop, crop, dropped),
+        (tx, stop, crop, dropped, opts.max_fps),
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
@@ -359,7 +447,7 @@ pub fn run_display(
         update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (tx, stop, crop, dropped),
+        (tx, stop, crop, dropped, opts.max_fps),
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
@@ -376,10 +464,9 @@ pub fn duplication_available(monitor: Option<&str>) -> bool {
 /// Capture a display, **blocking** until stopped: with Desktop Duplication when it can record
 /// this display, else with WGC. `ready` hears which one runs before the first frame.
 fn run_monitor(
-    tx: SyncSender<CapturedFrame>,
+    out: Output,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    dropped: Arc<AtomicU64>,
     monitor: Option<&str>,
     opts: CaptureOptions,
     ready: &Sender<Backend>,
@@ -388,12 +475,12 @@ fn run_monitor(
     let started = || {
         let _ = ready.send(Backend::DesktopDuplication);
     };
-    match crate::dxgi::run(picked, &tx, &stop, crop, &dropped, opts, started) {
+    match crate::dxgi::run(picked, &out, &stop, crop, opts, started) {
         Ok(()) => Ok(()),
         Err(e) => {
             tracing::info!("desktop duplication unavailable ({e}), using graphics capture");
             let _ = ready.send(Backend::GraphicsCapture);
-            run_display(tx, stop, crop, dropped, monitor, opts)
+            run_display(out.tx, stop, crop, out.dropped, monitor, opts)
         }
     }
 }
@@ -401,6 +488,10 @@ fn run_monitor(
 /// How long `spawn_capture` waits to hear which backend runs (opening a display is quick;
 /// this only bounds a stuck driver).
 const BACKEND_WAIT: Duration = Duration::from_secs(3);
+
+/// Recycled frame buffers waiting for the capture to pick them up. One comes back per
+/// frame sent, so a couple is plenty.
+const RECYCLE_CAP: usize = 4;
 
 /// Frames buffered between the capture thread and the disk-drain consumer. Small on
 /// purpose: it only needs to absorb brief write jitter, and each slot is a full BGRA screen
@@ -427,15 +518,21 @@ pub fn spawn_capture(
     let dropped = Arc::new(AtomicU64::new(0));
     let (stop_handle, dropped_handle) = (Arc::clone(&stop), Arc::clone(&dropped));
     let (ready_tx, ready_rx) = channel();
+    let (recycle_tx, recycle) = sync_channel(RECYCLE_CAP);
     let source = source.clone();
     std::thread::spawn(move || {
+        let out = Output {
+            tx,
+            dropped,
+            recycle,
+        };
         let result = match &source {
             CaptureSource::Monitor { name } => {
-                run_monitor(tx, stop, crop, dropped, name.as_deref(), opts, &ready_tx)
+                run_monitor(out, stop, crop, name.as_deref(), opts, &ready_tx)
             }
             CaptureSource::Window { hwnd } => {
                 let _ = ready_tx.send(Backend::GraphicsCapture);
-                run_window(tx, stop, crop, dropped, *hwnd, opts)
+                run_window(out.tx, stop, crop, out.dropped, *hwnd, opts)
             }
         };
         if let Err(e) = result {
@@ -449,6 +546,7 @@ pub fn spawn_capture(
         stop: stop_handle,
         dropped: dropped_handle,
         backend,
+        recycle: recycle_tx,
     };
     (rx, handle)
 }
@@ -505,6 +603,56 @@ mod tests {
         assert_eq!(out[4], 2);
         assert_eq!(out[8], 5);
         assert_eq!(out[12], 6);
+    }
+
+    /// Frames admitted in ten seconds of a source offering `offered` a second (each a
+    /// little early or late), paced to `fps`.
+    fn admitted(offered: f64, fps: u32) -> usize {
+        const FREQ: i64 = 10_000_000;
+        let mut pacer = FramePacer::new(fps, FREQ);
+        let step = FREQ as f64 / offered;
+        (0..(offered * 10.0) as usize)
+            .filter(|&k| {
+                // A deterministic wobble of up to a tenth of a refresh either way.
+                let wobble = ((k * 7919) % 21) as f64 / 100.0 - 0.1;
+                pacer.admit(1_000_000 + ((k as f64 + wobble) * step) as i64)
+            })
+            .count()
+    }
+
+    #[test]
+    fn the_pacer_holds_the_frame_rate_on_any_screen() {
+        for (offered, fps) in [
+            (60.0, 60),
+            (60.0, 30),
+            (60.0, 24),
+            (75.0, 60),
+            (144.0, 60),
+            (144.0, 30),
+            (240.0, 60),
+        ] {
+            let got = admitted(offered, fps) as f64 / 10.0;
+            let want = f64::from(fps);
+            assert!(
+                (got - want).abs() <= want * 0.02,
+                "{offered} Hz paced to {fps}: got {got} fps"
+            );
+        }
+        // A screen slower than the cap gives all it has; no cap takes everything.
+        assert_eq!(admitted(30.0, 60), 300);
+        assert_eq!(admitted(144.0, 0), 1440);
+    }
+
+    #[test]
+    fn the_pacer_restarts_its_schedule_after_a_still_stretch() {
+        let mut pacer = FramePacer::new(10, 1000); // a frame every 100 ticks
+        assert!(pacer.admit(0));
+        assert!(!pacer.admit(50));
+        assert!(pacer.admit(100));
+        // Nothing for a long while, then two frames close together: only one is taken.
+        assert!(pacer.admit(5000));
+        assert!(!pacer.admit(5040));
+        assert!(pacer.admit(5100));
     }
 
     #[test]

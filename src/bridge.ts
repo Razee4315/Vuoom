@@ -89,11 +89,15 @@ export function check(): Promise<Update | null> {
   if (!isMock) return tauriCheck();
   return Promise.resolve(null);
 }
+/** Say this run is ending on purpose. An update's installer and a relaunch both end the
+ *  process without the normal exit, and the next launch would take that for a crash. */
+export async function markCleanExit(): Promise<void> {
+  if (isMock) return;
+  await tauriInvoke("mark_clean_exit").catch(() => undefined);
+}
 export async function relaunch(): Promise<void> {
   if (isMock) return;
-  // A relaunch skips the normal exit, so say it's a clean one first: otherwise the next
-  // launch would take the update's restart for a crash.
-  await tauriInvoke("mark_clean_exit").catch(() => undefined);
+  await markCleanExit();
   return tauriRelaunch();
 }
 export function openUrl(url: string): Promise<void> {

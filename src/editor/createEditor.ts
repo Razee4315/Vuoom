@@ -5,7 +5,7 @@
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
 import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "solid-js";
-import { invoke, isMock, open, openUrl, ask, check, relaunch, type Update } from "../bridge";
+import { invoke, isMock, open, openUrl, ask, check, markCleanExit, relaunch, type Update } from "../bridge";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
@@ -667,6 +667,9 @@ export function createEditor() {
           );
         } else if (ev.event === "Finished") {
           setStatus("Update downloaded. Restarting…");
+          // On Windows the installer ends this process itself, before relaunch() below
+          // gets its turn: mark the exit as intended now.
+          void markCleanExit();
         }
       });
       await relaunch();

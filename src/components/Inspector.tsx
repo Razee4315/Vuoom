@@ -963,15 +963,17 @@ function ClipPanel() {
     });
   };
   const onFind = (e: KeyboardEvent) => {
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl) {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl && !ed.isModal()) {
       e.preventDefault();
       searchEl.focus();
       searchEl.select();
     }
   };
-  onMount(() => window.addEventListener("keydown", onFind));
+  // In the capture phase, next to the editor's own key guard: that guard swallows Ctrl+F as
+  // a browser shortcut and stops it there, so a listener later in the path never hears it.
+  onMount(() => window.addEventListener("keydown", onFind, true));
   onCleanup(() => {
-    window.removeEventListener("keydown", onFind);
+    window.removeEventListener("keydown", onFind, true);
     setSectionQuery("");
   });
 

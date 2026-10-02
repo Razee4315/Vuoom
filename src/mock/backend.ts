@@ -83,6 +83,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "check_recovery":
       return m.hasClip ? null : 8.4;
+    case "take_at_risk":
+      return params.has("atrisk") ? 754 : null;
     case "recovery_storage":
       return { bytes: 412_589_056, sessions: 2 };
     case "clear_recovery_storage":

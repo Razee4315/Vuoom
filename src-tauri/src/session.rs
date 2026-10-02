@@ -1404,6 +1404,19 @@ impl Session {
         self.export_cancel.store(true, Ordering::SeqCst);
     }
 
+    /// Note that the loaded take reached a file the user chose (a saved project, a GIF, an
+    /// MP4), so a later recording can prune it without asking.
+    fn mark_take_kept(&self) {
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(dir) = dir {
+            frame_store::mark_kept(&dir);
+        }
+    }
+
     /// Composite the output-timeline frames (honoring trim + speed regions) and export an
     /// optimized GIF to `out_path`. `progress(done, total)` is called as frames composite
     /// and once more when encoding finishes.
@@ -1436,6 +1449,7 @@ impl Session {
             progress,
         )
         .and_then(|()| finish_export(&part, out))
+        .inspect(|_| self.mark_take_kept())
         .map_err(|e| {
             tracing::error!("GIF export failed: {e}");
             e
@@ -1567,6 +1581,7 @@ impl Session {
             progress,
         )
         .and_then(|()| finish_export(&part, out))
+        .inspect(|_| self.mark_take_kept())
         .map_err(|e| {
             tracing::error!("MP4 export failed: {e}");
             e
@@ -3304,7 +3319,9 @@ impl Session {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(e);
         }
-        bundle::swap_in(&staging, dir)
+        bundle::swap_in(&staging, dir)?;
+        frame_store::mark_kept(&src);
+        Ok(())
     }
 
     /// Write a complete project folder at `dir`: the compressed frame store copied
@@ -3580,6 +3597,20 @@ impl Session {
         } else {
             store_duration(&store, self.clock)
         })
+    }
+
+    /// How long (s) the earlier take is that the next recording would delete although it
+    /// was never saved or exported. `None` when starting a recording loses nothing.
+    pub fn take_at_risk(&self) -> Option<f64> {
+        let dir = frame_store::take_at_risk()?;
+        let json = std::fs::read_to_string(frame_store::project_path(&dir)).ok()?;
+        let project = Project::from_json(&json).ok()?;
+        if project.source.duration > 0.0 {
+            return Some(project.source.duration);
+        }
+        // A take cut off by a crash has only its placeholder manifest: measure the frames.
+        let store = FrameStore::open(&dir).ok()?;
+        (!store.is_empty()).then(|| store_duration(&store, self.clock))
     }
 
     /// Reload the session left in the recovery directory (last recording + its edits as

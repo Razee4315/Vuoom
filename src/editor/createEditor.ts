@@ -22,7 +22,7 @@ import type { PickableWindow } from "../components/WindowPicker";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
-import { baseName, fmtBytes, friendlyError, hexRgb } from "../format";
+import { baseName, fmt, fmtBytes, friendlyError, hexRgb } from "../format";
 import { CROP_KEY, TOOL_KEYS } from "../shortcuts";
 import { zoomFrame } from "../geometry";
 import { layout, prefs, resetSections } from "../prefs";
@@ -2252,6 +2252,20 @@ export function createEditor() {
       "Discard & record",
     );
     if (!ok) return;
+    // Recording keeps the take before this one; the one before that loses its video now.
+    // If that take never reached a project or an export, say so before it goes.
+    const atRisk = await invoke<number | null>("take_at_risk").catch(() => null);
+    if (typeof atRisk === "number") {
+      const go = await ask(
+        `An earlier take (${fmt(atRisk)} long) was never saved or exported. Starting a new recording deletes its video for good.`,
+        { title: "Delete the earlier take?", kind: "warning", okLabel: "Record anyway", cancelLabel: "Keep it" },
+      );
+      if (!go) {
+        void refreshRecoverable();
+        toast("Bring it back with File > Recover last session, then save or export it.", "info", 9000);
+        return;
+      }
+    }
     setCoachRecord(false);
     setRecordMode(mode);
     let displays: DisplayInfo[] = [];
@@ -2356,11 +2370,22 @@ export function createEditor() {
 
   const [recordTarget, setRecordTarget] = createSignal<RecordTarget | null>(null);
 
+  /** Ask the engine whether an earlier take can be recovered (it leaves out the loaded one). */
+  const refreshRecoverable = async () => {
+    try {
+      setRecoverable((await invoke<number | null>("check_recovery")) ?? null);
+    } catch {
+      setRecoverable(null);
+    }
+  };
+
   const onRecordFinished = async (summary: RecordingSummary) => {
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
     await loadFinishedClip(summary);
+    // The take before this one is still on disk: keep Recover last session on offer.
+    void refreshRecoverable();
     const n = summary.zooms;
     if (summary.auto_zooms && n > 0) {
       // Auto zoom planned these from the clicks: say so, and make them one click to drop.

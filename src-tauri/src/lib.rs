@@ -322,6 +322,7 @@ pub fn run() {
             commands::save_project_bundle,
             commands::open_project_bundle,
             commands::check_recovery,
+            commands::take_at_risk,
             commands::recover_session,
             commands::recovery_storage,
             commands::clear_recovery_storage,

@@ -751,6 +751,13 @@ pub fn check_recovery(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, S
     Ok(engine.session()?.recovery_available())
 }
 
+/// Length (s) of an earlier take the next recording would delete although it was never
+/// saved or exported, so the UI can ask first.
+#[tauri::command]
+pub fn take_at_risk(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, String> {
+    Ok(engine.session()?.take_at_risk())
+}
+
 /// Reload the recoverable session into the editor.
 #[tauri::command]
 pub async fn recover_session(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {

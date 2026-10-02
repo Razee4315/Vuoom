@@ -395,10 +395,57 @@ fn next_session_id() -> u128 {
     now.max(max_existing.saturating_add(1))
 }
 
+/// How many pruned sessions keep their manifest. A manifest is small (kilobytes to a few
+/// megabytes) and holds what can't be recorded again: every pointer move, click and key
+/// behind the zooms, and the edits.
+const KEEP_MANIFESTS: usize = 20;
+
+/// Marks a session whose frames were pruned and whose manifest was kept.
+const PRUNED_MARKER: &str = "pruned";
+
+/// Marks a session that was saved as a project or exported at least once.
+const KEPT_MARKER: &str = "kept";
+
 /// Whether a session dir holds any recorded frames. A take that failed to start, or was
 /// stopped before its first frame, leaves a dir with nothing in it.
 fn holds_frames(dir: &Path) -> bool {
     fs::metadata(raw_path(dir)).is_ok_and(|m| m.len() > 0)
+}
+
+/// Note that the take in `dir` was saved as a project or exported: pruning it later loses
+/// nothing the user didn't already keep.
+pub fn mark_kept(dir: &Path) {
+    let _ = fs::write(dir.join(KEPT_MARKER), b"");
+}
+
+/// Free a session's gigabytes but keep its manifest: everything in `dir` except
+/// `project.json` is removed.
+fn strip_session(dir: &Path) {
+    let manifest = project_path(dir);
+    if let Ok(entries) = fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let path = e.path();
+            if path == manifest {
+                continue;
+            }
+            if path.is_dir() {
+                let _ = fs::remove_dir_all(&path);
+            } else {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+    let _ = fs::write(dir.join(PRUNED_MARKER), b"");
+}
+
+/// The earlier take the next recording would prune although it was never saved as a
+/// project or exported, if there is one. The UI asks before recording over it.
+pub fn take_at_risk() -> Option<PathBuf> {
+    session_dirs()
+        .into_iter()
+        .filter(|d| holds_frames(d))
+        .skip(KEEP_SESSIONS - 1)
+        .find(|d| !d.join(KEPT_MARKER).is_file())
 }
 
 /// Create a fresh session subdir under the recovery root, pruning old ones first so at most
@@ -409,12 +456,20 @@ pub fn new_session_dir() -> PathBuf {
     let root = recovery_root();
     let _ = fs::create_dir_all(&root);
     // Keep only the newest `KEEP_SESSIONS - 1` existing sessions with frames; the dir we're
-    // about to create takes the last slot. Older ones (and their gigabytes) are removed
-    // now, and so is every empty one: a failed take must not push a real one out.
+    // about to create takes the last slot. Older ones lose their frames (the gigabytes) now
+    // but keep their manifest, up to `KEEP_MANIFESTS` of them. An empty one goes entirely:
+    // a failed take must not push a real one out.
     let mut kept = 0;
+    let mut manifests = 0;
     for old in session_dirs() {
-        if holds_frames(&old) && kept < KEEP_SESSIONS - 1 {
+        let has_frames = holds_frames(&old);
+        if has_frames && kept < KEEP_SESSIONS - 1 {
             kept += 1;
+        } else if has_frames && manifests < KEEP_MANIFESTS && project_path(&old).is_file() {
+            strip_session(&old);
+            manifests += 1;
+        } else if !has_frames && manifests < KEEP_MANIFESTS && old.join(PRUNED_MARKER).is_file() {
+            manifests += 1;
         } else {
             let _ = fs::remove_dir_all(&old);
         }
@@ -472,7 +527,8 @@ pub fn dir_size(dir: &Path) -> u64 {
 /// (numeric session subdirs). Backs the storage readout in the UI. The scratch dir counts
 /// toward the bytes but not the session tally.
 pub fn recovery_usage() -> (u64, usize) {
-    (dir_size(&recovery_root()), session_dirs().len())
+    let takes = session_dirs().iter().filter(|d| holds_frames(d)).count();
+    (dir_size(&recovery_root()), takes)
 }
 
 /// Delete every stored recovery dir, rotated sessions and the scratch store, except `keep`

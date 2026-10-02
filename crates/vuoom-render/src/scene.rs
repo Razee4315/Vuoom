@@ -264,7 +264,8 @@ fn blur_origin(
         return None;
     }
     let cam = camera.at((t - BLUR_EXPOSURE).max(0.0));
-    let before = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let content = project.effective_source_dims();
+    let before = compute_layout(out_w, out_h, &project.frame, &cam, project.crop, content);
     let (prev, cur, dst) = (before.src_rect, layout.src_rect, layout.dst_rect);
     // Output pixels per unit of normalized source, across and down.
     let kx = dst.w / cur.w.max(1e-9);
@@ -289,7 +290,8 @@ pub fn build_scene(
     t: f64,
 ) -> Scene {
     let cam = camera.at(t);
-    let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop);
+    let content = project.effective_source_dims();
+    let layout = compute_layout(out_w, out_h, &project.frame, &cam, project.crop, content);
     let blur_from = blur_origin(project, camera, &layout, out_w, out_h, t);
     let ow = f64::from(out_w);
     let oh = f64::from(out_h);

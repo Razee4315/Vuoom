@@ -143,6 +143,11 @@ export interface ClipState {
   /** Timed captions (absent from engines that predate them). */
   captions?: Caption[];
   caption_style?: CaptionStyle;
+  /** The picture's full size in pixels, with its frame (absent from older engines). */
+  out_width?: number;
+  out_height?: number;
+  /** Frames per second the take was recorded at. */
+  source_fps?: number;
 }
 
 /** Mirrors vuoom_project::Caption: one caption cue, in source time. */

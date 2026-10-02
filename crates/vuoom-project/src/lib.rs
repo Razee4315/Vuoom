@@ -230,11 +230,13 @@ impl Project {
     }
 
     /// Output dimensions for the chosen aspect ratio, computed on the CROPPED source so
-    /// the output aspect follows the crop.
+    /// the output aspect follows the crop, plus the frame's mat around it (see
+    /// [`FrameStyle::framed_dims`]).
     #[must_use]
     pub fn output_dims(&self) -> (u32, u32) {
         let (sw, sh) = self.effective_source_dims();
-        self.aspect.output_dims(sw, sh)
+        let (w, h) = self.aspect.output_dims(sw, sh);
+        self.frame.framed_dims(w, h)
     }
 
     /// The effective time window after trimming.
@@ -420,5 +422,28 @@ mod tests {
         assert_eq!(h % 2, 0);
         // 1440 * 16/9 = 2560
         assert_eq!((w, h), (2560, 1440));
+    }
+
+    #[test]
+    fn a_frame_grows_the_output_around_the_recording() {
+        let mut p = Project::new(SourceInfo {
+            width: 1920,
+            height: 1080,
+            ..sample_source()
+        });
+        assert_eq!(p.output_dims(), (1920, 1080));
+        p.frame.padding = 0.04;
+        let (w, h) = p.output_dims();
+        // The recording keeps its 1920x1080 pixels; the mat is added around them.
+        assert_eq!((w, h), (2086, 1174));
+        assert_eq!((w % 2, h % 2), (0, 0));
+        // And the output keeps the recording's shape (to within the rounding of a pixel).
+        let drift = f64::from(w) / f64::from(h) - 16.0 / 9.0;
+        assert!(drift.abs() < 2e-3, "aspect drifted by {drift}");
+        // Too big for a GPU texture: the output stays the recording's size.
+        p.source.width = 7680;
+        p.source.height = 4320;
+        p.frame.padding = 0.075;
+        assert_eq!(p.output_dims(), (7680, 4320));
     }
 }

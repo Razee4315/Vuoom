@@ -15,7 +15,7 @@ mod shapes;
 pub use compositor::{BgFill, CameraImage, Compositor};
 
 pub use layout::{
-    camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect,
+    camera_src_rect, compute_layout, content_rect, CompositeLayout, NormRect, PxRect, PxShadow,
 };
 pub use scene::{
     build_scene, ResolvedArrow, ResolvedCamera, ResolvedCaption, ResolvedCursor, ResolvedHighlight,

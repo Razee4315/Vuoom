@@ -1,4 +1,4 @@
-import { batch, createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { batch, createEffect, createSignal, on, onCleanup, Show, untrack, type JSX } from "solid-js";
 import { invoke, listen, revealItemInDir } from "./bridge";
 import { pickSavePath } from "./saveDir";
 import { Icon } from "./icons";
@@ -7,7 +7,14 @@ import { Field, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError } from "./format";
 import { outputDuration } from "./geometry";
-import type { SpeedRegion, Trim } from "./types";
+import type { ClipState, SpeedRegion, Trim } from "./types";
+
+/** The widest GIF on offer (a wider one is enormous and no chat app plays it smoothly). */
+const GIF_MAX_WIDTH = 1920;
+/** The widest MP4 on offer: 4K. */
+const MP4_MAX_WIDTH = 3840;
+/** The width slider's step. */
+const WIDTH_STEP = 20;
 
 type Phase = "configure" | "starting" | "exporting" | "done" | "error";
 
@@ -44,6 +51,22 @@ export function ExportDialog(props: {
   const [srtSaved, setSrtSaved] = createSignal("");
   const audioOn = () => props.hasAudio && withAudio();
 
+  // The take's full picture width and the frame rate it was recorded at, from the engine:
+  // the most an export can hold. Until they arrive (and on engines that don't say), a
+  // 1080p take at 30 fps is assumed.
+  const [full, setFull] = createSignal({ width: 1920, fps: 30 });
+  void invoke<ClipState>("clip_state")
+    .then((cs) => {
+      if (cs.out_width && cs.out_width > 0) setFull({ width: cs.out_width, fps: cs.source_fps ?? 30 });
+    })
+    .catch(() => undefined);
+  /** The widest this format exports the take: its own width, up to the format's limit. */
+  const widest = () => Math.min(full().width, format() === "mp4" ? MP4_MAX_WIDTH : GIF_MAX_WIDTH);
+  /** The slider's top stop: the widest, rounded up to a whole step so it can be reached. */
+  const sliderMax = () => Math.max(400, Math.ceil(widest() / WIDTH_STEP) * WIDTH_STEP);
+  /** The width the export really gets: never wider than the take. */
+  const outWidth = () => Math.min(width(), widest());
+
   let dialogEl: HTMLDivElement | undefined;
   let exportStarted = false;
 
@@ -54,8 +77,8 @@ export function ExportDialog(props: {
   const mp4Estimate = () => {
     const q = Math.min(100, Math.max(40, quality()));
     const bpp = 0.04 + ((q - 40) / 60) * 0.16;
-    const h = Math.round(width() / Math.max(props.aspect || 16 / 9, 0.2));
-    const bits = width() * h * fps() * bpp;
+    const h = Math.round(outWidth() / Math.max(props.aspect || 16 / 9, 0.2));
+    const bits = outWidth() * h * fps() * bpp;
     // Plus the AAC soundtrack (192 kbps) when it's included.
     const audioBytes = audioOn() ? 24_000 * outDur() : 0;
     return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8) + audioBytes;
@@ -66,7 +89,7 @@ export function ExportDialog(props: {
   let estimateTimer: number | undefined;
   let estimateGen = 0;
   createEffect(() => {
-    const args = { fps: fps(), width: width(), quality: quality() };
+    const args = { fps: fps(), width: outWidth(), quality: quality() };
     setEstimate(null);
     clearTimeout(estimateTimer);
     const gen = ++estimateGen;
@@ -87,12 +110,14 @@ export function ExportDialog(props: {
   onCleanup(() => clearTimeout(estimateTimer));
 
   // Presets are FORMAT-AWARE: the same named preset means different fps for GIF and MP4,
-  // so the sliders can never contradict the selected preset chip.
+  // so the sliders can never contradict the selected preset chip. A GIF is kept small on
+  // purpose; an MP4 keeps the take's own pixels (1080p for Balanced, everything for High
+  // quality, at 60 fps when the take has them), because video compresses them well.
   const presetValues = (p: "readme" | "hq"): { fps: number; width: number; quality: number } =>
     format() === "mp4"
       ? p === "readme"
-        ? { fps: 30, width: 1000, quality: 85 }
-        : { fps: 30, width: 1280, quality: 92 }
+        ? { fps: 30, width: Math.min(widest(), 1920), quality: 85 }
+        : { fps: full().fps >= 50 ? 60 : 30, width: widest(), quality: 95 }
       : p === "readme"
         ? { fps: 15, width: 1000, quality: 80 }
         : { fps: 20, width: 1280, quality: 95 };
@@ -115,12 +140,28 @@ export function ExportDialog(props: {
       applyPreset("readme");
       return;
     }
+    // A named preset means what it means for THIS take; only Custom keeps its numbers.
+    if (s.preset !== "custom") {
+      applyPreset(s.preset);
+      return;
+    }
     setPreset(s.preset);
     setFps(s.fps);
     setWidth(s.width);
     setQuality(s.quality);
   };
   restore(format());
+  // The take's size arrived: a named preset follows it.
+  createEffect(
+    on(
+      full,
+      () => {
+        const p = untrack(preset);
+        if (p !== "custom") applyPreset(p);
+      },
+      { defer: true },
+    ),
+  );
   createEffect(() => {
     const s = { preset: preset(), fps: fps(), width: width(), quality: quality() };
     (format() === "gif" ? prefs.exportGif : prefs.exportMp4).set(s);
@@ -144,8 +185,8 @@ export function ExportDialog(props: {
     setFitting(true);
     try {
       const budget = mb * 1024 * 1024;
-      const widths = [width(), 1280, 1000, 900, 800, 700, 600, 500, 400]
-        .filter((w, i, arr) => w <= Math.max(width(), 400) && arr.indexOf(w) === i)
+      const widths = [outWidth(), 1280, 1000, 900, 800, 700, 600, 500, 400]
+        .filter((w, i, arr) => w <= Math.max(outWidth(), 400) && arr.indexOf(w) === i)
         .sort((a, b) => b - a);
       const qualities = [quality(), 75, 65, 55, 45];
       for (const q of qualities) {
@@ -199,7 +240,7 @@ export function ExportDialog(props: {
         await invoke(f === "gif" ? "export_gif" : "export_mp4", {
           path,
           fps: fps(),
-          width: width(),
+          width: outWidth(),
           quality: quality(),
           ...(f === "mp4" ? { audio: audioOn() } : {}),
         });
@@ -285,7 +326,7 @@ export function ExportDialog(props: {
   };
   const sizeText = () =>
     estimate() === null ? "Estimating…" : estimate()! < 0 ? "Unavailable" : `≈ ${fmtBytes(estimate()!)}`;
-  const height = () => Math.round(width() / Math.max(props.aspect || 16 / 9, 0.2));
+  const height = () => Math.round(outWidth() / Math.max(props.aspect || 16 / 9, 0.2));
 
   return (
     <div class="modal-backdrop" onClick={() => !busy() && props.onClose()}>
@@ -400,12 +441,12 @@ export function ExportDialog(props: {
             </Field>
             <Field label="Width">
               <Slider
-                value={width()}
+                value={width() >= widest() ? sliderMax() : width()}
                 min={400}
-                max={1920}
-                step={20}
+                max={sliderMax()}
+                step={WIDTH_STEP}
                 label="Max width"
-                format={(v) => `${v}px`}
+                format={(v) => (v >= widest() ? `${widest()}px (full size)` : `${v}px`)}
                 onInput={(v) => {
                   setWidth(v);
                   setPreset("custom");
@@ -476,7 +517,7 @@ export function ExportDialog(props: {
             <div>
               <small>Output</small>
               <span>
-                {width()} × {height()} · {outDur().toFixed(1)}s
+                {outWidth()} × {height()} · {outDur().toFixed(1)}s
               </span>
             </div>
           </div>

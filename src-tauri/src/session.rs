@@ -34,7 +34,7 @@ use vuoom_encode::{
     export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
-use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
+use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
     AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
@@ -191,6 +191,12 @@ pub struct ClipState {
     /// Timed captions (source time) and how they look.
     pub captions: Vec<Caption>,
     pub caption_style: CaptionStyle,
+    /// The picture's full size in pixels (after the crop, with the frame around it): the
+    /// most an export can hold.
+    pub out_width: u32,
+    pub out_height: u32,
+    /// Frames per second the take was recorded at.
+    pub source_fps: f64,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -1288,7 +1294,12 @@ impl Session {
     }
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
-    pub fn seek(&self, t: f64) -> Result<(), String> {
+    ///
+    /// `max_width` is how wide the editor's stage shows it, in screen pixels. The frame is
+    /// composited at that size, not the take's: the stage would only scale a full-size
+    /// frame down again, after it had been rendered, read back, sent and drawn at up to
+    /// ten times the pixels. `None` renders at full size.
+    pub fn seek(&self, t: f64, max_width: Option<u32>) -> Result<(), String> {
         // Snapshot the consistent (project, track, frames, epoch) tuple under a short lock, then
         // release it before the disk read + GPU composite + readback (~50-150ms at 4K) so a
         // scrub never serializes with edits. Cloning the four together preserves a coherent
@@ -1308,6 +1319,8 @@ impl Session {
         let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
+        let max_width = max_width.map(|w| w.max(PREVIEW_MIN_WIDTH));
+        let (out_w, out_h) = scaled_dims(out_w, out_h, max_width, false);
         let mut scene = build_scene(&project, &track, out_w, out_h, t);
         // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
         // the preview, a baked copy would lag the overlay during a drag and look glitchy.
@@ -1335,7 +1348,7 @@ impl Session {
             frame_number: 0,
             target_time_ns: (t * 1e9) as u64,
         };
-        self.preview.sink().publish(pack_frame(&rgba, meta));
+        self.preview.sink().publish(pack_frame_owned(rgba, meta));
         Ok(())
     }
 
@@ -1400,7 +1413,11 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the GIF's size: the GPU scales the picture as it draws it
+        // (averaging every source pixel), so no frame is rendered large, read back and then
+        // shrunk on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1409,7 +1426,7 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
             ..GifSettings::readme()
         };
@@ -1511,23 +1528,14 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the encoded size (H.264 wants even dimensions): the GPU
+        // scales the picture as it draws it, so no frame is resized on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, true);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
-
-        // Optional max-width downscale; H.264 wants even dimensions, so floor to even and
-        // let the encoder crop the stray right/bottom line.
-        let scale_w = width.filter(|&w| w > 0 && w < out_w);
-        let (enc_src_w, enc_src_h) = match scale_w {
-            Some(w) => (
-                w,
-                ((u64::from(out_h) * u64::from(w)) / u64::from(out_w)).max(1) as u32,
-            ),
-            None => (out_w, out_h),
-        };
-        let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
 
         // The mixed soundtrack for the played timeline, if there's anything audible.
         let dir = self
@@ -1542,8 +1550,8 @@ impl Session {
         };
         let encoder = crate::mp4::Mp4Encoder::new(
             Path::new(&out_path),
-            enc_w,
-            enc_h,
+            out_w,
+            out_h,
             fps,
             quality,
             mix.is_some(),
@@ -1590,13 +1598,7 @@ impl Session {
                 bg,
                 cam.as_deref().map(Decoded::image),
             );
-            let img = RgbaImage::new(out_w, out_h, rgba);
-            let img = if scale_w.is_some() {
-                downscale_rgba(&img, enc_src_w)
-            } else {
-                img
-            };
-            if let Err(e) = encoder.write_rgba(&img.pixels, img.width, img.height, i as u32) {
+            if let Err(e) = encoder.write_rgba(&rgba, i as u32) {
                 frame_err = Some(e);
                 break;
             }
@@ -1664,7 +1666,7 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
             ..GifSettings::readme()
         };
@@ -1672,7 +1674,7 @@ impl Session {
         for (k, &start) in starts.iter().enumerate() {
             let start = start.min(total - win);
             let indices: Vec<usize> = (start..start + win).collect();
-            let frames = self.composite_indices(&edited, fps, &indices, &|_, _| {})?;
+            let frames = self.composite_indices(&edited, fps, width, &indices)?;
             if frames.is_empty() {
                 continue;
             }
@@ -1691,13 +1693,14 @@ impl Session {
         Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
     }
 
-    /// Composite specific output-timeline frame indices (honoring trim + speed regions).
+    /// Composite specific output-timeline frame indices (honoring trim + speed regions),
+    /// at most `width` wide (the size the export would render them at).
     fn composite_indices(
         &self,
         edited: &Edited,
         fps: u32,
+        width: Option<u32>,
         indices: &[usize],
-        progress: &dyn Fn(u32, u32),
     ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
@@ -1709,6 +1712,7 @@ impl Session {
         }
 
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1722,7 +1726,7 @@ impl Session {
         let cam_frames = cam_frames.map(Arc::new);
 
         let mut images = Vec::with_capacity(indices.len());
-        for (done, &i) in indices.iter().enumerate() {
+        for &i in indices {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
@@ -1741,7 +1745,6 @@ impl Session {
                 cam.as_deref().map(Decoded::image),
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
-            progress(done as u32 + 1, indices.len() as u32);
         }
         Ok(images)
     }
@@ -1971,6 +1974,7 @@ impl Session {
     pub fn clip_state(&self) -> Result<ClipState, String> {
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
+        let (out_width, out_height) = project.output_dims();
         Ok(ClipState {
             duration: project.source.duration,
             trim: project.trim,
@@ -1999,6 +2003,9 @@ impl Session {
             motion_blur: project.motion_blur,
             captions: project.captions.clone(),
             caption_style: project.caption_style,
+            out_width,
+            out_height,
+            source_fps: project.source.fps,
         })
     }
 
@@ -3631,6 +3638,27 @@ impl Session {
     }
 }
 
+/// The narrowest the editor's preview is composited, however small its panel is.
+const PREVIEW_MIN_WIDTH: u32 = 480;
+
+/// `out_w`x`out_h` scaled down to at most `max_w` wide (never up), keeping its shape.
+/// With `even`, both sides come out even, as H.264 needs.
+fn scaled_dims(out_w: u32, out_h: u32, max_w: Option<u32>, even: bool) -> (u32, u32) {
+    let (w, h) = match max_w.filter(|&w| w > 0 && w < out_w) {
+        Some(w) => {
+            let (ow, oh) = (u64::from(out_w), u64::from(out_h));
+            let h = (oh * u64::from(w) + ow / 2) / ow;
+            (w, (h as u32).max(1))
+        }
+        None => (out_w, out_h),
+    };
+    if even {
+        ((w & !1).max(2), (h & !1).max(2))
+    } else {
+        (w, h)
+    }
+}
+
 /// Encode `frames` to a throwaway GIF in the temp dir and return its byte size, the
 /// measurement step of the sample-and-extrapolate size estimate.
 fn encode_sample_bytes(
@@ -4651,6 +4679,24 @@ mod tests {
         assert_eq!(info.bg_kind, "gradient");
         assert!((info.padding - 0.05).abs() < 1e-9);
         assert!((info.shadow - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scaled_dims_shrink_but_never_grow() {
+        // No cap, a cap at the size, a cap above it: unchanged.
+        assert_eq!(scaled_dims(1920, 1080, None, false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(1920), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(4000), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(0), false), (1920, 1080));
+        // Scaled down, keeping the shape (the height rounds to nearest).
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), false), (1000, 563));
+        assert_eq!(scaled_dims(1920, 1080, Some(1280), false), (1280, 720));
+        // H.264 gets even sides.
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), true), (1000, 562));
+        assert_eq!(scaled_dims(1920, 1080, Some(1001), true), (1000, 562));
+        // A sliver stays at least a pixel (two for H.264) tall.
+        assert_eq!(scaled_dims(4000, 4, Some(400), false), (400, 1));
+        assert_eq!(scaled_dims(4000, 4, Some(400), true), (400, 2));
     }
 
     #[test]

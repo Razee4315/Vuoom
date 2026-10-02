@@ -913,10 +913,15 @@ pub fn set_record_paused(engine: tauri::State<'_, Engine>, paused: bool) -> Resu
     engine.session()?.set_record_paused(paused)
 }
 
-/// Composite the frame at time `t` (seconds) and push it to the preview.
+/// Composite the frame at time `t` (seconds) and push it to the preview, at most
+/// `max_width` pixels wide (how wide the stage shows it; omitted = full size).
 #[tauri::command]
-pub async fn seek(engine: tauri::State<'_, Engine>, t: f64) -> Result<(), String> {
-    engine.session()?.seek(t)
+pub async fn seek(
+    engine: tauri::State<'_, Engine>,
+    t: f64,
+    max_width: Option<u32>,
+) -> Result<(), String> {
+    engine.session()?.seek(t, max_width)
 }
 
 /// Payload for the `export-progress` event the export panel listens to.

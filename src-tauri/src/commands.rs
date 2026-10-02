@@ -449,7 +449,7 @@ pub fn cancel_record_flow(
 /// Show the recorded-region frame during the pre-record countdown. Reads the region from
 /// `BorderState` (set by `set_region`) and raises the strips. Idempotent: a no-op when the
 /// region is full-screen (`None`) or the strips are already up, so `start_recording`'s own
-/// `show` doesn't fight it. Cleared by `hide_region_border` on a countdown abort.
+/// `show` doesn't fight it. Cleared by `cancel_record_flow` on a countdown abort.
 #[tauri::command]
 pub fn show_region_border(border: tauri::State<'_, BorderState>) -> Result<(), String> {
     let region = border.region.lock().ok().and_then(|r| *r);
@@ -459,13 +459,6 @@ pub fn show_region_border(border: tauri::State<'_, BorderState>) -> Result<(), S
             *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
         }
     }
-    Ok(())
-}
-
-/// Clear the recorded-region frame (countdown abort before `start_recording` runs).
-#[tauri::command]
-pub fn hide_region_border(border: tauri::State<'_, BorderState>) -> Result<(), String> {
-    drop_border(&border);
     Ok(())
 }
 
@@ -506,12 +499,6 @@ pub fn set_region(
         *slot = region;
     }
     Ok(())
-}
-
-/// Capture a still of the full display for the region selector's backdrop (data-URL PNG).
-#[tauri::command]
-pub async fn screenshot(engine: tauri::State<'_, Engine>) -> Result<String, String> {
-    engine.session()?.screenshot()
 }
 
 /// Evenly spaced frame thumbnails (PNG data URLs) for the timeline filmstrip.

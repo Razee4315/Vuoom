@@ -394,7 +394,6 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "set_region":
       return null;
     case "show_region_border":
-    case "hide_region_border":
     case "enter_stopbar":
     case "set_panel_size":
       return null;
@@ -409,13 +408,6 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "cancel_record_flow":
       m.live = false;
       return null;
-    case "screenshot": {
-      const c = document.createElement("canvas");
-      c.width = 960;
-      c.height = 540;
-      paintDesktop(c.getContext("2d")!, 960, 540, m.playhead);
-      return c.toDataURL("image/png");
-    }
     default:
       console.warn(`[mock] unknown command: ${cmd}`, a);
       throw new Error(`mock: unknown command ${cmd}`);

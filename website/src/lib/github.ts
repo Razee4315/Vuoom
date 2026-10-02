@@ -1,6 +1,8 @@
 // Build-time GitHub data: the latest release (for the download button) and the release
 // history (for the changelog). Fetched once per build and cached in module scope. Every
-// field has a fallback so an offline or rate-limited build still produces a working site.
+// field has a fallback so an offline or rate-limited local build still produces a working
+// site. A deploy build (CI) fails instead: shipping the fallback would quietly point the
+// download buttons at an old release.
 
 import { SITE } from './site';
 
@@ -86,9 +88,12 @@ export function releases(): Promise<Release[]> {
       });
       if (!res.ok) throw new Error(`GitHub ${res.status}`);
       const list = ((await res.json()) as GhRelease[]).filter((r) => !r.draft && !r.prerelease);
-      return list.length ? list.map(toRelease) : [FALLBACK];
+      if (!list.length) throw new Error('no published release');
+      return list.map(toRelease);
     } catch (e) {
-      console.warn(`[github] using fallback release data: ${(e as Error).message}`);
+      const reason = (e as Error).message;
+      if (process.env.CI) throw new Error(`[github] could not load the releases: ${reason}`);
+      console.warn(`[github] using fallback release data: ${reason}`);
       return [FALLBACK];
     }
   })();

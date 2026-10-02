@@ -11,7 +11,7 @@ const year = new Date().getFullYear();
 const cols = FOOTER.filter((c) => c.title !== 'Legal');
 const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
 ---
-<footer class="foot" data-footer>
+<footer class="foot">
   <div class="wrap">
     <nav class="foot__cols" aria-label="Footer">
       {cols.map((col) => (
@@ -43,7 +43,7 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     </span>
   </div>
 
-  <p class="foot__mark" aria-hidden="true" data-wordmark>
+  <p class="foot__mark" aria-hidden="true">
     <span class="foot__word">VUOOM</span><span class="foot__dot"></span>
   </p>
 </footer>

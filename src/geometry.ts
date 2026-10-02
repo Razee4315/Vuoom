@@ -71,3 +71,15 @@ export function zoomFrame(a: Vec2, b: Vec2, fallback: number): { x: number; y: n
     amount,
   };
 }
+
+/** An SVG path for a rectangle with corners rounded by `r` (never past half a side), drawn
+ *  as one closed sub-path so it can cut a hole with fill-rule evenodd. */
+export function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
+  const k = Math.max(0, Math.min(r, w / 2, h / 2));
+  if (k < 0.5) return `M${x} ${y}h${w}v${h}h${-w}Z`;
+  return (
+    `M${x + k} ${y}h${w - 2 * k}a${k} ${k} 0 0 1 ${k} ${k}v${h - 2 * k}` +
+    `a${k} ${k} 0 0 1 ${-k} ${k}h${-(w - 2 * k)}a${k} ${k} 0 0 1 ${-k} ${-k}` +
+    `v${-(h - 2 * k)}a${k} ${k} 0 0 1 ${k} ${-k}Z`
+  );
+}

@@ -128,6 +128,15 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
   );
 }
 
+/** Quick picks for the re-drawn pointer's color; the first is the classic white. */
+const POINTER_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
+const pointerHex = (c: [number, number, number] | null | undefined) =>
+  c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : POINTER_COLORS[0];
+
+/** The roundest a spotlight's corners go (a fraction of the height). Mirrors
+ *  vuoom_project::HighlightBox::MAX_RADIUS. */
+const SPOTLIGHT_MAX_RADIUS = 0.25;
+
 const KIND_ICON: Record<string, IconName> = {
   Text: "text",
   Arrow: "arrow",
@@ -495,6 +504,17 @@ function AnnotationProps() {
 
       <Show when={ed.isSpotlight()}>
         <Section id="ann-spotlight" title="Spotlight" icon="spotlight">
+          <Field label="Corners" hint="Round the lit area's corners. All the way up, its short ends become half circles">
+            <Slider
+              value={ed.selectedBox()?.radius ?? 0}
+              min={0}
+              max={SPOTLIGHT_MAX_RADIUS}
+              step={0.005}
+              label="Corner radius"
+              format={(v) => (v === 0 ? "Square" : `${Math.round(v * 100)}%`)}
+              onInput={(v) => ed.editStyle({ radius: v })}
+            />
+          </Field>
           <p class="note">
             Everything around this area goes dark, so eyes go straight to it. Opacity sets how dark; drag
             its handles to reframe it.
@@ -963,15 +983,17 @@ function ClipPanel() {
     });
   };
   const onFind = (e: KeyboardEvent) => {
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl) {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl && !ed.isModal()) {
       e.preventDefault();
       searchEl.focus();
       searchEl.select();
     }
   };
-  onMount(() => window.addEventListener("keydown", onFind));
+  // In the capture phase, next to the editor's own key guard: that guard swallows Ctrl+F as
+  // a browser shortcut and stops it there, so a listener later in the path never hears it.
+  onMount(() => window.addEventListener("keydown", onFind, true));
   onCleanup(() => {
-    window.removeEventListener("keydown", onFind);
+    window.removeEventListener("keydown", onFind, true);
     setSectionQuery("");
   });
 
@@ -1378,7 +1400,7 @@ function ClipPanel() {
         title="Pointer"
         icon="cursor"
         defaultOpen={false}
-        keywords="cursor mouse arrow size smooth hide still"
+        keywords="cursor mouse arrow size smooth hide still color colour custom highlight halo"
         aside={<span class="badge">{ed.cursorStyle() ? "Smooth" : ed.pointerCaptured() ? "Recorded" : "Hidden"}</span>}
       >
         <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
@@ -1415,6 +1437,35 @@ function ClipPanel() {
                   label="Hide pointer when still"
                   onChange={(v) => ed.setCursorHideIdle(v)}
                 />
+              </Field>
+              <Field label="Color" stack>
+                <div class="color-row">
+                  <For each={POINTER_COLORS}>
+                    {(hex) => (
+                      <button
+                        type="button"
+                        class="swatch"
+                        classList={{ on: pointerHex(c().color) === hex }}
+                        style={{ background: hex }}
+                        aria-label={`Pointer color ${hex}`}
+                        aria-pressed={pointerHex(c().color) === hex}
+                        data-tip={hex === POINTER_COLORS[0] ? "White, the classic pointer" : hex}
+                        onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
+                      />
+                    )}
+                  </For>
+                  <label class="swatch swatch-custom" data-tip="Custom color">
+                    <input
+                      type="color"
+                      value={pointerHex(c().color)}
+                      aria-label="Custom pointer color"
+                      onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+              </Field>
+              <Field label="Highlight" hint="A soft yellow disc under the pointer, so viewers never lose it">
+                <Switch checked={!!c().halo} label="Highlight the pointer" onChange={(v) => ed.setCursorHalo(v)} />
               </Field>
             </>
           )}

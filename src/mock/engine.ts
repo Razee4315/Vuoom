@@ -430,6 +430,8 @@ class MockEngine {
             size: Math.max(0.5, Math.min(3, style.size)),
             smoothing: Math.max(0, Math.min(0.2, style.smoothing)),
             hide_idle: !!style.hide_idle,
+            color: style.color ?? null,
+            halo: !!style.halo,
           }
         : null;
     });
@@ -775,12 +777,13 @@ class MockEngine {
       if (ann) ann.color.a = a;
     });
   }
-  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean }) {
+  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean; radius?: number }) {
     this.mutate(`sty:${id}`, () => {
       const b = this.anns.highlights.find((x) => x.id === id);
       if (b) {
         if (patch.thickness !== undefined) b.thickness = patch.thickness;
         if (patch.filled !== undefined) b.filled = patch.filled;
+        if (patch.radius !== undefined) b.radius = patch.radius;
       }
       const ar = this.anns.arrows.find((x) => x.id === id);
       if (ar && patch.thickness !== undefined) ar.thickness = patch.thickness;
@@ -1208,11 +1211,19 @@ function paintDesktop(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(s, s);
+    if (style.halo) {
+      ctx.fillStyle = "rgba(255,214,51,0.32)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 17.3 * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const [r, g, b] = style.color ?? [1, 1, 1];
+    const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.4;
     ctx.shadowColor = "rgba(0,0,0,0.35)";
     ctx.shadowBlur = 3;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#0a0a0d";
+    ctx.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
+    ctx.strokeStyle = dark ? "#ffffff" : "#0a0a0d";
     ctx.lineWidth = 1.6;
     ctx.lineJoin = "round";
     ctx.beginPath();

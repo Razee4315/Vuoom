@@ -18,6 +18,9 @@ export const fmt = (t: number) => {
 // Playhead readout with tenths, so annotations can be aligned precisely.
 export const fmtT = (t: number) => `${fmt(t)}.${Math.floor((t % 1) * 10)}`;
 
+/// The last segment of a Windows or POSIX path: the file or folder name.
+export const baseName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
+
 export const fmtBytes = (b: number) => {
   if (b <= 0) return "-";
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;

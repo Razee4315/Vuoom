@@ -9,8 +9,8 @@ pub enum EncodeError {
     /// A filesystem operation failed.
     #[error("io error")]
     Io(#[from] std::io::Error),
-    /// PNG encoding failed.
-    #[error("png encoding failed: {0}")]
+    /// Reading or writing a PNG failed.
+    #[error("png read or write failed: {0}")]
     Png(String),
     /// Native (pure-Rust) GIF encoding failed.
     #[error("gif encoding failed: {0}")]

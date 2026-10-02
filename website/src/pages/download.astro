@@ -37,6 +37,14 @@ const faq = [
   </PageHead>
 
   <div class="wrap narrow">
+    <aside class="elsewhere" data-not-windows hidden aria-labelledby="elsewhere-h">
+      <h2 id="elsewhere-h" class="h4">Not on Windows right now?</h2>
+      <p>Vuoom runs on Windows 10 and 11. Keep it for later: star it on GitHub, or copy this page's link and open it on your PC.</p>
+      <div class="elsewhere-actions">
+        <Button href={SITE.repoUrl} variant="secondary" icon="star">Star on GitHub <span data-stars hidden></span></Button>
+        <button type="button" class="link" data-copy-link data-copied="Link copied">Copy the link</button>
+      </div>
+    </aside>
     <p class="ver">Version <span data-dl-version>{r.version}</span>{r.date && ` · ${humanDate(r.date)}`} · <a class="link" href={url('/changelog/')}>What is new</a> · <a class="link" href={SITE.releasesUrl} rel="noopener">All releases</a></p>
 
     <section class="block" aria-labelledby="install-h">
@@ -77,6 +85,25 @@ const faq = [
 <style>
   .narrow {
     max-width: calc(760px + var(--gutter) * 2);
+  }
+  .elsewhere {
+    margin-bottom: var(--s-7);
+    padding: var(--s-5);
+    border-radius: var(--r-ui);
+    box-shadow: inset 0 0 0 1px var(--rule);
+    text-align: center;
+  }
+  .elsewhere p {
+    margin-top: var(--s-2);
+    color: var(--ink-2);
+  }
+  .elsewhere-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-5);
+    margin-top: var(--s-4);
   }
   .ver {
     text-align: center;

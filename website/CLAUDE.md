@@ -1,7 +1,7 @@
 # Vuoom website rules
 
 ## Stack
-Astro 7 static, GSAP 3.13+ (ScrollTrigger, SplitText), Lenis 1, fonts via @fontsource-variable.
+Astro 7 static, GSAP 3.13+ (ScrollTrigger), native scrolling, fonts via @fontsource-variable.
 Deployed to GitHub Pages by `.github/workflows/pages.yml`. Base path: `/Vuoom/` (see astro.config.mjs).
 
 ## Docs

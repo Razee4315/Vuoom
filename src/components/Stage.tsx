@@ -8,7 +8,7 @@ import { mapStroke, strokePath } from "../editor/strokes";
 import { CORNER_CURSORS, fontCss } from "../editor/constants";
 import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
-import { arrowHeads, v2, zoomFrame } from "../geometry";
+import { arrowHeads, roundedRectPath, v2, zoomFrame } from "../geometry";
 import { Icon } from "../icons";
 import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
@@ -90,7 +90,7 @@ export default function Stage() {
                         <path
                           fill-rule="evenodd"
                           fill={cssColor(b.color)}
-                          d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z M${a().x} ${a().y}h${s().x}v${s().y}h${-s().x}Z`}
+                          d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z ${roundedRectPath(a().x, a().y, s().x, s().y, (b.radius ?? 0) * ed.stage().h)}`}
                         />
                       </Show>
                       <Show

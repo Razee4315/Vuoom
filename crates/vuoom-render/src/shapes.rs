@@ -3,7 +3,9 @@
 //! drawn with `shaders/shapes.wgsl`.
 
 use crate::cursor::{offset_polygon, pointer_parts, ARROW, ARROW_TRIS};
-use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene};
+use crate::scene::{
+    ResolvedArrow, ResolvedCorner, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene,
+};
 use std::f32::consts::{PI, TAU};
 use vuoom_project::Color;
 
@@ -95,6 +97,28 @@ fn ellipse(out: &mut Vec<ShapeVertex>, h: &ResolvedHighlight) {
             let q0 = [cx + irx * a0.cos(), cy + iry * a0.sin()];
             let q1 = [cx + irx * a1.cos(), cy + iry * a1.sin()];
             push_quad(out, [p0, p1, q1, q0], color);
+        }
+    }
+}
+
+/// Segments in a spotlight's rounded corner (a quarter circle).
+const CORNER_SEGS: u32 = 12;
+
+/// The dark sliver outside a spotlight's rounded corner: a fan from the square corner to
+/// the quarter circle, whose centre sits one radius into the clear area on both axes.
+fn corner_fill(out: &mut Vec<ShapeVertex>, c: &ResolvedCorner) {
+    let color = col(c.color);
+    let corner = [c.x as f32, c.y as f32];
+    let (rx, ry) = ((c.dx * c.r) as f32, (c.dy * c.r) as f32);
+    let (cx, cy) = (corner[0] + rx, corner[1] + ry);
+    let step = std::f32::consts::FRAC_PI_2 / CORNER_SEGS as f32;
+    for i in 0..CORNER_SEGS {
+        let a0 = i as f32 * step;
+        let a1 = a0 + step;
+        let p0 = [cx - rx * a0.cos(), cy - ry * a0.sin()];
+        let p1 = [cx - rx * a1.cos(), cy - ry * a1.sin()];
+        for pos in [corner, p0, p1] {
+            out.push(ShapeVertex { pos, color });
         }
     }
 }
@@ -245,15 +269,29 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     }
 }
 
-/// The pointer: a soft shadow, a dark outline, then the white body. A click presses it
-/// slightly smaller toward its tip; fading out while idle, it also shrinks a little.
+/// The pointer: an optional highlight disc, a soft shadow, an outline, then the body
+/// (white unless the style names a color; a dark body gets a light outline). A click
+/// presses it slightly smaller toward its tip; fading out while idle, it also shrinks a
+/// little.
 fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
     let fade = c.opacity.clamp(0.0, 1.0);
     let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0)) * (0.8 + 0.2 * fade);
     const SHADOW: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
     const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
+    const LIGHT_OUTLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.95];
     const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    const HALO: [f32; 4] = [1.0, 0.84, 0.2, 0.32];
+    /// The highlight disc's radius, in pointer heights, around the tip.
+    const HALO_RADIUS: f64 = 0.8;
     let faded = |[r, g, b, a]: [f32; 4]| [r, g, b, a * fade as f32];
+    let body = c.color.map_or(BODY, |[r, g, b]| [r, g, b, 1.0]);
+    let luma = 0.2126 * body[0] + 0.7152 * body[1] + 0.0722 * body[2];
+    let outline_color = if luma < 0.4 { LIGHT_OUTLINE } else { OUTLINE };
+    if c.halo {
+        let tip = [c.x as f32, c.y as f32];
+        let radius = (scale * HALO_RADIUS) as f32;
+        fan(out, tip, radius, [0.0, TAU], faded(HALO));
+    }
     // Grown by this much (pointer units) for the shadow and the outline, and the shadow's
     // offset down and to the right.
     const SHADOW_GROW: f64 = 0.09;
@@ -263,8 +301,8 @@ fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
         let shadow = offset_polygon(&ARROW, SHADOW_GROW);
         let outline = offset_polygon(&ARROW, OUTLINE_GROW);
         fill_arrow(out, c, scale, &shadow, SHADOW_SHIFT, faded(SHADOW));
-        fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
-        fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(BODY));
+        fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(outline_color));
+        fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(body));
         return;
     };
     // Layer by layer across all the parts, so no part's outline lies over another's body.
@@ -274,10 +312,10 @@ fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
     }
     for part in &parts {
         let outline = offset_polygon(part, OUTLINE_GROW);
-        fill_convex(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
+        fill_convex(out, c, scale, &outline, [0.0, 0.0], faded(outline_color));
     }
     for part in &parts {
-        fill_convex(out, c, scale, part, [0.0, 0.0], faded(BODY));
+        fill_convex(out, c, scale, part, [0.0, 0.0], faded(body));
     }
 }
 
@@ -332,6 +370,10 @@ fn fill_arrow(
 #[must_use]
 pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) -> Vec<ShapeVertex> {
     let mut out = Vec::new();
+    // Spotlight corners go with the dark bands they round off: under everything else.
+    for c in &scene.spot_corners {
+        corner_fill(&mut out, c);
+    }
     for h in scene
         .highlights
         .iter()
@@ -384,6 +426,57 @@ mod tests {
             let [x, y] = v.pos;
             assert!((7.99..=52.01).contains(&x), "x {x}");
             assert!((7.99..=42.01).contains(&y), "y {y}");
+        }
+    }
+
+    #[test]
+    fn a_pointer_takes_its_color_and_a_halo() {
+        let plain = ResolvedCursor {
+            x: 100.0,
+            y: 100.0,
+            size: 20.0,
+            press: 0.0,
+            opacity: 1.0,
+            shape: vuoom_project::PointerShape::Arrow,
+            color: None,
+            halo: false,
+        };
+        let mut white = Vec::new();
+        cursor(&mut white, &plain);
+        // The body is drawn last: white by default.
+        assert_eq!(white.last().unwrap().color, [1.0, 1.0, 1.0, 1.0]);
+
+        let styled = ResolvedCursor {
+            color: Some([0.0, 0.0, 0.0]),
+            halo: true,
+            ..plain
+        };
+        let mut dark = Vec::new();
+        cursor(&mut dark, &styled);
+        assert_eq!(dark.last().unwrap().color, [0.0, 0.0, 0.0, 1.0]);
+        // The halo adds one full disc, drawn first.
+        assert_eq!(dark.len(), white.len() + 2 * CAP_SEGS as usize * 3);
+        assert_eq!(dark[0].color, [1.0, 0.84, 0.2, 0.32]);
+    }
+
+    #[test]
+    fn a_rounded_corner_stays_inside_its_square() {
+        let mut out = Vec::new();
+        let c = ResolvedCorner {
+            x: 100.0,
+            y: 50.0,
+            dx: -1.0,
+            dy: 1.0,
+            r: 20.0,
+            color: Color::WHITE,
+        };
+        corner_fill(&mut out, &c);
+        assert_eq!(out.len(), CORNER_SEGS as usize * 3);
+        // Top-right corner of a clear rect: the sliver lies left of x and below y.
+        for v in &out {
+            let [x, y] = v.pos;
+            assert!((79.99..=100.01).contains(&x), "x {x}");
+            assert!((49.99..=70.01).contains(&y), "y {y}");
         }
     }
 

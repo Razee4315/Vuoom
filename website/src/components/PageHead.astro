@@ -11,7 +11,7 @@ const { eyebrow, title, sub, align = 'center' } = Astro.props;
 <header class:list={['ph', `ph--${align}`]}>
   <div class="wrap ph__inner">
     {eyebrow && <p class="ph__eyebrow">{eyebrow}</p>}
-    <h1 class="display ph__h" data-split>{title}</h1>
+    <h1 class="display ph__h">{title}</h1>
     {sub && <p class="ph__sub">{sub}</p>}
     {Astro.slots.has('default') && <div class="ph__actions"><slot /></div>}
   </div>

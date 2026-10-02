@@ -24,7 +24,7 @@ const { items } = Astro.props;
       <div class="fx__more">
         <div class="fx__more-inner">
           <p class="fx__detail">{f.detail}</p>
-          <div class="fx__media" data-parallax>
+          <div class="fx__media">
             {f.video ? <Video name={f.video} /> : <Shot name={f.shot ?? 'editor'} sizes="(min-width: 960px) 40vw, 100vw" />}
           </div>
         </div>

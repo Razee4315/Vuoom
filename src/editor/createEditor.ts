@@ -5,7 +5,7 @@
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
 import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "solid-js";
-import { invoke, isMock, open, openUrl, ask, check, relaunch, type Update } from "../bridge";
+import { invoke, isMock, open, openUrl, ask, check, markCleanExit, relaunch, type Update } from "../bridge";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
@@ -18,10 +18,11 @@ import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
 import { pushHotkeys } from "../hotkeys";
+import type { PickableWindow } from "../components/WindowPicker";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
-import { fmtBytes, friendlyError, hexRgb } from "../format";
+import { baseName, fmt, fmtBytes, friendlyError, hexRgb } from "../format";
 import { CROP_KEY, TOOL_KEYS } from "../shortcuts";
 import { zoomFrame } from "../geometry";
 import { layout, prefs, resetSections } from "../prefs";
@@ -36,6 +37,7 @@ import type {
   CursorStyle,
   FrameInfo,
   DisplayInfo,
+  WindowInfo,
   Color,
   Drag,
   Kind,
@@ -80,20 +82,41 @@ export function createEditor() {
     setToolLock(true);
   };
   const [status, setStatus] = createSignal("Ready");
+  /** Report a failed action where the user will see it: a toast, and the status line for
+   *  as long as nothing replaces it. `what` says what failed ("Save failed"). */
+  const fail = (what: string, e: unknown, ttl?: number) => {
+    const text = `${what}: ${friendlyError(e)}`;
+    setStatus(text);
+    toast(text, "error", ttl);
+  };
   const [projectName, setProjectName] = createSignal("Untitled");
+  // The .vuoom folder the loaded clip was opened from or last saved to: where Save writes.
+  // `null` for a take that has never been saved.
+  const [projectDir, setProjectDir] = createSignal<string | null>(null);
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
   const [hasClip, setHasClip] = createSignal(false);
-  // True once the loaded clip has unsaved edits (annotations, zooms, trim, cuts, speed,
-  // frame, click/key overlays). Drives the "discard edits?" guard before a new recording
-  // replaces the clip. Set wherever an edit lands; cleared on load / save / export.
+  // True once the loaded clip has edits its project file doesn't hold (annotations, zooms,
+  // trim, cuts, speed, frame, click/key overlays). Shown as the dot by the project name.
+  // Set wherever an edit lands; cleared on load / save.
   const [dirty, setDirtyRaw] = createSignal(false);
   // Bumped on every edit; the autosave loop compares it with the last persisted version.
   let editVersion = 0;
   let persistedVersion = 0;
+  // The edit version the last export rendered: those edits made it into a file.
+  let exportedVersion = -1;
   const setDirty = (v: boolean) => {
     if (v) editVersion++;
     setDirtyRaw(v);
+  };
+  const markExported = () => {
+    exportedVersion = editVersion;
+  };
+  /** Ask before an action replaces a clip whose edits are neither saved nor exported.
+   *  Resolves true when there is nothing to lose or the user chose to go on. */
+  const confirmDiscard = async (message: string, okLabel: string): Promise<boolean> => {
+    if (!hasClip() || !dirty() || editVersion === exportedVersion) return true;
+    return ask(message, { title: "Discard edits?", kind: "warning", okLabel, cancelLabel: "Cancel" });
   };
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
@@ -261,7 +284,16 @@ export function createEditor() {
     try {
       const raw = localStorage.getItem(RECENTS_KEY);
       const list = raw ? (JSON.parse(raw) as Recent[]) : [];
-      setRecents(Array.isArray(list) ? list.filter((r) => r?.dir).slice(0, 6) : []);
+      // The name always comes from the folder: entries saved by older builds stored the
+      // whole path there.
+      setRecents(
+        Array.isArray(list)
+          ? list
+              .filter((r) => r?.dir)
+              .slice(0, 6)
+              .map((r) => ({ ...r, name: baseName(r.dir) }))
+          : [],
+      );
     } catch {
       setRecents([]);
     }
@@ -283,7 +315,7 @@ export function createEditor() {
     }
   };
   const rememberRecent = (dir: string, thumb?: string) => {
-    const name = dir.replace(/[/]+$/, "").split(/[/]/).pop() ?? dir;
+    const name = baseName(dir);
     const prev = recents().find((r) => r.dir === dir);
     const next = [
       { dir, name, ts: Date.now(), thumb: thumb ?? prev?.thumb },
@@ -313,9 +345,9 @@ export function createEditor() {
     setStatus("Opening project…");
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
-      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
+      setProjectDir(dir);
       rememberRecent(dir);
       if (summary.warning) {
         setStatus(`Project opened. ${summary.warning}`);
@@ -325,8 +357,7 @@ export function createEditor() {
         toast("Project opened", "success");
       }
     } catch (e) {
-      setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error", 9000);
+      fail("Could not open project", e, 9000);
       if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
         "This project folder is gone. It may have been moved or deleted. Remove it from the recents list?",
@@ -335,14 +366,18 @@ export function createEditor() {
       if (remove) removeRecent(dir);
     }
   };
-  const openRecent = (dir: string) => openProjectAt(dir);
+  const OPEN_DISCARD = "Open another project? Unsaved edits to the current clip will be discarded.";
+  const openRecent = async (dir: string) => {
+    if (await confirmDiscard(OPEN_DISCARD, "Discard & open")) await openProjectAt(dir);
+  };
   const fmtAgo = (ts: number) => {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return "just now";
     if (mins < 60) return `${mins} min ago`;
     const hrs = Math.round(mins / 60);
     if (hrs < 24) return `${hrs} hr ago`;
-    return `${Math.round(hrs / 24)} days ago`;
+    const days = Math.round(hrs / 24);
+    return days === 1 ? "yesterday" : `${days} days ago`;
   };
 
   // ── timeline hover affordances ───────────────────────────────────────────────
@@ -415,6 +450,11 @@ export function createEditor() {
     if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
       e.preventDefault();
       void doRedo();
+      return;
+    }
+    if (!modalOpen && e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyS") {
+      e.preventDefault();
+      void onSaveProjectAs();
       return;
     }
     if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey) {
@@ -639,12 +679,15 @@ export function createEditor() {
           );
         } else if (ev.event === "Finished") {
           setStatus("Update downloaded. Restarting…");
+          // On Windows the installer ends this process itself, before relaunch() below
+          // gets its turn: mark the exit as intended now.
+          void markCleanExit();
         }
       });
       await relaunch();
     } catch (e) {
       setUpdating(false);
-      setStatus(`Update failed: ${String(e)}`);
+      fail("Update failed", e);
     }
   };
 
@@ -1600,20 +1643,25 @@ export function createEditor() {
     } else if (d.mode === "create-arrow") {
       setDrag(null);
       if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.01) {
-        const id = await invoke<number>("add_arrow", {
-          fx: d.start.x,
-          fy: d.start.y,
-          tx: p.x,
-          ty: p.y,
-          t: playhead(),
-        });
-        await refresh();
-        await pushSeek(playhead());
-        setSelZoom(null);
-        setSelSpeed(null);
-        clearExtra();
-        setSelected({ kind: "arrow", id });
-        if (!toolLock()) setTool("select");
+        try {
+          const id = await invoke<number>("add_arrow", {
+            fx: d.start.x,
+            fy: d.start.y,
+            tx: p.x,
+            ty: p.y,
+            t: playhead(),
+          });
+          await refresh();
+          await pushSeek(playhead());
+          setSelZoom(null);
+          setSelSpeed(null);
+          setSelCut(null);
+          clearExtra();
+          setSelected({ kind: "arrow", id });
+          if (!toolLock()) setTool("select");
+        } catch (err) {
+          fail("Could not add the arrow", err);
+        }
       }
     } else if (
       d.mode === "create-box" ||
@@ -1635,14 +1683,19 @@ export function createEditor() {
       const w = Math.abs(p.x - d.start.x);
       const h = Math.abs(p.y - d.start.y);
       if (w > 0.01 && h > 0.01) {
-        const id = await invoke<number>(cmd, { x, y, w, h, t: playhead() });
-        await refresh();
-        await pushSeek(playhead());
-        setSelZoom(null);
-        setSelSpeed(null);
-        clearExtra();
-        setSelected({ kind: "box", id });
-        if (!toolLock()) setTool("select");
+        try {
+          const id = await invoke<number>(cmd, { x, y, w, h, t: playhead() });
+          await refresh();
+          await pushSeek(playhead());
+          setSelZoom(null);
+          setSelSpeed(null);
+          setSelCut(null);
+          clearExtra();
+          setSelected({ kind: "box", id });
+          if (!toolLock()) setTool("select");
+        } catch (err) {
+          fail("Could not add the shape", err);
+        }
       }
     } else if (d.mode === "create-stroke") {
       setDrag(null);
@@ -1660,26 +1713,36 @@ export function createEditor() {
         await pushSeek(playhead());
         setSelZoom(null);
         setSelSpeed(null);
+        setSelCut(null);
         clearExtra();
         // The pen stays in hand for the next line; the new one is selected once you put it down.
         if (tool() === "pen") setSelected(null);
         else setSelected({ kind: "stroke", id });
       } catch (err) {
-        toast(`Could not draw: ${friendlyError(err)}`, "error");
+        fail("Could not draw", err);
       }
     } else if (d.mode === "scale-text") {
       const f = d.cur;
       setDrag(null);
-      await invoke("update_text", { id: d.id, fontSize: f });
+      try {
+        await invoke("update_text", { id: d.id, fontSize: f });
+      } catch (err) {
+        fail("Resize failed", err);
+      }
       await refresh();
       await pushSeek(playhead());
     } else {
       // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
       // the drag, so the overlay never flashes back to the pre-drag position for a frame.
-      await applyGeom(d.kind, d.id, d.geom);
-      // Commit every other group member (per-item backend commands → per-item geo: undo tags).
-      if (d.mode === "move" && d.group) {
-        for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
+      // A rejected commit still clears the drag: the refresh puts back the engine's truth.
+      try {
+        await applyGeom(d.kind, d.id, d.geom);
+        // Commit every other group member (per-item backend commands → per-item geo: undo tags).
+        if (d.mode === "move" && d.group) {
+          for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
+        }
+      } catch (err) {
+        fail(d.mode === "move" ? "Move failed" : "Resize failed", err);
       }
       await refresh();
       setDrag(null);
@@ -1738,7 +1801,7 @@ export function createEditor() {
   // every pointer-move or keystroke, so they run through pushEdit, the same edit throttle
   // the inline text editor uses, to bound the invoke→refresh→seek round-trips. pushEdit
   // appends the seek and always lets the trailing value land, so the drag-end value sticks.
-  const editStyle = (patch: { thickness?: number; filled?: boolean }) => {
+  const editStyle = (patch: { thickness?: number; filled?: boolean; radius?: number }) => {
     const s = selected();
     if (!s) return;
     const { id, kind } = s;
@@ -1748,6 +1811,7 @@ export function createEditor() {
         patchAnn(kind, id, (a) => {
           if (patch.thickness !== undefined) (a as ArrowAnn).thickness = patch.thickness;
           if (patch.filled !== undefined && kind === "box") (a as BoxAnn).filled = patch.filled;
+          if (patch.radius !== undefined && kind === "box") (a as BoxAnn).radius = patch.radius;
         }),
       async () => {
         await invoke("set_annotation_style", { id, ...patch });
@@ -1942,11 +2006,15 @@ export function createEditor() {
     // Temp (optimistic) ids must become real before the engine can delete them.
     const resolved: Selection[] = [];
     for (const it of all) resolved.push({ kind: it.kind, id: await ensureRealId(it.id) });
-    if (resolved.length === 1) {
-      await invoke("delete_annotation", { id: resolved[0].id });
-    } else {
-      const tag = `multidel:${++delGesture}`;
-      for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
+    try {
+      if (resolved.length === 1) {
+        await invoke("delete_annotation", { id: resolved[0].id });
+      } else {
+        const tag = `multidel:${++delGesture}`;
+        for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
+      }
+    } catch (e) {
+      fail("Delete failed", e);
     }
     setSelected(null);
     await refresh();
@@ -1974,7 +2042,7 @@ export function createEditor() {
       await refreshAll();
       setStatus("Undone");
     } catch (e) {
-      setStatus(`Undo failed: ${String(e)}`);
+      fail("Undo failed", e);
     }
   };
   const doRedo = async () => {
@@ -1987,7 +2055,7 @@ export function createEditor() {
       await refreshAll();
       setStatus("Redone");
     } catch (e) {
-      setStatus(`Redo failed: ${String(e)}`);
+      fail("Redo failed", e);
     }
   };
 
@@ -1997,14 +2065,14 @@ export function createEditor() {
     const realId = await ensureRealId(s.id);
     if (realId !== s.id) setSelected({ kind: s.kind, id: realId });
     try {
-      const id = await invoke<number>("duplicate_annotation", { id: s.id });
+      const id = await invoke<number>("duplicate_annotation", { id: realId });
       await refresh();
       await pushSeek(playhead());
       clearExtra();
       setSelected({ kind: s.kind, id });
       setStatus("Duplicated. Drag the copy into place.");
     } catch (e) {
-      setStatus(`Duplicate failed: ${String(e)}`);
+      fail("Duplicate failed", e);
     }
   };
 
@@ -2027,7 +2095,7 @@ export function createEditor() {
         }[dir],
       );
     } catch (e) {
-      setStatus(`Reorder failed: ${String(e)}`);
+      fail("Reorder failed", e);
     }
   };
 
@@ -2092,7 +2160,7 @@ export function createEditor() {
       }
       setStatus(`Pasted ${refs.length} annotation${refs.length > 1 ? "s" : ""}`);
     } catch (e) {
-      setStatus(`Paste failed: ${String(e)}`);
+      fail("Paste failed", e);
     }
   };
 
@@ -2155,8 +2223,14 @@ export function createEditor() {
   const [showSource, setShowSource] = createSignal(false);
   const [sources, setSources] = createSignal<{
     displays: DisplayInfo[];
-    windows: { hwnd: number; title: string; w: number; h: number }[];
+    windows: WindowInfo[];
   }>({ displays: [], windows: [] });
+  // Picking a window by pointing at it: the windows on the display the overlay covers
+  // (front to back) and that display's origin. `null` outside that step.
+  const [windowPick, setWindowPick] = createSignal<{
+    windows: PickableWindow[];
+    origin: { x: number; y: number };
+  } | null>(null);
 
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
@@ -2173,12 +2247,24 @@ export function createEditor() {
   const startRecord = async (mode: RecordMode = recordMode()) => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
     // Soft copy: the previous session's recovery dir survives one more recording.
-    if (hasClip() && dirty()) {
-      const ok = await ask(
-        "Start new recording? Unsaved edits to the current clip will be discarded.",
-        { title: "Discard edits?", kind: "warning", okLabel: "Discard & record", cancelLabel: "Cancel" },
+    const ok = await confirmDiscard(
+      "Start new recording? Unsaved edits to the current clip will be discarded.",
+      "Discard & record",
+    );
+    if (!ok) return;
+    // Recording keeps the take before this one; the one before that loses its video now.
+    // If that take never reached a project or an export, say so before it goes.
+    const atRisk = await invoke<number | null>("take_at_risk").catch(() => null);
+    if (typeof atRisk === "number") {
+      const go = await ask(
+        `An earlier take (${fmt(atRisk)} long) was never saved or exported. Starting a new recording deletes its video for good.`,
+        { title: "Delete the earlier take?", kind: "warning", okLabel: "Record anyway", cancelLabel: "Keep it" },
       );
-      if (!ok) return;
+      if (!go) {
+        void refreshRecoverable();
+        toast("Bring it back with File > Recover last session, then save or export it.", "info", 9000);
+        return;
+      }
     }
     setCoachRecord(false);
     setRecordMode(mode);
@@ -2189,21 +2275,66 @@ export function createEditor() {
       // No display enumeration (older backend): fall straight through to the editor's monitor.
       setStatus(`Falling back to the editor's display: ${String(e)}`);
     }
-    let windows: { hwnd: number; title: string; w: number; h: number }[] = [];
+    let windows: WindowInfo[] = [];
     if (mode === "window" || displays.length > 1) {
       try {
-        windows = await invoke<{ hwnd: number; title: string; w: number; h: number }[]>("list_windows");
+        windows = await invoke<WindowInfo[]>("list_windows");
       } catch {
         /* window capture unavailable: displays only */
+      }
+    }
+    setSources({ displays, windows });
+    if (mode === "window") {
+      // Point at the window to record, on the main display; the list (below) remains for
+      // a window that is covered, on another display, or from an engine without positions.
+      const home = displays.find((d) => d.primary) ?? displays[0];
+      const onHome = home
+        ? windows.filter(
+            (w): w is PickableWindow =>
+              typeof w.x === "number" &&
+              typeof w.y === "number" &&
+              w.x < home.x + home.w &&
+              w.x + w.w > home.x &&
+              w.y < home.y + home.h &&
+              w.y + w.h > home.y,
+          )
+        : [];
+      if (home && onHome.length > 0) {
+        setWindowPick({ windows: onHome, origin: { x: home.x, y: home.y } });
+        await beginRecordWith({ kind: "display", name: home.name, label: `Display ${home.index}` });
+        return;
       }
     }
     if (mode !== "window" && displays.length <= 1) {
       await beginRecordWith({ kind: "display", name: displays[0]?.name ?? "", label: "Display 1" });
       return;
     }
-    setSources({ displays, windows });
     setSourceTab(mode === "window" && windows.length > 0 ? "window" : "display");
     setShowSource(true);
+  };
+
+  /** Leave the point-at-a-window overlay, restoring the editor window. */
+  const leaveWindowPick = async () => {
+    setWindowPick(null);
+    setRecordPhase("idle");
+    setBackdrop(null);
+    setRecordTarget(null);
+    await invoke("cancel_record_flow").catch(() => undefined);
+  };
+  /** The window the user pointed at: record it. */
+  const pickWindow = async (w: PickableWindow) => {
+    await leaveWindowPick();
+    await beginRecordWith({ kind: "window", hwnd: w.hwnd, label: w.title });
+  };
+  /** The plain list instead of the overlay. */
+  const listWindowsInstead = async () => {
+    await leaveWindowPick();
+    setSourceTab("window");
+    setShowSource(true);
+  };
+  const cancelWindowPick = async () => {
+    await leaveWindowPick();
+    setStatus("Recording cancelled");
   };
 
   const beginRecordWith = async (target: RecordTarget) => {
@@ -2232,18 +2363,29 @@ export function createEditor() {
       setBackdrop(shot || null);
     } catch (e) {
       setRecordPhase("idle");
-      setStatus(`Error: ${String(e)}`);
-      toast(`Could not start: ${friendlyError(e)}`, "error");
+      setWindowPick(null);
+      fail("Could not start", e);
     }
   };
 
   const [recordTarget, setRecordTarget] = createSignal<RecordTarget | null>(null);
+
+  /** Ask the engine whether an earlier take can be recovered (it leaves out the loaded one). */
+  const refreshRecoverable = async () => {
+    try {
+      setRecoverable((await invoke<number | null>("check_recovery")) ?? null);
+    } catch {
+      setRecoverable(null);
+    }
+  };
 
   const onRecordFinished = async (summary: RecordingSummary) => {
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
     await loadFinishedClip(summary);
+    // The take before this one is still on disk: keep Recover last session on offer.
+    void refreshRecoverable();
     const n = summary.zooms;
     if (summary.auto_zooms && n > 0) {
       // Auto zoom planned these from the clicks: say so, and make them one click to drop.
@@ -2264,7 +2406,8 @@ export function createEditor() {
   const onRecordFailed = (message: string) => {
     setRecordPhase("idle");
     setBackdrop(null);
-    setStatus(`Recording failed: ${message}`);
+    setRecordTarget(null);
+    fail("Recording failed", message, 9000);
   };
 
   // ── timeline filmstrip ────────────────────────────────────────────────────────────
@@ -2287,6 +2430,9 @@ export function createEditor() {
   const loadFinishedClip = async (summary: RecordingSummary) => {
     // A new clip's tracks load fresh (refreshClip below adopts and decodes them).
     audio.unload();
+    // A take, a recovered session and an opened project all start without a save folder;
+    // opening a project sets its own right after.
+    setProjectDir(null);
     // Each take opens with the Clip settings folded, so the panel reads as a short list.
     resetSections("clip-");
     setHasClip(true);
@@ -2393,7 +2539,7 @@ export function createEditor() {
       setSelZoom(null);
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Zoom delete failed: ${String(e)}`);
+      fail("Zoom delete failed", e);
     }
   };
 
@@ -2413,7 +2559,7 @@ export function createEditor() {
       await pushSeek(playhead());
       setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the pointer");
     } catch (e) {
-      setStatus(`Zoom focus failed: ${String(e)}`);
+      fail("Zoom focus failed", e);
     }
   };
   // ── zoom easing/feel preset ──────────────────────────────────────────────────────
@@ -2425,7 +2571,7 @@ export function createEditor() {
       setDirty(true);
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Zoom feel failed: ${String(e)}`);
+      fail("Zoom feel failed", e);
     }
   };
   // Crosshair dragging on the canvas.
@@ -2494,8 +2640,7 @@ export function createEditor() {
       await pushSeek(playhead());
       setStatus(c ? "Crop applied. Annotations kept their on-screen placement." : "Crop reset to full frame.");
     } catch (e) {
-      setStatus(`Crop failed: ${String(e)}`);
-      toast(`Crop failed: ${friendlyError(e)}`, "error");
+      fail("Crop failed", e);
     }
   };
 
@@ -2562,8 +2707,7 @@ export function createEditor() {
       toast(`Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"}`, "success");
       await pushSeek(playhead());
     } catch (e) {
-      setStatus(`Auto zoom failed: ${String(e)}`);
-      toast(`Auto zoom failed: ${friendlyError(e)}`, "error");
+      fail("Auto zoom failed", e);
     }
   };
 
@@ -2606,7 +2750,7 @@ export function createEditor() {
       setSelSpeed(idx >= 0 ? idx : null);
       setStatus("Speed region added. Drag it to retime.");
     } catch (e) {
-      setStatus(`Could not add speed region: ${String(e)}`);
+      fail("Could not add speed region", e);
     }
   };
   const applySpeedEdit = async (index: number, start: number, end: number, factor: number) => {
@@ -2630,7 +2774,7 @@ export function createEditor() {
       setDirty(true);
       setSelSpeed(null);
     } catch (e) {
-      setStatus(`Speed delete failed: ${String(e)}`);
+      fail("Speed delete failed", e);
     }
   };
 
@@ -2653,7 +2797,7 @@ export function createEditor() {
       setSelCut(idx >= 0 ? idx : null);
       setStatus("Section cut. Drag the band to adjust.");
     } catch (e) {
-      setStatus(`Could not cut: ${String(e)}`);
+      fail("Could not cut", e);
     }
   };
   const applyCutEdit = async (index: number, start: number, end: number) => {
@@ -2678,7 +2822,7 @@ export function createEditor() {
       setSelCut(null);
       setStatus("Section restored");
     } catch (e) {
-      setStatus(`Restore failed: ${String(e)}`);
+      fail("Restore failed", e);
     }
   };
 
@@ -2915,6 +3059,12 @@ export function createEditor() {
   const setCursorSize = (size: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), size });
   const setCursorSmoothing = (smoothing: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), smoothing });
   const setCursorHideIdle = (hide_idle: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), hide_idle });
+  /** The pointer's color as "#rrggbb", or null for the classic white pointer. */
+  const setCursorColor = (hex: string | null) => {
+    const c = hex ? hexRgb(hex) : null;
+    applyCursor({ ...(cursorStyle() ?? lastCursor), color: c ? [c.r, c.g, c.b] : null });
+  };
+  const setCursorHalo = (halo: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), halo });
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
   const keysSync = createSyncSlot<boolean>();
@@ -3633,29 +3783,6 @@ export function createEditor() {
     return barsCache;
   };
 
-  // ── resizable inspector ────────────────────────────────────────────────────────
-  const [inspectorW, setInspectorW] = createSignal(
-    Number(localStorage.getItem("vuoom-inspector-w")) || 296,
-  );
-  let inspectorDrag = false;
-  const onInspDown = (e: PointerEvent) => {
-    e.stopPropagation();
-    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
-    inspectorDrag = true;
-  };
-  const onInspMove = (e: PointerEvent) => {
-    if (!inspectorDrag) return;
-    setInspectorW(Math.min(440, Math.max(240, window.innerWidth - e.clientX)));
-  };
-  const onInspUp = () => {
-    if (!inspectorDrag) return;
-    inspectorDrag = false;
-    try {
-      localStorage.setItem("vuoom-inspector-w", String(inspectorW()));
-    } catch {
-      /* storage unavailable */
-    }
-  };
   const somethingSelected = () =>
     !!selected() ||
     selZoom() !== null ||
@@ -3671,6 +3798,21 @@ export function createEditor() {
   const selectedCaption = () => {
     const id = selCaption();
     return id === null ? null : (captions.list().find((c) => c.id === id) ?? null);
+  };
+  /** Select one timeline segment (the keyboard path; a pointer selects on release). */
+  const selectSegment = (kind: "zoom" | "speed" | "cut", index: number) => {
+    setSelected(null);
+    setSelZoom(kind === "zoom" ? index : null);
+    setSelSpeed(kind === "speed" ? index : null);
+    setSelCut(kind === "cut" ? index : null);
+  };
+  /** Select one annotation, dropping any other selection. */
+  const selectAnnotation = (kind: Kind, id: number) => {
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    clearExtra();
+    setSelected({ kind, id });
   };
   const selectCaption = (id: number | null) => {
     setSelected(null);
@@ -3745,24 +3887,45 @@ export function createEditor() {
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
 
-  const onSaveProject = async () => {
-    // Projects are always named by hand, in the save folder.
-    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
-    if (!dir) return;
+  const [saving, setSaving] = createSignal(false);
+  const saveProjectTo = async (dir: string) => {
+    if (saving()) return;
+    setSaving(true);
     setStatus("Saving project…");
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
+      setProjectDir(dir);
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
       rememberRecent(dir, captureThumb());
       setStatus(`Saved ${dir}`);
       toast("Project saved", "success");
     } catch (e) {
-      setStatus(`Save failed: ${String(e)}`);
-      toast(`Save failed: ${friendlyError(e)}`, "error");
+      fail("Save failed", e);
+    } finally {
+      setSaving(false);
     }
+  };
+  /** Save as: a new project is always named by hand, in the save folder. */
+  const onSaveProjectAs = async () => {
+    if (!hasClip() || saving()) return;
+    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
+    if (dir) await saveProjectTo(dir);
+  };
+  /** Save: straight back into the project's folder; a take never saved asks where first. */
+  const onSaveProject = async () => {
+    if (!hasClip() || saving()) return;
+    const dir = projectDir();
+    if (dir) await saveProjectTo(dir);
+    else await onSaveProjectAs();
   };
 
   const onRecover = async () => {
+    const ok = await confirmDiscard(
+      "Recover your last take? Unsaved edits to the current clip will be discarded.",
+      "Discard & recover",
+    );
+    if (!ok) return;
     setStatus("Recovering your last session…");
     try {
       const summary = await invoke<RecordingSummary>("recover_session");
@@ -3772,8 +3935,7 @@ export function createEditor() {
       toast("Last session recovered", "success");
     } catch (e) {
       setRecoverable(null);
-      setStatus(`Recovery failed: ${String(e)}`);
-      toast(`Recovery failed: ${friendlyError(e)}`, "error");
+      fail("Recovery failed", e);
     }
   };
 
@@ -3805,13 +3967,14 @@ export function createEditor() {
       await refreshStorage();
       setStatus(`Cleared ${fmtBytes(freed)} of recovery data`);
     } catch (e) {
-      setStatus(`Couldn't clear storage: ${String(e)}`);
+      fail("Couldn't clear storage", e);
     } finally {
       setClearingStorage(false);
     }
   };
 
   const onOpenProject = async () => {
+    if (!(await confirmDiscard(OPEN_DISCARD, "Discard & open"))) return;
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
     await openProjectAt(dir);
@@ -3944,7 +4107,6 @@ export function createEditor() {
     setShowPalette,
     isModal,
     recordMode,
-    setRecordMode,
     sourceTab,
     setSourceTab,
     refs,
@@ -3962,29 +4124,24 @@ export function createEditor() {
     projectName,
     setProjectName,
     editingText,
-    setEditingText,
     theme,
     setTheme,
     hasClip,
-    setHasClip,
     dirty,
-    setDirty,
+    markExported,
     duration,
-    setDuration,
     playhead,
-    setPlayhead,
     playing,
-    setPlaying,
     audio,
     captions,
     selCaption,
-    setSelCaption,
     selectedCaption,
     selectCaption,
+    selectSegment,
+    selectAnnotation,
     deleteSelectedCaption,
     addCaptionAtPlayhead,
     captionGeom,
-    captionDrag,
     onCaptionDown,
     onCaptionMove,
     onCaptionUp,
@@ -3997,18 +4154,15 @@ export function createEditor() {
     setCursorSize,
     setCursorSmoothing,
     setCursorHideIdle,
+    setCursorColor,
+    setCursorHalo,
     looping,
     setLooping,
     anns,
-    setAnns,
     zooms,
-    setZooms,
     trim,
-    setTrimState,
     speed,
-    setSpeed,
     cuts,
-    setCuts,
     selZoom,
     setSelZoom,
     selSpeed,
@@ -4019,36 +4173,23 @@ export function createEditor() {
     setSkimFactor,
     showClicks,
     motionBlur,
-    setShowClicks,
     showKeys,
-    setShowKeys,
     crop,
     setCrop,
     framePreset,
     setFramePreset,
     bgPreset,
-    setBgPreset,
     recoverable,
-    setRecoverable,
     selected,
     setSelected,
-    selExtra,
-    setSelExtra,
-    selKey,
     clearExtra,
     isSelected,
-    selectionAll,
     selCount,
-    toggleSelect,
     drag,
     setDrag,
-    ensureRealId,
     stage,
-    setStage,
     frameAspect,
-    setFrameAspect,
     tlWidth,
-    setTlWidth,
     tlScale,
     setTlScale,
     snapX,
@@ -4058,47 +4199,30 @@ export function createEditor() {
     showExport,
     setShowExport,
     recordPhase,
-    setRecordPhase,
     backdrop,
-    setBackdrop,
     zoomAmount,
     setZoomAmount,
     update,
-    setUpdate,
     updating,
-    setUpdating,
     updateNote,
     checkingUpdate,
     gpuLost,
     setGpuLost,
     showWelcome,
-    setShowWelcome,
-    showShortcuts,
-    setShowShortcuts,
     recoveryBytes,
-    setRecoveryBytes,
     clearingStorage,
-    setClearingStorage,
     coachRecord,
     setCoachRecord,
     coachPos,
-    setCoachPos,
-    RECENTS_KEY,
     recents,
-    setRecents,
-    loadRecents,
-    captureThumb,
-    rememberRecent,
     removeRecent,
     recentSearch,
     setRecentSearch,
     openRecent,
     fmtAgo,
     hoverT,
-    setHoverT,
     ghostT,
     setGhostT,
-    onTlHoverMove,
     onTlHoverLeave,
     onTlPointerMove,
     frameTl,
@@ -4108,49 +4232,23 @@ export function createEditor() {
     frameAnn,
     frameTrim,
     frameCanvas,
-    preview,
-    onContextMenu,
-    BROWSER_CODES,
-    onGlobalKey,
-    onWheelGuard,
-    hideSplash,
-    connectEngine,
     checkForUpdate,
     runUpdate,
     copyDiagnostics,
     openLogsFolder,
-    maybeShowWelcome,
     dismissWelcome,
-    pushSeek,
     scrub,
-    reconcileAnns,
-    refresh,
-    refreshClip,
     tStart,
     tEnd,
-    factorAt,
-    tick,
     togglePlay,
     restart,
-    nudgeSelected,
-    onKey,
     norm,
     px,
-    inWindow,
     inView,
     isGhost,
-    pushEdit,
-    patchAnn,
-    geomOf,
     liveGeom,
-    applyGeom,
-    textWNorm,
     liveFont,
-    TOL,
-    handleAt,
     hitTest,
-    CANVAS_SNAPS,
-    snapMoveGeom,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -4172,32 +4270,29 @@ export function createEditor() {
     selectedRange,
     editRange,
     deleteSelection,
-    refreshAll,
     doUndo,
     doRedo,
     duplicateSelected,
     reorderSelected,
     clipboard,
-    setClipboard,
     copySelected,
     pasteClipboard,
     editingTextAnn,
     editTextLive,
     finishTextEdit,
-    beginTextEdit,
-    textHNorm,
     showSource,
     setShowSource,
     sources,
-    setSources,
     startRecord,
     beginRecordWith,
     recordTarget,
-    setRecordTarget,
     onRecordFinished,
+    windowPick,
+    pickWindow,
+    listWindowsInstead,
+    cancelWindowPick,
     onRecordCancel,
     onRecordFailed,
-    loadFinishedClip,
     selectedZoom,
     addZoomAt,
     applyZoomEdit,
@@ -4206,11 +4301,9 @@ export function createEditor() {
     applyZoomFocus,
     applyZoomStyle,
     focusDrag,
-    setFocusDrag,
     onFocusDown,
     onFocusMove,
     onFocusUp,
-    skimSync,
     toggleSkim,
     applyCrop,
     centeredCrop,
@@ -4225,79 +4318,43 @@ export function createEditor() {
     addCutAtPlayhead,
     applyCutEdit,
     deleteSelectedCut,
-    frameSync,
     applyFramePreset,
     BG_SWATCHES,
     chooseBackdropPicture,
-    bgSync,
     applyBackground,
-    clicksSync,
     toggleClicks,
     toggleMotionBlur,
-    keysSync,
     toggleKeys,
-    refreshTlRect,
     invalidateTlRect,
     timeFromClientX,
-    tlTime,
-    tlSeekFromEvent,
     onTrimDown,
     onTrimMove,
     onTrimUp,
     zoomDrag,
-    setZoomDrag,
     zoomGeom,
     onZoomDown,
-    clampSegDrag,
-    SNAP_PX,
-    SNAP_STICKY,
-    SNAP_PLAYHEAD,
     snapLine,
-    setSnapLine,
-    snapGrid,
-    snapTargets,
-    beginSnapGesture,
-    endSnapGesture,
-    snapProbes,
-    snapSegDrag,
     onZoomMove,
     onZoomUp,
     speedDrag,
-    setSpeedDrag,
     speedGeom,
     onSpeedDown,
     onSpeedMove,
     onSpeedUp,
     cutDrag,
-    setCutDrag,
     cutGeom,
     onCutDown,
     onCutMove,
     onCutUp,
     pct,
-    NICE_STEPS,
-    fitPps,
-    pxPerSec,
-    TL_MAX_PPS,
     trackWidth,
-    applyScaleAnchored,
     zoomTimeline,
-    onTlWheel,
-    tickStep,
-    minorStep,
     tickMarks,
-    annDrag,
-    setAnnDrag,
     annGeom,
     onAnnDown,
     onAnnMove,
     onAnnUp,
     annBars,
-    inspectorW,
-    setInspectorW,
-    onInspDown,
-    onInspMove,
-    onInspUp,
     somethingSelected,
     drawingToolActive,
     selectedStroke,
@@ -4305,10 +4362,10 @@ export function createEditor() {
     penLook,
     setPenLook,
     trackStroke,
-    safeName,
     onSaveProject,
+    onSaveProjectAs,
+    projectDir,
     onRecover,
-    refreshStorage,
     clearStorage,
     onOpenProject,
   };

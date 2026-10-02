@@ -440,6 +440,28 @@ pub struct Session {
     captions_cancel: Arc<AtomicBool>,
 }
 
+/// Where an export is written while it is being encoded: next to `out`, with `.part` before
+/// the extension (`demo.gif` -> `demo.part.gif`), so the extension still names the format.
+fn export_part_path(out: &Path) -> PathBuf {
+    let stem = out
+        .file_stem()
+        .map_or_else(|| "export".into(), |s| s.to_string_lossy().into_owned());
+    let name = match out.extension() {
+        Some(ext) => format!("{stem}.part.{}", ext.to_string_lossy()),
+        None => format!("{stem}.part"),
+    };
+    out.with_file_name(name)
+}
+
+/// Move a finished export from its `.part` file to the name the user chose, replacing a
+/// file already there. If the move fails the partial file is removed, not left behind.
+fn finish_export(part: &Path, out: &Path) -> Result<(), String> {
+    std::fs::rename(part, out).map_err(|e| {
+        let _ = std::fs::remove_file(part);
+        format!("could not write {}: {e}", out.display())
+    })
+}
+
 impl Session {
     /// Start the preview server and GPU compositor.
     ///
@@ -1349,6 +1371,7 @@ impl Session {
         scene.texts.clear();
         scene.arrows.clear();
         scene.highlights.clear();
+        scene.spot_corners.clear();
         scene.strokes.clear();
         let cam_frames = scene.camera.and_then(|_| self.camera_frames());
         let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
@@ -1381,6 +1404,19 @@ impl Session {
         self.export_cancel.store(true, Ordering::SeqCst);
     }
 
+    /// Note that the loaded take reached a file the user chose (a saved project, a GIF, an
+    /// MP4), so a later recording can prune it without asking.
+    fn mark_take_kept(&self) {
+        let dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(dir) = dir {
+            frame_store::mark_kept(&dir);
+        }
+    }
+
     /// Composite the output-timeline frames (honoring trim + speed regions) and export an
     /// optimized GIF to `out_path`. `progress(done, total)` is called as frames composite
     /// and once more when encoding finishes.
@@ -1395,14 +1431,29 @@ impl Session {
         dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Encoded into a sibling `.part` file and moved over `out_path` only once complete: a
+        // failed or cancelled export then never truncates or deletes a file that was already
+        // there (re-exporting over yesterday's GIF), and nothing half-written carries the
+        // final name.
+        let out = Path::new(&out_path);
+        let part = export_part_path(out);
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
         // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
-        self.export_gif_impl(out_path, fps, width, quality, dither, progress)
-            .map_err(|e| {
-                tracing::error!("GIF export failed: {e}");
-                e
-            })
+        self.export_gif_impl(
+            part.to_string_lossy().into_owned(),
+            fps,
+            width,
+            quality,
+            dither,
+            progress,
+        )
+        .and_then(|()| finish_export(&part, out))
+        .inspect(|_| self.mark_take_kept())
+        .map_err(|e| {
+            tracing::error!("GIF export failed: {e}");
+            e
+        })
     }
 
     fn export_gif_impl(
@@ -1516,12 +1567,25 @@ impl Session {
         audio: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Written to a `.part` sibling first (see `export_gif`). The temporary name keeps
+        // the `.mp4` extension: the encoder picks its container from it.
+        let out = Path::new(&out_path);
+        let part = export_part_path(out);
         // Log every failure exit once at this seam (see `export_gif`).
-        self.export_mp4_impl(out_path, fps, width, quality, audio, progress)
-            .map_err(|e| {
-                tracing::error!("MP4 export failed: {e}");
-                e
-            })
+        self.export_mp4_impl(
+            part.to_string_lossy().into_owned(),
+            fps,
+            width,
+            quality,
+            audio,
+            progress,
+        )
+        .and_then(|()| finish_export(&part, out))
+        .inspect(|_| self.mark_take_kept())
+        .map_err(|e| {
+            tracing::error!("MP4 export failed: {e}");
+            e
+        })
     }
 
     fn export_mp4_impl(
@@ -1852,6 +1916,7 @@ impl Session {
             thickness: 0.005,
             filled: false,
             shape,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1872,6 +1937,7 @@ impl Session {
             thickness: 0.005,
             filled: true,
             shape: HighlightShape::Rect,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1891,6 +1957,7 @@ impl Session {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Spotlight,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -1912,6 +1979,7 @@ impl Session {
             thickness: 0.0,
             filled: true,
             shape: HighlightShape::Mask,
+            radius: 0.0,
             range,
         });
         Ok(id)
@@ -2892,10 +2960,12 @@ impl Session {
         id: u32,
         thickness: Option<f64>,
         filled: Option<bool>,
+        radius: Option<f64>,
     ) -> Result<(), String> {
         // The thickness slider streams values while dragging, coalesce per element.
         self.with_project(&format!("style:{id}"), |p| {
             let th = thickness.map(|t| (t as f32).clamp(0.001, 0.05));
+            let rad = radius.map(|r| (r as f32).clamp(0.0, HighlightBox::MAX_RADIUS));
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 if let Some(t) = th {
                     a.thickness = t;
@@ -2908,6 +2978,9 @@ impl Session {
                 }
                 if let Some(f) = filled {
                     b.filled = f;
+                }
+                if let Some(r) = rad {
+                    b.radius = r;
                 }
                 return Ok(());
             }
@@ -3246,7 +3319,9 @@ impl Session {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(e);
         }
-        bundle::swap_in(&staging, dir)
+        bundle::swap_in(&staging, dir)?;
+        frame_store::mark_kept(&src);
+        Ok(())
     }
 
     /// Write a complete project folder at `dir`: the compressed frame store copied
@@ -3522,6 +3597,20 @@ impl Session {
         } else {
             store_duration(&store, self.clock)
         })
+    }
+
+    /// How long (s) the earlier take is that the next recording would delete although it
+    /// was never saved or exported. `None` when starting a recording loses nothing.
+    pub fn take_at_risk(&self) -> Option<f64> {
+        let dir = frame_store::take_at_risk()?;
+        let json = std::fs::read_to_string(frame_store::project_path(&dir)).ok()?;
+        let project = Project::from_json(&json).ok()?;
+        if project.source.duration > 0.0 {
+            return Some(project.source.duration);
+        }
+        // A take cut off by a crash has only its placeholder manifest: measure the frames.
+        let store = FrameStore::open(&dir).ok()?;
+        (!store.is_empty()).then(|| store_duration(&store, self.clock))
     }
 
     /// Reload the session left in the recovery directory (last recording + its edits as

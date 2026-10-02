@@ -201,17 +201,21 @@ pub fn enter_overlay(
                 .map_or((0, 0), |m| (m.position().x, m.position().y)),
         };
     }
-    if let Ok(session) = engine.session() {
-        let info = monitor.as_ref().and_then(|m| {
-            m.name().map(|n| crate::session::MonitorInfo {
-                name: n.clone(),
-                x: m.position().x,
-                y: m.position().y,
-                w: m.size().width,
-                h: m.size().height,
-            })
-        });
-        let _ = session.set_monitor(info);
+    // Display targets record the monitor the overlay will cover. Not for a window target:
+    // `set_monitor` clears the window pinned above, and the take would record the display.
+    if !matches!(target, Target::Window { .. }) {
+        if let Ok(session) = engine.session() {
+            let info = monitor.as_ref().and_then(|m| {
+                m.name().map(|n| crate::session::MonitorInfo {
+                    name: n.clone(),
+                    x: m.position().x,
+                    y: m.position().y,
+                    w: m.size().width,
+                    h: m.size().height,
+                })
+            });
+            let _ = session.set_monitor(info);
+        }
     }
 
     // Hide the window and let DWM recompose without it before grabbing the clean desktop.
@@ -445,7 +449,7 @@ pub fn cancel_record_flow(
 /// Show the recorded-region frame during the pre-record countdown. Reads the region from
 /// `BorderState` (set by `set_region`) and raises the strips. Idempotent: a no-op when the
 /// region is full-screen (`None`) or the strips are already up, so `start_recording`'s own
-/// `show` doesn't fight it. Cleared by `hide_region_border` on a countdown abort.
+/// `show` doesn't fight it. Cleared by `cancel_record_flow` on a countdown abort.
 #[tauri::command]
 pub fn show_region_border(border: tauri::State<'_, BorderState>) -> Result<(), String> {
     let region = border.region.lock().ok().and_then(|r| *r);
@@ -455,13 +459,6 @@ pub fn show_region_border(border: tauri::State<'_, BorderState>) -> Result<(), S
             *slot = RegionBorder::show(mx + r.x as i32, my + r.y as i32, r.w as i32, r.h as i32);
         }
     }
-    Ok(())
-}
-
-/// Clear the recorded-region frame (countdown abort before `start_recording` runs).
-#[tauri::command]
-pub fn hide_region_border(border: tauri::State<'_, BorderState>) -> Result<(), String> {
-    drop_border(&border);
     Ok(())
 }
 
@@ -502,12 +499,6 @@ pub fn set_region(
         *slot = region;
     }
     Ok(())
-}
-
-/// Capture a still of the full display for the region selector's backdrop (data-URL PNG).
-#[tauri::command]
-pub async fn screenshot(engine: tauri::State<'_, Engine>) -> Result<String, String> {
-    engine.session()?.screenshot()
 }
 
 /// Evenly spaced frame thumbnails (PNG data URLs) for the timeline filmstrip.
@@ -758,6 +749,13 @@ pub async fn open_project_bundle(
 #[tauri::command]
 pub fn check_recovery(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, String> {
     Ok(engine.session()?.recovery_available())
+}
+
+/// Length (s) of an earlier take the next recording would delete although it was never
+/// saved or exported, so the UI can ask first.
+#[tauri::command]
+pub fn take_at_risk(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, String> {
+    Ok(engine.session()?.take_at_risk())
 }
 
 /// Reload the recoverable session into the editor.
@@ -1617,17 +1615,19 @@ pub fn set_annotation_color(
     engine.session()?.set_annotation_color(id, r, g, b)
 }
 
-/// Restyle an arrow or highlight: thickness and (for highlights) filled vs outlined.
+/// Restyle an arrow or highlight: thickness, (for highlights) filled vs outlined, and a
+/// spotlight's corner radius.
 #[tauri::command]
 pub fn set_annotation_style(
     engine: tauri::State<'_, Engine>,
     id: u32,
     thickness: Option<f64>,
     filled: Option<bool>,
+    radius: Option<f64>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .set_annotation_style(id, thickness, filled)
+        .set_annotation_style(id, thickness, filled, radius)
 }
 
 /// Set the alpha/opacity (0..1) of an annotation's color.

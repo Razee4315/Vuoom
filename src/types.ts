@@ -58,6 +58,8 @@ export interface BoxAnn {
   thickness: number;
   filled: boolean;
   shape: "Rect" | "Ellipse" | "Mask" | "Spotlight";
+  /** A spotlight's corner radius, as a fraction of the height (absent from older engines). */
+  radius?: number;
   range: TimeRange;
 }
 /** A freehand pen stroke, mirrors vuoom_project::StrokeAnnotation. */
@@ -189,6 +191,10 @@ export interface CursorStyle {
   smoothing: number;
   /** Fade out while resting, back in before moving (absent from older engines). */
   hide_idle?: boolean;
+  /** The pointer's own color as RGB 0..1; null or absent is the classic white pointer. */
+  color?: [number, number, number] | null;
+  /** A soft highlight disc under the pointer. */
+  halo?: boolean;
 }
 
 /** How new takes handle the mouse pointer. */
@@ -254,6 +260,11 @@ export interface DisplayInfo {
 export interface WindowInfo {
   hwnd: number;
   title: string;
+  /** The client area's top-left corner on the virtual desktop, in physical pixels (absent
+   *  from older engines, which then only offer the list). */
+  x?: number;
+  y?: number;
+  /** Client size in physical pixels. */
   w: number;
   h: number;
 }

@@ -1,12 +1,20 @@
-// Real takes play only while on screen. Under reduced motion they never autoplay; the
-// visitor presses play.
+// Real takes play only while on screen. Under reduced motion, with the browser's data saver
+// on, or on a slow connection they never autoplay (and so never download): the visitor
+// presses play.
+function savingData(): boolean {
+  const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
+    .connection;
+  return !!c && (c.saveData === true || /(^|-)(2g|3g)$/.test(c.effectiveType ?? ''));
+}
+
 export function initVideos(motion: boolean) {
+  const frugal = savingData();
   document.querySelectorAll<HTMLElement>('[data-video]').forEach((fig) => {
     const v = fig.querySelector('video');
     if (!v) return;
     const btn = fig.querySelector<HTMLButtonElement>('[data-video-toggle]');
     const snd = fig.querySelector<HTMLButtonElement>('[data-video-sound]');
-    let userPaused = !motion;
+    let userPaused = !motion || frugal;
     window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', e => {
       if (e.matches) { userPaused = true; v.pause(); }
     });

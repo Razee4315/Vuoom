@@ -19,11 +19,18 @@ export default function Titlebar() {
     { separator: true },
     { label: "Open project…", icon: "folder", kbd: "Ctrl+O", onSelect: () => void ed.onOpenProject() },
     {
-      label: "Save project…",
+      label: ed.projectDir() ? "Save project" : "Save project…",
       icon: "save",
       kbd: "Ctrl+S",
       disabled: !ed.hasClip(),
       onSelect: () => void ed.onSaveProject(),
+    },
+    {
+      label: "Save project as…",
+      icon: "save",
+      kbd: "Ctrl+Shift+S",
+      disabled: !ed.hasClip(),
+      onSelect: () => void ed.onSaveProjectAs(),
     },
     {
       label: "Export GIF or MP4…",

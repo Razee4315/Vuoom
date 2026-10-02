@@ -91,7 +91,17 @@ pub struct HighlightBox {
     /// Defaults to `Rect` so projects saved before ellipses existed still load.
     #[serde(default)]
     pub shape: HighlightShape,
+    /// Corner radius as a fraction of output height. Rounds a spotlight's clear area;
+    /// 0 (the default, and what older projects load as) keeps square corners.
+    #[serde(default)]
+    pub radius: f32,
     pub range: TimeRange,
+}
+
+impl HighlightBox {
+    /// The largest corner radius on offer (a fraction of output height). The renderer also
+    /// stops at half the rect's shorter side, where the ends become full rounds.
+    pub const MAX_RADIUS: f32 = 0.25;
 }
 
 /// A freehand pen stroke: a smooth line through its points with round ends (drawn as flat

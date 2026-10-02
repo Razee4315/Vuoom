@@ -160,6 +160,7 @@ The interface is a quiet workspace built from floating panels you control:
 | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Show or hide tools / inspector / timeline |
 | `Ctrl+0` | Reset the layout |
 | `Ctrl+S` / `Ctrl+O` | Save / open a project |
+| `Ctrl+Shift+S` | Save the project under a new name |
 | `Ctrl+E` | Export GIF / MP4 |
 | `Ctrl+,` | Settings |
 | `?` | Keyboard cheat sheet |

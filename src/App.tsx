@@ -13,6 +13,7 @@ import Timeline from "./components/Timeline";
 import Titlebar from "./components/Titlebar";
 import ToolRail from "./components/ToolRail";
 import Welcome from "./components/Welcome";
+import WindowPicker from "./components/WindowPicker";
 import { EditorContext } from "./editor/context";
 import { createEditor } from "./editor/createEditor";
 import { ExportDialog } from "./ExportDialog";
@@ -117,21 +118,37 @@ export default function App() {
           hasCaptions={ed.captions.list().length > 0}
           onClose={() => ed.setShowExport(false)}
           onStatus={ed.setStatus}
-          onExported={() => ed.setDirty(false)}
+          onExported={ed.markExported}
         />
       </Show>
 
       <Show when={ed.recordPhase() === "active"}>
-        <RecordOverlay
-          backdrop={ed.backdrop()}
-          zoom={ed.zoomAmount()}
-          target={ed.recordTarget()}
-          initialMode={ed.recordMode() === "full" ? "full" : "region"}
-          onZoomChange={ed.setZoomAmount}
-          onFinished={(s) => void ed.onRecordFinished(s)}
-          onCancel={ed.onRecordCancel}
-          onFailed={ed.onRecordFailed}
-        />
+        <Show
+          when={ed.windowPick()}
+          fallback={
+            <RecordOverlay
+              backdrop={ed.backdrop()}
+              zoom={ed.zoomAmount()}
+              target={ed.recordTarget()}
+              initialMode={ed.recordMode() === "full" ? "full" : "region"}
+              onZoomChange={ed.setZoomAmount}
+              onFinished={(s) => void ed.onRecordFinished(s)}
+              onCancel={ed.onRecordCancel}
+              onFailed={ed.onRecordFailed}
+            />
+          }
+        >
+          {(pick) => (
+            <WindowPicker
+              backdrop={ed.backdrop()}
+              windows={pick().windows}
+              origin={pick().origin}
+              onPick={(w) => void ed.pickWindow(w)}
+              onList={() => void ed.listWindowsInstead()}
+              onCancel={() => void ed.cancelWindowPick()}
+            />
+          )}
+        </Show>
       </Show>
 
       <Show when={ed.showSource()}>

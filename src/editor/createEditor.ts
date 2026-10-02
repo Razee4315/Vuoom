@@ -18,6 +18,7 @@ import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
 import { pushHotkeys } from "../hotkeys";
+import type { PickableWindow } from "../components/WindowPicker";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -36,6 +37,7 @@ import type {
   CursorStyle,
   FrameInfo,
   DisplayInfo,
+  WindowInfo,
   Color,
   Drag,
   Kind,
@@ -2221,8 +2223,14 @@ export function createEditor() {
   const [showSource, setShowSource] = createSignal(false);
   const [sources, setSources] = createSignal<{
     displays: DisplayInfo[];
-    windows: { hwnd: number; title: string; w: number; h: number }[];
+    windows: WindowInfo[];
   }>({ displays: [], windows: [] });
+  // Picking a window by pointing at it: the windows on the display the overlay covers
+  // (front to back) and that display's origin. `null` outside that step.
+  const [windowPick, setWindowPick] = createSignal<{
+    windows: PickableWindow[];
+    origin: { x: number; y: number };
+  } | null>(null);
 
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
@@ -2253,21 +2261,66 @@ export function createEditor() {
       // No display enumeration (older backend): fall straight through to the editor's monitor.
       setStatus(`Falling back to the editor's display: ${String(e)}`);
     }
-    let windows: { hwnd: number; title: string; w: number; h: number }[] = [];
+    let windows: WindowInfo[] = [];
     if (mode === "window" || displays.length > 1) {
       try {
-        windows = await invoke<{ hwnd: number; title: string; w: number; h: number }[]>("list_windows");
+        windows = await invoke<WindowInfo[]>("list_windows");
       } catch {
         /* window capture unavailable: displays only */
+      }
+    }
+    setSources({ displays, windows });
+    if (mode === "window") {
+      // Point at the window to record, on the main display; the list (below) remains for
+      // a window that is covered, on another display, or from an engine without positions.
+      const home = displays.find((d) => d.primary) ?? displays[0];
+      const onHome = home
+        ? windows.filter(
+            (w): w is PickableWindow =>
+              typeof w.x === "number" &&
+              typeof w.y === "number" &&
+              w.x < home.x + home.w &&
+              w.x + w.w > home.x &&
+              w.y < home.y + home.h &&
+              w.y + w.h > home.y,
+          )
+        : [];
+      if (home && onHome.length > 0) {
+        setWindowPick({ windows: onHome, origin: { x: home.x, y: home.y } });
+        await beginRecordWith({ kind: "display", name: home.name, label: `Display ${home.index}` });
+        return;
       }
     }
     if (mode !== "window" && displays.length <= 1) {
       await beginRecordWith({ kind: "display", name: displays[0]?.name ?? "", label: "Display 1" });
       return;
     }
-    setSources({ displays, windows });
     setSourceTab(mode === "window" && windows.length > 0 ? "window" : "display");
     setShowSource(true);
+  };
+
+  /** Leave the point-at-a-window overlay, restoring the editor window. */
+  const leaveWindowPick = async () => {
+    setWindowPick(null);
+    setRecordPhase("idle");
+    setBackdrop(null);
+    setRecordTarget(null);
+    await invoke("cancel_record_flow").catch(() => undefined);
+  };
+  /** The window the user pointed at: record it. */
+  const pickWindow = async (w: PickableWindow) => {
+    await leaveWindowPick();
+    await beginRecordWith({ kind: "window", hwnd: w.hwnd, label: w.title });
+  };
+  /** The plain list instead of the overlay. */
+  const listWindowsInstead = async () => {
+    await leaveWindowPick();
+    setSourceTab("window");
+    setShowSource(true);
+  };
+  const cancelWindowPick = async () => {
+    await leaveWindowPick();
+    setStatus("Recording cancelled");
   };
 
   const beginRecordWith = async (target: RecordTarget) => {
@@ -2296,6 +2349,7 @@ export function createEditor() {
       setBackdrop(shot || null);
     } catch (e) {
       setRecordPhase("idle");
+      setWindowPick(null);
       fail("Could not start", e);
     }
   };
@@ -4200,6 +4254,10 @@ export function createEditor() {
     beginRecordWith,
     recordTarget,
     onRecordFinished,
+    windowPick,
+    pickWindow,
+    listWindowsInstead,
+    cancelWindowPick,
     onRecordCancel,
     onRecordFailed,
     selectedZoom,

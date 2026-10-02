@@ -256,6 +256,11 @@ export interface DisplayInfo {
 export interface WindowInfo {
   hwnd: number;
   title: string;
+  /** The client area's top-left corner on the virtual desktop, in physical pixels (absent
+   *  from older engines, which then only offer the list). */
+  x?: number;
+  y?: number;
+  /** Client size in physical pixels. */
   w: number;
   h: number;
 }

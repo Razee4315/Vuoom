@@ -149,9 +149,9 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       ];
     case "list_windows":
       return [
-        { hwnd: 1001, title: "Demo Editor - Visual Studio Code", w: 1280, h: 800 },
-        { hwnd: 1002, title: "Vuoom Docs - Google Chrome", w: 1440, h: 900 },
-        { hwnd: 1003, title: "Terminal - pwsh", w: 1100, h: 700 },
+        { hwnd: 1001, title: "Demo Editor - Visual Studio Code", x: 60, y: 60, w: 1280, h: 800 },
+        { hwnd: 1002, title: "Vuoom Docs - Google Chrome", x: 420, y: 140, w: 1440, h: 900 },
+        { hwnd: 1003, title: "Terminal - pwsh", x: 2100, y: 200, w: 1100, h: 700 },
       ];
     case "update_text":
       return mockUpdateText(m, a);

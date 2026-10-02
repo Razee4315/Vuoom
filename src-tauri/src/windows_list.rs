@@ -22,6 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub struct WindowInfo {
     pub hwnd: isize,
     pub title: String,
+    /// The client area's top-left corner on the virtual desktop, in physical px: lets the
+    /// record overlay light up the window under the pointer.
+    pub x: i32,
+    pub y: i32,
     /// Client size in physical px.
     pub w: u32,
     pub h: u32,
@@ -145,9 +149,17 @@ unsafe extern "system" fn enum_callback(
         // Tiny windows (launchers, tooltips) make poor demo subjects.
         return true.into();
     }
+    let mut origin = windows::Win32::Foundation::POINT {
+        x: rc.left,
+        y: rc.top,
+    };
+    // See `client_screen_rect`: the BOOL carries no action here.
+    let _ = unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut origin) };
     list.push(WindowInfo {
         hwnd: hwnd.0 as isize,
         title,
+        x: origin.x,
+        y: origin.y,
         w,
         h,
     });

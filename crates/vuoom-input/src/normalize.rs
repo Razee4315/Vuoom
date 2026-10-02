@@ -59,7 +59,7 @@ pub fn normalize(
             delta: f64::from(d),
         }),
         RawEventKind::KeyDown(_) => Some(InputEvent::KeyType { t }),
-        RawEventKind::ButtonUp(_) | RawEventKind::KeyUp(_) => None,
+        RawEventKind::ButtonUp(_) | RawEventKind::KeyUp(_) | RawEventKind::Cursor(_) => None,
     }
 }
 
@@ -93,7 +93,8 @@ pub fn zoom_marks(
             RawEventKind::Move
             | RawEventKind::ButtonDown(_)
             | RawEventKind::ButtonUp(_)
-            | RawEventKind::Scroll(_) => {
+            | RawEventKind::Scroll(_)
+            | RawEventKind::Cursor(_) => {
                 cx = e.x;
                 cy = e.y;
             }

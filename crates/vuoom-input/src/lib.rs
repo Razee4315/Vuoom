@@ -7,6 +7,8 @@
 
 mod chords;
 mod clock;
+#[cfg(windows)]
+mod cursor_watch;
 mod dpi;
 mod event;
 mod keys;
@@ -19,7 +21,7 @@ pub use chords::ChordWatch;
 pub use chords::{set_chords, stop_chord, zoom_chord, Chord, Hotkey};
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
-pub use event::{MouseButton, RawEvent, RawEventKind};
+pub use event::{CursorKind, MouseButton, RawEvent, RawEventKind};
 pub use keys::{is_standalone, key_name, modifier, Modifier};
 pub use normalize::{normalize, zoom_marks, CaptureRegion};
 #[cfg(windows)]

@@ -38,8 +38,9 @@ use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
     AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
-    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
-    SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, PointerShape, PointerShapeAt, Project, Rect,
+    Shadow, SourceInfo, SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig,
+    ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -1240,6 +1241,10 @@ impl Session {
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(CursorStyle::default);
+        // The real pointer's shape through the take (arrow, text beam, hand...), for the
+        // re-drawn pointer to follow.
+        project.pointer_shapes =
+            extract_pointer_shapes(&raw_events, self.clock, session.start_qpc, duration);
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -1379,12 +1384,13 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
         // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
-        self.export_gif_impl(out_path, fps, width, quality, progress)
+        self.export_gif_impl(out_path, fps, width, quality, dither, progress)
             .map_err(|e| {
                 tracing::error!("GIF export failed: {e}");
                 e
@@ -1397,6 +1403,7 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Clear any stale cancel request from a prior export before we begin (see
@@ -1436,6 +1443,7 @@ impl Session {
             fps,
             width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
 
@@ -1644,7 +1652,13 @@ impl Session {
     /// Windows must be contiguous: the encoder delta-compresses consecutive frames, so a
     /// strided sample would see artificially large frame-to-frame changes and wildly
     /// overestimate. A 1-frame encode per window isolates keyframe cost from delta cost.
-    pub fn estimate_gif(&self, fps: u32, width: Option<u32>, quality: u8) -> Result<u64, String> {
+    pub fn estimate_gif(
+        &self,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        dither: bool,
+    ) -> Result<u64, String> {
         /// Sample windows can still miss the clip's busiest stretch; nudge up.
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
@@ -1676,6 +1690,7 @@ impl Session {
             fps,
             width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
         let mut windows: Vec<(u64, u64, usize)> = Vec::with_capacity(starts.len());
@@ -3730,6 +3745,43 @@ fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
     is(vuoom_input::zoom_chord()) || is(vuoom_input::stop_chord())
 }
 
+/// The changes of the real pointer's shape in the raw log, as source times: one entry per
+/// change (a shape repeated in a row is one), clamped into the take. A pointer an app drew
+/// itself is shown as the arrow.
+fn extract_pointer_shapes(
+    raw: &[RawEvent],
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<PointerShapeAt> {
+    use vuoom_input::{CursorKind, RawEventKind};
+
+    let mut shapes: Vec<PointerShapeAt> = Vec::new();
+    for e in raw {
+        let RawEventKind::Cursor(kind) = e.kind else {
+            continue;
+        };
+        let shape = match kind {
+            CursorKind::Arrow | CursorKind::Other => PointerShape::Arrow,
+            CursorKind::Text => PointerShape::Text,
+            CursorKind::Hand => PointerShape::Hand,
+            CursorKind::Cross => PointerShape::Cross,
+            CursorKind::ResizeH => PointerShape::ResizeH,
+            CursorKind::ResizeV => PointerShape::ResizeV,
+            CursorKind::ResizeNwse => PointerShape::ResizeNwse,
+            CursorKind::ResizeNesw => PointerShape::ResizeNesw,
+            CursorKind::Move => PointerShape::Move,
+        };
+        let t = clock.seconds_between(start_qpc, e.qpc).clamp(0.0, duration);
+        // The arrow is what a take starts with, and a repeat changes nothing.
+        let current = shapes.last().map_or(PointerShape::Arrow, |s| s.shape);
+        if shape != current {
+            shapes.push(PointerShapeAt { t, shape });
+        }
+    }
+    shapes
+}
+
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
 /// standalone special keys (Enter, Esc, F-keys, arrows). Auto-repeat is coalesced. Vuoom's
 /// own control chords (see `is_app_control_chord`) are dropped, they're app control, not
@@ -4687,6 +4739,34 @@ mod tests {
         assert_eq!(info.bg_kind, "gradient");
         assert!((info.padding - 0.05).abs() < 1e-9);
         assert!((info.shadow - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pointer_shape_changes_are_kept_once_each() {
+        use vuoom_input::{CursorKind, RawEventKind};
+        let clock = Clock::new();
+        let f = clock.freq();
+        let at = |t: f64, kind: CursorKind| rawk((t * f as f64) as i64, RawEventKind::Cursor(kind));
+        let raw = [
+            at(0.1, CursorKind::Arrow), // what a take starts with: nothing to note
+            at(1.0, CursorKind::Text),
+            at(1.2, CursorKind::Text), // a repeat
+            rawk((1.5 * f as f64) as i64, RawEventKind::KeyDown(0x41)),
+            at(2.0, CursorKind::Other), // an app's own pointer: drawn as the arrow
+            at(3.0, CursorKind::Hand),
+            at(99.0, CursorKind::Move), // past the end: clamped onto it
+        ];
+        let shapes = extract_pointer_shapes(&raw, clock, 0, 10.0);
+        let got: Vec<PointerShape> = shapes.iter().map(|s| s.shape).collect();
+        let want = [
+            PointerShape::Text,
+            PointerShape::Arrow,
+            PointerShape::Hand,
+            PointerShape::Move,
+        ];
+        assert_eq!(got, want);
+        assert!((shapes[0].t - 1.0).abs() < 1e-6);
+        assert!((shapes[3].t - 10.0).abs() < 1e-9);
     }
 
     #[test]

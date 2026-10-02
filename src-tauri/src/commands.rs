@@ -950,10 +950,12 @@ pub async fn export_gif(
     fps: u32,
     width: Option<u32>,
     quality: u8,
+    dither: Option<bool>,
 ) -> Result<(), String> {
+    let dither = dither.unwrap_or(true);
     engine
         .session()?
-        .export_gif(path, fps, width, quality, &|done, total| {
+        .export_gif(path, fps, width, quality, dither, &|done, total| {
             let _ = app.emit("export-progress", ExportProgress { done, total });
         })
 }
@@ -1114,8 +1116,10 @@ pub async fn estimate_gif(
     fps: u32,
     width: Option<u32>,
     quality: u8,
+    dither: Option<bool>,
 ) -> Result<u64, String> {
-    engine.session()?.estimate_gif(fps, width, quality)
+    let dither = dither.unwrap_or(true);
+    engine.session()?.estimate_gif(fps, width, quality, dither)
 }
 
 /// Put an exported file (GIF or MP4) on the clipboard as CF_HDROP, so pasting into Slack /

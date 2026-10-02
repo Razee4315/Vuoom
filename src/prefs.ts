@@ -121,6 +121,8 @@ export const prefs = {
   previewRate: persisted<number>("preview-rate", 1),
   /** Spoken language for new captions: an ISO 639-1 code, or "auto" to detect it. */
   captionLanguage: persisted<string>("caption-language", "auto"),
+  /** Dither GIF gradients (backdrops, shadows, the webcam) so they don't band. */
+  gifDither: persisted<boolean>("gif-dither", true),
   /** Last export settings per format, restored the next time the dialog opens. */
   exportGif: persisted<ExportSettings | null>("export-gif", null),
   exportMp4: persisted<ExportSettings | null>("export-mp4", null),

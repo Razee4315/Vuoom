@@ -65,6 +65,10 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         if let Some(kind) = kind {
             emit(kind, info.pt.x, info.pt.y);
         }
+        // The pointer changes shape as it moves over things: note each change.
+        if let Some(shape) = crate::cursor_watch::changed() {
+            emit(RawEventKind::Cursor(shape), info.pt.x, info.pt.y);
+        }
     }
     CallNextHookEx(None, code, wparam, lparam)
 }

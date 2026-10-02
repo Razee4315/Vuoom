@@ -8,6 +8,14 @@
 //! delay on the previous frame. On mostly-static product/UI clips this is typically
 //! 5-10× smaller than full-frame encoding at identical visual quality.
 //!
+//! 255 colors can't hold a smooth gradient: a backdrop, a shadow or a webcam picture comes
+//! out in visible bands. So pixels are dithered before they are matched to the palette, with
+//! an ORDERED pattern (a fixed threshold per pixel position, the same in every frame):
+//! unlike error diffusion it doesn't crawl from frame to frame, so a pixel that didn't
+//! change still gets the same index and the delta frames stay small. Only pixels the
+//! palette can't show as they are get dithered: a color it holds (interface chrome, text,
+//! anything flat) is matched as it is, so flat areas stay perfectly flat.
+//!
 //! `gif`/`color_quant` are MIT/Apache, so unlike gifski they are safely *linked*.
 //! See `docs/06-Export.md`.
 
@@ -29,6 +37,33 @@ const PALETTE_SAMPLE_PIXELS: usize = 1 << 18;
 /// Frames the streaming encoder composites to train the global palette, enough spread for
 /// a representative palette without holding the whole clip in RAM.
 const PALETTE_SAMPLE_FRAMES: usize = 48;
+
+/// The 8x8 Bayer matrix: every position's rank (0..=63) in an evenly spread ordering.
+const BAYER: [[u8; 8]; 8] = [
+    [0, 32, 8, 40, 2, 34, 10, 42],
+    [48, 16, 56, 24, 50, 18, 58, 26],
+    [12, 44, 4, 36, 14, 46, 6, 38],
+    [60, 28, 52, 20, 62, 30, 54, 22],
+    [3, 35, 11, 43, 1, 33, 9, 41],
+    [51, 19, 59, 27, 49, 17, 57, 25],
+    [15, 47, 7, 39, 13, 45, 5, 37],
+    [63, 31, 55, 23, 61, 29, 53, 21],
+];
+/// The most a channel is nudged either way before matching (out of 255). About half the
+/// gap between neighboring palette colors along a gradient: enough to blend one band into
+/// the next, too little to reach a far-off color from a flat one.
+const DITHER_SPREAD: i32 = 9;
+/// A pixel whose nearest palette color is within this much of it on every channel is shown
+/// as that color, undithered: the palette holds it (to within the quantizer's own rounding).
+const DITHER_MIN_ERROR: i32 = 3;
+
+/// The nudge for the pixel at (`x`, `y`): between -[`DITHER_SPREAD`] and +[`DITHER_SPREAD`],
+/// averaging zero over any 8x8 block, and the same in every frame.
+fn dither_offset(x: usize, y: usize) -> i32 {
+    let rank = i32::from(BAYER[y & 7][x & 7]);
+    // rank 0..=63 -> -63..=63 in steps of 2, then scaled to the spread.
+    (rank * 2 - 63) * DITHER_SPREAD / 63
+}
 
 /// Box-filter downscale to `target_w`, preserving aspect ratio. Never upscales: returns a
 /// clone when `target_w` is zero or already ≥ the source width.
@@ -91,6 +126,8 @@ pub fn frame_delay_cs(fps: u32) -> u16 {
 /// identical indices, which is what makes index-level frame diffing exact.
 struct GlobalQuantizer {
     quant: NeuQuant,
+    /// The palette's colors as RGB triples, by index.
+    colors: Vec<u8>,
     /// `1 << 24` entries keyed by RGB; -1 = unseen, else the palette index.
     cache: Vec<i16>,
 }
@@ -112,15 +149,20 @@ impl GlobalQuantizer {
             }
             seen += n;
         }
+        Self::new(NeuQuant::new(speed.clamp(1, 30), PALETTE_COLORS, &samples))
+    }
+
+    fn new(quant: NeuQuant) -> Self {
         Self {
-            quant: NeuQuant::new(speed.clamp(1, 30), PALETTE_COLORS, &samples),
+            colors: quant.color_map_rgb(),
+            quant,
             cache: vec![-1i16; 1 << 24],
         }
     }
 
     /// The 256-entry global palette as RGB triples (slot 255 is the transparent slot).
     fn palette(&self) -> Vec<u8> {
-        let mut p = self.quant.color_map_rgb();
+        let mut p = self.colors.clone();
         p.resize(256 * 3, 0);
         p
     }
@@ -136,13 +178,40 @@ impl GlobalQuantizer {
         i as u8
     }
 
-    /// Quantize a frame to global-palette indices (one byte per pixel).
-    fn index_frame(&mut self, img: &RgbaImage) -> Vec<u8> {
+    /// Quantize a frame to global-palette indices (one byte per pixel), dithering it first
+    /// when `dither` is on.
+    fn index_frame(&mut self, img: &RgbaImage, dither: bool) -> Vec<u8> {
         let mut out = Vec::with_capacity(img.pixels.len() / 4);
-        for px in img.pixels.as_chunks::<4>().0 {
-            out.push(self.index(px[0], px[1], px[2]));
+        let (pixels, _) = img.pixels.as_chunks::<4>();
+        if !dither {
+            for px in pixels {
+                out.push(self.index(px[0], px[1], px[2]));
+            }
+            return out;
+        }
+        let nudge = |c: u8, by: i32| (i32::from(c) + by).clamp(0, 255) as u8;
+        for (y, row) in pixels.chunks(img.width.max(1) as usize).enumerate() {
+            for (x, px) in row.iter().enumerate() {
+                let nearest = self.index(px[0], px[1], px[2]);
+                if self.holds(nearest, px) {
+                    out.push(nearest);
+                    continue;
+                }
+                let by = dither_offset(x, y);
+                out.push(self.index(nudge(px[0], by), nudge(px[1], by), nudge(px[2], by)));
+            }
         }
         out
+    }
+
+    /// Whether palette color `index` is `px` to within [`DITHER_MIN_ERROR`] on every channel.
+    fn holds(&self, index: u8, px: &[u8; 4]) -> bool {
+        let at = usize::from(index) * 3;
+        let Some(color) = self.colors.get(at..at + 3) else {
+            return true;
+        };
+        let close = |a: u8, b: u8| (i32::from(a) - i32::from(b)).abs() < DITHER_MIN_ERROR;
+        close(color[0], px[0]) && close(color[1], px[1]) && close(color[2], px[2])
     }
 }
 
@@ -246,7 +315,7 @@ pub fn export_gif_native(
         .map_err(|e| EncodeError::Gif(e.to_string()))?;
 
     let delay = u32::from(frame_delay_cs(settings.fps));
-    let mut prev = quant.index_frame(&scaled[0]);
+    let mut prev = quant.index_frame(&scaled[0], settings.dither);
     // First frame is a full keyframe (it uses no transparent pixels: real colors only
     // ever map to indices 0..=254).
     let mut pending = PendingFrame {
@@ -259,7 +328,7 @@ pub fn export_gif_native(
     };
 
     for img in &scaled[1..] {
-        let cur = quant.index_frame(img);
+        let cur = quant.index_frame(img, settings.dither);
         match diff_bbox(&prev, &cur, wu, hu) {
             // Identical frame: hold the pending frame on screen longer instead.
             None => pending.delay_cs += delay,
@@ -370,7 +439,7 @@ where
     if first.width != w || first.height != h {
         return Err(EncodeError::Gif("frame dimensions differ".into()));
     }
-    let mut prev = quant.index_frame(&first);
+    let mut prev = quant.index_frame(&first, settings.dither);
     drop(first);
     let mut pending = PendingFrame {
         left: 0,
@@ -388,7 +457,7 @@ where
         if img.width != w || img.height != h {
             return Err(EncodeError::Gif("frame dimensions differ".into()));
         }
-        let cur = quant.index_frame(&img);
+        let cur = quant.index_frame(&img, settings.dither);
         match diff_bbox(&prev, &cur, wu, hu) {
             // Identical frame: hold the pending frame on screen longer instead.
             None => pending.delay_cs += delay,
@@ -448,6 +517,68 @@ mod tests {
             frames.push(f.clone());
         }
         (has_global, frames)
+    }
+
+    #[test]
+    fn the_dither_pattern_is_balanced_and_bounded() {
+        let mut sum = 0;
+        for y in 0..8 {
+            for x in 0..8 {
+                let o = dither_offset(x, y);
+                assert!(o.abs() <= DITHER_SPREAD);
+                // The same in the next tile over: it depends on position alone.
+                assert_eq!(o, dither_offset(x + 8, y + 16));
+                sum += o;
+            }
+        }
+        assert_eq!(sum, 0, "the nudges must not brighten or darken the picture");
+    }
+
+    /// A `w`x`h` picture ramping from black to a mid blue across its width.
+    fn ramp(w: u32, h: u32) -> RgbaImage {
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..h {
+            for x in 0..w {
+                let v = (x * 255 / (w - 1)) as u8;
+                px.extend_from_slice(&[v / 4, v / 2, v, 255]);
+            }
+        }
+        RgbaImage::new(w, h, px)
+    }
+
+    #[test]
+    fn dithering_blends_a_gradient_and_leaves_flat_color_alone() {
+        // A smooth ramp with far more shades than a 16-color palette holds.
+        let img = ramp(512, 16);
+        let mut quant = GlobalQuantizer::new(NeuQuant::new(10, 16, &img.pixels));
+        let columns_that_vary = |idx: &[u8]| {
+            (0..512usize)
+                .filter(|&x| (1..16usize).any(|y| idx[y * 512 + x] != idx[x]))
+                .count()
+        };
+        // Undithered, a column is one color top to bottom: hard-edged bands.
+        let plain = quant.index_frame(&img, false);
+        assert_eq!(columns_that_vary(&plain), 0);
+        // Dithered, the columns between two palette colors mix them.
+        let dithered = quant.index_frame(&img, true);
+        assert!(columns_that_vary(&dithered) > 100);
+        // And it is the same pattern every time (so unchanged pixels stay unchanged).
+        assert_eq!(dithered, quant.index_frame(&img, true));
+
+        // A color the palette holds is never dithered, whatever lies near it: here every
+        // shade of the ramp's first 16 columns has its own palette entry.
+        let mut quant = GlobalQuantizer::new(NeuQuant::new(1, 16, &img.pixels));
+        for (i, v) in (0u8..16).enumerate() {
+            quant.colors[i * 3..i * 3 + 3].copy_from_slice(&[v / 4, v / 2, v]);
+        }
+        for v in 0u8..16 {
+            let px = [v / 4, v / 2, v, 255];
+            assert!(quant.holds(v, &px));
+            // Not a color three or more away on a channel.
+            assert!(!quant.holds(v, &[v / 4, v / 2, v + 3, 255]));
+        }
+        // An index past the palette is never a reason to dither.
+        assert!(quant.holds(200, &[1, 2, 3, 255]));
     }
 
     #[test]

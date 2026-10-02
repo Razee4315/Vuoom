@@ -13,6 +13,26 @@ pub enum MouseButton {
     X2,
 }
 
+/// Which pointer the system is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorKind {
+    Arrow,
+    /// The I-beam over text.
+    Text,
+    /// The pointing hand over a link.
+    Hand,
+    Cross,
+    /// Resize arrows: left-right, up-down, and the two diagonals.
+    ResizeH,
+    ResizeV,
+    ResizeNwse,
+    ResizeNesw,
+    /// The four-way move arrow.
+    Move,
+    /// A pointer an app drew itself (or one not listed here).
+    Other,
+}
+
 /// What a raw event represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawEventKind {
@@ -25,6 +45,8 @@ pub enum RawEventKind {
     KeyDown(u16),
     /// Key released (Win32 virtual-key code).
     KeyUp(u16),
+    /// The pointer changed to this kind (at the event's position).
+    Cursor(CursorKind),
 }
 
 /// A single raw input event: a QPC timestamp, physical coordinates, and what happened.

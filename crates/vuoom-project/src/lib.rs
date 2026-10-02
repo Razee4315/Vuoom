@@ -22,7 +22,7 @@ pub use audio::{AudioKind, AudioTrack};
 pub use camera::{CameraOverlay, CameraShape, Corner};
 pub use captions::{caption_at, Caption, CaptionPosition, CaptionStyle};
 pub use color::{Color, Rect};
-pub use cursor::CursorStyle;
+pub use cursor::{pointer_shape_at, CursorStyle, PointerShape, PointerShapeAt};
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
 pub use timeline::{output_duration, output_segments, output_to_source, source_to_output};
 pub use timing::TimeRange;
@@ -119,6 +119,11 @@ pub struct Project {
     /// Draw a clean, smoothed pointer from the input log (`None` = no re-drawn pointer).
     #[serde(default)]
     pub cursor: Option<CursorStyle>,
+    /// Every change of the real pointer's shape during the take, in time order (arrow to
+    /// text beam to hand...), so the re-drawn pointer changes with it. Empty for takes
+    /// made before this was recorded: an arrow throughout.
+    #[serde(default)]
+    pub pointer_shapes: Vec<PointerShapeAt>,
     /// Blur the picture along the camera's movement during zooms and pans, like a real
     /// camera's shutter.
     #[serde(default = "yes")]
@@ -209,6 +214,7 @@ impl Project {
             audio: Vec::new(),
             pointer_captured: true,
             cursor: None,
+            pointer_shapes: Vec::new(),
             motion_blur: true,
             camera: None,
             captions: Vec::new(),

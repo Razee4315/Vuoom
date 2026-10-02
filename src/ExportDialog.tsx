@@ -89,7 +89,7 @@ export function ExportDialog(props: {
   let estimateTimer: number | undefined;
   let estimateGen = 0;
   createEffect(() => {
-    const args = { fps: fps(), width: outWidth(), quality: quality() };
+    const args = { fps: fps(), width: outWidth(), quality: quality(), dither: prefs.gifDither() };
     setEstimate(null);
     clearTimeout(estimateTimer);
     const gen = ++estimateGen;
@@ -195,6 +195,7 @@ export function ExportDialog(props: {
             fps: fps(),
             width: w,
             quality: q,
+            dither: prefs.gifDither(),
           }).catch(() => Number.POSITIVE_INFINITY);
           if (est > 0 && est <= budget) {
             setWidth(w);
@@ -242,7 +243,7 @@ export function ExportDialog(props: {
           fps: fps(),
           width: outWidth(),
           quality: quality(),
-          ...(f === "mp4" ? { audio: audioOn() } : {}),
+          ...(f === "mp4" ? { audio: audioOn() } : { dither: prefs.gifDither() }),
         });
         setOutPath(path);
         setPhase("done");
@@ -482,6 +483,16 @@ export function ExportDialog(props: {
               </Show>
             </Show>
             <Show when={format() === "gif"}>
+              <Field
+                label="Smooth gradients"
+                hint="Dithers backdrops, shadows and the webcam so they don't show bands. Off makes a slightly smaller file"
+              >
+                <Switch
+                  checked={prefs.gifDither()}
+                  label="Smooth gradients"
+                  onChange={(v) => prefs.gifDither.set(v)}
+                />
+              </Field>
               <div class="export-fit">
                 <Icon name="target" size={14} />
                 <span>Fit under</span>

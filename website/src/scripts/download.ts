@@ -8,7 +8,29 @@ interface GhAsset {
   browser_download_url: string;
 }
 
+/** Visitors who can't run the installer here (a phone, a Mac) get a way to keep the page. */
+function initElsewhere() {
+  const note = document.querySelector<HTMLElement>('[data-not-windows]');
+  if (!note) return;
+  const platform =
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+    navigator.userAgent;
+  if (/win/i.test(platform)) return;
+  note.hidden = false;
+  const copy = note.querySelector<HTMLButtonElement>('[data-copy-link]');
+  copy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      copy.textContent = copy.dataset.copied ?? 'Copied';
+    } catch {
+      // Clipboard unavailable (an insecure context, a denied permission): show the link.
+      copy.textContent = location.href;
+    }
+  });
+}
+
 export async function initDownload() {
+  initElsewhere();
   const links = document.querySelectorAll<HTMLAnchorElement>('[data-dl]');
   if (!links.length) return;
   try {

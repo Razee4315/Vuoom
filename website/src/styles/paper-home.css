@@ -55,7 +55,7 @@
 .scene-tabs { display:flex; border-bottom:1px solid var(--rule); gap:16px; }
 .scene-tabs button { display:flex; gap:5px; align-items:center; padding:0 0 12px; font-size:13px; color:var(--ink-2); border-bottom:3px solid transparent; }
 .scene-tabs button span { font:9px var(--font-mono); }
-.scene-tabs button[aria-selected=true] { border-color:var(--rec); color:var(--rec); font-weight:700; }
+.scene-tabs button[aria-selected=true] { border-color:var(--rec); color:var(--rec-ink); font-weight:700; }
 .scene-number { display:block; font:500 58px var(--font-display); color:var(--rec); margin-top:25px; }
 .scene-copy h3 { font:700 29px/1.12 var(--font-display); letter-spacing:-.03em; margin:8px 0 18px; }
 .scene-copy p { font-size:14px; line-height:1.8; color:var(--ink-2); margin-bottom:24px; }

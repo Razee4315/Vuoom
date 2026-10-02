@@ -370,7 +370,8 @@ export function createEditor() {
     if (mins < 60) return `${mins} min ago`;
     const hrs = Math.round(mins / 60);
     if (hrs < 24) return `${hrs} hr ago`;
-    return `${Math.round(hrs / 24)} days ago`;
+    const days = Math.round(hrs / 24);
+    return days === 1 ? "yesterday" : `${days} days ago`;
   };
 
   // ── timeline hover affordances ───────────────────────────────────────────────
@@ -2052,7 +2053,7 @@ export function createEditor() {
     const realId = await ensureRealId(s.id);
     if (realId !== s.id) setSelected({ kind: s.kind, id: realId });
     try {
-      const id = await invoke<number>("duplicate_annotation", { id: s.id });
+      const id = await invoke<number>("duplicate_annotation", { id: realId });
       await refresh();
       await pushSeek(playhead());
       clearExtra();

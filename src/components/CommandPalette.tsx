@@ -61,13 +61,23 @@ export default function CommandPalette() {
     { id: "recover", label: "Recover last session", group: "Project", icon: "history", run: () => void ed.onRecover(), when: () => ed.recoverable() !== null },
     { id: "play", label: "Play / pause", group: "Playback", icon: "play", kbd: "Space", run: ed.togglePlay, when: clip },
     { id: "start", label: "Go to start", group: "Playback", icon: "toStart", kbd: "Home", run: ed.restart, when: clip },
-    { id: "loop", label: "Toggle loop", group: "Playback", icon: "loop", run: () => ed.setLooping(!ed.looping()), when: clip },
-    { id: "zoom", label: "Add zoom at playhead", group: "Edit", icon: "zoomIn", kbd: "Z", run: () => void ed.addZoomAt(), when: clip },
+    {
+      id: "loop",
+      label: "Toggle loop",
+      group: "Playback",
+      icon: "loop",
+      run: () => {
+        ed.setLooping(!ed.looping());
+        prefs.loop.set(ed.looping());
+      },
+      when: clip,
+    },
+    { id: "zoom", label: "Add zoom at playhead", group: "Edit", icon: "zoomIn", run: () => void ed.addZoomAt(), when: clip },
     { id: "speed", label: "Add speed-up at playhead", group: "Edit", icon: "speed", kbd: "X", run: () => void ed.addSpeedAtPlayhead(), when: clip },
     { id: "cut", label: "Cut at playhead", group: "Edit", icon: "cut", kbd: "C", run: () => void ed.addCutAtPlayhead(), when: clip },
     { id: "auto", label: "Auto zooms from clicks", group: "Edit", icon: "sparkle", run: () => void ed.planZoomAuto(), when: clip },
     { id: "skim", label: "Toggle skim idle", group: "Edit", icon: "speed", run: () => ed.toggleSkim(), when: clip },
-    { id: "captions", label: "Make captions from the narration", group: "Captions", icon: "captions", run: () => void ed.captions.generate(), when: clip },
+    { id: "captions", label: "Make captions from the narration", group: "Captions", icon: "captions", run: () => void ed.captions.generate(), when: () => clip() && ed.audio.hasAudio() },
     { id: "caption-add", label: "Add caption at playhead", group: "Captions", icon: "plus", run: () => void ed.addCaptionAtPlayhead(), when: clip },
     { id: "caption-srt", label: "Save captions as .srt…", group: "Captions", icon: "download", run: () => void ed.captions.saveSrt(), when: () => ed.captions.list().length > 0 },
     { id: "clicks", label: "Toggle click ripples", group: "Edit", icon: "clicks", run: () => ed.toggleClicks(), when: clip },

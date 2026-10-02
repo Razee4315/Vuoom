@@ -440,6 +440,28 @@ pub struct Session {
     captions_cancel: Arc<AtomicBool>,
 }
 
+/// Where an export is written while it is being encoded: next to `out`, with `.part` before
+/// the extension (`demo.gif` -> `demo.part.gif`), so the extension still names the format.
+fn export_part_path(out: &Path) -> PathBuf {
+    let stem = out
+        .file_stem()
+        .map_or_else(|| "export".into(), |s| s.to_string_lossy().into_owned());
+    let name = match out.extension() {
+        Some(ext) => format!("{stem}.part.{}", ext.to_string_lossy()),
+        None => format!("{stem}.part"),
+    };
+    out.with_file_name(name)
+}
+
+/// Move a finished export from its `.part` file to the name the user chose, replacing a
+/// file already there. If the move fails the partial file is removed, not left behind.
+fn finish_export(part: &Path, out: &Path) -> Result<(), String> {
+    std::fs::rename(part, out).map_err(|e| {
+        let _ = std::fs::remove_file(part);
+        format!("could not write {}: {e}", out.display())
+    })
+}
+
 impl Session {
     /// Start the preview server and GPU compositor.
     ///
@@ -1395,14 +1417,28 @@ impl Session {
         dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Encoded into a sibling `.part` file and moved over `out_path` only once complete: a
+        // failed or cancelled export then never truncates or deletes a file that was already
+        // there (re-exporting over yesterday's GIF), and nothing half-written carries the
+        // final name.
+        let out = Path::new(&out_path);
+        let part = export_part_path(out);
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
         // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
-        self.export_gif_impl(out_path, fps, width, quality, dither, progress)
-            .map_err(|e| {
-                tracing::error!("GIF export failed: {e}");
-                e
-            })
+        self.export_gif_impl(
+            part.to_string_lossy().into_owned(),
+            fps,
+            width,
+            quality,
+            dither,
+            progress,
+        )
+        .and_then(|()| finish_export(&part, out))
+        .map_err(|e| {
+            tracing::error!("GIF export failed: {e}");
+            e
+        })
     }
 
     fn export_gif_impl(
@@ -1516,12 +1552,24 @@ impl Session {
         audio: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        // Written to a `.part` sibling first (see `export_gif`). The temporary name keeps
+        // the `.mp4` extension: the encoder picks its container from it.
+        let out = Path::new(&out_path);
+        let part = export_part_path(out);
         // Log every failure exit once at this seam (see `export_gif`).
-        self.export_mp4_impl(out_path, fps, width, quality, audio, progress)
-            .map_err(|e| {
-                tracing::error!("MP4 export failed: {e}");
-                e
-            })
+        self.export_mp4_impl(
+            part.to_string_lossy().into_owned(),
+            fps,
+            width,
+            quality,
+            audio,
+            progress,
+        )
+        .and_then(|()| finish_export(&part, out))
+        .map_err(|e| {
+            tracing::error!("MP4 export failed: {e}");
+            e
+        })
     }
 
     fn export_mp4_impl(

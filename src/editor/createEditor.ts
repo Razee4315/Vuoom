@@ -21,7 +21,7 @@ import { pushHotkeys } from "../hotkeys";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
-import { fmtBytes, friendlyError, hexRgb } from "../format";
+import { baseName, fmtBytes, friendlyError, hexRgb } from "../format";
 import { CROP_KEY, TOOL_KEYS } from "../shortcuts";
 import { zoomFrame } from "../geometry";
 import { layout, prefs, resetSections } from "../prefs";
@@ -261,7 +261,16 @@ export function createEditor() {
     try {
       const raw = localStorage.getItem(RECENTS_KEY);
       const list = raw ? (JSON.parse(raw) as Recent[]) : [];
-      setRecents(Array.isArray(list) ? list.filter((r) => r?.dir).slice(0, 6) : []);
+      // The name always comes from the folder: entries saved by older builds stored the
+      // whole path there.
+      setRecents(
+        Array.isArray(list)
+          ? list
+              .filter((r) => r?.dir)
+              .slice(0, 6)
+              .map((r) => ({ ...r, name: baseName(r.dir) }))
+          : [],
+      );
     } catch {
       setRecents([]);
     }
@@ -283,7 +292,7 @@ export function createEditor() {
     }
   };
   const rememberRecent = (dir: string, thumb?: string) => {
-    const name = dir.replace(/[/]+$/, "").split(/[/]/).pop() ?? dir;
+    const name = baseName(dir);
     const prev = recents().find((r) => r.dir === dir);
     const next = [
       { dir, name, ts: Date.now(), thumb: thumb ?? prev?.thumb },
@@ -313,8 +322,7 @@ export function createEditor() {
     setStatus("Opening project…");
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
-      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
       rememberRecent(dir);
       if (summary.warning) {

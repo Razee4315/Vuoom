@@ -106,6 +106,10 @@ const schema = [
   .media {
     max-width: 1180px;
   }
+  /* The stage only moves with motion on: without it the invitation would do nothing. */
+  :global(html:not(.motion)) .try {
+    display: none;
+  }
   .try {
     margin-top: var(--s-5);
     text-align: center;

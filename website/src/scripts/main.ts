@@ -19,4 +19,11 @@ const keys = initKeycaps();
 if (motion) {
   // The reveal layer brings GSAP with it: only pages with something to reveal pay for it.
   if (document.querySelector('[data-reveal]')) import('./motion').then((m) => m.initMotion());
+  // The auto-zoom stage plays its scripted take and answers Ctrl+Shift+Z.
+  const stage = document.querySelector<HTMLElement>('[data-stage]');
+  if (stage) {
+    import('./stage').then((m) =>
+      m.initStage(stage, { onZoom: (zoomIn) => { if (zoomIn) keys.press(); } }).start(),
+    );
+  }
 }

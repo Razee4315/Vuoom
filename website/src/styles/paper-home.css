@@ -1,6 +1,6 @@
 /* Paper Cut: homepage composition. Shared colors and typography live in tokens.css. */
 .paper-hero { position:relative; isolation:isolate; display:flex; flex-direction:column; justify-content:center; min-height:var(--hero-screen); padding-top:var(--hero-pad-top); padding-bottom:var(--hero-pad-bottom); }
-.hero-topline,.hero-bottom,.section-heading,.screen-caption { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.hero-topline,.section-heading,.screen-caption { display:flex; align-items:center; justify-content:space-between; gap:24px; }
 .eyebrow { font-family:var(--font-mono); font-size:11px; font-weight:600; letter-spacing:.09em; line-height:1.5; }
 .hero-topline { justify-content:center; text-align:center; }
 .hero-topline .eyebrow { display:flex; align-items:center; justify-content:center; gap:var(--s-2); }
@@ -40,10 +40,6 @@
 .sticker b { font:800 25px var(--font-display); }
 .collage-caption { font-size:8px; letter-spacing:.09em; display:block; padding-top:26px; }
 .demo-collage .collage-caption { text-align:center; }
-.hero-bottom { padding-top:25px; border-top:1px solid var(--rule); font:10px var(--font-mono); letter-spacing:.05em; }
-.hero-bottom > span:first-child { color:var(--ink-2); }
-.hero-bottom i { font-style:normal; color:var(--rec); margin:0 14px; }
-.hero-bottom > a { font-size:23px; }
 .torn { position:relative; }
 .torn:before { content:''; position:absolute; left:0; right:0; height:20px; top:-19px; background:inherit; clip-path:polygon(0 70%,2% 40%,4% 68%,6% 20%,8% 62%,10% 37%,12% 74%,14% 30%,16% 50%,18% 5%,20% 60%,22% 40%,24% 80%,26% 36%,28% 65%,30% 20%,32% 60%,34% 32%,36% 70%,38% 43%,40% 63%,42% 18%,44% 70%,46% 34%,48% 55%,50% 25%,52% 60%,54% 30%,56% 75%,58% 40%,60% 60%,62% 18%,64% 65%,66% 35%,68% 70%,70% 40%,72% 60%,74% 22%,76% 65%,78% 40%,80% 77%,82% 25%,84% 54%,86% 35%,88% 65%,90% 20%,92% 56%,94% 28%,96% 64%,98% 30%,100% 60%,100% 100%,0 100%); }
 .workflow-section { background:var(--mint); margin-top:40px; padding:80px 0 85px; }
@@ -112,7 +108,7 @@
 @keyframes timeline-pass { from { transform:translateX(-60px); } to { transform:translateX(180px); } }
 @keyframes wave-in { from { transform:scaleY(.5); } to { transform:scaleY(1); } }
 @media (max-width:1050px) { .workflow-copy { padding:20px; } .scene-tabs { gap:12px; } .zoom-section { gap:35px; } .open-note { gap:25px; flex-wrap:wrap; } .open-note > a { margin-left:0; } }
-@media (max-width:760px) { .paper-hero { padding-top:calc(var(--nav-h) + var(--s-7)); } .hero-layout { padding-block:var(--s-5) var(--s-6); } .demo-collage { margin-inline:var(--s-2) var(--s-4); } .hero-bottom { flex-wrap:wrap; justify-content:center; gap:14px; font-size:9px; } .hero-bottom > span:first-child { display:none; } .hero-bottom i { margin:0 5px; } .section-heading { align-items:flex-start; flex-direction:column; gap:22px; } .workflow-section,.toolkit-section { padding-block:55px; } .workbench { grid-template-columns:1fr; } .workflow-copy { border-right:0; border-bottom:2px solid var(--ink); padding:25px; } .scene-number { font-size:40px; margin-top:16px; } .scene-copy h3 { max-width:300px; } .scene-copy p { min-height:75px; } .workflow-screen { padding:10px; } .screen-caption { font-size:7px; padding:12px 4px 3px; } .zoom-section { grid-template-columns:1fr; padding-block:65px; gap:35px; } .toolkit-grid { grid-template-columns:1fr; } .tool-card { padding:25px; } .tool-card h3 { font-size:34px; } .export-card { flex-direction:column; align-items:flex-start; gap:10px; } .export-art { align-self:center; } .open-note { padding-block:55px; } .open-stamp { font-size:17px; padding:15px; } .faq-section { grid-template-columns:1fr; gap:35px; padding-block:60px 80px; } .final-cut { padding-top:55px; } .sticker { width:92px; height:92px; right:-12px; font-size:9px; } .sticker b { font-size:20px; } }
+@media (max-width:760px) { .paper-hero { padding-top:calc(var(--nav-h) + var(--s-7)); } .hero-layout { padding-block:var(--s-5) var(--s-6); } .demo-collage { margin-inline:var(--s-2) var(--s-4); } .section-heading { align-items:flex-start; flex-direction:column; gap:22px; } .workflow-section,.toolkit-section { padding-block:55px; } .workbench { grid-template-columns:1fr; } .workflow-copy { border-right:0; border-bottom:2px solid var(--ink); padding:25px; } .scene-number { font-size:40px; margin-top:16px; } .scene-copy h3 { max-width:300px; } .scene-copy p { min-height:75px; } .workflow-screen { padding:10px; } .screen-caption { font-size:7px; padding:12px 4px 3px; } .zoom-section { grid-template-columns:1fr; padding-block:65px; gap:35px; } .toolkit-grid { grid-template-columns:1fr; } .tool-card { padding:25px; } .tool-card h3 { font-size:34px; } .export-card { flex-direction:column; align-items:flex-start; gap:10px; } .export-art { align-self:center; } .open-note { padding-block:55px; } .open-stamp { font-size:17px; padding:15px; } .faq-section { grid-template-columns:1fr; gap:35px; padding-block:60px 80px; } .final-cut { padding-top:55px; } .sticker { width:92px; height:92px; right:-12px; font-size:9px; } .sticker b { font-size:20px; } }
 
 .zoom-copy { position:relative; }
 .focus-doodle { width:64px; height:64px; margin-bottom:20px; }

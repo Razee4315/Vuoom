@@ -2,7 +2,6 @@
 html { scroll-behavior:smooth; }
 html.menu-open { overflow:hidden; }
 html.motion [data-reveal] { opacity:1; transform:none; }
-html.motion [data-split] { visibility:visible; }
 body { background-image:radial-gradient(rgb(36 39 32 / .065) .6px,transparent .6px); background-size:5px 5px; }
 main { background:transparent !important; }
 .grain { opacity:.08; mix-blend-mode:multiply; }

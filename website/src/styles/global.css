@@ -314,9 +314,6 @@ html.motion [data-reveal] {
   opacity: 0;
   transform: translateY(24px);
 }
-html.motion [data-split] {
-  visibility: hidden;
-}
 
 /* ---------- grain overlay ---------- */
 .grain {

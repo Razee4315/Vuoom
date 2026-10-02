@@ -37,13 +37,6 @@ export function absolute(path = '/'): string {
   return new URL(url(path), import.meta.env.SITE).toString();
 }
 
-export const NAV = [
-  { href: '/features/', label: 'Features' },
-  { href: '/compare/', label: 'Compare' },
-  { href: '/guide/', label: 'Guide' },
-  { href: '/changelog/', label: 'Changelog' },
-] as const;
-
 /** The author's other projects, linked from the footer. GitHub Pages paths are case-sensitive. */
 export const MORE_BY = [
   { href: 'https://razee4315.github.io/', label: 'All projects' },

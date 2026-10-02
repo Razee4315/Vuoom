@@ -395,17 +395,29 @@ fn next_session_id() -> u128 {
     now.max(max_existing.saturating_add(1))
 }
 
+/// Whether a session dir holds any recorded frames. A take that failed to start, or was
+/// stopped before its first frame, leaves a dir with nothing in it.
+fn holds_frames(dir: &Path) -> bool {
+    fs::metadata(raw_path(dir)).is_ok_and(|m| m.len() > 0)
+}
+
 /// Create a fresh session subdir under the recovery root, pruning old ones first so at most
-/// [`KEEP_SESSIONS`] remain (counting the one being created). The newest existing session,
-/// the last recording's recoverable store, is always kept, so starting a new take never
-/// destroys it. Returns the new dir.
+/// [`KEEP_SESSIONS`] remain (counting the one being created). The newest existing session
+/// that holds frames, the last recording's recoverable store, is always kept, so starting a
+/// new take never destroys it. Returns the new dir.
 pub fn new_session_dir() -> PathBuf {
     let root = recovery_root();
     let _ = fs::create_dir_all(&root);
-    // Keep only the newest `KEEP_SESSIONS - 1` existing sessions; the dir we're about to
-    // create takes the last slot. Older ones (and their gigabytes) are removed now.
-    for old in session_dirs().into_iter().skip(KEEP_SESSIONS - 1) {
-        let _ = fs::remove_dir_all(&old);
+    // Keep only the newest `KEEP_SESSIONS - 1` existing sessions with frames; the dir we're
+    // about to create takes the last slot. Older ones (and their gigabytes) are removed
+    // now, and so is every empty one: a failed take must not push a real one out.
+    let mut kept = 0;
+    for old in session_dirs() {
+        if holds_frames(&old) && kept < KEEP_SESSIONS - 1 {
+            kept += 1;
+        } else {
+            let _ = fs::remove_dir_all(&old);
+        }
     }
     let dir = root.join(next_session_id().to_string());
     let _ = fs::create_dir_all(&dir);

@@ -201,17 +201,21 @@ pub fn enter_overlay(
                 .map_or((0, 0), |m| (m.position().x, m.position().y)),
         };
     }
-    if let Ok(session) = engine.session() {
-        let info = monitor.as_ref().and_then(|m| {
-            m.name().map(|n| crate::session::MonitorInfo {
-                name: n.clone(),
-                x: m.position().x,
-                y: m.position().y,
-                w: m.size().width,
-                h: m.size().height,
-            })
-        });
-        let _ = session.set_monitor(info);
+    // Display targets record the monitor the overlay will cover. Not for a window target:
+    // `set_monitor` clears the window pinned above, and the take would record the display.
+    if !matches!(target, Target::Window { .. }) {
+        if let Ok(session) = engine.session() {
+            let info = monitor.as_ref().and_then(|m| {
+                m.name().map(|n| crate::session::MonitorInfo {
+                    name: n.clone(),
+                    x: m.position().x,
+                    y: m.position().y,
+                    w: m.size().width,
+                    h: m.size().height,
+                })
+            });
+            let _ = session.set_monitor(info);
+        }
     }
 
     // Hide the window and let DWM recompose without it before grabbing the clean desktop.

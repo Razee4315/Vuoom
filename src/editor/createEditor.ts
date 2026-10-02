@@ -1614,20 +1614,25 @@ export function createEditor() {
     } else if (d.mode === "create-arrow") {
       setDrag(null);
       if (Math.hypot(p.x - d.start.x, p.y - d.start.y) > 0.01) {
-        const id = await invoke<number>("add_arrow", {
-          fx: d.start.x,
-          fy: d.start.y,
-          tx: p.x,
-          ty: p.y,
-          t: playhead(),
-        });
-        await refresh();
-        await pushSeek(playhead());
-        setSelZoom(null);
-        setSelSpeed(null);
-        clearExtra();
-        setSelected({ kind: "arrow", id });
-        if (!toolLock()) setTool("select");
+        try {
+          const id = await invoke<number>("add_arrow", {
+            fx: d.start.x,
+            fy: d.start.y,
+            tx: p.x,
+            ty: p.y,
+            t: playhead(),
+          });
+          await refresh();
+          await pushSeek(playhead());
+          setSelZoom(null);
+          setSelSpeed(null);
+          setSelCut(null);
+          clearExtra();
+          setSelected({ kind: "arrow", id });
+          if (!toolLock()) setTool("select");
+        } catch (err) {
+          fail("Could not add the arrow", err);
+        }
       }
     } else if (
       d.mode === "create-box" ||
@@ -1649,14 +1654,19 @@ export function createEditor() {
       const w = Math.abs(p.x - d.start.x);
       const h = Math.abs(p.y - d.start.y);
       if (w > 0.01 && h > 0.01) {
-        const id = await invoke<number>(cmd, { x, y, w, h, t: playhead() });
-        await refresh();
-        await pushSeek(playhead());
-        setSelZoom(null);
-        setSelSpeed(null);
-        clearExtra();
-        setSelected({ kind: "box", id });
-        if (!toolLock()) setTool("select");
+        try {
+          const id = await invoke<number>(cmd, { x, y, w, h, t: playhead() });
+          await refresh();
+          await pushSeek(playhead());
+          setSelZoom(null);
+          setSelSpeed(null);
+          setSelCut(null);
+          clearExtra();
+          setSelected({ kind: "box", id });
+          if (!toolLock()) setTool("select");
+        } catch (err) {
+          fail("Could not add the shape", err);
+        }
       }
     } else if (d.mode === "create-stroke") {
       setDrag(null);
@@ -1674,26 +1684,36 @@ export function createEditor() {
         await pushSeek(playhead());
         setSelZoom(null);
         setSelSpeed(null);
+        setSelCut(null);
         clearExtra();
         // The pen stays in hand for the next line; the new one is selected once you put it down.
         if (tool() === "pen") setSelected(null);
         else setSelected({ kind: "stroke", id });
       } catch (err) {
-        toast(`Could not draw: ${friendlyError(err)}`, "error");
+        fail("Could not draw", err);
       }
     } else if (d.mode === "scale-text") {
       const f = d.cur;
       setDrag(null);
-      await invoke("update_text", { id: d.id, fontSize: f });
+      try {
+        await invoke("update_text", { id: d.id, fontSize: f });
+      } catch (err) {
+        fail("Resize failed", err);
+      }
       await refresh();
       await pushSeek(playhead());
     } else {
       // Commit the moved/resized geometry and refresh the source of truth BEFORE clearing
       // the drag, so the overlay never flashes back to the pre-drag position for a frame.
-      await applyGeom(d.kind, d.id, d.geom);
-      // Commit every other group member (per-item backend commands → per-item geo: undo tags).
-      if (d.mode === "move" && d.group) {
-        for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
+      // A rejected commit still clears the drag: the refresh puts back the engine's truth.
+      try {
+        await applyGeom(d.kind, d.id, d.geom);
+        // Commit every other group member (per-item backend commands → per-item geo: undo tags).
+        if (d.mode === "move" && d.group) {
+          for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
+        }
+      } catch (err) {
+        fail(d.mode === "move" ? "Move failed" : "Resize failed", err);
       }
       await refresh();
       setDrag(null);
@@ -1956,11 +1976,15 @@ export function createEditor() {
     // Temp (optimistic) ids must become real before the engine can delete them.
     const resolved: Selection[] = [];
     for (const it of all) resolved.push({ kind: it.kind, id: await ensureRealId(it.id) });
-    if (resolved.length === 1) {
-      await invoke("delete_annotation", { id: resolved[0].id });
-    } else {
-      const tag = `multidel:${++delGesture}`;
-      for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
+    try {
+      if (resolved.length === 1) {
+        await invoke("delete_annotation", { id: resolved[0].id });
+      } else {
+        const tag = `multidel:${++delGesture}`;
+        for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
+      }
+    } catch (e) {
+      fail("Delete failed", e);
     }
     setSelected(null);
     await refresh();

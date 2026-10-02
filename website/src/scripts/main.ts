@@ -17,7 +17,6 @@ document.querySelectorAll<HTMLElement>('[data-ba]').forEach(initBeforeAfter);
 const keys = initKeycaps();
 
 if (motion) {
-  import('./motion').then((m) => m.initMotion(keys));
-} else {
-  document.documentElement.classList.remove('is-counting');
+  // The reveal layer brings GSAP with it: only pages with something to reveal pay for it.
+  if (document.querySelector('[data-reveal]')) import('./motion').then((m) => m.initMotion());
 }

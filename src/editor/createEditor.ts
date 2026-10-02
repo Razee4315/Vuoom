@@ -2277,7 +2277,8 @@ export function createEditor() {
   const onRecordFailed = (message: string) => {
     setRecordPhase("idle");
     setBackdrop(null);
-    setStatus(`Recording failed: ${message}`);
+    setRecordTarget(null);
+    fail("Recording failed", message, 9000);
   };
 
   // ── timeline filmstrip ────────────────────────────────────────────────────────────

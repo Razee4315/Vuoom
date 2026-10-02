@@ -17,16 +17,6 @@ html {
   text-size-adjust: 100%;
   scroll-padding-top: calc(var(--nav-h) + var(--s-5));
 }
-html.lenis,
-html.lenis body {
-  height: auto;
-}
-.lenis.lenis-smooth {
-  scroll-behavior: auto !important;
-}
-.lenis.lenis-stopped {
-  overflow: clip;
-}
 body {
   min-height: 100dvh;
   background: var(--ground);

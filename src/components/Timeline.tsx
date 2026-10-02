@@ -300,7 +300,8 @@ export default function Timeline() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
-                              ed.setSelZoom(i());
+                              e.stopPropagation();
+                              ed.selectSegment("zoom", i());
                               ed.scrub(g().start);
                             }
                           }}
@@ -342,7 +343,17 @@ export default function Timeline() {
                             width: w(g().start, g().end),
                             top: `calc(var(--lane-h) * ${layout.compactNotes() ? 0 : i()} + 3px)`,
                           }}
+                          aria-label={`${b.label}, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                          aria-pressed={ed.isSelected(b.kind, b.id)}
                           data-tip={gone() ? "Hidden by a cut, never exported" : undefined}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              ed.selectAnnotation(b.kind, b.id);
+                              ed.scrub(g().start);
+                            }
+                          }}
                           onContextMenu={(e) => annBarMenu(ed, e, b.kind, b.id)}
                           onPointerDown={ed.onAnnDown(b, "move")}
                           onPointerMove={ed.frameAnn(ed.onAnnMove)}
@@ -378,7 +389,16 @@ export default function Timeline() {
                           <button
                             type="button"
                             class="tl-seg-body"
-                            aria-label={`Plays at ${r.factor} times`}
+                            aria-label={`Plays at ${r.factor} times, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                            aria-pressed={ed.selSpeed() === i()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                ed.selectSegment("speed", i());
+                                ed.scrub(g().start);
+                              }
+                            }}
                             onContextMenu={(e) => speedMenu(ed, e, i())}
                             onPointerDown={ed.onSpeedDown(i(), r, "move")}
                             onPointerMove={ed.frameSpeed(ed.onSpeedMove)}
@@ -406,7 +426,16 @@ export default function Timeline() {
                           <button
                             type="button"
                             class="tl-seg-body"
-                            aria-label="Removed section"
+                            aria-label={`Removed section, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                            aria-pressed={ed.selCut() === i()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                ed.selectSegment("cut", i());
+                                ed.scrub(g().start);
+                              }
+                            }}
                             onContextMenu={(e) => cutMenu(ed, e, i())}
                             data-tip="Removed from the export. Delete restores it"
                             onPointerDown={ed.onCutDown(i(), c, "move")}
@@ -446,6 +475,7 @@ export default function Timeline() {
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                   e.preventDefault();
+                                  e.stopPropagation();
                                   ed.selectCaption(c.id);
                                   ed.scrub(c.range.start + 0.01);
                                 }

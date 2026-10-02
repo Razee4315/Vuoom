@@ -3736,6 +3736,21 @@ export function createEditor() {
     const id = selCaption();
     return id === null ? null : (captions.list().find((c) => c.id === id) ?? null);
   };
+  /** Select one timeline segment (the keyboard path; a pointer selects on release). */
+  const selectSegment = (kind: "zoom" | "speed" | "cut", index: number) => {
+    setSelected(null);
+    setSelZoom(kind === "zoom" ? index : null);
+    setSelSpeed(kind === "speed" ? index : null);
+    setSelCut(kind === "cut" ? index : null);
+  };
+  /** Select one annotation, dropping any other selection. */
+  const selectAnnotation = (kind: Kind, id: number) => {
+    setSelZoom(null);
+    setSelSpeed(null);
+    setSelCut(null);
+    clearExtra();
+    setSelected({ kind, id });
+  };
   const selectCaption = (id: number | null) => {
     setSelected(null);
     setSelZoom(null);
@@ -4067,6 +4082,8 @@ export function createEditor() {
     setSelCaption,
     selectedCaption,
     selectCaption,
+    selectSegment,
+    selectAnnotation,
     deleteSelectedCaption,
     addCaptionAtPlayhead,
     captionGeom,

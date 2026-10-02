@@ -40,8 +40,6 @@ export default function StatusBar() {
             class="sb-item sb-btn"
             classList={{ on: m.open }}
             ref={m.ref}
-            aria-haspopup="menu"
-            aria-expanded={m.open}
             data-tip="Frame rate for the next recording"
             onClick={m.toggle}
           >

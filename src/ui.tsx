@@ -3,6 +3,7 @@
 // chips, a global tooltip layer, and the toast stack for action feedback.
 
 import {
+  createEffect,
   createSignal,
   For,
   onCleanup,
@@ -325,7 +326,9 @@ function MenuPopup(props: {
             return (
               <button
                 type="button"
-                role="menuitem"
+                {...(it.checked === undefined
+                  ? { role: "menuitem" as const }
+                  : { role: "menuitemcheckbox" as const, "aria-checked": it.checked })}
                 class="menu-item"
                 classList={{ danger: !!it.danger }}
                 disabled={it.disabled}
@@ -372,6 +375,11 @@ export function Menu(props: {
   const [open, setOpen] = createSignal(false);
   const [pos, setPos] = createSignal({ x: 0, y: 0, top: 0 });
   let anchor: HTMLElement | undefined;
+  // The trigger is the caller's own button: say what it opens, and whether it is open.
+  createEffect(() => {
+    anchor?.setAttribute("aria-haspopup", "menu");
+    anchor?.setAttribute("aria-expanded", String(open()));
+  });
   const toggle = () => {
     if (anchor) {
       const r = anchor.getBoundingClientRect();
@@ -436,6 +444,18 @@ export function TooltipLayer(): JSX.Element {
     current = null;
     setTip(null);
   };
+  const show = (el: HTMLElement) => {
+    if (current !== el || !el.isConnected || !el.dataset.tip) return;
+    const r = el.getBoundingClientRect();
+    const below = r.top < 64;
+    setTip({
+      text: el.dataset.tip,
+      kbd: el.dataset.kbd,
+      x: Math.min(Math.max(r.left + r.width / 2, 90), window.innerWidth - 90),
+      y: below ? r.bottom + 8 : r.top - 8,
+      below,
+    });
+  };
   onMount(() => {
     const over = (e: PointerEvent) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
@@ -444,24 +464,25 @@ export function TooltipLayer(): JSX.Element {
       current = el;
       setTip(null);
       if (!el?.dataset.tip) return;
-      timer = window.setTimeout(() => {
-        if (current !== el || !el.isConnected) return;
-        const r = el.getBoundingClientRect();
-        const below = r.top < 64;
-        setTip({
-          text: el.dataset.tip!,
-          kbd: el.dataset.kbd,
-          x: Math.min(Math.max(r.left + r.width / 2, 90), window.innerWidth - 90),
-          y: below ? r.bottom + 8 : r.top - 8,
-          below,
-        });
-      }, 420);
+      timer = window.setTimeout(() => show(el), 420);
     };
+    // Keyboard users get the same tip (and its shortcut) when focus lands on a control.
+    const focusIn = (e: FocusEvent) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
+      if (!el?.matches(":focus-visible")) return;
+      clearTimeout(timer);
+      current = el;
+      show(el);
+    };
+    document.addEventListener("focusin", focusIn);
+    document.addEventListener("focusout", hide);
     document.addEventListener("pointerover", over);
     document.addEventListener("pointerdown", hide, true);
     window.addEventListener("blur", hide);
     window.addEventListener("keydown", hide, true);
     onCleanup(() => {
+      document.removeEventListener("focusin", focusIn);
+      document.removeEventListener("focusout", hide);
       document.removeEventListener("pointerover", over);
       document.removeEventListener("pointerdown", hide, true);
       window.removeEventListener("blur", hide);

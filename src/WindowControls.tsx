@@ -56,8 +56,8 @@ export default function WindowControls() {
 
       <button
         class="winbtn"
-        title="Maximize"
-        aria-label="Maximize"
+        title={maximized() ? "Restore" : "Maximize"}
+        aria-label={maximized() ? "Restore" : "Maximize"}
         onClick={() => void appWindow.toggleMaximize()}
       >
         <Show

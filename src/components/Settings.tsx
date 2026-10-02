@@ -150,6 +150,7 @@ export default function Settings() {
                 type="button"
                 class="settings-tab"
                 classList={{ on: tab() === t.id }}
+                aria-current={tab() === t.id ? "page" : undefined}
                 onClick={() => ed.setSettingsTab(t.id)}
               >
                 <Icon name={t.icon} size={15} />

@@ -116,6 +116,7 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
     items: [
       { keys: ["Ctrl", "O"], label: "Open project" },
       { keys: ["Ctrl", "S"], label: "Save project" },
+      { keys: ["Ctrl", "Shift", "S"], label: "Save project as" },
       { keys: ["Ctrl", "E"], label: "Export" },
       { keys: ["?"], label: "Keyboard shortcuts" },
     ],

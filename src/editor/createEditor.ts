@@ -88,6 +88,9 @@ export function createEditor() {
     toast(text, "error", ttl);
   };
   const [projectName, setProjectName] = createSignal("Untitled");
+  // The .vuoom folder the loaded clip was opened from or last saved to: where Save writes.
+  // `null` for a take that has never been saved.
+  const [projectDir, setProjectDir] = createSignal<string | null>(null);
   const [editingText, setEditingText] = createSignal<number | null>(null);
   const [theme, setTheme] = createSignal(initialTheme());
   const [hasClip, setHasClip] = createSignal(false);
@@ -342,6 +345,7 @@ export function createEditor() {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
       setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
+      setProjectDir(dir);
       rememberRecent(dir);
       if (summary.warning) {
         setStatus(`Project opened. ${summary.warning}`);
@@ -444,6 +448,11 @@ export function createEditor() {
     if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
       e.preventDefault();
       void doRedo();
+      return;
+    }
+    if (!modalOpen && e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyS") {
+      e.preventDefault();
+      void onSaveProjectAs();
       return;
     }
     if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey) {
@@ -2341,6 +2350,9 @@ export function createEditor() {
   const loadFinishedClip = async (summary: RecordingSummary) => {
     // A new clip's tracks load fresh (refreshClip below adopts and decodes them).
     audio.unload();
+    // A take, a recovered session and an opened project all start without a save folder;
+    // opening a project sets its own right after.
+    setProjectDir(null);
     // Each take opens with the Clip settings folded, so the panel reads as a short list.
     resetSections("clip-");
     setHasClip(true);
@@ -3797,20 +3809,37 @@ export function createEditor() {
   const safeName = () =>
     projectName().replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
 
-  const onSaveProject = async () => {
-    // Projects are always named by hand, in the save folder.
-    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
-    if (!dir) return;
+  const [saving, setSaving] = createSignal(false);
+  const saveProjectTo = async (dir: string) => {
+    if (saving()) return;
+    setSaving(true);
     setStatus("Saving project…");
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
+      setProjectDir(dir);
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
       rememberRecent(dir, captureThumb());
       setStatus(`Saved ${dir}`);
       toast("Project saved", "success");
     } catch (e) {
       fail("Save failed", e);
+    } finally {
+      setSaving(false);
     }
+  };
+  /** Save as: a new project is always named by hand, in the save folder. */
+  const onSaveProjectAs = async () => {
+    if (!hasClip() || saving()) return;
+    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
+    if (dir) await saveProjectTo(dir);
+  };
+  /** Save: straight back into the project's folder; a take never saved asks where first. */
+  const onSaveProject = async () => {
+    if (!hasClip() || saving()) return;
+    const dir = projectDir();
+    if (dir) await saveProjectTo(dir);
+    else await onSaveProjectAs();
   };
 
   const onRecover = async () => {
@@ -4364,6 +4393,8 @@ export function createEditor() {
     trackStroke,
     safeName,
     onSaveProject,
+    onSaveProjectAs,
+    projectDir,
     onRecover,
     refreshStorage,
     clearStorage,

@@ -13,6 +13,14 @@ pub struct GifSettings {
     pub quality: u8,
     /// Optional gifsicle lossy second-pass strength (1-200); `None` = skip the pass.
     pub lossy: Option<u8>,
+    /// Dither gradients (a backdrop, a shadow, a webcam picture) so their steps between
+    /// palette colors don't show as bands. Flat interface colors are left alone.
+    #[serde(default = "yes")]
+    pub dither: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl GifSettings {
@@ -24,6 +32,7 @@ impl GifSettings {
             width: Some(1000),
             quality: 80,
             lossy: Some(80),
+            dither: true,
         }
     }
 
@@ -35,6 +44,7 @@ impl GifSettings {
             width: Some(1280),
             quality: 95,
             lossy: None,
+            dither: true,
         }
     }
 }

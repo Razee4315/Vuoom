@@ -5,6 +5,7 @@ import BeforeAfter from '../components/BeforeAfter.astro';
 import Video from '../components/Video.astro';
 import Faq from '../components/Faq.astro';
 import StudioDoodle from '../components/StudioDoodle.astro';
+import HeroSprites from '../components/HeroSprites.astro';
 import { Image } from 'astro:assets';
 import editor from '../assets/shots/screenshot-editor.png';
 import record from '../assets/shots/screenshot-record.png';
@@ -28,18 +29,23 @@ const schema = [await softwareApp(), faqPage(faq), {
 ---
 <Base path="/" schema={schema}>
   <section class="paper-hero wrap" aria-labelledby="hero-title">
-    <div class="hero-topline"><span class="eyebrow"><i></i> Screen recorder with auto-zoom</span><span class="edition mono">FREE & OPEN SOURCE / WINDOWS 10 + 11</span></div>
+    <HeroSprites />
+    <div class="hero-topline"><span class="eyebrow"><i></i> The free Windows screen recorder with auto-zoom</span></div>
     <div class="hero-layout">
       <div class="hero-copy">
-        <p class="hero-category">The free screen recorder for Windows.</p>
         <h1 id="hero-title">Hit record.<br/>Make it <span class="word-cut">Vuoom.<svg viewBox="0 0 380 24" aria-hidden="true"><path d="M5 15Q160 -4 373 10M34 22Q190 6 347 18"/></svg></span></h1>
-        <p class="hero-description">Turn everyday screen recordings into demos worth watching. Automatic zoom, smooth motion, and easy edits. All on your PC.</p>
+        <p class="hero-description">Record your screen. Vuoom takes care of the zooms, motion, and finishing touches. All on your PC.</p>
         <div class="hero-actions"><Button href="/download/" icon="windows" size="lg">Download for Windows</Button><a class="watch-link" href="#in-action"><span aria-hidden="true">▶</span> See it in action</a></div>
         <p class="hero-fine">100% free. No watermark. No account. Just create.</p>
       </div>
-      <div class="hero-collage" data-reveal>
+    </div>
+  </section>
+
+  <section class="demo-section wrap" id="in-action" aria-labelledby="demo-title">
+    <div class="demo-heading"><p class="eyebrow">01 / SEE IT IN ACTION</p><h2 id="demo-title">A little zoom.<br/>A lot of difference.</h2><p>A real recording. Automatic zooms. This is what you get.</p></div>
+      <div class="demo-collage" data-reveal>
         <span class="tape" aria-hidden="true"></span>
-        <div class="demo-window" id="in-action">
+        <div class="demo-window">
           <div class="window-bar"><span><i></i> THE NEXT GREAT DEMO</span><span>TAKE 001</span></div>
           <Video name="demo" />
           <div class="mini-timeline" aria-hidden="true"><div class="time-ruler"><span>00:00</span><span>00:08</span><span>00:16</span><span>00:24</span></div><div class="clip-row"><span>↗ Auto zoom</span><span>↗ Follow the click</span></div><div class="audio-track"></div><div class="playhead"></div></div>
@@ -47,13 +53,11 @@ const schema = [await softwareApp(), faqPage(faq), {
         <span class="sticker sticker-yellow" aria-hidden="true">LESS EDITING.<br/>MORE <b>“WOW.”</b></span>
         <span class="collage-caption mono">REAL VUOOM FOOTAGE. ZERO MANUAL ZOOMS.</span>
       </div>
-    </div>
-    <div class="hero-bottom"><span>FROM RECORDING TO READY-TO-SHARE</span><span>Record <i>✳</i> Auto-zoom <i>✳</i> Edit <i>✳</i> Export GIF or MP4</span><a href="#workflow" aria-label="Explore how Vuoom works">↓</a></div>
   </section>
 
   <section class="workflow-section torn" id="workflow" aria-labelledby="workflow-title">
     <div class="wrap">
-      <div class="section-heading"><div><p class="eyebrow">01 / FROM FIRST CLICK TO FINAL CUT</p><h2 id="workflow-title">Big ideas.<br/>Small learning curve.</h2></div><p>You bring the thing worth showing.<br/>Vuoom helps you show it beautifully.</p></div>
+      <div class="section-heading"><div><p class="eyebrow">02 / FROM FIRST CLICK TO FINAL CUT</p><h2 id="workflow-title">Big ideas.<br/>Small learning curve.</h2></div><p>You bring the thing worth showing.<br/>Vuoom helps you show it beautifully.</p></div>
       <div class="workbench" data-workbench>
         <div class="workflow-copy"><div class="scene-tabs" role="tablist" aria-label="Recording workflow">{scenes.map((s,i) => <button type="button" role="tab" id={`tab-${i}`} aria-selected={i === 0 ? 'true' : 'false'} aria-controls={`scene-${i}`} tabindex={i === 0 ? 0 : -1} data-scene-tab={i}><span>{s.key}</span>{s.name}</button>)}</div>
           {scenes.map((s,i) => <div class="scene-copy" id={`scene-${i}`} role="tabpanel" aria-labelledby={`tab-${i}`} tabindex="0" hidden={i !== 0} data-scene-panel={i}><span class="scene-number" aria-hidden="true">{s.key}</span><h3>{s.title}</h3><p>{s.copy}</p><a class="text-arrow" href={url('/guide/')}>The quick-start guide <span>↗</span></a></div>)}
@@ -64,12 +68,12 @@ const schema = [await softwareApp(), faqPage(faq), {
   </section>
 
   <section class="zoom-section wrap" aria-labelledby="zoom-title">
-    <div class="zoom-copy" data-reveal><StudioDoodle kind="focus" class="focus-doodle" /><p class="eyebrow">02 / DIRECT THEIR ATTENTION</p><h2 id="zoom-title">The right detail.<br/><span class="blue-ink">At the right moment.</span></h2><p>Tiny buttons shouldn't need a big explanation. Vuoom automatically zooms into your clicks, so viewers can follow every step.</p><a class="text-arrow" href={url('/features/auto-zoom/')}>Meet automatic zoom <span>↗</span></a><span class="drag-note">Drag to see the difference →</span></div>
+    <div class="zoom-copy" data-reveal><StudioDoodle kind="focus" class="focus-doodle" /><p class="eyebrow">03 / DIRECT THEIR ATTENTION</p><h2 id="zoom-title">The right detail.<br/><span class="blue-ink">At the right moment.</span></h2><p>Tiny buttons shouldn't need a big explanation. Vuoom automatically zooms into your clicks, so viewers can follow every step.</p><a class="text-arrow" href={url('/features/auto-zoom/')}>Meet automatic zoom <span>↗</span></a><span class="drag-note">Drag to see the difference →</span></div>
     <div class="comparison-paper" data-reveal><BeforeAfter /><p class="mono">SAME SCREEN. A WHOLE DIFFERENT STORY.</p></div>
   </section>
 
   <section class="toolkit-section torn" aria-labelledby="toolkit-title"><div class="wrap">
-    <div class="section-heading"><div><p class="eyebrow">03 / THE GOOD STUFF IS INCLUDED</p><h2 id="toolkit-title">A creative toolkit.<br/>Without the price tag.</h2></div><StudioDoodle kind="spark" class="spark-doodle" /><a class="text-arrow" href={url('/features/')}>Explore every feature <span>↗</span></a></div>
+    <div class="section-heading"><div><p class="eyebrow">04 / THE GOOD STUFF IS INCLUDED</p><h2 id="toolkit-title">A creative toolkit.<br/>Without the price tag.</h2></div><StudioDoodle kind="spark" class="spark-doodle" /><a class="text-arrow" href={url('/features/')}>Explore every feature <span>↗</span></a></div>
     <div class="toolkit-grid">
       <a class="tool-card sound-card" href={url('/features/audio-and-webcam/')} data-reveal><div class="wave-art" aria-hidden="true">{Array.from({length: 29}, (_,i) => <span style={`--bar: ${20 + ((i*17)%65)}%; --delay: ${i*35}ms`}></span>)}</div><span class="card-label mono">SOUND LIKE YOURSELF</span><h3>Your voice.<br/>Loud and clear.</h3><p>Microphone, system audio, voice clean-up and a webcam bubble for the human touch.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
       <a class="tool-card captions-card" href={url('/features/captions/')} data-reveal><div class="caption-art" aria-hidden="true"><span>make every</span><span><mark>word</mark> count.</span><small>CAPTIONS, MADE ON YOUR PC</small></div><span class="card-label mono">LET EVERYONE FOLLOW ALONG</span><h3>Words that<br/>stay with you.</h3><p>Generate captions locally after a one-time model download. Export subtitles as an SRT file.</p><span class="card-arrow" aria-hidden="true">↗</span></a>

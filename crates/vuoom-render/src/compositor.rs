@@ -89,6 +89,31 @@ struct Uniforms {
     bg_image: f32,
     /// The picture's visible UV extent, so it covers the frame (centered).
     bg_scale: [f32; 2],
+    /// The recording's shadow on the backdrop: offset x, y and blur (pixels), strength.
+    shadow: [f32; 4],
+    /// Samples across and down per output pixel (see [`area_taps`]).
+    taps: [f32; 2],
+    _pad3: [f32; 2],
+}
+
+/// Spare capacity left on a composited frame's buffer, for a trailer appended in place.
+const READBACK_SPARE: usize = 64;
+
+/// Most samples per axis the composite shader takes for one output pixel.
+const MAX_TAPS: f64 = 4.0;
+/// The most per axis while motion blur is on: the shader is already taking a dozen samples
+/// along the camera's path, and the smear hides what a coarser average misses.
+const MAX_TAPS_BLURRED: f64 = 2.0;
+
+/// How many samples, across and down, cover the source pixels behind one output pixel when
+/// `crop` (a normalized part) of a `src`-pixel-wide axis is drawn `dst` pixels wide. One at
+/// 1:1 or magnified; more as the picture is drawn smaller, so no source pixel is skipped.
+/// Each sample is bilinear (it blends two source pixels), so `n` of them span a pixel that
+/// covers up to about `2n` of them.
+fn area_taps(crop: f64, src: u32, dst: f64, max: f64) -> f32 {
+    let footprint = crop * f64::from(src) / dst.max(1e-6);
+    // A hair over 1:1 (an odd pixel of rounding) is still one sample: two would only blur.
+    (footprint - 0.25).ceil().clamp(1.0, max) as f32
 }
 
 /// A webcam frame for the scene's bubble.
@@ -731,10 +756,17 @@ impl Compositor {
         let _ = self.device.poll(wgpu::PollType::Wait);
 
         let data = slice.get_mapped_range();
-        let mut out = Vec::with_capacity((unpadded * height) as usize);
-        for row in 0..height {
-            let start = (row * padded) as usize;
-            out.extend_from_slice(&data[start..start + unpadded as usize]);
+        let len = (unpadded * height) as usize;
+        // A little spare room, so the preview can append its frame trailer in place.
+        let mut out = Vec::with_capacity(len + READBACK_SPARE);
+        if padded == unpadded {
+            // No row padding (widths that are a multiple of 64): one straight copy.
+            out.extend_from_slice(&data[..len]);
+        } else {
+            for row in 0..height {
+                let start = (row * padded) as usize;
+                out.extend_from_slice(&data[start..start + unpadded as usize]);
+            }
         }
         drop(data);
         buffer.unmap();
@@ -1024,6 +1056,12 @@ impl Compositor {
         );
 
         let prev = scene.blur_from.unwrap_or(layout.src_rect);
+        let max_taps = if scene.blur_from.is_some() {
+            MAX_TAPS_BLURRED
+        } else {
+            MAX_TAPS
+        };
+        let (src, dst, shadow) = (layout.src_rect, layout.dst_rect, layout.shadow);
         let uniforms = Uniforms {
             out_size: [out_w as f32, out_h as f32],
             src_min: [layout.src_rect.x as f32, layout.src_rect.y as f32],
@@ -1041,6 +1079,17 @@ impl Compositor {
             blur: if scene.blur_from.is_some() { 1.0 } else { 0.0 },
             bg_image: if bg.image { 1.0 } else { 0.0 },
             bg_scale: cover_scale((out_w, out_h), (backdrop.width, backdrop.height)),
+            shadow: [
+                shadow.dx as f32,
+                shadow.dy as f32,
+                shadow.blur as f32,
+                shadow.strength as f32,
+            ],
+            taps: [
+                area_taps(src.w, src_w, dst.w, max_taps),
+                area_taps(src.h, src_h, dst.h, max_taps),
+            ],
+            _pad3: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -1266,6 +1315,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_smaller_picture_takes_more_samples() {
+        // 1:1, magnified, and a hair over 1:1: a single sample.
+        assert_eq!(area_taps(1.0, 1920, 1920.0, MAX_TAPS), 1.0);
+        assert_eq!(area_taps(0.5, 1920, 1920.0, MAX_TAPS), 1.0);
+        assert_eq!(area_taps(1.0, 1921, 1920.0, MAX_TAPS), 1.0);
+        // Half size: two source pixels per output pixel, two samples.
+        assert_eq!(area_taps(1.0, 1920, 960.0, MAX_TAPS), 2.0);
+        // 4K down to 1000 px: capped.
+        assert_eq!(area_taps(1.0, 3840, 1000.0, MAX_TAPS), 4.0);
+        assert_eq!(area_taps(1.0, 3840, 1000.0, MAX_TAPS_BLURRED), 2.0);
+    }
+
+    #[test]
     fn a_backdrop_picture_covers_the_frame() {
         let [x, y] = cover_scale((1920, 1080), (1920, 1080));
         assert!((x - 1.0).abs() < 1e-6 && (y - 1.0).abs() < 1e-6);
@@ -1330,6 +1392,7 @@ mod tests {
                 h: 6.0,
             },
             corner_radius_px: 1.0,
+            shadow: crate::layout::PxShadow::default(),
         };
         // Minimal scene (no annotations) exercises the same composite pipeline as export.
         let scene = Scene {

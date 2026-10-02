@@ -44,6 +44,14 @@ export const NAV = [
   { href: '/changelog/', label: 'Changelog' },
 ] as const;
 
+/** The author's other projects, linked from the footer. GitHub Pages paths are case-sensitive. */
+export const MORE_BY = [
+  { href: 'https://razee4315.github.io/', label: 'All projects' },
+  { href: 'https://razee4315.github.io/snipflag/', label: 'Snipflag' },
+  { href: 'https://razee4315.github.io/Paperling/', label: 'Paperling' },
+  { href: 'https://razee4315.github.io/coldframe/', label: 'Coldframe' },
+] as const;
+
 export const FOOTER = [
   {
     title: 'Product',

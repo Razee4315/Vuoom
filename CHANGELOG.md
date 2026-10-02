@@ -17,8 +17,47 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
   end of the log, ready to paste into a bug report (your user folder is hidden, nothing is
   sent). Open logs folder sits next to it. If Vuoom didn't close normally last time, it
   offers the report on the next launch.
+- Auto zoom: a take recorded without pressing Ctrl+Shift+Z now gets a few calm zooms where
+  you clicked (at most four a minute, none longer than 8 seconds), with a Remove button on
+  the notice. Press the hotkey even once and only your own zooms are used. Switch it off in
+  Home > Options, the record panel's Options menu or Settings.
+- The smooth pointer changes shape like the real one: a text beam over text, a hand over a
+  link, resize and move arrows, a crosshair.
+- The zoom and stop hotkeys can be changed (Settings > Shortcuts), and the app you are
+  recording no longer receives them: Ctrl+Shift+Z used to also trigger Redo in it.
+- The region picker offers the area you recorded last time, and Record remembers whether you
+  last recorded a region, the full screen or a window.
+- MP4 exports keep the take's own size, up to 4K, and its frame rate. "Balanced" is 1080p at
+  30 fps and "High quality" is the full size at up to 60 fps (they were 1000 and 1280 px wide).
+- GIF gradients (backdrops, shadows, the webcam) are dithered so they don't show bands, with
+  a switch in the export card. Flat interface colors are left as they are.
+
+### Changed
+- A frame (Subtle, Studio) is now added around the recording instead of squeezing the
+  recording into the same size: the picture keeps its shape and every pixel, so text stays as
+  sharp as it was recorded. Annotations on a project saved with a frame may sit a little to
+  the side of where they were.
+- MP4: frames reach the encoder in its own format with a fixed BT.709 conversion that is
+  written into the file, so colors look the same in every player. The encoder uses the High
+  profile and variable bitrate, with a keyframe every two seconds.
+- Exports and the editor preview are scaled on the GPU, averaging every source pixel, rather
+  than on the processor afterwards: faster, and small text no longer breaks up when a take is
+  exported smaller than it was recorded.
+- Recording is lighter: only the rows of the screen that changed are compressed, frame buffers
+  are reused, and the editor preview is drawn at the size it is shown.
 
 ### Fixed
+- The frame's shadow is drawn (the slider and the presets set it, nothing rendered it).
+- A frame no longer stretches the recording sideways (about 4% on Subtle, 8% on Studio).
+- Recording a window on Windows 10 now holds the frame rate you chose instead of capturing
+  every screen refresh.
+- The outermost row of pixels of an export is no longer mixed with the backdrop.
+- Saving a project is now all-or-nothing: the new save is written beside the folder and
+  swapped in only once complete, so a full disk or a crash mid-save can no longer break an
+  earlier save. Vuoom checks for enough free space before writing anything (#30).
+- Opening a project that can't be opened keeps the clip you had, and says why in plain words
+  (folder gone, save cut short, damaged file). A project cut short opens with the frames that
+  survive instead of failing outright.
 - `SECURITY.md` and `NOTICE` now describe the app as it is: the two network requests it makes
   (the update check and the one-time captions model) and the built-in GIF encoder.
 

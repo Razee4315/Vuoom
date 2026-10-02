@@ -32,16 +32,19 @@ fn generate_token() -> String {
 }
 
 /// A handle for publishing the latest packed preview frame.
+///
+/// The frame is held as a ready-to-send WebSocket message: its bytes are reference
+/// counted, so handing it to a client clones a pointer, not megabytes of pixels.
 #[derive(Clone)]
 pub struct FrameSink {
-    tx: watch::Sender<Vec<u8>>,
+    tx: watch::Sender<Message>,
 }
 
 impl FrameSink {
     /// Publish a packed frame (see [`crate::pack_frame`]). With no connected clients the
     /// frame is simply dropped.
     pub fn publish(&self, frame: Vec<u8>) {
-        let _ = self.tx.send(frame);
+        let _ = self.tx.send(Message::binary(frame));
     }
 }
 
@@ -65,7 +68,7 @@ impl PreviewServer {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let port = listener.local_addr()?.port();
         let token = generate_token();
-        let (tx, _rx) = watch::channel(Vec::new());
+        let (tx, _rx) = watch::channel(Message::binary(Vec::new()));
         let sink = FrameSink { tx: tx.clone() };
 
         let accept_token = token.clone();
@@ -102,7 +105,7 @@ impl PreviewServer {
     }
 }
 
-async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token: String) {
+async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Message>, token: String) {
     let expected_path = format!("/ws/{token}");
     // Validate the token during the WS upgrade: on mismatch we return 403 and the handshake
     // is rejected before it ever upgrades, so an unauthorized peer never receives a frame.
@@ -126,14 +129,12 @@ async fn serve_client(stream: TcpStream, mut rx: watch::Receiver<Vec<u8>>, token
         }
     };
     while rx.changed().await.is_ok() {
+        // A cheap clone: the message's `Bytes` payload is shared, not copied.
         let frame = rx.borrow_and_update().clone();
         if frame.is_empty() {
             continue;
         }
-        // tungstenite 0.29: Message::Binary now holds `bytes::Bytes`, not `Vec<u8>`. The
-        // `binary()` constructor takes any `Into<Bytes>`, so the Vec converts here (a cheap
-        // move into a Bytes, no reallocation).
-        if ws.send(Message::binary(frame)).await.is_err() {
+        if ws.send(frame).await.is_err() {
             break;
         }
     }

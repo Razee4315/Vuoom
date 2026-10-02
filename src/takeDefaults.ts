@@ -10,6 +10,7 @@ export function pushTakeDefaults(): void {
       keys: prefs.newKeys(),
       frame: prefs.newFrame(),
       denoise: prefs.newDenoise(),
+      auto_zoom: prefs.recordAutoZoom(),
     },
   }).catch(() => undefined);
 }

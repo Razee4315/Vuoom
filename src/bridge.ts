@@ -290,6 +290,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.setZoomStyle(a.index as number, a.style as ZoomStyle);
     case "delete_zoom":
       return m.deleteZoom(a.index as number);
+    case "clear_zooms":
+      return m.clearZooms();
     case "set_capture_cursor":
       m.captureShow = a.show as boolean;
       m.captureSmooth = (a.smooth as boolean | undefined) ?? false;
@@ -299,6 +301,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "set_capture_fps":
     case "set_live_preview":
+    case "set_hotkeys":
     case "open_folder":
       return null;
     case "default_save_dir":

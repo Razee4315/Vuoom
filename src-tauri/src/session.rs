@@ -16,6 +16,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::audio::AudioChoice;
+use crate::bundle;
 use crate::camera::{CameraChoice, Decoded};
 use crate::frame_store::{self, FrameRec, FrameStore, FrameWriter};
 use crate::live_preview::{self, LivePreview};
@@ -33,12 +34,13 @@ use vuoom_encode::{
     export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
-use vuoom_preview::{pack_frame, FrameMeta, PreviewServer};
+use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
     AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
-    FrameStyle, HighlightBox, HighlightShape, KeyTap, Project, Rect, Shadow, SourceInfo,
-    SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig, ZoomKeyframe,
+    FrameStyle, HighlightBox, HighlightShape, KeyTap, PointerShape, PointerShapeAt, Project, Rect,
+    Shadow, SourceInfo, SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig,
+    ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -54,6 +56,11 @@ pub struct TakeDefaults {
     pub frame: String,
     /// Noise removal on a new microphone track.
     pub denoise: bool,
+    /// Auto zooms: a take recorded without pressing the zoom hotkey gets a few calm zooms
+    /// planned from its clicks. Pressing the hotkey even once means you're directing the
+    /// camera yourself, and only your zooms are used.
+    #[serde(default)]
+    pub auto_zoom: bool,
 }
 
 impl Default for TakeDefaults {
@@ -64,6 +71,7 @@ impl Default for TakeDefaults {
             keys: false,
             frame: "none".into(),
             denoise: false,
+            auto_zoom: false,
         }
     }
 }
@@ -88,6 +96,8 @@ pub struct RecordingSummary {
     pub duration: f64,
     pub frames: usize,
     pub zooms: usize,
+    /// The zooms were planned from clicks (auto zoom), not placed with the hotkey.
+    pub auto_zooms: bool,
     /// Set when the recording was truncated (e.g. the disk filled mid-capture): the clip keeps
     /// every frame written before the failure, and this message explains the shortfall so the
     /// editor can warn the user instead of the whole take failing.
@@ -182,6 +192,12 @@ pub struct ClipState {
     /// Timed captions (source time) and how they look.
     pub captions: Vec<Caption>,
     pub caption_style: CaptionStyle,
+    /// The picture's full size in pixels (after the crop, with the frame around it): the
+    /// most an export can hold.
+    pub out_width: u32,
+    pub out_height: u32,
+    /// Frames per second the take was recorded at.
+    pub source_fps: f64,
 }
 
 /// Frame values as the editor sees them (fractions of the output height; colors 0..1 RGB).
@@ -286,7 +302,7 @@ struct Edited {
     track: Option<CameraTrack>,
     start_qpc: i64,
     /// The clip's webcam frames, opened on first use. Dropped with the clip, so no file
-    /// handle outlives it (a bundle opened next reuses the scratch folder).
+    /// handle outlives it (the scratch folder of an opened bundle is deleted after the next open).
     camera: Option<Arc<crate::camera::Frames>>,
     /// Undo history: `(coalesce_tag, project_before_the_edit)`. The tag lets rapid-fire
     /// edits (typing, slider drags) collapse into one undo step.
@@ -361,19 +377,6 @@ const MAX_AIMED_ZOOM: f64 = 4.0;
 /// Timestamp unit of a saved bundle's frame index (ticks per second). The QPC epoch and
 /// frequency are machine-specific, so bundles store time from the first frame at 10 MHz.
 const BUNDLE_TIMEBASE: i64 = 10_000_000;
-
-/// Delete the per-frame PNGs (and their JSON index) an older build saved into `frames_dir`.
-fn remove_legacy_frames(frames_dir: &Path) {
-    let _ = std::fs::remove_file(frames_dir.join("index.json"));
-    if let Ok(entries) = std::fs::read_dir(frames_dir) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("png")) {
-                let _ = std::fs::remove_file(p);
-            }
-        }
-    }
-}
 
 /// Legacy bundle format (read-only): one entry in `frames/index.json`, giving the frame
 /// number, time from start in seconds, and dimensions of one PNG frame.
@@ -450,7 +453,9 @@ impl Session {
         })?;
         // Clear any scratch store left by a previous run's bundle open, its gigabytes would
         // otherwise linger. Recorded sessions are pruned per-take (see `new_session_dir`).
-        let _ = std::fs::remove_dir_all(frame_store::scratch_dir());
+        for scratch in frame_store::scratch_dirs() {
+            let _ = std::fs::remove_dir_all(scratch);
+        }
         // The GPU compositor backs both preview and export. If it can't be created (no adapter,
         // driver failure) every seek/export downstream returns "no GPU compositor", log it
         // once here at the source instead of leaving those failures unexplained.
@@ -998,6 +1003,7 @@ impl Session {
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
         let probe_dir = recovery_dir.clone();
+        let recycler = capture.clone();
         let drain = std::thread::spawn(move || -> DrainOutcome {
             let mut writer = writer;
             let mut last_tap: Option<std::time::Instant> = None;
@@ -1041,6 +1047,11 @@ impl Session {
                         if write_err.is_none() {
                             if let Err(e) = writer.push(f) {
                                 write_err = Some(e);
+                            }
+                            // The buffer of the frame the store is done with goes back to
+                            // the capture, to be filled again instead of allocating one.
+                            if let Some(buffer) = writer.take_spare() {
+                                recycler.recycle(buffer);
                             }
                         }
                     }
@@ -1166,7 +1177,9 @@ impl Session {
             .filter_map(|e| normalize(e, &region, session.start_qpc, freq))
             .collect();
         // Manual zoom: each Ctrl+Shift+Z press becomes a deliberate zoom at the cursor.
-        events.extend(zoom_marks(&raw_events, &region, session.start_qpc, freq));
+        let zoom_key = vuoom_input::zoom_chord();
+        let marks = zoom_marks(&raw_events, &region, session.start_qpc, freq, zoom_key);
+        events.extend(marks);
 
         // Merge in poll-detected chord presses the hook missed (e.g. elevated-window
         // focus), without this, the live preview can show a zoom that the final edit
@@ -1188,8 +1201,16 @@ impl Session {
         events.sort_by(|a, b| a.t().total_cmp(&b.t()));
 
         let amount = *self.pending_zoom.lock().unwrap_or_else(|e| e.into_inner());
+        let auto_zoom = self
+            .take_defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .auto_zoom;
+        let hotkey_used = events.iter().any(InputEvent::is_zoom_mark);
+        let auto_zooms = auto_zoom && amount > 1.0 && !hotkey_used;
         let cfg = ZoomConfig {
             amount,
+            auto_zoom_on_click: auto_zooms,
             ..ZoomConfig::default()
         };
         let zooms = plan_zooms(&events, duration, &cfg);
@@ -1228,6 +1249,10 @@ impl Session {
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(CursorStyle::default);
+        // The real pointer's shape through the take (arrow, text beam, hand...), for the
+        // re-drawn pointer to follow.
+        project.pointer_shapes =
+            extract_pointer_shapes(&raw_events, self.clock, session.start_qpc, duration);
 
         // Persist the manifest next to the on-disk frames (in this take's own recovery
         // subdir): together they make the recording recoverable if the app crashes or is
@@ -1284,12 +1309,18 @@ impl Session {
             duration,
             frames: frame_count,
             zooms: zoom_count,
+            auto_zooms,
             warning,
         })
     }
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
-    pub fn seek(&self, t: f64) -> Result<(), String> {
+    ///
+    /// `max_width` is how wide the editor's stage shows it, in screen pixels. The frame is
+    /// composited at that size, not the take's: the stage would only scale a full-size
+    /// frame down again, after it had been rendered, read back, sent and drawn at up to
+    /// ten times the pixels. `None` renders at full size.
+    pub fn seek(&self, t: f64, max_width: Option<u32>) -> Result<(), String> {
         // Snapshot the consistent (project, track, frames, epoch) tuple under a short lock, then
         // release it before the disk read + GPU composite + readback (~50-150ms at 4K) so a
         // scrub never serializes with edits. Cloning the four together preserves a coherent
@@ -1309,6 +1340,8 @@ impl Session {
         let frame = store.frame(idx)?;
 
         let (out_w, out_h) = project.output_dims();
+        let max_width = max_width.map(|w| w.max(PREVIEW_MIN_WIDTH));
+        let (out_w, out_h) = scaled_dims(out_w, out_h, max_width, false);
         let mut scene = build_scene(&project, &track, out_w, out_h, t);
         // Annotations are drawn live by the editor's interactive SVG overlay, not baked into
         // the preview, a baked copy would lag the overlay during a drag and look glitchy.
@@ -1336,7 +1369,7 @@ impl Session {
             frame_number: 0,
             target_time_ns: (t * 1e9) as u64,
         };
-        self.preview.sink().publish(pack_frame(&rgba, meta));
+        self.preview.sink().publish(pack_frame_owned(rgba, meta));
         Ok(())
     }
 
@@ -1359,12 +1392,13 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Log every failure exit once at this seam (missing compositor/frames, encode error,
         // disk-full mid-write), the frontend only sees the string, so without this the cause
         // never reaches the log.
-        self.export_gif_impl(out_path, fps, width, quality, progress)
+        self.export_gif_impl(out_path, fps, width, quality, dither, progress)
             .map_err(|e| {
                 tracing::error!("GIF export failed: {e}");
                 e
@@ -1377,6 +1411,7 @@ impl Session {
         fps: u32,
         width: Option<u32>,
         quality: u8,
+        dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
         // Clear any stale cancel request from a prior export before we begin (see
@@ -1401,7 +1436,11 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the GIF's size: the GPU scales the picture as it draws it
+        // (averaging every source pixel), so no frame is rendered large, read back and then
+        // shrunk on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1410,8 +1449,9 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
 
@@ -1512,23 +1552,14 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
 
+        // Composited straight at the encoded size (H.264 wants even dimensions): the GPU
+        // scales the picture as it draws it, so no frame is resized on the processor.
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, true);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
-
-        // Optional max-width downscale; H.264 wants even dimensions, so floor to even and
-        // let the encoder crop the stray right/bottom line.
-        let scale_w = width.filter(|&w| w > 0 && w < out_w);
-        let (enc_src_w, enc_src_h) = match scale_w {
-            Some(w) => (
-                w,
-                ((u64::from(out_h) * u64::from(w)) / u64::from(out_w)).max(1) as u32,
-            ),
-            None => (out_w, out_h),
-        };
-        let (enc_w, enc_h) = ((enc_src_w & !1).max(2), (enc_src_h & !1).max(2));
 
         // The mixed soundtrack for the played timeline, if there's anything audible.
         let dir = self
@@ -1543,8 +1574,8 @@ impl Session {
         };
         let encoder = crate::mp4::Mp4Encoder::new(
             Path::new(&out_path),
-            enc_w,
-            enc_h,
+            out_w,
+            out_h,
             fps,
             quality,
             mix.is_some(),
@@ -1591,13 +1622,7 @@ impl Session {
                 bg,
                 cam.as_deref().map(Decoded::image),
             );
-            let img = RgbaImage::new(out_w, out_h, rgba);
-            let img = if scale_w.is_some() {
-                downscale_rgba(&img, enc_src_w)
-            } else {
-                img
-            };
-            if let Err(e) = encoder.write_rgba(&img.pixels, img.width, img.height, i as u32) {
+            if let Err(e) = encoder.write_rgba(&rgba, i as u32) {
                 frame_err = Some(e);
                 break;
             }
@@ -1635,7 +1660,13 @@ impl Session {
     /// Windows must be contiguous: the encoder delta-compresses consecutive frames, so a
     /// strided sample would see artificially large frame-to-frame changes and wildly
     /// overestimate. A 1-frame encode per window isolates keyframe cost from delta cost.
-    pub fn estimate_gif(&self, fps: u32, width: Option<u32>, quality: u8) -> Result<u64, String> {
+    pub fn estimate_gif(
+        &self,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        dither: bool,
+    ) -> Result<u64, String> {
         /// Sample windows can still miss the clip's busiest stretch; nudge up.
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
@@ -1665,15 +1696,16 @@ impl Session {
 
         let settings = GifSettings {
             fps,
-            width,
+            width: None,
             quality,
+            dither,
             ..GifSettings::readme()
         };
         let mut windows: Vec<(u64, u64, usize)> = Vec::with_capacity(starts.len());
         for (k, &start) in starts.iter().enumerate() {
             let start = start.min(total - win);
             let indices: Vec<usize> = (start..start + win).collect();
-            let frames = self.composite_indices(&edited, fps, &indices, &|_, _| {})?;
+            let frames = self.composite_indices(&edited, fps, width, &indices)?;
             if frames.is_empty() {
                 continue;
             }
@@ -1692,13 +1724,14 @@ impl Session {
         Ok(((d_out * f64::from(fps)).ceil() as usize).max(1))
     }
 
-    /// Composite specific output-timeline frame indices (honoring trim + speed regions).
+    /// Composite specific output-timeline frame indices (honoring trim + speed regions),
+    /// at most `width` wide (the size the export would render them at).
     fn composite_indices(
         &self,
         edited: &Edited,
         fps: u32,
+        width: Option<u32>,
         indices: &[usize],
-        progress: &dyn Fn(u32, u32),
     ) -> Result<Vec<RgbaImage>, String> {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
@@ -1710,6 +1743,7 @@ impl Session {
         }
 
         let (out_w, out_h) = project.output_dims();
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1723,7 +1757,7 @@ impl Session {
         let cam_frames = cam_frames.map(Arc::new);
 
         let mut images = Vec::with_capacity(indices.len());
-        for (done, &i) in indices.iter().enumerate() {
+        for &i in indices {
             let t_out = (i as f64 / f64::from(fps)).min(d_out);
             let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
             let idx = nearest_idx(store.recs(), self.clock, edited.start_qpc, t_src)
@@ -1742,7 +1776,6 @@ impl Session {
                 cam.as_deref().map(Decoded::image),
             );
             images.push(RgbaImage::new(out_w, out_h, rgba));
-            progress(done as u32 + 1, indices.len() as u32);
         }
         Ok(images)
     }
@@ -1972,6 +2005,7 @@ impl Session {
     pub fn clip_state(&self) -> Result<ClipState, String> {
         let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         let project = edited.project.as_ref().ok_or("no recording")?;
+        let (out_width, out_height) = project.output_dims();
         Ok(ClipState {
             duration: project.source.duration,
             trim: project.trim,
@@ -2000,6 +2034,9 @@ impl Session {
             motion_blur: project.motion_blur,
             captions: project.captions.clone(),
             caption_style: project.caption_style,
+            out_width,
+            out_height,
+            source_fps: project.source.fps,
         })
     }
 
@@ -2634,6 +2671,16 @@ impl Session {
         Ok(zooms)
     }
 
+    /// Remove every zoom segment (undoable as one step); returns the now-empty list.
+    pub fn clear_zooms(&self) -> Result<Vec<ZoomKeyframe>, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        project.zooms.clear();
+        resimulate(&mut edited);
+        Ok(Vec::new())
+    }
+
     /// Delete the zoom segment at `index` and re-simulate the camera.
     /// Returns the updated segment list.
     pub fn delete_zoom(&self, index: usize) -> Result<Vec<ZoomKeyframe>, String> {
@@ -3186,29 +3233,48 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
             .ok_or("no recording")?;
+        // Nothing is written until the drive has room for the whole project, and the new
+        // save goes into a folder beside `dir` that is swapped in once complete: a save cut
+        // off half way (full disk, crash) never touches an earlier save of this project.
+        let staging = bundle::sibling(dir, "saving")?;
+        if let Some(free) = frame_store::free_space_bytes(&staging) {
+            let need = frame_store::dir_size(&src);
+            bundle::check_space(free, need, "save this project")?;
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        if let Err(e) = self.write_bundle(&project, start_qpc, &src, &staging) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+        bundle::swap_in(&staging, dir)
+    }
+
+    /// Write a complete project folder at `dir`: the compressed frame store copied
+    /// byte-for-byte (not re-encoded) with its timestamps rebased to a portable 10 MHz
+    /// timebase, the audio and camera tracks, then the manifest.
+    fn write_bundle(
+        &self,
+        project: &Project,
+        start_qpc: i64,
+        src: &Path,
+        dir: &Path,
+    ) -> Result<(), String> {
         let frames_dir = dir.join("frames");
         std::fs::create_dir_all(&frames_dir).map_err(|e| e.to_string())?;
-        // Bundles used to hold one PNG per frame (minutes to write, gigabytes on disk). They
-        // now hold the compressed frame store itself, copied byte-for-byte, with timestamps
-        // rebased to a portable 10 MHz timebase. Remove an older save's PNGs so the folder
-        // doesn't keep both.
-        remove_legacy_frames(&frames_dir);
         let freq = i128::from(self.clock.freq().max(1));
-        frame_store::copy_store(&src, &frames_dir, |q| {
+        frame_store::copy_store(src, &frames_dir, |q| {
             (i128::from(q - start_qpc) * i128::from(BUNDLE_TIMEBASE) / freq) as i64
         })?;
-        crate::audio::copy_tracks(&src, &dir.join("audio"), &project.audio)?;
-        crate::camera::copy_track(&src, &dir.join("camera"))?;
-        std::fs::write(
-            dir.join("project.json"),
-            project.to_json().map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        Ok(())
+        crate::audio::copy_tracks(src, &dir.join("audio"), &project.audio)?;
+        crate::camera::copy_track(src, &dir.join("camera"))?;
+        let json = project.to_json().map_err(|e| e.to_string())?;
+        let manifest = dir.join("project.json");
+        std::fs::write(&manifest, json).map_err(|e| e.to_string())
     }
 
     /// Open a `.vuoom` bundle saved by [`Self::save_bundle`]: decode the frames, re-simulate
     /// the camera from the persisted events, and repopulate the editor. Returns a summary.
+    /// A bundle that can't be opened leaves the current clip as it was.
     pub fn open_bundle(&self, dir: &Path) -> Result<RecordingSummary, String> {
         self.open_bundle_impl(dir).map_err(|e| {
             tracing::error!(dir = %dir.display(), "opening bundle failed: {e}");
@@ -3217,74 +3283,157 @@ impl Session {
     }
 
     fn open_bundle_impl(&self, dir: &Path) -> Result<RecordingSummary, String> {
-        let project = Project::from_json(
-            &std::fs::read_to_string(dir.join("project.json")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        let project = bundle::read_manifest(dir)?;
         let frames_dir = dir.join("frames");
         if frame_store::has_store(&frames_dir) {
-            return self.open_store_bundle(project, &frames_dir);
+            return self.open_store_bundle(project, dir);
         }
-        let index: Vec<FrameIndex> = serde_json::from_str(
-            &std::fs::read_to_string(frames_dir.join("index.json")).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        if !frames_dir.join("index.json").is_file() {
+            return Err("This project's frames are missing, so it can't be opened.".into());
+        }
+        self.open_png_bundle(project, &frames_dir)
+    }
 
-        let freq = self.clock.freq();
-        let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
-
-        // Decode into the dedicated scratch store, NOT a rotated recording session, so
-        // opening a bundle never buries the last recording's recoverable take. One frame in
-        // memory at a time. Drop the current clip first: its store handles may point at the
-        // scratch files we're about to truncate.
-        let scratch = frame_store::scratch_dir();
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let mut writer = FrameWriter::create(scratch.clone())?;
-        for fi in &index {
-            let img = read_png(&frames_dir.join(format!("{:05}.png", fi.n)))
-                .map_err(|e| e.to_string())?;
-            writer.push(CapturedFrame {
-                width: fi.w,
-                height: fi.h,
-                bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
-                qpc: base + (fi.t * freq as f64) as i64,
-            })?;
-        }
-        let store = writer.finish()?;
-        if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(frame_store::project_path(&scratch), json);
-        }
-        self.install_opened(project, store, scratch, base)
+    /// The scratch dir an open copies into: the one the current clip isn't reading from,
+    /// emptied. Opening never writes where the current clip lives, so a failed open leaves
+    /// it playable.
+    fn scratch_for_open(&self) -> PathBuf {
+        let current = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let target = frame_store::free_scratch_dir(current.as_deref());
+        let _ = std::fs::remove_dir_all(&target);
+        target
     }
 
     /// Open a bundle whose frames are a compressed store (see [`Self::save_bundle`]): one
-    /// file copy into the scratch dir, timestamps rebased onto this run's clock.
+    /// file copy into a scratch dir, timestamps rebased onto this run's clock.
     fn open_store_bundle(
+        &self,
+        project: Project,
+        bundle_dir: &Path,
+    ) -> Result<RecordingSummary, String> {
+        // Check the frames before copying anything. A store cut short opens with the frames
+        // that read back cleanly, and says so.
+        let frames_dir = bundle_dir.join("frames");
+        let readable = FrameStore::open(&frames_dir)?.len();
+        let total = frame_store::record_count(&frames_dir);
+        if readable == 0 {
+            return Err("This project has no readable frames, so it can't be opened.".into());
+        }
+        let mut warning = None;
+        if readable < total {
+            warning = Some(format!(
+                "Only {readable} of {total} frames could be read, the end is missing."
+            ));
+        }
+        let target = self.scratch_for_open();
+        if let Some(free) = frame_store::free_space_bytes(&target) {
+            let need = frame_store::dir_size(bundle_dir);
+            bundle::check_space(free, need, "open this project")?;
+        }
+        let base = self.clock.now();
+        let store = match self.copy_bundle_in(&project, bundle_dir, &target, base) {
+            Ok(store) => store,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
+        };
+        let mut summary = self.install_opened(project, store, target, base)?;
+        summary.warning = warning;
+        Ok(summary)
+    }
+
+    /// Copy a bundle's frames, audio and camera track into the scratch dir `target`, frame
+    /// timestamps rebased onto this run's clock at `base`.
+    fn copy_bundle_in(
+        &self,
+        project: &Project,
+        bundle_dir: &Path,
+        target: &Path,
+        base: i64,
+    ) -> Result<FrameStore, String> {
+        let freq = i128::from(self.clock.freq());
+        frame_store::copy_store(&bundle_dir.join("frames"), target, |t| {
+            base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
+        })?;
+        crate::audio::copy_tracks(&bundle_dir.join("audio"), target, &project.audio)?;
+        crate::camera::copy_track(&bundle_dir.join("camera"), target)?;
+        let store = FrameStore::open(target)?;
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(target), json);
+        }
+        Ok(store)
+    }
+
+    /// Open a bundle from an older build: one PNG per frame, listed in `frames/index.json`.
+    /// A frame that can't be read (a save cut off by a full disk) is skipped, not fatal.
+    fn open_png_bundle(
         &self,
         project: Project,
         frames_dir: &Path,
     ) -> Result<RecordingSummary, String> {
-        let freq = i128::from(self.clock.freq());
-        let base = self.clock.now();
-        let scratch = frame_store::scratch_dir();
-        // Drop the current clip first: its store handles may point at the scratch files.
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
-        let _ = std::fs::remove_dir_all(&scratch);
-        frame_store::copy_store(frames_dir, &scratch, |t| {
-            base + (i128::from(t) * freq / i128::from(BUNDLE_TIMEBASE)) as i64
-        })?;
-        if let Some(bundle) = frames_dir.parent() {
-            crate::audio::copy_tracks(&bundle.join("audio"), &scratch, &project.audio)?;
-            crate::camera::copy_track(&bundle.join("camera"), &scratch)?;
+        let list = frames_dir.join("index.json");
+        let text = std::fs::read_to_string(&list).map_err(|e| e.to_string())?;
+        let index: Vec<FrameIndex> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+
+        let freq = self.clock.freq();
+        let base = self.clock.now(); // fresh epoch; frame qpc is re-based onto it
+
+        // Decode into a scratch store, NOT a rotated recording session, so opening a bundle
+        // never buries the last recording's recoverable take. One frame in memory at a time.
+        let target = self.scratch_for_open();
+        let mut writer = FrameWriter::create(target.clone())?;
+        let mut skipped = 0;
+        for fi in &index {
+            let img = match read_png(&frames_dir.join(format!("{:05}.png", fi.n))) {
+                Ok(img) => img,
+                Err(e) => {
+                    tracing::warn!(frame = fi.n, "skipping an unreadable frame: {e}");
+                    skipped += 1;
+                    continue;
+                }
+            };
+            let pushed = writer.push(CapturedFrame {
+                width: fi.w,
+                height: fi.h,
+                bgra: swizzle_rb(&img.pixels), // RGBA on disk -> BGRA in memory
+                qpc: base + (fi.t * freq as f64) as i64,
+                dirty: None,
+            });
+            if let Err(e) = pushed {
+                drop(writer);
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
         }
-        let store = FrameStore::open(&scratch)?;
+        let store = match writer.finish() {
+            Ok(store) if !store.is_empty() => store,
+            Ok(empty) => {
+                drop(empty);
+                let _ = std::fs::remove_dir_all(&target);
+                return Err("This project has no readable frames, so it can't be opened.".into());
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&target);
+                return Err(e);
+            }
+        };
         if let Ok(json) = project.to_json() {
-            let _ = std::fs::write(frame_store::project_path(&scratch), json);
+            let _ = std::fs::write(frame_store::project_path(&target), json);
         }
-        self.install_opened(project, store, scratch, base)
+        let mut summary = self.install_opened(project, store, target, base)?;
+        if skipped > 0 {
+            summary.warning = Some(format!("{skipped} unreadable frames were skipped."));
+        }
+        Ok(summary)
     }
 
-    /// Make an opened bundle's frames + project the current clip.
+    /// Make an opened bundle's frames + project the current clip, then free the scratch dir
+    /// the previous clip read from (when that was an opened bundle too).
     fn install_opened(
         &self,
         project: Project,
@@ -3292,10 +3441,11 @@ impl Session {
         dir: PathBuf,
         base: i64,
     ) -> Result<RecordingSummary, String> {
-        *self
+        let previous = self
             .current_recovery
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+            .unwrap_or_else(|e| e.into_inner())
+            .replace(dir.clone());
         let track = simulate(
             &project.events,
             &project.zooms,
@@ -3307,17 +3457,24 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            auto_zooms: false,
             warning: None,
         };
-        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-        // Fresh clip → fresh (empty) undo history.
-        *edited = Edited {
-            frames: Some(Arc::new(store)),
-            project: Some(project),
-            track: Some(track),
-            start_qpc: base,
-            ..Edited::default()
-        };
+        {
+            let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+            // Fresh clip → fresh (empty) undo history.
+            *edited = Edited {
+                frames: Some(Arc::new(store)),
+                project: Some(project),
+                track: Some(track),
+                start_qpc: base,
+                ..Edited::default()
+            };
+        }
+        // The previous clip's file handles went with it: drop its scratch copy (gigabytes).
+        if let Some(prev) = previous.filter(|p| *p != dir && frame_store::is_scratch(p)) {
+            let _ = std::fs::remove_dir_all(prev);
+        }
         Ok(summary)
     }
 
@@ -3426,6 +3583,7 @@ impl Session {
             duration: project.source.duration,
             frames: store.len(),
             zooms: project.zooms.len(),
+            auto_zooms: false,
             warning: None,
         };
         // The recovered take is now the loaded clip, so later recovery checks skip it and
@@ -3512,6 +3670,27 @@ impl Session {
     }
 }
 
+/// The narrowest the editor's preview is composited, however small its panel is.
+const PREVIEW_MIN_WIDTH: u32 = 480;
+
+/// `out_w`x`out_h` scaled down to at most `max_w` wide (never up), keeping its shape.
+/// With `even`, both sides come out even, as H.264 needs.
+fn scaled_dims(out_w: u32, out_h: u32, max_w: Option<u32>, even: bool) -> (u32, u32) {
+    let (w, h) = match max_w.filter(|&w| w > 0 && w < out_w) {
+        Some(w) => {
+            let (ow, oh) = (u64::from(out_w), u64::from(out_h));
+            let h = (oh * u64::from(w) + ow / 2) / ow;
+            (w, (h as u32).max(1))
+        }
+        None => (out_w, out_h),
+    };
+    if even {
+        ((w & !1).max(2), (h & !1).max(2))
+    } else {
+        (w, h)
+    }
+}
+
 /// Encode `frames` to a throwaway GIF in the temp dir and return its byte size, the
 /// measurement step of the sample-and-extrapolate size estimate.
 fn encode_sample_bytes(
@@ -3563,16 +3742,52 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
 /// Vuoom's own control chords, these drive the app, not the demo, so they must never render
 /// as keystroke-overlay chips. Kept here next to `extract_key_taps` (the layer that builds
 /// chips) and cross-referenced to their definitions so a future chord change updates both:
-///   - `Ctrl+Shift+X`, the stop-recording hotkey (`hotkey.rs`).
-///   - `Ctrl+Shift+Z`, the manual zoom chord (`zoom_chord.rs` / `normalize.rs`).
+///   - the stop-recording hotkey (`hotkey.rs`), Ctrl+Shift+X unless rebound;
+///   - the manual zoom chord (`zoom_chord.rs` / `normalize.rs`), Ctrl+Shift+Z unless rebound.
 ///
-/// Matched on `Ctrl && Shift && key` (ignoring Alt/Win), mirroring the actual triggers, which
-/// key off exactly those modifiers. Suppressing the whole chord leaves no stray `Ctrl+Shift`
-/// chip because bare modifiers never emit a tap on their own (they only set flags below).
-const VK_X: u16 = 0x58;
-const VK_Z: u16 = 0x5A;
-fn is_app_control_chord(ctrl: bool, shift: bool, vk: u16) -> bool {
-    ctrl && shift && (vk == VK_X || vk == VK_Z)
+/// Matched on the chord's exact modifiers, like the triggers themselves
+/// (`vuoom_input::Chord`). Suppressing the whole chord leaves no stray `Ctrl+Shift` chip
+/// because bare modifiers never emit a tap on their own (they only set flags below).
+fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
+    let is = |chord: vuoom_input::Chord| chord.matches(ctrl, shift, alt, vk);
+    is(vuoom_input::zoom_chord()) || is(vuoom_input::stop_chord())
+}
+
+/// The changes of the real pointer's shape in the raw log, as source times: one entry per
+/// change (a shape repeated in a row is one), clamped into the take. A pointer an app drew
+/// itself is shown as the arrow.
+fn extract_pointer_shapes(
+    raw: &[RawEvent],
+    clock: Clock,
+    start_qpc: i64,
+    duration: f64,
+) -> Vec<PointerShapeAt> {
+    use vuoom_input::{CursorKind, RawEventKind};
+
+    let mut shapes: Vec<PointerShapeAt> = Vec::new();
+    for e in raw {
+        let RawEventKind::Cursor(kind) = e.kind else {
+            continue;
+        };
+        let shape = match kind {
+            CursorKind::Arrow | CursorKind::Other => PointerShape::Arrow,
+            CursorKind::Text => PointerShape::Text,
+            CursorKind::Hand => PointerShape::Hand,
+            CursorKind::Cross => PointerShape::Cross,
+            CursorKind::ResizeH => PointerShape::ResizeH,
+            CursorKind::ResizeV => PointerShape::ResizeV,
+            CursorKind::ResizeNwse => PointerShape::ResizeNwse,
+            CursorKind::ResizeNesw => PointerShape::ResizeNesw,
+            CursorKind::Move => PointerShape::Move,
+        };
+        let t = clock.seconds_between(start_qpc, e.qpc).clamp(0.0, duration);
+        // The arrow is what a take starts with, and a repeat changes nothing.
+        let current = shapes.last().map_or(PointerShape::Arrow, |s| s.shape);
+        if shape != current {
+            shapes.push(PointerShapeAt { t, shape });
+        }
+    }
+    shapes
 }
 
 /// Turn the raw key log into overlay-worthy taps: modifier chords (`Ctrl+Shift+P`) and
@@ -3611,7 +3826,7 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
             continue;
         }
         let Some(name) = key_name(vk) else { continue };
-        if is_app_control_chord(ctrl, shift, vk) {
+        if is_app_control_chord(ctrl, shift, alt, vk) {
             continue; // Vuoom's own stop / zoom chord, not demo content
         }
         let chord = ctrl || alt || win;
@@ -4223,6 +4438,7 @@ mod tests {
             keys: true,
             frame: "subtle".into(),
             denoise: true,
+            auto_zoom: true,
         };
         d.apply(&mut p);
         assert!(p.show_clicks && p.show_keys);
@@ -4531,6 +4747,52 @@ mod tests {
         assert_eq!(info.bg_kind, "gradient");
         assert!((info.padding - 0.05).abs() < 1e-9);
         assert!((info.shadow - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pointer_shape_changes_are_kept_once_each() {
+        use vuoom_input::{CursorKind, RawEventKind};
+        let clock = Clock::new();
+        let f = clock.freq();
+        let at = |t: f64, kind: CursorKind| rawk((t * f as f64) as i64, RawEventKind::Cursor(kind));
+        let raw = [
+            at(0.1, CursorKind::Arrow), // what a take starts with: nothing to note
+            at(1.0, CursorKind::Text),
+            at(1.2, CursorKind::Text), // a repeat
+            rawk((1.5 * f as f64) as i64, RawEventKind::KeyDown(0x41)),
+            at(2.0, CursorKind::Other), // an app's own pointer: drawn as the arrow
+            at(3.0, CursorKind::Hand),
+            at(99.0, CursorKind::Move), // past the end: clamped onto it
+        ];
+        let shapes = extract_pointer_shapes(&raw, clock, 0, 10.0);
+        let got: Vec<PointerShape> = shapes.iter().map(|s| s.shape).collect();
+        let want = [
+            PointerShape::Text,
+            PointerShape::Arrow,
+            PointerShape::Hand,
+            PointerShape::Move,
+        ];
+        assert_eq!(got, want);
+        assert!((shapes[0].t - 1.0).abs() < 1e-6);
+        assert!((shapes[3].t - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn scaled_dims_shrink_but_never_grow() {
+        // No cap, a cap at the size, a cap above it: unchanged.
+        assert_eq!(scaled_dims(1920, 1080, None, false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(1920), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(4000), false), (1920, 1080));
+        assert_eq!(scaled_dims(1920, 1080, Some(0), false), (1920, 1080));
+        // Scaled down, keeping the shape (the height rounds to nearest).
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), false), (1000, 563));
+        assert_eq!(scaled_dims(1920, 1080, Some(1280), false), (1280, 720));
+        // H.264 gets even sides.
+        assert_eq!(scaled_dims(1920, 1080, Some(1000), true), (1000, 562));
+        assert_eq!(scaled_dims(1920, 1080, Some(1001), true), (1000, 562));
+        // A sliver stays at least a pixel (two for H.264) tall.
+        assert_eq!(scaled_dims(4000, 4, Some(400), false), (400, 1));
+        assert_eq!(scaled_dims(4000, 4, Some(400), true), (400, 2));
     }
 
     #[test]

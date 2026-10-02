@@ -1,4 +1,4 @@
-//! Poll-based recorder for the manual zoom chord (Ctrl+Shift+Z).
+//! Poll-based recorder for the manual zoom chord (Ctrl+Shift+Z unless rebound).
 //!
 //! The recording pipeline's low-level keyboard hook can miss keystrokes, most notably
 //! when an elevated (admin) window has focus, where Windows withholds hook callbacks but
@@ -14,12 +14,7 @@ use std::time::Duration;
 
 use vuoom_input::Clock;
 use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-
-const VK_SHIFT: i32 = 0x10;
-const VK_CONTROL: i32 = 0x11;
-const VK_Z: i32 = 0x5A;
 
 /// One polled chord press: QPC timestamp + physical cursor position.
 #[derive(Debug, Clone, Copy)]
@@ -46,7 +41,9 @@ impl ZoomChordPoller {
             let clock = Clock::new();
             let mut prev = true; // require a clean press after recording starts
             while !stop_w.load(Ordering::Relaxed) {
-                let down = key_down(VK_CONTROL) && key_down(VK_SHIFT) && key_down(VK_Z);
+                // By key state only: a press the keyboard hook swallowed never shows here
+                // (it is in the hook's own log), so the two can't count one press twice.
+                let down = vuoom_input::zoom_chord().is_down();
                 if down && !prev {
                     let mut p = POINT::default();
                     if unsafe { GetCursorPos(&mut p) }.is_ok() {
@@ -88,9 +85,4 @@ impl Drop for ZoomChordPoller {
     fn drop(&mut self) {
         self.halt();
     }
-}
-
-fn key_down(vk: i32) -> bool {
-    // The high-order bit of GetAsyncKeyState is set while the key is down.
-    (unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000) != 0
 }

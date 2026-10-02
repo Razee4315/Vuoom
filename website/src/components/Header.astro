@@ -27,10 +27,13 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
 </header>
 <style>
   .nav { position:fixed; top:var(--s-4); inset-inline:0; z-index:var(--z-nav); padding-inline:var(--gutter); pointer-events:none; }
-  .nav__pill { position:relative; display:flex; align-items:center; gap:var(--s-5); max-width:1120px; height:68px; padding:var(--s-2) var(--s-3) var(--s-2) var(--s-5); margin:auto; background:var(--nav-glass); border:1px solid var(--nav-rule); border-radius:var(--r-pill); box-shadow:var(--nav-shadow); backdrop-filter:blur(24px); pointer-events:auto; transition:transform 350ms var(--ease-out); }
-  :global(.is-scrolled) .nav__pill { transform:translateY(-4px); }
+  .nav__pill { position:relative; display:flex; align-items:center; gap:var(--s-5); max-width:var(--nav-max); height:68px; padding:var(--s-2) var(--s-3) var(--s-2) var(--s-5); margin:auto; background:var(--nav-glass); border:1px solid var(--nav-rule); border-radius:var(--r-pill); box-shadow:var(--nav-shadow); backdrop-filter:blur(24px); pointer-events:auto; transition:transform var(--nav-compact-duration) var(--ease-out),max-width var(--nav-compact-duration) var(--ease-out),height var(--nav-compact-duration) var(--ease-out),padding var(--nav-compact-duration) var(--ease-out); }
+  :global(.is-scrolled) .nav__pill { max-width:var(--nav-max-compact); height:var(--nav-h-compact); padding-block:var(--s-1); transform:translateY(calc(-1 * var(--s-1))); }
+  .nav__brand :global(svg) { flex:none; transition:width var(--nav-compact-duration) var(--ease-out),height var(--nav-compact-duration) var(--ease-out),transform var(--nav-compact-duration) var(--ease-out); }
+  :global(.is-scrolled) .nav__brand :global(svg) { width:var(--nav-logo-compact); height:var(--nav-logo-compact); }
   .nav__brand { display:inline-flex; align-items:center; gap:var(--s-2); margin-right:auto; --logo-ink:var(--ink); }
-  .nav__word { font:800 25px var(--font-display); letter-spacing:-.055em; }
+  .nav__word { font:800 25px var(--font-display); letter-spacing:-.055em; transition:font-size var(--nav-compact-duration) var(--ease-out); }
+  :global(.is-scrolled) .nav__word { font-size:var(--nav-word-compact); }
   .nav__badge { font:9px var(--font-mono); color:var(--ink-2); border-left:1px solid var(--rule); padding-left:var(--s-3); margin-left:var(--s-2); letter-spacing:.08em; }
   .nav__links,.nav__actions { display:flex; align-items:center; gap:var(--s-1); }
   .nav__link { position:relative; padding:var(--s-3) var(--s-4); font-size:13px; border-radius:var(--r-pill); }
@@ -67,6 +70,9 @@ const links = [{ href: '/features/', label: 'Features' }, { href: '/compare/', l
   @media(max-width:900px) { .nav__badge { display:none; } .nav__pill { gap:var(--s-2); } }
   @media(max-width:720px) { .nav { top:var(--s-3); padding-inline:var(--s-3); } .nav__pill { height:62px; padding:var(--s-2) var(--s-2) var(--s-2) var(--s-3); gap:0; } .nav__links { display:none; } .nav__menu { display:grid; } .nav__word { font-size:22px; } .nav__dl { padding-inline:var(--s-4); margin-left:0; } .nav__dl svg { display:none; } .nav__brand { gap:var(--s-1); } .nav__actions { gap:0; } }
   @media(max-width:360px) { .nav__brand :global(svg) { width:28px; height:28px; } .nav__word { font-size:20px; } .nav__dl { padding-inline:var(--s-3); font-size:11px; } .theme-toggle,.nav__menu { width:38px; } }
+  @media(max-width:720px) { .nav__pill { --nav-word-compact:var(--nav-word-small); } }
+  @media(max-width:360px) { .nav__pill { --nav-logo-compact:calc(var(--s-5) + var(--s-1)); } }
+  @media(prefers-reduced-motion:reduce) { .nav__pill,.nav__word,.nav__brand :global(svg) { transition:none; } }
 </style>
 <script>
   const toggle = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');

@@ -316,6 +316,23 @@
   gap: 6px;
   margin: 8px 0 4px;
 }
+.hotkey-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hotkey-btn {
+  min-width: 132px;
+  justify-content: center;
+}
+.hotkey-btn.on {
+  border-color: var(--ink);
+  color: var(--text-2);
+}
+.hotkey-problem {
+  color: var(--muted);
+  font-size: 12px;
+}
 .shortcut-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

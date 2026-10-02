@@ -5,6 +5,7 @@
 //! `docs/02-Architecture.md`.
 
 mod audio;
+mod bundle;
 mod camera;
 mod captions;
 mod commands;
@@ -269,6 +270,7 @@ pub fn run() {
             commands::set_zoom_focus,
             commands::set_zoom_style,
             commands::delete_zoom,
+            commands::clear_zooms,
             commands::estimate_gif,
             commands::copy_export_to_clipboard,
             commands::update_text,
@@ -298,6 +300,7 @@ pub fn run() {
             commands::screenshot,
             commands::set_zoom_amount,
             commands::set_live_preview,
+            commands::set_hotkeys,
             commands::default_save_dir,
             commands::next_save_path,
             commands::open_folder,

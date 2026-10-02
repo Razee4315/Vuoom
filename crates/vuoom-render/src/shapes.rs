@@ -2,7 +2,7 @@
 //! arrows) and the re-drawn pointer. Generated manually (no tessellation dependency) and
 //! drawn with `shaders/shapes.wgsl`.
 
-use crate::cursor::{offset_polygon, ARROW, ARROW_TRIS};
+use crate::cursor::{offset_polygon, pointer_parts, ARROW, ARROW_TRIS};
 use crate::scene::{ResolvedArrow, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene};
 use std::f32::consts::{PI, TAU};
 use vuoom_project::Color;
@@ -254,11 +254,54 @@ fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
     const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
     const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
     let faded = |[r, g, b, a]: [f32; 4]| [r, g, b, a * fade as f32];
-    let shadow = offset_polygon(&ARROW, 0.09);
-    let outline = offset_polygon(&ARROW, 0.06);
-    fill_arrow(out, c, scale, &shadow, [0.03, 0.06], faded(SHADOW));
-    fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
-    fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(BODY));
+    // Grown by this much (pointer units) for the shadow and the outline, and the shadow's
+    // offset down and to the right.
+    const SHADOW_GROW: f64 = 0.09;
+    const OUTLINE_GROW: f64 = 0.06;
+    const SHADOW_SHIFT: [f64; 2] = [0.03, 0.06];
+    let Some(parts) = pointer_parts(c.shape) else {
+        let shadow = offset_polygon(&ARROW, SHADOW_GROW);
+        let outline = offset_polygon(&ARROW, OUTLINE_GROW);
+        fill_arrow(out, c, scale, &shadow, SHADOW_SHIFT, faded(SHADOW));
+        fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
+        fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(BODY));
+        return;
+    };
+    // Layer by layer across all the parts, so no part's outline lies over another's body.
+    for part in &parts {
+        let shadow = offset_polygon(part, SHADOW_GROW);
+        fill_convex(out, c, scale, &shadow, SHADOW_SHIFT, faded(SHADOW));
+    }
+    for part in &parts {
+        let outline = offset_polygon(part, OUTLINE_GROW);
+        fill_convex(out, c, scale, &outline, [0.0, 0.0], faded(OUTLINE));
+    }
+    for part in &parts {
+        fill_convex(out, c, scale, part, [0.0, 0.0], faded(BODY));
+    }
+}
+
+/// Fill a convex polygon (pointer units, the hotspot at the origin) at the pointer's
+/// position, shifted by `shift` pointer units: a fan of triangles from its first corner.
+fn fill_convex(
+    out: &mut Vec<ShapeVertex>,
+    c: &ResolvedCursor,
+    scale: f64,
+    poly: &[[f64; 2]],
+    shift: [f64; 2],
+    color: [f32; 4],
+) {
+    let px = |p: [f64; 2]| {
+        [
+            (c.x + (p[0] + shift[0]) * scale) as f32,
+            (c.y + (p[1] + shift[1]) * scale) as f32,
+        ]
+    };
+    for k in 1..poly.len().saturating_sub(1) {
+        for pos in [px(poly[0]), px(poly[k]), px(poly[k + 1])] {
+            out.push(ShapeVertex { pos, color });
+        }
+    }
 }
 
 /// Fill an arrow-shaped polygon (pointer units, tip at the origin, vertices matching

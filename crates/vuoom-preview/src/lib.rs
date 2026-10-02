@@ -9,5 +9,5 @@
 mod protocol;
 mod server;
 
-pub use protocol::{pack_frame, parse_meta, payload, FrameMeta, META_LEN};
+pub use protocol::{pack_frame, pack_frame_owned, parse_meta, payload, FrameMeta, META_LEN};
 pub use server::{FrameSink, PreviewServer};

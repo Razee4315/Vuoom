@@ -1,6 +1,7 @@
-import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
+import { createEffect, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
 import { Icon } from "./icons";
+import { stopKeys, zoomKeys } from "./hotkeys";
 import { layout, prefs } from "./prefs";
 import { Menu, toast } from "./ui";
 import { createPreviewClient } from "./preview";
@@ -24,6 +25,7 @@ import {
 } from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
+import { pushTakeDefaults } from "./takeDefaults";
 import "./RecordOverlay.css";
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -86,6 +88,25 @@ export default function RecordOverlay(props: {
     PRESETS.find((p) => p.id === (props.initialMode === "full" ? "full" : "free")) ?? PRESETS[0],
   );
   const [sel, setSel] = createSignal<Rect | null>(null);
+  // The area the last region take recorded is offered again: most people record the same
+  // part of the screen take after take, and redrawing it by eye never lands on quite the
+  // same pixels. It only fits the display (and picker size) it was drawn on, and it never
+  // overrides anything the user has already done in this picker.
+  let touched = false;
+  const offerLastRegion = () => {
+    const last = prefs.lastRegion();
+    const target = props.target;
+    if (touched || !last || phase() !== "select" || sel()) return;
+    if (props.initialMode === "full" || target?.kind !== "display" || target.name !== last.display) return;
+    if (Math.abs(window.innerWidth - last.vw) > 1 || Math.abs(window.innerHeight - last.vh) > 1) return;
+    const fits = last.w >= 8 && last.h >= 8 && last.x >= 0 && last.y >= 0;
+    if (!fits || last.x + last.w > last.vw + 1 || last.y + last.h > last.vh + 1) return;
+    const chip = PRESETS.find((p) => p.id === last.preset && p.ratio !== "full");
+    if (!chip) return;
+    setPreset(chip);
+    setSel({ x: last.x, y: last.y, w: last.w, h: last.h });
+    setCursor("move");
+  };
   const [count, setCount] = createSignal(prefs.countdown());
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
@@ -179,6 +200,18 @@ export default function RecordOverlay(props: {
           w: Math.round(r.w * sx),
           h: Math.round(r.h * sy),
         };
+        if (props.target?.kind === "display") {
+          prefs.lastRegion.set({
+            x: r.x,
+            y: r.y,
+            w: r.w,
+            h: r.h,
+            vw: window.innerWidth,
+            vh: window.innerHeight,
+            preset: p.id,
+            display: props.target.name,
+          });
+        }
         await invoke("set_region", {
           x: stillRegion.x,
           y: stillRegion.y,
@@ -467,6 +500,7 @@ export default function RecordOverlay(props: {
 
   const onDown = (e: PointerEvent) => {
     if (phase() !== "select" || preset().ratio === "full" || props.target?.kind === "window") return;
+    touched = true;
     try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     const hit = hitTest(e.clientX, e.clientY);
     if (hit.mode === "new") {
@@ -536,9 +570,17 @@ export default function RecordOverlay(props: {
       }
     }
   };
+  // The picker opens inside the editor's window and the engine then grows it over the
+  // display, so the last region is offered once it has: when the backdrop arrives, and on
+  // any resize in case no backdrop could be grabbed.
+  createEffect(() => {
+    if (props.backdrop) queueMicrotask(offerLastRegion);
+  });
   onMount(() => {
+    window.addEventListener("resize", offerLastRegion);
+    onCleanup(() => window.removeEventListener("resize", offerLastRegion));
     window.addEventListener("keydown", onKey);
-    // Global Ctrl+Shift+X (watched by the backend while recording) stops the recording
+    // The global stop hotkey (watched by the backend while recording) stops the recording
     // even when this panel doesn't have focus.
     const unlistenStop = listen("stop-hotkey", () => {
       if (phase() === "recording") void stop();
@@ -553,6 +595,7 @@ export default function RecordOverlay(props: {
   });
 
   const pickPreset = (p: Preset) => {
+    touched = true;
     setPreset(p);
     drag = null;
     if (p.ratio === "full" || p.ratio === null || props.target?.kind === "window") {
@@ -674,9 +717,7 @@ export default function RecordOverlay(props: {
               </Show>
               <Show when={phase() === "recording" && props.zoom > 1}>
                 <span class="rec-previewtag">
-                  <kbd>Ctrl</kbd>
-                  <kbd>Shift</kbd>
-                  <kbd>Z</kbd> zooms {props.zoom.toFixed(1)}×
+                  <For each={zoomKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> zooms {props.zoom.toFixed(1)}×
                 </span>
               </Show>
               <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
@@ -717,7 +758,7 @@ export default function RecordOverlay(props: {
                   class="rec-stop"
                   aria-label="Stop recording"
                   data-tip="Stop and open the editor"
-                  data-kbd="Ctrl+Shift+X"
+                  data-kbd={stopKeys()}
                   onClick={() => void stop()}
                 >
                   <span class="rec-stop-square" />
@@ -728,9 +769,7 @@ export default function RecordOverlay(props: {
                     {fmt(elapsed())}
                   </span>
                   <span class="rec-hint">
-                    <kbd>Ctrl</kbd>
-                    <kbd>Shift</kbd>
-                    <kbd>X</kbd> stops
+                    <For each={stopKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> stops
                   </span>
                 </div>
                 <button
@@ -882,7 +921,15 @@ export default function RecordOverlay(props: {
           <Menu
             class="hud-menu"
             items={() => [
-              { heading: "Zoom with Ctrl+Shift+Z" },
+              { heading: "Zoom" },
+              {
+                label: "Auto zoom where I click",
+                checked: prefs.recordAutoZoom(),
+                onSelect: () => {
+                  prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
+                  pushTakeDefaults();
+                },
+              },
               ...ZOOM_CHOICES.map((z) => ({
                 label: z.value === 1 ? "No zoom" : `Zoom ${z.label}`,
                 checked: Math.abs(props.zoom - z.value) < 0.001,
@@ -925,7 +972,7 @@ export default function RecordOverlay(props: {
                 class="hud-options"
                 classList={{ on: m.open }}
                 ref={m.ref}
-                data-tip={`${props.zoom > 1 ? `Ctrl+Shift+Z zooms ${props.zoom}×` : "No zoom"} · ${prefs.captureFps()} fps · ${cursorSummary()} · ${prefs.countdown() === 0 ? "no countdown" : `${prefs.countdown()}s countdown`}`}
+                data-tip={`${props.zoom > 1 ? `${zoomKeys()} zooms ${props.zoom}×` : "No zoom"} · ${prefs.captureFps()} fps · ${cursorSummary()} · ${prefs.countdown() === 0 ? "no countdown" : `${prefs.countdown()}s countdown`}`}
                 onClick={m.toggle}
               >
                 <Icon name="sliders" size={14} />

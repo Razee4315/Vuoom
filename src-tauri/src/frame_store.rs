@@ -147,35 +147,88 @@ pub fn lower_thread_priority() {
 #[cfg(not(windows))]
 pub fn lower_thread_priority() {}
 
+/// The compressed form of an all-zero strip, by strip length: what a strip that didn't
+/// change XORs to. A frame's strips come in one or two lengths, so this holds as many
+/// entries and each is compressed once per take.
+#[derive(Default)]
+struct ZeroBlocks(Vec<(usize, Vec<u8>)>);
+
+impl ZeroBlocks {
+    /// Make sure the block for a `len`-byte strip exists.
+    fn ensure(&mut self, len: usize) {
+        if !self.0.iter().any(|(l, _)| *l == len) {
+            let block = lz4_flex::block::compress(&vec![0u8; len]);
+            self.0.push((len, block));
+        }
+    }
+
+    /// The block for a `len`-byte strip ([`Self::ensure`] it first).
+    fn get(&self, len: usize) -> &[u8] {
+        match self.0.iter().find(|(l, _)| *l == len) {
+            Some((_, block)) => block,
+            None => &[],
+        }
+    }
+}
+
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the
 /// strip container: `u8 n`, `n × u32 compressed len`, then the concatenated LZ4 blocks.
-fn encode_frame(cur: &[u8], prev: Option<&[u8]>, w: u32, h: u32) -> Vec<u8> {
+///
+/// `band` is the span of rows `(top, bottom)` that may differ from `prev`, when the capture
+/// knows it. A delta's strips outside the band are all zeros by definition, so they take a
+/// ready-made block from `zeros` instead of being XORed and compressed: with a caret
+/// blinking or the pointer moving, that is all but one strip of the frame.
+fn encode_frame(
+    cur: &[u8],
+    prev: Option<&[u8]>,
+    (w, h): (u32, u32),
+    band: Option<(u32, u32)>,
+    zeros: &mut ZeroBlocks,
+) -> Vec<u8> {
     use rayon::prelude::*;
     let ranges = strip_ranges(w, h);
-    let blocks: Vec<Vec<u8>> = encode_pool().install(|| {
+    let row = w as usize * 4;
+    // Only a delta can skip strips (a keyframe stores every pixel).
+    let band = band
+        .filter(|_| prev.is_some())
+        .map(|(top, bottom)| (top as usize * row, bottom as usize * row));
+    let changed = |r: &std::ops::Range<usize>| band.is_none_or(|(a, b)| r.start < b && a < r.end);
+    for r in ranges.iter().filter(|r| !changed(r)) {
+        zeros.ensure(r.len());
+    }
+    let zeros = &*zeros;
+    // `None` = an unchanged strip.
+    let blocks: Vec<Option<Vec<u8>>> = encode_pool().install(|| {
         ranges
             .par_iter()
-            .map(|r| match prev {
-                Some(p) => {
-                    let xored: Vec<u8> = cur[r.clone()]
-                        .iter()
-                        .zip(&p[r.clone()])
-                        .map(|(a, b)| a ^ b)
-                        .collect();
-                    lz4_flex::block::compress(&xored)
+            .map_init(Vec::new, |scratch: &mut Vec<u8>, r| {
+                if !changed(r) {
+                    return None;
                 }
-                None => lz4_flex::block::compress(&cur[r.clone()]),
+                let Some(p) = prev else {
+                    return Some(lz4_flex::block::compress(&cur[r.clone()]));
+                };
+                let (now, before) = (&cur[r.clone()], &p[r.clone()]);
+                scratch.clear();
+                scratch.extend(now.iter().zip(before).map(|(a, b)| a ^ b));
+                Some(lz4_flex::block::compress(scratch))
             })
             .collect()
     });
-    let body: usize = blocks.iter().map(Vec::len).sum();
+    let block = |k: usize| -> &[u8] {
+        match &blocks[k] {
+            Some(b) => b,
+            None => zeros.get(ranges[k].len()),
+        }
+    };
+    let body: usize = (0..blocks.len()).map(|k| block(k).len()).sum();
     let mut out = Vec::with_capacity(1 + blocks.len() * 4 + body);
     out.push(blocks.len() as u8);
-    for b in &blocks {
-        out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+    for k in 0..blocks.len() {
+        out.extend_from_slice(&(block(k).len() as u32).to_le_bytes());
     }
-    for b in &blocks {
-        out.extend_from_slice(b);
+    for k in 0..blocks.len() {
+        out.extend_from_slice(block(k));
     }
     out
 }
@@ -272,11 +325,30 @@ pub fn free_space_bytes(_path: &Path) -> Option<u64> {
     None
 }
 
-/// Fixed scratch subdir backing an opened `.vuoom` bundle. Named non-numerically so recovery
-/// scanning skips it, opening a bundle must never bury the last recording's recoverable
-/// session. Truncated (not rotated) on each reuse, so it holds at most one bundle's frames.
-pub fn scratch_dir() -> PathBuf {
-    recovery_root().join("scratch")
+/// The two scratch subdirs that back an opened `.vuoom` bundle. Named non-numerically so
+/// recovery scanning skips them: opening a bundle must never bury the last recording's
+/// recoverable session. There are two so a bundle can be copied in while the current clip
+/// still reads from the other one, and a failed open leaves that clip untouched.
+pub fn scratch_dirs() -> [PathBuf; 2] {
+    let root = recovery_root();
+    [root.join("scratch"), root.join("scratch-2")]
+}
+
+/// The scratch subdir the next open should use: whichever one `in_use` (the current clip's
+/// store) isn't.
+pub fn free_scratch_dir(in_use: Option<&Path>) -> PathBuf {
+    let [a, b] = scratch_dirs();
+    let a_in_use = in_use.is_some_and(|p| p == a);
+    if a_in_use {
+        b
+    } else {
+        a
+    }
+}
+
+/// Whether `dir` is one of the [`scratch_dirs`].
+pub fn is_scratch(dir: &Path) -> bool {
+    scratch_dirs().iter().any(|s| s == dir)
 }
 
 /// How many recorded sessions to retain: the current one plus the immediately previous, so a
@@ -370,7 +442,7 @@ pub fn latest_recoverable(exclude: Option<&Path>) -> Option<PathBuf> {
 /// Recursively sum the byte size of every file under `dir`. Best-effort: an entry that can't
 /// be read is skipped rather than failing the whole walk. Cheap here, the recovery root only
 /// ever holds a couple of session dirs plus scratch.
-fn dir_size(dir: &Path) -> u64 {
+pub fn dir_size(dir: &Path) -> u64 {
     let mut total = 0;
     if let Ok(entries) = fs::read_dir(dir) {
         for e in entries.flatten() {
@@ -396,9 +468,10 @@ pub fn recovery_usage() -> (u64, usize) {
 /// dir: one that fails to delete is left in place and not counted.
 pub fn clear_recovery(keep: Option<&Path>) -> u64 {
     let mut targets = session_dirs();
-    let scratch = scratch_dir();
-    if scratch.is_dir() {
-        targets.push(scratch);
+    for scratch in scratch_dirs() {
+        if scratch.is_dir() {
+            targets.push(scratch);
+        }
     }
     let mut freed = 0;
     for dir in targets {
@@ -458,6 +531,11 @@ pub struct FrameWriter {
     since_key: u32,
     /// Running totals for the compression readout (uncompressed vs. written bytes).
     stats: StoreStats,
+    /// Ready-made blocks for the strips of a delta that didn't change.
+    zeros: ZeroBlocks,
+    /// The pixel buffer of a frame that is done with, for the capture to fill again (see
+    /// [`Self::take_spare`]).
+    spare: Option<Vec<u8>>,
 }
 
 /// Byte accounting for a store being written: what the frames would have cost raw versus
@@ -488,7 +566,15 @@ impl FrameWriter {
             prev: None,
             since_key: 0,
             stats: StoreStats::default(),
+            zeros: ZeroBlocks::default(),
+            spare: None,
         })
+    }
+
+    /// The pixel buffer of the frame the last [`Self::push`] finished with (the one a new
+    /// frame replaced as "previous", or a duplicate's), for the capture to reuse.
+    pub fn take_spare(&mut self) -> Option<Vec<u8>> {
+        self.spare.take()
     }
 
     /// Append one frame. Three shapes, cheapest first:
@@ -496,6 +582,9 @@ impl FrameWriter {
     /// - otherwise LZ4-compressed, as an XOR delta against the previous frame when the
     ///   dimensions match and the chain is shorter than [`KEY_EVERY`], else as a keyframe;
     /// - raw BGRA whenever compression would not actually save bytes (tiny or noisy frames).
+    ///
+    /// When the capture says which rows changed ([`CapturedFrame::dirty`]), only those are
+    /// compared and compressed: the rest of the frame is known to match the previous one.
     ///
     /// Takes the frame by value so a distinct frame's buffer MOVES into the `prev` slot,
     /// cloning it would add a multi-MB memcpy per frame to the drain's hot path.
@@ -507,18 +596,35 @@ impl FrameWriter {
             .prev
             .as_ref()
             .is_some_and(|p| p.w == f.width && p.h == f.height);
-        let is_dup = same_dims && self.prev.as_ref().is_some_and(|p| p.bgra == f.bgra);
+        // The rows that may differ from the previous frame (meaningless against a frame of
+        // another size, and clamped: a span past the frame's end must not slice past it).
+        let band = f
+            .dirty
+            .filter(|_| same_dims)
+            .map(|(top, bottom)| (top.min(f.height), bottom.min(f.height)));
+        let row = f.width as usize * 4;
+        let is_dup = same_dims
+            && self.prev.as_ref().is_some_and(|p| match band {
+                Some((top, bottom)) if top >= bottom => true,
+                Some((top, bottom)) => {
+                    let rows = top as usize * row..bottom as usize * row;
+                    p.bgra[rows.clone()] == f.bgra[rows]
+                }
+                None => p.bgra == f.bgra,
+            });
         let rec = if is_dup {
             // A duplicate never touches `frames.raw`, so it cannot fail on a full disk.
             let p = self.prev.as_ref().unwrap();
-            FrameRec {
+            let rec = FrameRec {
                 qpc: f.qpc,
                 w: f.width,
                 h: f.height,
                 offset: p.offset,
                 len: p.len,
                 flags: FLAG_DUP,
-            }
+            };
+            self.spare = Some(f.bgra);
+            rec
         } else {
             let as_delta = same_dims && self.since_key < KEY_EVERY;
             let prev_px = if as_delta {
@@ -526,7 +632,8 @@ impl FrameWriter {
             } else {
                 None
             };
-            let packed = encode_frame(&f.bgra, prev_px, f.width, f.height);
+            let dims = (f.width, f.height);
+            let packed = encode_frame(&f.bgra, prev_px, dims, band, &mut self.zeros);
             let (bytes, flags): (&[u8], u8) = if (packed.len() as u64) < raw_len {
                 let delta = if prev_px.is_some() { FLAG_DELTA } else { 0 };
                 (&packed, FLAG_COMPRESSED | delta)
@@ -552,14 +659,15 @@ impl FrameWriter {
                 0
             };
             // Remember this frame's pixels (its bytes live at `rec.offset`) so the next one
-            // can deduplicate or delta against it.
-            self.prev = Some(PrevFrame {
+            // can deduplicate or delta against it. The frame it replaces is done with.
+            let done = self.prev.replace(PrevFrame {
                 bgra: f.bgra,
                 w: f.width,
                 h: f.height,
                 offset: rec.offset,
                 len: rec.len,
             });
+            self.spare = done.map(|p| p.bgra);
             rec
         };
         self.idx
@@ -738,6 +846,7 @@ impl FrameStore {
             height: target.h,
             bgra: buf,
             qpc: target.qpc,
+            dirty: None,
         });
         rs.cache = Some((i, Arc::clone(&frame)));
         Ok(frame)
@@ -784,6 +893,13 @@ pub fn copy_store(src: &Path, dst: &Path, map_qpc: impl Fn(i64) -> i64) -> Resul
     Ok(store.len())
 }
 
+/// How many frame records `dir`'s index holds, readable or not. More than
+/// [`FrameStore::len`] means the store was cut short (its tail is dropped on open).
+pub fn record_count(dir: &Path) -> usize {
+    let len = fs::metadata(index_path(dir)).map_or(0, |m| m.len());
+    usize::try_from(len).unwrap_or(0) / REC_SIZE
+}
+
 /// Whether `dir` holds a frame store (used to tell new project bundles from PNG ones).
 pub fn has_store(dir: &Path) -> bool {
     raw_path(dir).is_file() && index_path(dir).is_file()
@@ -814,6 +930,7 @@ mod tests {
             height: 2,
             bgra: vec![fill; 2 * 2 * 4],
             qpc,
+            dirty: None,
         }
     }
 
@@ -862,6 +979,7 @@ mod tests {
             height: 2,
             bgra: vec![0xAA; 16],
             qpc: 1,
+            dirty: None,
         })
         .unwrap();
         w.push(CapturedFrame {
@@ -869,6 +987,7 @@ mod tests {
             height: 2,
             bgra: vec![0xAA; 24],
             qpc: 2,
+            dirty: None,
         })
         .unwrap();
         let store = w.finish().unwrap();
@@ -948,7 +1067,87 @@ mod tests {
             height: h,
             bgra,
             qpc,
+            dirty: None,
         }
+    }
+
+    /// `screen`, saying which rows changed since the step before it: the rows of the box
+    /// then and the box now.
+    fn screen_with_rows(w: u32, h: u32, step: u32, qpc: i64) -> CapturedFrame {
+        let rows = |s: u32| ((s * 3) % (h - 8), (s * 3) % (h - 8) + 8);
+        let (was, now) = (rows(step.saturating_sub(1)), rows(step));
+        CapturedFrame {
+            dirty: Some((was.0.min(now.0), was.1.max(now.1))),
+            ..screen(w, h, step, qpc)
+        }
+    }
+
+    #[test]
+    fn frames_that_say_which_rows_changed_store_the_same_pixels() {
+        // Tall enough for several strips, so most of each delta is unchanged strips.
+        let (w, h, n) = (64u32, 480u32, 70u32);
+        let dir = tmp_dir("band");
+        let mut writer = FrameWriter::create(dir.clone()).unwrap();
+        // The first frame can't say (None); the rest name their rows. Frame 20 repeats 19
+        // with an empty span, frame 40 repeats 39 with a span that changed nothing.
+        let step_of = |i: u32| match i {
+            20 => 19,
+            40 => 39,
+            _ => i,
+        };
+        for i in 0..n {
+            let mut f = screen_with_rows(w, h, step_of(i), i64::from(i));
+            f.dirty = match i {
+                0 => None,
+                20 => Some((0, 0)),
+                40 => Some((100, 140)),
+                // A span running past the frame is clamped, not trusted.
+                50 => f.dirty.map(|(top, _)| (top, h + 500)),
+                _ => f.dirty,
+            };
+            // After a repeat, the next frame's rows are relative to the repeated frame.
+            if i == 21 || i == 41 {
+                f.dirty = Some((0, h));
+            }
+            writer.push(f).unwrap();
+            // Every frame after the first hands a buffer back for reuse.
+            assert_eq!(writer.take_spare().is_some(), i > 0, "frame {i}");
+        }
+        let store = writer.finish().unwrap();
+        assert_eq!(store.len(), n as usize);
+        assert_ne!(store.recs()[20].flags & FLAG_DUP, 0);
+        assert_ne!(store.recs()[40].flags & FLAG_DUP, 0);
+        // Forwards, then backwards (every seek replays a delta chain).
+        let order = (0..n).chain((0..n).rev());
+        for i in order {
+            let got = store.frame(i as usize).unwrap();
+            let want = screen(w, h, step_of(i), 0);
+            assert!(got.bgra == want.bgra, "frame {i} differs");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unchanged_strips_cost_almost_nothing() {
+        // The same frames, stored with and without their changed rows named: the pixels
+        // are the same (the test above), and neither store may come out bigger.
+        let (w, h, n) = (64u32, 960u32, 20u32);
+        let size = |named: bool| {
+            let dir = tmp_dir(if named { "band-on" } else { "band-off" });
+            let mut writer = FrameWriter::create(dir.clone()).unwrap();
+            for i in 0..n {
+                let mut f = screen_with_rows(w, h, i, i64::from(i));
+                if !named || i == 0 {
+                    f.dirty = None;
+                }
+                writer.push(f).unwrap();
+            }
+            drop(writer.finish().unwrap());
+            let bytes = fs::metadata(raw_path(&dir)).unwrap().len();
+            let _ = fs::remove_dir_all(&dir);
+            bytes
+        };
+        assert_eq!(size(true), size(false));
     }
 
     #[test]

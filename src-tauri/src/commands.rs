@@ -526,6 +526,15 @@ pub fn set_zoom_amount(engine: tauri::State<'_, Engine>, amount: f64) -> Result<
     engine.session()?.set_zoom_amount(amount)
 }
 
+/// Rebind the two hotkeys that work while another app has the keyboard: `zoom` and `stop`,
+/// written like `"Ctrl+Shift+Z"`. Applies at once, also mid-take.
+#[tauri::command]
+pub fn set_hotkeys(zoom: String, stop: String) -> Result<(), String> {
+    let zoom = vuoom_input::Chord::parse(&zoom)?;
+    let stop = vuoom_input::Chord::parse(&stop)?;
+    vuoom_input::set_chords(zoom, stop)
+}
+
 /// Show or hide the recording panel's live picture (applies at once, also mid-take).
 #[tauri::command]
 pub fn set_live_preview(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
@@ -944,10 +953,15 @@ pub fn set_record_paused(engine: tauri::State<'_, Engine>, paused: bool) -> Resu
     engine.session()?.set_record_paused(paused)
 }
 
-/// Composite the frame at time `t` (seconds) and push it to the preview.
+/// Composite the frame at time `t` (seconds) and push it to the preview, at most
+/// `max_width` pixels wide (how wide the stage shows it; omitted = full size).
 #[tauri::command]
-pub async fn seek(engine: tauri::State<'_, Engine>, t: f64) -> Result<(), String> {
-    engine.session()?.seek(t)
+pub async fn seek(
+    engine: tauri::State<'_, Engine>,
+    t: f64,
+    max_width: Option<u32>,
+) -> Result<(), String> {
+    engine.session()?.seek(t, max_width)
 }
 
 /// Payload for the `export-progress` event the export panel listens to.
@@ -967,10 +981,12 @@ pub async fn export_gif(
     fps: u32,
     width: Option<u32>,
     quality: u8,
+    dither: Option<bool>,
 ) -> Result<(), String> {
+    let dither = dither.unwrap_or(true);
     engine
         .session()?
-        .export_gif(path, fps, width, quality, &|done, total| {
+        .export_gif(path, fps, width, quality, dither, &|done, total| {
             let _ = app.emit("export-progress", ExportProgress { done, total });
         })
 }
@@ -1131,8 +1147,10 @@ pub async fn estimate_gif(
     fps: u32,
     width: Option<u32>,
     quality: u8,
+    dither: Option<bool>,
 ) -> Result<u64, String> {
-    engine.session()?.estimate_gif(fps, width, quality)
+    let dither = dither.unwrap_or(true);
+    engine.session()?.estimate_gif(fps, width, quality, dither)
 }
 
 /// Put an exported file (GIF or MP4) on the clipboard as CF_HDROP, so pasting into Slack /
@@ -1288,6 +1306,12 @@ pub async fn set_zoom_style(
     let style =
         ZoomStyle::from_label(&style).ok_or_else(|| format!("unknown zoom style: {style}"))?;
     engine.session()?.set_zoom_style(index, style)
+}
+
+/// Remove every zoom segment; returns the (empty) segment list.
+#[tauri::command]
+pub async fn clear_zooms(engine: tauri::State<'_, Engine>) -> Result<Vec<ZoomKeyframe>, String> {
+    engine.session()?.clear_zooms()
 }
 
 /// Delete the zoom segment at `index`; returns the updated segment list.

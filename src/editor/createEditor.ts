@@ -4,7 +4,7 @@
 //
 // This is the logic that used to live inline in App.tsx, moved verbatim where possible;
 // DOM refs are now registered through the `refs` setters at the bottom.
-import { batch, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "solid-js";
 import { invoke, isMock, open, openUrl, ask, check, relaunch, type Update } from "../bridge";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
@@ -17,6 +17,7 @@ import { pushAudioChoice } from "../components/AudioControls";
 import { pushCameraChoice } from "../components/CameraControls";
 import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
+import { pushHotkeys } from "../hotkeys";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -306,28 +307,35 @@ export function createEditor() {
   };
   const [recentSearch, setRecentSearch] = createSignal("");
 
-  const openRecent = async (dir: string) => {
+  // Open a project folder. A failed open leaves the current clip as it was; a folder that
+  // is gone (moved or deleted) can be dropped from the recents grid.
+  const openProjectAt = async (dir: string) => {
     setStatus("Opening project…");
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      setProjectName(
-        dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop()?.replace(/\.vuoom$/i, "") || "Untitled",
-      );
+      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
+      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
       await loadFinishedClip(summary);
       rememberRecent(dir);
-      setStatus("Project opened");
-      toast("Project opened", "success");
+      if (summary.warning) {
+        setStatus(`Project opened. ${summary.warning}`);
+        toast(`Project opened. ${summary.warning}`, "error", 9000);
+      } else {
+        setStatus("Project opened");
+        toast("Project opened", "success");
+      }
     } catch (e) {
       setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error");
-      // The folder is likely gone (moved or deleted): offer to drop it from the grid.
+      toast(`Could not open project: ${friendlyError(e)}`, "error", 9000);
+      if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
-        "This project folder could not be opened. It may have been moved or deleted. Remove it from the recents list?",
+        "This project folder is gone. It may have been moved or deleted. Remove it from the recents list?",
         { title: "Project unavailable", kind: "warning", okLabel: "Remove", cancelLabel: "Keep" },
       );
       if (remove) removeRecent(dir);
     }
   };
+  const openRecent = (dir: string) => openProjectAt(dir);
   const fmtAgo = (ts: number) => {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return "just now";
@@ -695,6 +703,19 @@ export function createEditor() {
     preview.disconnect();
   });
 
+  // The engine composites the preview at the size the stage shows it, not the take's: a
+  // full-size frame would only be scaled down again here, after being rendered, read back,
+  // sent and drawn at several times the pixels. The width is in screen pixels, rounded up
+  // to a step so dragging a panel doesn't ask for a new size on every pixel.
+  const PREVIEW_STEP = 160;
+  const previewWidth = (): number | undefined => {
+    const w = canvasEl?.clientWidth ?? 0;
+    if (w <= 0) return undefined; // not laid out yet: full size
+    return Math.ceil((w * (window.devicePixelRatio || 1)) / PREVIEW_STEP) * PREVIEW_STEP;
+  };
+  /** The width the last frame was asked for at. */
+  let sentWidth = 0;
+
   // ── seek throttling (shared by scrubbing, playback, live edits) ────────────────
   let seekBusy = false;
   let seekPending: number | null = null;
@@ -705,7 +726,9 @@ export function createEditor() {
     }
     seekBusy = true;
     try {
-      await invoke("seek", { t });
+      const maxWidth = previewWidth();
+      sentWidth = maxWidth ?? Number.POSITIVE_INFINITY;
+      await invoke("seek", { t, maxWidth });
     } catch {
       /* no clip yet */
     }
@@ -720,6 +743,14 @@ export function createEditor() {
     setPlayhead(t);
     void pushSeek(t);
   };
+  // The stage grew past the last frame's size (a panel dragged away, the window
+  // maximized): ask for a sharper frame. Playback asks again on its own every frame.
+  createEffect(() => {
+    stage();
+    untrack(() => {
+      if (hasClip() && !playing() && (previewWidth() ?? 0) > sentWidth) void pushSeek(playhead());
+    });
+  });
 
   // Reconcile a fresh engine snapshot into the model: an item whose snapshot is UNCHANGED
   // keeps its object reference (Solid <For> keeps that DOM row), a CHANGED item takes the
@@ -2130,7 +2161,13 @@ export function createEditor() {
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
   type RecordMode = "full" | "region" | "window";
-  const [recordMode, setRecordMode] = createSignal<RecordMode>("region");
+  // Remembered between launches: someone who records the full screen every time shouldn't
+  // land on the region picker each morning.
+  const recordMode = (): RecordMode => {
+    const m = prefs.recordMode();
+    return m === "full" || m === "window" ? m : "region";
+  };
+  const setRecordMode = (m: RecordMode) => prefs.recordMode.set(m);
   const [sourceTab, setSourceTab] = createSignal<"display" | "window">("display");
 
   const startRecord = async (mode: RecordMode = recordMode()) => {
@@ -2177,6 +2214,7 @@ export function createEditor() {
     void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
     void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
     pushCursorMode();
+    pushHotkeys();
     pushAudioChoice();
     pushCameraChoice();
     pushTakeDefaults();
@@ -2206,10 +2244,16 @@ export function createEditor() {
     setBackdrop(null);
     setRecordTarget(null);
     await loadFinishedClip(summary);
-    toast(
-      `Recording loaded: ${summary.duration.toFixed(1)}s, ${summary.zooms} zoom${summary.zooms === 1 ? "" : "s"}`,
-      "success",
-    );
+    const n = summary.zooms;
+    if (summary.auto_zooms && n > 0) {
+      // Auto zoom planned these from the clicks: say so, and make them one click to drop.
+      toast(`Added ${n} zoom${n === 1 ? "" : "s"} where you clicked`, "success", 8000, {
+        label: "Remove",
+        run: () => void clearZooms(),
+      });
+    } else {
+      toast(`Recording loaded: ${summary.duration.toFixed(1)}s, ${n} zoom${n === 1 ? "" : "s"}`, "success");
+    }
   };
   const onRecordCancel = () => {
     setRecordPhase("idle");
@@ -2520,6 +2564,20 @@ export function createEditor() {
     } catch (e) {
       setStatus(`Auto zoom failed: ${String(e)}`);
       toast(`Auto zoom failed: ${friendlyError(e)}`, "error");
+    }
+  };
+
+  // Drop every zoom (one undo step).
+  const clearZooms = async () => {
+    if (!hasClip()) return;
+    try {
+      setZooms(await invoke<ZoomSeg[]>("clear_zooms"));
+      setDirty(true);
+      setSelZoom(null);
+      setStatus("Zooms removed. Ctrl+Z brings them back.");
+      await pushSeek(playhead());
+    } catch (e) {
+      toast(`Couldn't remove the zooms: ${friendlyError(e)}`, "error");
     }
   };
 
@@ -3756,19 +3814,7 @@ export function createEditor() {
   const onOpenProject = async () => {
     const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
     if (!dir || Array.isArray(dir)) return;
-    setStatus("Opening project…");
-    try {
-      const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      const base = dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "Untitled";
-      setProjectName(base.replace(/\.vuoom$/i, "") || "Untitled");
-      await loadFinishedClip(summary);
-      rememberRecent(dir);
-      setStatus("Project opened");
-      toast("Project opened", "success");
-    } catch (e) {
-      setStatus(`Open failed: ${String(e)}`);
-      toast(`Could not open project: ${friendlyError(e)}`, "error");
-    }
+    await openProjectAt(dir);
   };
 
 

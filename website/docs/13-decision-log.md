@@ -90,3 +90,42 @@ Owner approved paper palette and requested modern navigation, optional dark them
 
 ## 2026-09-26: Product copy and system theme
 The owner requested clearer hero labels, removal of the handwritten click note, and system-based initial theme. Saved explicit theme choices still take priority. See docs/15-paper-cut-redesign.md.
+
+## 2026-09-30: Center the introduction and move the demo to section two
+
+The owner requested centered hero text, a fun interactive element, and the demo
+directly after the hero. Replace the split hero with a centered introduction and
+an accessible paper viewfinder. Move the existing demo into a dedicated second
+section, before the workflow. Reuse existing footage and keep the native pointer.
+See docs/15-paper-cut-redesign.md for the updated composition and interaction.
+
+### Owner refinement
+
+The owner rejected the paper viewfinder and requested a smaller hero, flying
+elements, and inspiration from Paperling and Snipflag. Replace the viewfinder with
+small recording motifs around the centered copy and a subtle scroll shrink.
+Use finite pointer and tap interactions, with a static reduced-motion fallback.
+References inspected: https://razee4315.github.io/Paperling/ and
+https://razee4315.github.io/snipflag/.
+
+### Floating object refinement
+
+The owner requested better icon art and animation. Use bespoke two-tone SVG
+recording objects, varied resting angles, and the site's critically damped spring
+math for finite drift, proximity response, tap flights and bounded dragging.
+Keep the compact hero and disable decorative motion under reduced motion.
+
+### Compact navigation
+
+The owner requested a smaller navbar while scrolling. Add a narrower 920px,
+56px-high scrolled state with a smaller brand, preserving navigation actions.
+Use separate enter/exit thresholds and an interruptible fixed-header transition,
+with no transition for reduced motion. See docs/15-paper-cut-redesign.md.
+
+### Responsive full-screen hero
+
+The owner requested that the hero cover the opening screen across screen sizes.
+Replace content-only sizing with a small-viewport minimum height and centered
+content. Reserve navigation and mobile decoration space, use fluid typography,
+and allow natural growth on short screens. This supersedes the earlier compact
+section height while preserving the small interactive objects and scroll shrink.

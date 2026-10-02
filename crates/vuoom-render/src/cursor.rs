@@ -8,7 +8,7 @@
 //! the pointer down, and a pointer set to hide when idle fades out while it rests.
 
 use glam::DVec2;
-use vuoom_project::InputEvent;
+use vuoom_project::{InputEvent, PointerShape};
 
 /// Log gaps longer than this mean the pointer was resting, not moving.
 const MOTION_GAP: f64 = 0.06;
@@ -124,6 +124,102 @@ pub fn idle_opacity(events: &[InputEvent], t: f64) -> f64 {
     let resting = 1.0 - smoothstep((t - last - IDLE_AFTER) / IDLE_FADE_OUT);
     let arriving = next.map_or(0.0, |n| 1.0 - smoothstep((n - t) / IDLE_FADE_IN));
     resting.max(arriving)
+}
+
+/// An axis-aligned rectangle as a polygon.
+const fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> [[f64; 2]; 4] {
+    [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+}
+
+/// The text beam: a stem with a serif at each end, centered on the hotspot.
+const BEAM: [[[f64; 2]; 4]; 3] = [
+    rect(-0.03, -0.42, 0.03, 0.42),
+    rect(-0.15, -0.48, 0.15, -0.42),
+    rect(-0.15, 0.42, 0.15, 0.48),
+];
+
+/// The crosshair, centered on the hotspot.
+const CROSS: [[[f64; 2]; 4]; 2] = [
+    rect(-0.42, -0.028, 0.42, 0.028),
+    rect(-0.028, -0.42, 0.028, 0.42),
+];
+
+/// A left-right resize arrow, centered on the hotspot: its shaft and two heads.
+const RESIZE_SHAFT: [[f64; 2]; 4] = rect(-0.26, -0.045, 0.26, 0.045);
+const RESIZE_HEADS: [[[f64; 2]; 3]; 2] = [
+    [[-0.5, 0.0], [-0.26, -0.19], [-0.26, 0.19]],
+    [[0.5, 0.0], [0.26, 0.19], [0.26, -0.19]],
+];
+/// The square where the move pointer's two arrows cross.
+const MOVE_HUB: [[f64; 2]; 4] = rect(-0.105, -0.105, 0.105, 0.105);
+
+/// The pointing hand, hotspot at the tip of the index finger: the four fingers, the palm
+/// and the thumb.
+const HAND_FINGERS: [[[f64; 2]; 4]; 4] = [
+    rect(-0.065, 0.0, 0.065, 0.50),
+    rect(0.065, 0.27, 0.185, 0.55),
+    rect(0.185, 0.31, 0.300, 0.58),
+    rect(0.300, 0.36, 0.410, 0.62),
+];
+const HAND_PALM: [[f64; 2]; 6] = [
+    [-0.065, 0.42],
+    [0.41, 0.42],
+    [0.41, 0.70],
+    [0.33, 0.88],
+    [0.02, 0.88],
+    [-0.065, 0.74],
+];
+const HAND_THUMB: [[f64; 2]; 4] = [
+    [-0.065, 0.50],
+    [-0.065, 0.74],
+    [-0.245, 0.585],
+    [-0.185, 0.47],
+];
+
+/// `part` turned by `degrees` about the hotspot.
+fn turned(part: &[[f64; 2]], degrees: f64) -> Vec<[f64; 2]> {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    part.iter()
+        .map(|&[x, y]| [x * cos - y * sin, x * sin + y * cos])
+        .collect()
+}
+
+/// The left-right resize arrow turned by `degrees`.
+fn resize_arrow(degrees: f64) -> Vec<Vec<[f64; 2]>> {
+    let mut parts = vec![turned(&RESIZE_SHAFT, degrees)];
+    parts.extend(RESIZE_HEADS.iter().map(|head| turned(head, degrees)));
+    parts
+}
+
+/// A pointer shape other than the arrow, as convex polygons in pointer units (the hotspot
+/// at the origin, the arrow one unit tall). Each is filled on its own, so together they
+/// may overlap. `None` for the arrow, which has its own polygon ([`ARROW`]).
+#[must_use]
+pub fn pointer_parts(shape: PointerShape) -> Option<Vec<Vec<[f64; 2]>>> {
+    let list = |parts: &[[[f64; 2]; 4]]| -> Vec<Vec<[f64; 2]>> {
+        parts.iter().map(|p| p.to_vec()).collect()
+    };
+    Some(match shape {
+        PointerShape::Arrow => return None,
+        PointerShape::Text => list(&BEAM),
+        PointerShape::Cross => list(&CROSS),
+        PointerShape::ResizeH => resize_arrow(0.0),
+        PointerShape::ResizeV => resize_arrow(90.0),
+        PointerShape::ResizeNwse => resize_arrow(45.0),
+        PointerShape::ResizeNesw => resize_arrow(-45.0),
+        PointerShape::Move => {
+            let mut parts = resize_arrow(0.0);
+            parts.extend(resize_arrow(90.0));
+            parts.push(MOVE_HUB.to_vec());
+            parts
+        }
+        PointerShape::Hand => {
+            let mut parts = list(&HAND_FINGERS);
+            parts.push(HAND_PALM.to_vec());
+            parts.push(HAND_THUMB.to_vec());
+            parts
+        }
+    })
 }
 
 /// The classic arrow pointer as a polygon, tip at the origin, one unit tall.
@@ -277,6 +373,49 @@ mod tests {
         ];
         assert!(idle_opacity(&ev, 3.0).abs() < 1e-9);
         assert!((idle_opacity(&ev, 4.5) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn every_pointer_shape_is_made_of_convex_parts_near_the_hotspot() {
+        let shapes = [
+            PointerShape::Text,
+            PointerShape::Hand,
+            PointerShape::Cross,
+            PointerShape::ResizeH,
+            PointerShape::ResizeV,
+            PointerShape::ResizeNwse,
+            PointerShape::ResizeNesw,
+            PointerShape::Move,
+        ];
+        assert!(pointer_parts(PointerShape::Arrow).is_none());
+        for shape in shapes {
+            let parts = pointer_parts(shape).expect("a drawn shape");
+            assert!(!parts.is_empty());
+            for part in &parts {
+                assert!(part.len() >= 3);
+                // Convex: every corner turns the same way (so a fan from the first
+                // corner fills it exactly).
+                let n = part.len();
+                let turns: Vec<f64> = (0..n)
+                    .map(|i| {
+                        let (a, b, c) = (part[i], part[(i + 1) % n], part[(i + 2) % n]);
+                        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+                    })
+                    .collect();
+                let one_way = turns.iter().all(|t| *t > 0.0) || turns.iter().all(|t| *t < 0.0);
+                assert!(one_way, "{shape:?} has a part that isn't convex: {turns:?}");
+                // No bigger than the arrow: within a unit of the hotspot.
+                assert!(part.iter().all(|p| p[0].abs() <= 1.0 && p[1].abs() <= 1.0));
+            }
+        }
+        // A turned arrow keeps its size: the diagonal's tips are as far out as the flat one's.
+        let far = |parts: &[Vec<[f64; 2]>]| {
+            let all = parts.iter().flatten();
+            all.map(|p| p[0].hypot(p[1])).fold(0.0f64, f64::max)
+        };
+        let flat = far(&resize_arrow(0.0));
+        assert!((far(&resize_arrow(45.0)) - flat).abs() < 1e-9);
+        assert!((flat - 0.5).abs() < 1e-9);
     }
 
     #[test]

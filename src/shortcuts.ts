@@ -1,5 +1,6 @@
 // Tool definitions + the keyboard cheat-sheet. The single source of truth for the "?"
 // modal, every chord here is wired in onKey / onGlobalKey / RecordOverlay.
+import { RECORD_KEYS, stopKeys, zoomKeys } from "./hotkeys";
 import type { Tool } from "./types";
 
 export const TOOLS: { id: Tool; label: string; key: string; code: string; hint: string }[] = [
@@ -42,8 +43,20 @@ export const SHORTCUTS: { group: string; items: { keys: string[]; label: string 
   {
     group: "Recording",
     items: [
-      { keys: ["Ctrl", "Shift", "R"], label: "Start recording" },
-      { keys: ["Ctrl", "Shift", "X"], label: "Stop recording" },
+      { keys: RECORD_KEYS.split("+"), label: "Start recording" },
+      // The two that can be rebound (above): read when the list is drawn.
+      {
+        get keys() {
+          return zoomKeys().split("+");
+        },
+        label: "Zoom in or out while recording",
+      },
+      {
+        get keys() {
+          return stopKeys().split("+");
+        },
+        label: "Stop recording",
+      },
       { keys: ["Esc"], label: "Cancel region / countdown" },
     ],
   },

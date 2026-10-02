@@ -4,6 +4,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { Icon, type IconName } from "../icons";
+import { RECORD_KEYS, stopKeys, zoomKeys } from "../hotkeys";
 import { prefs } from "../prefs";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES, type Choice } from "../recordOptions";
 import { Kbd, Seg } from "../ui";
@@ -27,7 +28,9 @@ export default function Home() {
   });
   // One line that says how the next take is set up, so the options can stay folded.
   const summary = () => {
-    const zoom = prefs.recordZoom() > 1 ? `${labelOf(ZOOM_CHOICES, prefs.recordZoom())} zoom` : "No zoom";
+    const strength = labelOf(ZOOM_CHOICES, prefs.recordZoom());
+    const zoom =
+      prefs.recordZoom() <= 1 ? "No zoom" : prefs.recordAutoZoom() ? `Auto zoom ${strength}` : `${strength} zoom`;
     const count = prefs.countdown() > 0 ? `${prefs.countdown()}s countdown` : "No countdown";
     return `${labelOf(FPS_CHOICES, prefs.captureFps())} · ${zoom} · ${count}`;
   };
@@ -38,7 +41,17 @@ export default function Home() {
         <section class="home-hero">
           <h1 class="home-title">Record something worth showing.</h1>
           <p class="home-sub">
-            Choose what to capture. Press <Kbd keys="Ctrl+Shift+Z" /> while you record to zoom in.
+            <Show
+              when={prefs.recordAutoZoom() && prefs.recordZoom() > 1}
+              fallback={
+                <>
+                  Choose what to capture. Press <Kbd keys={zoomKeys()} /> while you record to zoom in.
+                </>
+              }
+            >
+              Choose what to capture. Vuoom zooms in where you click, or press <Kbd keys={zoomKeys()} /> to
+              zoom yourself.
+            </Show>
           </p>
 
           <div class="source-cards">
@@ -93,7 +106,19 @@ export default function Home() {
                 />
               </div>
               <div class="home-opt">
-                <span>Zoom on Ctrl+Shift+Z</span>
+                <span>Zooms</span>
+                <Seg
+                  label="How zooms are made"
+                  value={prefs.recordAutoZoom() ? "auto" : "hotkey"}
+                  onChange={(v) => prefs.recordAutoZoom.set(v === "auto")}
+                  options={[
+                    { value: "auto", label: "Auto", tip: "Calm zooms where you click, unless you use the hotkey" },
+                    { value: "hotkey", label: "Hotkey only", tip: `Zoom only when you press ${zoomKeys()}` },
+                  ]}
+                />
+              </div>
+              <div class="home-opt">
+                <span>Zoom strength</span>
                 <Seg
                   label="Zoom strength"
                   value={prefs.recordZoom()}
@@ -135,7 +160,7 @@ export default function Home() {
                 <Icon name="folder" size={14} /> Open a saved project
               </button>
               <span class="home-keys">
-                <Kbd keys="Ctrl+Shift+R" /> record <span class="home-keys-sep" /> <Kbd keys="Ctrl+Shift+X" /> stop
+                <Kbd keys={RECORD_KEYS} /> record <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> stop
               </span>
             </div>
           }

@@ -65,6 +65,10 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         if let Some(kind) = kind {
             emit(kind, info.pt.x, info.pt.y);
         }
+        // The pointer changes shape as it moves over things: note each change.
+        if let Some(shape) = crate::cursor_watch::changed() {
+            emit(RawEventKind::Cursor(shape), info.pt.x, info.pt.y);
+        }
     }
     CallNextHookEx(None, code, wparam, lparam)
 }
@@ -79,7 +83,13 @@ unsafe extern "system" fn key_proc(code: i32, wparam: WPARAM, lparam: LPARAM) ->
             _ => None,
         };
         if let Some(kind) = kind {
+            let down = matches!(kind, RawEventKind::KeyDown(_));
             emit(kind, 0, 0);
+            // One of Vuoom's own hotkeys: it has been logged and counted, and stops here, so
+            // the app being recorded never gets it (see `chords`).
+            if crate::chords::hook_key(vk, down) {
+                return LRESULT(1);
+            }
         }
     }
     CallNextHookEx(None, code, wparam, lparam)
@@ -100,6 +110,7 @@ impl InputRecorder {
         let (tx, rx) = channel::<RawEvent>();
         let (id_tx, id_rx) = channel::<u32>();
 
+        crate::chords::hook_reset();
         let handle = thread::spawn(move || {
             TX.with(|t| *t.borrow_mut() = Some(tx));
             // SAFETY: standard Win32 low-level hook install + message pump on this thread.

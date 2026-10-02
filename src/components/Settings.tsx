@@ -1,17 +1,26 @@
 // Settings: appearance, recording defaults, editing behavior, storage, the full shortcut
 // sheet and app info, in one tabbed dialog (Ctrl+, / "?" opens it on Shortcuts).
-import { createResource, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isMock } from "../bridge";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { fmtBytes } from "../format";
+import {
+  chordFromEvent,
+  pushHotkeys,
+  RECORD_KEYS,
+  STOP_DEFAULT,
+  stopKeys,
+  ZOOM_DEFAULT,
+  zoomKeys,
+} from "../hotkeys";
 import { Icon, type IconName } from "../icons";
-import { layout, prefs, resetLayout } from "../prefs";
+import { layout, type Persisted, prefs, resetLayout } from "../prefs";
 import { chooseSaveDir, openSaveDir, useSaveDir } from "../saveDir";
 import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
-import { Field, Seg, Switch } from "../ui";
+import { Field, Kbd, Seg, Switch } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
 import { CURSOR_MODES } from "../cursorMode";
@@ -35,6 +44,89 @@ const THEME_ART: Record<string, [string, string, string]> = {
   paper: ["#e9e5dc", "#f7f5f0", "#28261f"],
   midnight: ["#060910", "#111722", "#e8edf5"],
 };
+
+/** One rebindable hotkey: shows the chord; click it, then press the new one. */
+function HotkeyField(props: {
+  label: string;
+  hint: string;
+  pref: Persisted<string>;
+  fallback: string;
+  /** Chords this one may not take, with what already uses each. */
+  taken: () => { keys: string; by: string }[];
+}) {
+  const [listening, setListening] = createSignal(false);
+  const [problem, setProblem] = createSignal("");
+  // Listens ahead of everything else, so the keys pressed here reach neither the editor's
+  // shortcuts nor the dialog (Esc cancels the change, it doesn't close Settings).
+  const onKey = (e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.key === "Escape") {
+      stop();
+      return;
+    }
+    const got = chordFromEvent(e);
+    if ("pending" in got) return;
+    if ("error" in got) {
+      setProblem(got.error);
+      return;
+    }
+    const clash = props.taken().find((t) => t.keys === got.chord);
+    if (clash) {
+      setProblem(`${got.chord} is already ${clash.by}`);
+      return;
+    }
+    props.pref.set(got.chord);
+    pushHotkeys();
+    stop();
+  };
+  const stop = () => {
+    window.removeEventListener("keydown", onKey, true);
+    setListening(false);
+    setProblem("");
+  };
+  const listen = () => {
+    if (listening()) return stop();
+    setListening(true);
+    window.addEventListener("keydown", onKey, true);
+  };
+  onCleanup(() => window.removeEventListener("keydown", onKey, true));
+
+  return (
+    <Field label={props.label} hint={props.hint}>
+      <div class="hotkey-field">
+        <button
+          type="button"
+          class="btn sm hotkey-btn"
+          classList={{ on: listening() }}
+          aria-label={`${props.label}: ${props.pref()}. Click to change`}
+          onClick={listen}
+        >
+          <Show when={!listening()} fallback="Press the new keys…">
+            <Kbd keys={props.pref()} />
+          </Show>
+        </button>
+        <Show when={props.pref() !== props.fallback && !listening()}>
+          <button
+            type="button"
+            class="btn sm ghost"
+            onClick={() => {
+              props.pref.set(props.fallback);
+              pushHotkeys();
+            }}
+          >
+            Reset
+          </button>
+        </Show>
+        <Show when={problem()}>
+          <span class="hotkey-problem" role="alert">
+            {problem()}
+          </span>
+        </Show>
+      </div>
+    </Field>
+  );
+}
 
 export default function Settings() {
   const ed = useEditor();
@@ -160,11 +252,21 @@ export default function Settings() {
                 options={COUNTDOWN_CHOICES}
               />
             </Field>
-            <Field label="Zoom strength" hint="Used by Ctrl+Shift+Z while recording and by new zoom blocks">
+            <Field label="Zoom strength" hint={`Used by ${zoomKeys()} while recording and by new zoom blocks`}>
               <Seg
                 value={prefs.recordZoom()}
                 onChange={(v) => prefs.recordZoom.set(v)}
                 options={ZOOM_CHOICES}
+              />
+            </Field>
+            <Field
+              label="Auto zoom"
+              hint={`A take where you don't press ${zoomKeys()} gets a few calm zooms where you clicked`}
+            >
+              <Switch
+                checked={prefs.recordAutoZoom()}
+                label="Auto zoom"
+                onChange={(v) => prefs.recordAutoZoom.set(v)}
               />
             </Field>
             <h3>Every new take starts with</h3>
@@ -279,6 +381,27 @@ export default function Settings() {
           </Show>
 
           <Show when={tab() === "shortcuts"}>
+            <h3>While recording</h3>
+            <HotkeyField
+              label="Zoom in or out"
+              hint="Works while another app has the keyboard. That app never sees the keys"
+              pref={prefs.hotkeyZoom}
+              fallback={ZOOM_DEFAULT}
+              taken={() => [
+                { keys: stopKeys(), by: "the stop hotkey" },
+                { keys: RECORD_KEYS, by: "Start recording" },
+              ]}
+            />
+            <HotkeyField
+              label="Stop recording"
+              hint="Stops the take and opens the editor"
+              pref={prefs.hotkeyStop}
+              fallback={STOP_DEFAULT}
+              taken={() => [
+                { keys: zoomKeys(), by: "the zoom hotkey" },
+                { keys: RECORD_KEYS, by: "Start recording" },
+              ]}
+            />
             <div class="shortcut-grid">
               <For each={SHORTCUTS}>
                 {(g) => (

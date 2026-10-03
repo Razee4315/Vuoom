@@ -54,8 +54,48 @@ it moves: it never pops in late or starts a gesture invisible. Typing doesn't co
 movement. Before the first logged event, rest is counted from the start of the take.
 (`idle_opacity` in `cursor.rs`; the opacity rides on `ResolvedCursor` into `shapes.rs`.)
 
+## Looks
+
+`CursorStyle.look` picks what is drawn:
+
+- **Classic**: the arrow above, following the real pointer's shape (hand, text beam...).
+- **Dot**: a round dot centered on the point, with the same outline and shadow.
+- **Picture**: the user's own file (`CursorStyle.image`: its path and a hotspot, the point
+  that clicks, as fractions of its width and height). The file is read through WIC with its
+  transparency, premultiplied, shrunk to 512 px at most and uploaded with a full mip chain,
+  since a pointer is mostly drawn far smaller than its picture. It is drawn as tall as the
+  classic pointer would be, by `shaders/sprite.wgsl`, which also casts a soft shadow from
+  the picture's own shape. A picture that can no longer be read (moved, deleted) falls back
+  to the classic pointer, and the log says why. The picture replaces every pointer shape.
+
+The color applies to the classic pointer and the dot; the shadow (`shadow`, on by default)
+and the highlight disc apply to all three.
+
+## Opacity
+
+`CursorStyle.opacity` (0 to 1) fades the whole pointer. The drawn pointer is layers on top of
+each other (shadow, outline, body), so fading each one would let the outline show through
+the body. Instead, a see-through pointer (from the opacity or the idle fade) is drawn opaque
+into its own texture first and that layer is blended onto the frame once, by the same sprite
+shader as the picture. An opaque pointer skips the extra pass.
+
+## Click effects
+
+With click effects on (`Project.show_clicks`), every recorded click plays
+`Project.click_style`: one of four animations (**Ripple**, the classic single ring;
+**Rings**, a second ring a third of the way behind; **Pulse**, a soft disc under a crisp
+edge; **Burst**, eight dots flying outward), in any color, at 0.5 to 3× size, over 0.2 to
+1.5 s, with a starting opacity. They are plain circles in the shape pipeline
+(`click_marks` in `scene.rs`), mapped through the camera so they stay on the content.
+
 ## Editor
 
-Clip > Pointer toggles it and sets size (0.5 to 3×), smoothing and hide when still. The panel explains the two
-confusing cases: a re-drawn pointer on a take that also captured the real one (two pointers),
-and a take with no visible pointer at all.
+Clip > Pointer toggles it and sets the look, size (0.5 to 3×), smoothing, hide when still,
+opacity, shadow, color and highlight. A picture's hotspot is set by clicking on its preview.
+Clip > Overlays holds the click effect. The panel explains the two confusing cases: a
+re-drawn pointer on a take that also captured the real one (two pointers), and a take with
+no visible pointer at all.
+
+The pointer's look and the click style last chosen are remembered (`pointer-look` and
+`click-style` preferences) and sent with the take defaults, so a new take starts with them
+and a custom pointer is set up once.

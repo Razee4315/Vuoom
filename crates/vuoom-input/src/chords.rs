@@ -128,7 +128,11 @@ fn key_code(key: &str) -> Option<u16> {
         [c @ b'0'..=b'9'] => Some(u16::from(*c)),
         [b'f', digits @ ..] if !digits.is_empty() => {
             let n: u16 = key[1..].parse().ok()?;
-            (1..=12).contains(&n).then_some(VK_F1 + n.wrapping_sub(1))
+            // Checked before the sum: "F0" or "F65535" must not overflow it.
+            if !(1..=12).contains(&n) {
+                return None;
+            }
+            Some(VK_F1 + n - 1)
         }
         _ => None,
     }

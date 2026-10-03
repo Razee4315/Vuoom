@@ -11,6 +11,8 @@ export function pushTakeDefaults(): void {
       frame: prefs.newFrame(),
       denoise: prefs.newDenoise(),
       auto_zoom: prefs.recordAutoZoom(),
+      pointer: prefs.pointerLook(),
+      click_style: prefs.clickStyle(),
     },
   }).catch(() => undefined);
 }

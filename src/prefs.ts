@@ -3,7 +3,7 @@
 // every write is saved immediately. Storage failures (private mode, quota) are ignored:
 // the app then simply starts from defaults next time.
 import { createSignal, type Accessor } from "solid-js";
-import type { CursorMode } from "./types";
+import type { ClickStyle, CursorMode, CursorStyle } from "./types";
 
 const PREFIX = "vuoom-pref:";
 
@@ -107,6 +107,12 @@ export const prefs = {
   newKeys: persisted<boolean>("new-keys", true),
   newFrame: persisted<"none" | "subtle" | "studio">("new-frame", "subtle"),
   newDenoise: persisted<boolean>("new-denoise", true),
+  /**
+   * The smooth pointer's look and the click style last chosen in the editor: new takes
+   * start with them, so a custom pointer is set up once. `null` = Vuoom's defaults.
+   */
+  pointerLook: persisted<CursorStyle | null>("pointer-look", null),
+  clickStyle: persisted<ClickStyle | null>("click-style", null),
   /** Magnetic snapping of timeline edges (Alt still bypasses it per drag). */
   snapping: persisted<boolean>("snapping", true),
   /** Hover hints, coachmarks and lane hints for newcomers. */

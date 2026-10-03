@@ -653,3 +653,191 @@
 .corner-cell.on .corner-dot {
   background: currentColor;
 }
+
+/* Pointer looks and click effects: one small card per choice, its art above its name. */
+.look-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.look-cards.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.look-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 4px 7px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  transition:
+    border-color var(--dur-2) var(--ease),
+    color var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--spring);
+}
+.look-card:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+.look-card:active {
+  transform: scale(0.97);
+}
+.look-card.on {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  color: var(--text);
+}
+.look-card-art {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 30px;
+  color: var(--text);
+}
+.look-card-art img {
+  max-width: 30px;
+  max-height: 30px;
+  object-fit: contain;
+}
+.look-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--muted);
+}
+
+/* Click effects on their cards. At rest each is a still of itself (the second ring sits
+   inside the first); hovering a card plays it, and choosing one plays it twice. */
+.fx-art .fx-a,
+.fx-art .fx-b {
+  transform-origin: 12px 12px;
+  vector-effect: non-scaling-stroke;
+}
+.fx-art .fx-b {
+  transform: scale(0.55);
+}
+@keyframes fx-play {
+  from {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+/* Off when motion is reduced (in Settings or by the system): the stills stay. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduced"]) .look-card:hover .fx-a,
+  :root:not([data-motion="reduced"]) .look-card:focus-visible .fx-a {
+    animation: fx-play 1.2s ease-out infinite;
+  }
+  :root:not([data-motion="reduced"]) .look-card:hover .fx-b,
+  :root:not([data-motion="reduced"]) .look-card:focus-visible .fx-b {
+    animation: fx-play 1.2s ease-out 0.36s infinite backwards;
+  }
+  :root:not([data-motion="reduced"]) .look-card.on:not(:hover) .fx-a {
+    animation: fx-play 1.2s ease-out 2;
+  }
+  :root:not([data-motion="reduced"]) .look-card.on:not(:hover) .fx-b {
+    animation: fx-play 1.2s ease-out 0.36s 2 backwards;
+  }
+}
+
+/* The pointer picture in use: click it to say where it points. */
+.ptr-picture {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  animation: fade-up var(--dur-3) var(--ease) both;
+}
+.ptr-hotspot,
+.ptr-picture-missing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  /* A checkerboard, so see-through parts of the picture read as see-through. */
+  background:
+    repeating-conic-gradient(var(--hover) 0% 25%, var(--raised) 0% 50%) 0 0 / 12px 12px;
+}
+.ptr-picture-missing {
+  width: 64px;
+  height: 64px;
+  color: var(--faint);
+}
+.ptr-hotspot {
+  cursor: crosshair;
+}
+.ptr-hotspot:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.ptr-hotspot img {
+  display: block;
+  max-width: 76px;
+  max-height: 76px;
+  min-width: 28px;
+  min-height: 28px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+/* Where it points: a ring with a dot, readable on any picture. */
+.ptr-hotspot-mark {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #e5484d;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transition:
+    left var(--dur-2) var(--ease),
+    top var(--dur-2) var(--ease);
+}
+.ptr-picture-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.ptr-picture-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+  font-weight: 560;
+}
+.ptr-picture-hint {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.ptr-picture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+.ptr-picture-actions .btn[aria-pressed="true"] {
+  border-color: var(--ink);
+  color: var(--text);
+}

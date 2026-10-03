@@ -21,7 +21,7 @@ import { Icon, type IconName } from "../icons";
 import { layout, prefs, setInspectorW } from "../prefs";
 import ScrubField from "../ScrubField";
 import { TOOLS } from "../shortcuts";
-import type { CameraCorner, CropRect } from "../types";
+import type { CameraCorner, ClickEffect, CropRect, PointerLook } from "../types";
 
 /** The webcam bubble's corners, in reading order for the 2×2 picker. */
 const CAMERA_CORNERS: { value: CameraCorner; label: string }[] = [
@@ -130,8 +130,63 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
 
 /** Quick picks for the re-drawn pointer's color; the first is the classic white. */
 const POINTER_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
+/** The pointer's looks, in the order of their cards. */
+const POINTER_LOOKS: { value: PointerLook; label: string; tip: string }[] = [
+  { value: "classic", label: "Classic", tip: "Vuoom's pointer: an arrow, a hand over links, a beam over text" },
+  { value: "dot", label: "Dot", tip: "A round dot, like a presenter's laser" },
+  { value: "image", label: "Picture", tip: "Your own picture as the pointer" },
+];
+/** The click effects, in the order of their cards. */
+const CLICK_EFFECTS: { value: ClickEffect; label: string; tip: string }[] = [
+  { value: "ripple", label: "Ripple", tip: "One ring that grows and fades" },
+  { value: "rings", label: "Rings", tip: "Two rings, one after the other" },
+  { value: "pulse", label: "Pulse", tip: "A soft disc that swells and fades" },
+  { value: "burst", label: "Burst", tip: "Dots that fly outward" },
+];
+/** Click colors: white (the default), then the pointer's palette without its black. */
+const CLICK_COLORS = ["#ffffff", "#ffd23f", "#e5484d", "#30a46c", "#6ea8ff", "#b48cff"];
+
+/** A click effect for its card: still at rest, playing while the card is hovered and
+ *  twice when it is chosen (see .fx-art in inspector.css). */
+function ClickEffectArt(props: { effect: ClickEffect }): JSX.Element {
+  const dots = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
+    const a = (i * Math.PI) / 4;
+    return { x: 12 + 8 * Math.cos(a), y: 12 + 8 * Math.sin(a) };
+  });
+  return (
+    <svg
+      class="fx-art"
+      viewBox="0 0 24 24"
+      width="26"
+      height="26"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      aria-hidden="true"
+    >
+      <Show when={props.effect === "ripple"}>
+        <circle class="fx-a" cx="12" cy="12" r="7.5" />
+      </Show>
+      <Show when={props.effect === "rings"}>
+        <circle class="fx-a" cx="12" cy="12" r="9" />
+        <circle class="fx-b" cx="12" cy="12" r="9" />
+      </Show>
+      <Show when={props.effect === "pulse"}>
+        <circle class="fx-a" cx="12" cy="12" r="8" fill="currentColor" fill-opacity="0.32" />
+      </Show>
+      <Show when={props.effect === "burst"}>
+        <g class="fx-a">
+          <For each={dots}>{(d) => <circle cx={d.x} cy={d.y} r="1.5" fill="currentColor" stroke="none" />}</For>
+        </g>
+      </Show>
+    </svg>
+  );
+}
 const pointerHex = (c: [number, number, number] | null | undefined) =>
   c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : POINTER_COLORS[0];
+/** The look a pointer is drawn with: a picture look without a picture is the classic one. */
+const pointerLook = (c: { look?: PointerLook; image?: unknown }): PointerLook =>
+  c.look === "image" && !c.image ? "classic" : (c.look ?? "classic");
 
 /** The roundest a spotlight's corners go (a fraction of the height). Mirrors
  *  vuoom_project::HighlightBox::MAX_RADIUS. */
@@ -1400,7 +1455,7 @@ function ClipPanel() {
         title="Pointer"
         icon="cursor"
         defaultOpen={false}
-        keywords="cursor mouse arrow size smooth hide still color colour custom highlight halo"
+        keywords="cursor mouse arrow size smooth hide still color colour custom highlight halo picture image upload dot opacity transparent shadow"
         aside={<span class="badge">{ed.cursorStyle() ? "Smooth" : ed.pointerCaptured() ? "Recorded" : "Hidden"}</span>}
       >
         <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
@@ -1409,6 +1464,103 @@ function ClipPanel() {
         <Show when={ed.cursorStyle()}>
           {(c) => (
             <>
+              <Field label="Look" stack>
+                <div class="look-cards">
+                  <For each={POINTER_LOOKS}>
+                    {(l) => (
+                      <button
+                        type="button"
+                        class="look-card"
+                        classList={{ on: pointerLook(c()) === l.value }}
+                        aria-pressed={pointerLook(c()) === l.value}
+                        data-tip={l.tip}
+                        onClick={() => ed.setCursorLook(l.value)}
+                      >
+                        <span class="look-card-art">
+                          <Show when={l.value === "classic"}>
+                            <Icon name="cursor" size={22} />
+                          </Show>
+                          <Show when={l.value === "dot"}>
+                            <span class="look-dot" />
+                          </Show>
+                          <Show when={l.value === "image"}>
+                            <Show when={c().image && ed.pointerPicture()} fallback={<Icon name="image" size={20} />}>
+                              {(pic) => <img src={pic().preview} alt="" />}
+                            </Show>
+                          </Show>
+                        </span>
+                        {l.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Field>
+              <Show when={pointerLook(c()) === "image" && c().image}>
+                {(img) => (
+                  <div class="ptr-picture">
+                    <Show
+                      when={ed.pointerPicture()}
+                      fallback={
+                        <span class="ptr-picture-missing">
+                          <Icon name="image" size={18} />
+                        </span>
+                      }
+                    >
+                      {(pic) => (
+                        <button
+                          type="button"
+                          class="ptr-hotspot"
+                          aria-label="Set where the picture points"
+                          data-tip="Click where it should point"
+                          onClick={(e) => {
+                            // A keyboard "click" has no position: the buttons beside it serve that.
+                            if (e.detail === 0) return;
+                            const r = e.currentTarget.getBoundingClientRect();
+                            ed.setCursorHotspot((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+                          }}
+                        >
+                          <img src={pic().preview} alt="" draggable={false} />
+                          <span
+                            class="ptr-hotspot-mark"
+                            style={{ left: `${img().hotspot[0] * 100}%`, top: `${img().hotspot[1] * 100}%` }}
+                          />
+                        </button>
+                      )}
+                    </Show>
+                    <div class="ptr-picture-side">
+                      <span class="ptr-picture-name" data-tip={img().path}>
+                        {img().path.split(/[\\/]/).pop() || "Picture"}
+                      </span>
+                      <span class="ptr-picture-hint">
+                        {ed.pointerPicture() ? "Click the picture where it should point" : "This picture can't be found"}
+                      </span>
+                      <div class="ptr-picture-actions">
+                        <button
+                          type="button"
+                          class="btn sm"
+                          data-tip="Points with its top-left corner, like an arrow"
+                          aria-pressed={img().hotspot[0] === 0 && img().hotspot[1] === 0}
+                          onClick={() => ed.setCursorHotspot(0, 0)}
+                        >
+                          Corner
+                        </button>
+                        <button
+                          type="button"
+                          class="btn sm"
+                          data-tip="Points with its middle, like a dot or a ring"
+                          aria-pressed={img().hotspot[0] === 0.5 && img().hotspot[1] === 0.5}
+                          onClick={() => ed.setCursorHotspot(0.5, 0.5)}
+                        >
+                          Center
+                        </button>
+                        <button type="button" class="btn sm" onClick={() => void ed.chooseCursorPicture()}>
+                          Change
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Show>
               <Field label="Size" stack>
                 <Slider
                   value={c().size}
@@ -1438,32 +1590,48 @@ function ClipPanel() {
                   onChange={(v) => ed.setCursorHideIdle(v)}
                 />
               </Field>
-              <Field label="Color" stack>
-                <div class="color-row">
-                  <For each={POINTER_COLORS}>
-                    {(hex) => (
-                      <button
-                        type="button"
-                        class="swatch"
-                        classList={{ on: pointerHex(c().color) === hex }}
-                        style={{ background: hex }}
-                        aria-label={`Pointer color ${hex}`}
-                        aria-pressed={pointerHex(c().color) === hex}
-                        data-tip={hex === POINTER_COLORS[0] ? "White, the classic pointer" : hex}
-                        onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
-                      />
-                    )}
-                  </For>
-                  <label class="swatch swatch-custom" data-tip="Custom color">
-                    <input
-                      type="color"
-                      value={pointerHex(c().color)}
-                      aria-label="Custom pointer color"
-                      onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
-                    />
-                  </label>
-                </div>
+              <Field label="Opacity" stack>
+                <Slider
+                  value={c().opacity ?? 1}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  label="Pointer opacity"
+                  format={(v) => `${Math.round(v * 100)}%`}
+                  onInput={ed.setCursorOpacity}
+                />
               </Field>
+              <Field label="Shadow" hint="A soft shadow under the pointer">
+                <Switch checked={c().shadow ?? true} label="Pointer shadow" onChange={(v) => ed.setCursorShadow(v)} />
+              </Field>
+              <Show when={pointerLook(c()) !== "image"}>
+                <Field label="Color" stack>
+                  <div class="color-row">
+                    <For each={POINTER_COLORS}>
+                      {(hex) => (
+                        <button
+                          type="button"
+                          class="swatch"
+                          classList={{ on: pointerHex(c().color) === hex }}
+                          style={{ background: hex }}
+                          aria-label={`Pointer color ${hex}`}
+                          aria-pressed={pointerHex(c().color) === hex}
+                          data-tip={hex === POINTER_COLORS[0] ? "White, the classic pointer" : hex}
+                          onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
+                        />
+                      )}
+                    </For>
+                    <label class="swatch swatch-custom" data-tip="Custom color">
+                      <input
+                        type="color"
+                        value={pointerHex(c().color)}
+                        aria-label="Custom pointer color"
+                        onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
+                      />
+                    </label>
+                  </div>
+                </Field>
+              </Show>
               <Field label="Highlight" hint="A soft yellow disc under the pointer, so viewers never lose it">
                 <Switch checked={!!c().halo} label="Highlight the pointer" onChange={(v) => ed.setCursorHalo(v)} />
               </Field>
@@ -1557,16 +1725,98 @@ function ClipPanel() {
         title="Overlays"
         icon="clicks"
         defaultOpen={false}
-        keywords="clicks ripples keystrokes keys shortcuts keyboard"
+        keywords="clicks ripples keystrokes keys shortcuts keyboard click effect animation rings pulse burst color size speed"
         aside={
           <Show when={ed.showClicks() || ed.showKeys()}>
             <span class="badge">{[ed.showClicks() && "Clicks", ed.showKeys() && "Keys"].filter(Boolean).join(" · ")}</span>
           </Show>
         }
       >
-        <Field label="Click ripples" hint="An expanding ring at every recorded click">
-          <Switch checked={ed.showClicks()} label="Click ripples" onChange={() => ed.toggleClicks()} />
+        <Field label="Click effect" hint="An animation at every recorded click">
+          <Switch checked={ed.showClicks()} label="Click effect" onChange={() => ed.toggleClicks()} />
         </Field>
+        <Show when={ed.showClicks()}>
+          <Field label="Animation" stack>
+            <div class="look-cards four">
+              <For each={CLICK_EFFECTS}>
+                {(fx) => (
+                  <button
+                    type="button"
+                    class="look-card"
+                    classList={{ on: ed.clickStyle().effect === fx.value }}
+                    aria-pressed={ed.clickStyle().effect === fx.value}
+                    data-tip={fx.tip}
+                    onClick={() => ed.updateClickStyle({ effect: fx.value })}
+                  >
+                    <span class="look-card-art" style={{ color: pointerHex(ed.clickStyle().color) }}>
+                      <ClickEffectArt effect={fx.value} />
+                    </span>
+                    {fx.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Field>
+          <Field label="Click color" stack>
+            <div class="color-row">
+              <For each={CLICK_COLORS}>
+                {(hex) => (
+                  <button
+                    type="button"
+                    class="swatch"
+                    classList={{ on: pointerHex(ed.clickStyle().color) === hex }}
+                    style={{ background: hex }}
+                    aria-label={`Click color ${hex}`}
+                    aria-pressed={pointerHex(ed.clickStyle().color) === hex}
+                    data-tip={hex === CLICK_COLORS[0] ? "White" : hex}
+                    onClick={() => ed.setClickColor(hex === CLICK_COLORS[0] ? null : hex)}
+                  />
+                )}
+              </For>
+              <label class="swatch swatch-custom" data-tip="Custom color">
+                <input
+                  type="color"
+                  value={pointerHex(ed.clickStyle().color)}
+                  aria-label="Custom click color"
+                  onInput={(e) => ed.setClickColor(e.currentTarget.value)}
+                />
+              </label>
+            </div>
+          </Field>
+          <Field label="Click size" stack>
+            <Slider
+              value={ed.clickStyle().size}
+              min={0.5}
+              max={3}
+              step={0.05}
+              label="Click effect size"
+              format={(v) => `${v.toFixed(1)}×`}
+              onInput={(v) => ed.updateClickStyle({ size: v })}
+            />
+          </Field>
+          <Field label="Click length" stack>
+            <Slider
+              value={ed.clickStyle().duration}
+              min={0.2}
+              max={1.5}
+              step={0.05}
+              label="Click effect length"
+              format={(v) => `${Math.round(v * 1000)} ms`}
+              onInput={(v) => ed.updateClickStyle({ duration: v })}
+            />
+          </Field>
+          <Field label="Click opacity" stack>
+            <Slider
+              value={ed.clickStyle().opacity}
+              min={0.1}
+              max={1}
+              step={0.05}
+              label="Click effect opacity"
+              format={(v) => `${Math.round(v * 100)}%`}
+              onInput={(v) => ed.updateClickStyle({ opacity: v })}
+            />
+          </Field>
+        </Show>
         <Field label="Keystrokes" hint="Shortcuts you pressed appear as chips. Plain typing never shows">
           <Switch checked={ed.showKeys()} label="Keystrokes" onChange={() => ed.toggleKeys()} />
         </Field>

@@ -37,10 +37,10 @@ use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, Ra
 use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
 use vuoom_project::{
     output_duration, output_to_source, source_to_output, ArrowAnnotation, ArrowStyle, AudioKind,
-    AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle,
-    FrameStyle, HighlightBox, HighlightShape, KeyTap, PointerShape, PointerShapeAt, Project, Rect,
-    Shadow, SourceInfo, SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange, Trim, ZoomConfig,
-    ZoomKeyframe,
+    AudioTrack, Background, CameraOverlay, Caption, CaptionStyle, ClickStyle, Color, CropRect,
+    CursorStyle, FrameStyle, HighlightBox, HighlightShape, KeyTap, PointerShape, PointerShapeAt,
+    Project, Rect, Shadow, SourceInfo, SpeedRegion, StrokeAnnotation, TextAnnotation, TimeRange,
+    Trim, ZoomConfig, ZoomKeyframe,
 };
 use vuoom_render::{build_scene, BgFill, Compositor};
 use vuoom_zoom::{plan_zooms, simulate, CameraTrack, InputEvent, ZoomMode, ZoomStyle};
@@ -61,6 +61,13 @@ pub struct TakeDefaults {
     /// camera yourself, and only your zooms are used.
     #[serde(default)]
     pub auto_zoom: bool,
+    /// The look a smooth pointer starts with (the one last chosen in the editor), so a
+    /// custom pointer doesn't have to be set up again for every take.
+    #[serde(default)]
+    pub pointer: Option<CursorStyle>,
+    /// How clicks are shown (the style last chosen in the editor).
+    #[serde(default)]
+    pub click_style: Option<ClickStyle>,
 }
 
 impl Default for TakeDefaults {
@@ -72,14 +79,22 @@ impl Default for TakeDefaults {
             frame: "none".into(),
             denoise: false,
             auto_zoom: false,
+            pointer: None,
+            click_style: None,
         }
     }
 }
 
 impl TakeDefaults {
+    /// The look a new take's smooth pointer starts with.
+    fn pointer_style(&self) -> CursorStyle {
+        self.pointer.clone().unwrap_or_default().clamped()
+    }
+
     /// Set a fresh project up with these defaults.
     fn apply(&self, project: &mut Project) {
         project.show_clicks = self.clicks;
+        project.click_style = self.click_style.unwrap_or_default().clamped();
         project.show_keys = self.keys;
         project.frame = frame_for_preset(&self.frame, &project.frame.background);
         for t in &mut project.audio {
@@ -170,6 +185,8 @@ pub struct ClipState {
     pub cuts: Vec<Trim>,
     pub zooms: Vec<ZoomKeyframe>,
     pub show_clicks: bool,
+    /// How clicks are shown: the animation, its color, size and speed.
+    pub click_style: ClickStyle,
     pub show_keys: bool,
     /// Active framing preset name, derived from the padding (the editor's frame picker).
     pub frame_preset: String,
@@ -394,6 +411,8 @@ pub struct Session {
     compositor: Option<Compositor>,
     /// The picture file the compositor holds as its backdrop, if any.
     backdrop_path: Mutex<Option<String>>,
+    /// The picture file the compositor holds as the pointer, if any.
+    pointer_path: Mutex<Option<String>>,
     clock: Clock,
     active: Mutex<Option<Active>>,
     edited: Mutex<Edited>,
@@ -489,6 +508,7 @@ impl Session {
             preview,
             compositor,
             backdrop_path: Mutex::new(None),
+            pointer_path: Mutex::new(None),
             clock: Clock::new(),
             active: Mutex::new(None),
             edited: Mutex::new(Edited::default()),
@@ -642,10 +662,45 @@ impl Session {
 
     /// Turn the re-drawn pointer on (`Some`, its look) or off (`None`).
     pub fn set_cursor_style(&self, style: Option<CursorStyle>) -> Result<(), String> {
+        let style = style.map(CursorStyle::clamped);
+        // A new pointer picture is read first, so a file that isn't one is refused.
+        let new_picture = style
+            .as_ref()
+            .and_then(CursorStyle::image_path)
+            .filter(|path| !self.holds_pointer(path));
+        if let Some(path) = new_picture {
+            load_pointer(path)?;
+        }
         self.with_project("cursor-style", |p| {
-            p.cursor = style.map(CursorStyle::clamped);
+            p.cursor = style;
             Ok(())
         })
+    }
+
+    /// Whether the compositor already holds the pointer picture at `path`.
+    fn holds_pointer(&self, path: &str) -> bool {
+        let held = self.pointer_path.lock().unwrap_or_else(|e| e.into_inner());
+        held.as_deref() == Some(path)
+    }
+
+    /// Keep the compositor's pointer picture in step with the project's pointer: load the
+    /// picture when it changes, drop it when the pointer isn't one. A picture that can no
+    /// longer be read (moved, deleted) leaves Vuoom's own pointer, and the log says why.
+    fn sync_pointer(&self, compositor: &Compositor, cursor: Option<&CursorStyle>) {
+        let want = cursor.and_then(CursorStyle::image_path);
+        let mut held = self.pointer_path.lock().unwrap_or_else(|e| e.into_inner());
+        if held.as_deref() == want {
+            return;
+        }
+        match want.map(load_pointer) {
+            Some(Ok((w, h, px))) => compositor.set_pointer_image(Some((&px, w, h))),
+            Some(Err(e)) => {
+                tracing::warn!("pointer picture: {e}");
+                compositor.set_pointer_image(None);
+            }
+            None => compositor.set_pointer_image(None),
+        }
+        *held = want.map(str::to_owned);
     }
 
     /// Choose the audio the next recording captures: the microphone (`mic_device` = an
@@ -960,7 +1015,7 @@ impl Session {
         placeholder.cursor = self
             .pending_smooth
             .load(Ordering::Relaxed)
-            .then(CursorStyle::default);
+            .then(|| self.new_pointer_style());
         if let Ok(json) = placeholder.to_json() {
             let _ = std::fs::write(frame_store::project_path(&recovery_dir), json);
         }
@@ -1270,7 +1325,7 @@ impl Session {
             .unwrap_or_else(|e| e.into_inner())
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
-        project.cursor = session.smooth_cursor.then(CursorStyle::default);
+        project.cursor = session.smooth_cursor.then(|| self.new_pointer_style());
         // The real pointer's shape through the take (arrow, text beam, hand...), for the
         // re-drawn pointer to follow.
         project.pointer_shapes =
@@ -1358,6 +1413,7 @@ impl Session {
         };
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
+        self.sync_pointer(compositor, project.cursor.as_ref());
         let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
         let frame = store.frame(idx)?;
 
@@ -1486,6 +1542,7 @@ impl Session {
         }
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
+        self.sync_pointer(compositor, project.cursor.as_ref());
 
         // Composited straight at the GIF's size: the GPU scales the picture as it draws it
         // (averaging every source pixel), so no frame is rendered large, read back and then
@@ -1615,6 +1672,7 @@ impl Session {
         }
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         self.sync_backdrop(compositor, &project.frame);
+        self.sync_pointer(compositor, project.cursor.as_ref());
 
         // Composited straight at the encoded size (H.264 wants even dimensions): the GPU
         // scales the picture as it draws it, so no frame is resized on the processor.
@@ -1800,6 +1858,7 @@ impl Session {
         let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
         let project = edited.project.as_ref().ok_or("no recording")?;
         self.sync_backdrop(compositor, &project.frame);
+        self.sync_pointer(compositor, project.cursor.as_ref());
         let track = edited.track.as_ref().ok_or("no recording")?;
         let store = edited.frames.as_ref().ok_or("no frames")?;
         if store.is_empty() {
@@ -2081,6 +2140,7 @@ impl Session {
             cuts: project.cuts.clone(),
             zooms: project.zooms.clone(),
             show_clicks: project.show_clicks,
+            click_style: project.click_style,
             show_keys: project.show_keys,
             frame_preset: match project.frame.padding {
                 p if p <= 0.0 => "none",
@@ -2096,7 +2156,7 @@ impl Session {
                 .into(),
             frame: FrameInfo::of(&project.frame),
             audio: project.audio.clone(),
-            cursor: project.cursor,
+            cursor: project.cursor.clone(),
             pointer_captured: project.pointer_captured,
             camera: project.camera,
             motion_blur: project.motion_blur,
@@ -2334,6 +2394,20 @@ impl Session {
             p.show_clicks = on;
             Ok(())
         })
+    }
+
+    /// How clicks are shown: the animation, its color, size and speed (preview and export).
+    pub fn set_click_style(&self, style: ClickStyle) -> Result<(), String> {
+        self.with_project("click-style", |p| {
+            p.click_style = style.clamped();
+            Ok(())
+        })
+    }
+
+    /// The look a new take's smooth pointer starts with: the one last chosen in the editor.
+    fn new_pointer_style(&self) -> CursorStyle {
+        let defaults = self.take_defaults.lock().unwrap_or_else(|e| e.into_inner());
+        defaults.pointer_style()
     }
 
     /// Toggle the keystroke overlay (shortcut chips at the bottom of the frame).
@@ -4143,6 +4217,44 @@ fn load_backdrop(path: &str) -> Result<(u32, u32, Vec<u8>), String> {
     shrink_bgra(w, h, &px, k).ok_or_else(|| "That picture is too narrow to use.".into())
 }
 
+/// The longest side a pointer picture may have: anything bigger isn't a pointer.
+const POINTER_PICTURE_MAX: u32 = 4096;
+
+/// Read a pointer picture (any format Windows can read) as BGRA, with its transparency.
+fn load_pointer(path: &str) -> Result<(u32, u32, Vec<u8>), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("Can't open the picture: {e}"))?;
+    let (w, h, px) = vuoom_camera::jpeg::decode_bgra(&bytes)
+        .map_err(|_| "That file isn't a picture Vuoom can read.".to_string())?;
+    if w == 0 || h == 0 || w.max(h) > POINTER_PICTURE_MAX {
+        return Err("That picture is too big for a pointer.".into());
+    }
+    Ok((w, h, px))
+}
+
+/// A pointer picture as the editor shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct PointerPicture {
+    pub width: u32,
+    pub height: u32,
+    /// A small copy of it, as a PNG data URL.
+    pub preview: String,
+}
+
+/// Read the pointer picture at `path` for the editor: its size and a small preview. A
+/// file that isn't a picture is refused.
+pub fn pointer_picture(path: &str) -> Result<PointerPicture, String> {
+    let (width, height, px) = load_pointer(path)?;
+    let img = RgbaImage::new(width, height, swizzle_rb(&px));
+    let small = downscale_rgba(&img, 160);
+    let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    Ok(PointerPicture {
+        width,
+        height,
+        preview: format!("data:image/png;base64,{b64}"),
+    })
+}
+
 /// Shrink a `w`×`h` BGRA picture by the whole factor `k`, averaging each `k`×`k` block.
 /// `None` when that leaves no pixels.
 fn shrink_bgra(w: u32, h: u32, px: &[u8], k: u32) -> Option<(u32, u32, Vec<u8>)> {
@@ -4528,9 +4640,27 @@ mod tests {
             frame: "subtle".into(),
             denoise: true,
             auto_zoom: true,
+            pointer: Some(CursorStyle {
+                size: 99.0,
+                opacity: 0.5,
+                ..CursorStyle::default()
+            }),
+            click_style: Some(ClickStyle {
+                effect: vuoom_project::ClickEffect::Pulse,
+                size: 99.0,
+                ..ClickStyle::default()
+            }),
         };
         d.apply(&mut p);
         assert!(p.show_clicks && p.show_keys);
+        // The click style last chosen in the editor carries over, kept in range.
+        assert_eq!(p.click_style.effect, vuoom_project::ClickEffect::Pulse);
+        let size = p.click_style.size;
+        assert!((size - ClickStyle::MAX_SIZE).abs() < f32::EPSILON);
+        // So does the pointer's look, for a take recorded with the smooth pointer.
+        let look = d.pointer_style();
+        assert!((look.size - CursorStyle::MAX_SIZE).abs() < f32::EPSILON);
+        assert!((look.opacity - 0.5).abs() < f32::EPSILON);
         assert!(p.frame.padding > 0.0);
         // A frame over the default black backdrop gets the graphite gradient.
         assert_ne!(p.frame.background, Background::Solid(Color::BLACK));
@@ -4540,6 +4670,13 @@ mod tests {
         let mut plain = Project::new(p.source.clone());
         TakeDefaults::default().apply(&mut plain);
         assert!(!plain.show_clicks && plain.frame.padding <= 0.0);
+        assert_eq!(plain.click_style, ClickStyle::default());
+        let plain_look = TakeDefaults::default().pointer_style();
+        assert_eq!(plain_look, CursorStyle::default());
+        // Older front ends send neither.
+        let old = r#"{"clicks":true,"keys":false,"frame":"none","denoise":false}"#;
+        let old: TakeDefaults = serde_json::from_str(old).unwrap();
+        assert!(old.pointer.is_none() && old.click_style.is_none());
     }
 
     fn rec(qpc: i64) -> FrameRec {

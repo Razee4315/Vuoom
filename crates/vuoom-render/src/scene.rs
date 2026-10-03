@@ -7,8 +7,9 @@
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
 use vuoom_project::{
-    caption_at, pointer_shape_at, ArrowStyle, CameraOverlay, CaptionPosition, Color, Corner,
-    HighlightShape, InputEvent, PointerShape, Project, Rect,
+    caption_at, pointer_shape_at, ArrowStyle, CameraOverlay, CaptionPosition, ClickEffect,
+    ClickStyle, Color, Corner, HighlightShape, InputEvent, PointerLook, PointerShape, Project,
+    Rect,
 };
 use vuoom_zoom::CameraTrack;
 
@@ -158,6 +159,23 @@ pub struct ResolvedCursor {
     pub color: Option<[f32; 3]>,
     /// Draw a highlight disc under the pointer.
     pub halo: bool,
+    /// Vuoom's pointer, a dot, or the loaded pointer picture.
+    pub look: PointerLook,
+    /// For a picture: the point that clicks, as a fraction of its width and height.
+    pub hotspot: [f32; 2],
+    /// How opaque the whole pointer is (the style's opacity), 0 to 1. Applied to the
+    /// pointer as one layer, on top of the idle fade.
+    pub alpha: f64,
+    /// Draw a soft shadow under it.
+    pub shadow: bool,
+}
+
+impl ResolvedCursor {
+    /// How opaque the pointer is drawn: its own opacity and the idle fade together.
+    #[must_use]
+    pub fn group_opacity(&self) -> f64 {
+        (self.alpha * self.opacity).clamp(0.0, 1.0)
+    }
 }
 
 /// The webcam bubble resolved to output pixels.
@@ -259,6 +277,75 @@ fn corners_of(r: Rect, radius: f64, ow: f64, oh: f64, color: Color) -> Vec<Resol
 /// Height of a size-1.0 pointer as a fraction of the recorded screen's height (about a
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
+
+/// Fast at first, settling at the end.
+fn ease_out(x: f64) -> f64 {
+    let u = 1.0 - x.clamp(0.0, 1.0);
+    1.0 - u * u * u
+}
+
+/// A circle of radius `r` around `c` (output pixels): a ring `thickness` thick, or a
+/// filled disc when `thickness` is `None`.
+fn circle(c: [f64; 2], r: f64, thickness: Option<f64>, color: Color) -> ResolvedHighlight {
+    ResolvedHighlight {
+        x: c[0] - r,
+        y: c[1] - r,
+        w: r * 2.0,
+        h: r * 2.0,
+        thickness_px: thickness.unwrap_or(0.0),
+        filled: thickness.is_none(),
+        ellipse: true,
+        color,
+    }
+}
+
+/// Dots in a click's burst.
+const BURST_DOTS: u32 = 8;
+
+/// What one click shows `p` of the way (0 to 1) through its animation, centered on `c`
+/// (output pixels) in a frame `oh` pixels tall.
+fn click_marks(out: &mut Vec<ResolvedHighlight>, style: ClickStyle, c: [f64; 2], p: f64, oh: f64) {
+    let [r, g, b] = style.color.unwrap_or([1.0, 1.0, 1.0]);
+    let base = Color::rgb(r, g, b);
+    let opacity = f64::from(style.opacity);
+    let color = |fade: f64| base.with_alpha((fade.max(0.0) * opacity) as f32);
+    // Lengths scale with the frame and the style's size.
+    let k = f64::from(style.size) * oh;
+    let ring_w = (0.0035 * k).max(1.5);
+    match style.effect {
+        // The classic: one ring growing steadily as it fades.
+        ClickEffect::Ripple => {
+            let radius = (0.008 + 0.030 * p) * k;
+            out.push(circle(c, radius, Some(ring_w), color(1.0 - p)));
+        }
+        // A second ring follows the first, a third of the way behind.
+        ClickEffect::Rings => {
+            for delay in [0.0, 0.3] {
+                let q = (p - delay) / (1.0 - delay);
+                if (0.0..1.0).contains(&q) {
+                    let radius = (0.008 + 0.034 * ease_out(q)) * k;
+                    out.push(circle(c, radius, Some(ring_w), color(1.0 - q)));
+                }
+            }
+        }
+        // A soft disc swells under a crisp edge.
+        ClickEffect::Pulse => {
+            let radius = (0.01 + 0.026 * ease_out(p)) * k;
+            out.push(circle(c, radius, None, color((1.0 - p) * 0.45)));
+            out.push(circle(c, radius, Some(ring_w), color(1.0 - p)));
+        }
+        // Dots fly outward and shrink.
+        ClickEffect::Burst => {
+            let reach = (0.006 + 0.032 * ease_out(p)) * k;
+            let dot = 0.0045 * (1.0 - 0.6 * p) * k;
+            for i in 0..BURST_DOTS {
+                let a = f64::from(i) * std::f64::consts::TAU / f64::from(BURST_DOTS);
+                let at = [c[0] + reach * a.cos(), c[1] + reach * a.sin()];
+                out.push(circle(at, dot, None, color(1.0 - p)));
+            }
+        }
+    }
+}
 
 /// Motion blur's exposure: the camera movement over this much time before a frame is
 /// smeared across it (a 180 degree shutter at 30 fps).
@@ -463,8 +550,8 @@ pub fn build_scene(
 
     let mut ripples = Vec::new();
     if project.show_clicks {
-        /// How long one ripple lives (s).
-        const RIPPLE_LEN: f64 = 0.45;
+        let style = project.click_style.clamped();
+        let len = f64::from(style.duration);
         let src = layout.src_rect;
         let dst = layout.dst_rect;
         for e in &project.events {
@@ -472,33 +559,22 @@ pub fn build_scene(
                 continue;
             };
             let age = t - ct;
-            if !(0.0..RIPPLE_LEN).contains(&age) {
+            if !(0.0..len).contains(&age) {
                 continue;
             }
-            let p = age / RIPPLE_LEN;
             // Click positions are in source space; map through the camera crop into the
             // drawn content rect so ripples stay glued to the content while zoomed.
             let cx = dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w;
             let cy = dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h;
-            let r = (0.008 + 0.030 * p) * oh;
-            ripples.push(ResolvedHighlight {
-                x: cx - r,
-                y: cy - r,
-                w: r * 2.0,
-                h: r * 2.0,
-                thickness_px: (0.0035 * oh).max(1.5),
-                filled: false,
-                ellipse: true,
-                color: Color::rgb(1.0, 1.0, 1.0).with_alpha((1.0 - p) as f32 * 0.9),
-            });
+            click_marks(&mut ripples, style, [cx, cy], age / len, oh);
         }
     }
 
     // The re-drawn pointer follows its smoothed path through the camera like the ripples,
     // scales with the zoom (a real pointer is part of the picture), and is left out when
     // the camera has moved away from it (or it has faded out while resting).
-    let cursor = project.cursor.and_then(|style| {
-        let style = style.clamped();
+    let cursor = project.cursor.as_ref().and_then(|style| {
+        let style = style.clone().clamped();
         let pos = smooth_pos(&project.events, t, f64::from(style.smoothing))?;
         let opacity = if style.hide_idle {
             idle_opacity(&project.events, t)
@@ -509,7 +585,9 @@ pub fn build_scene(
         let dst = layout.dst_rect;
         let inside =
             pos.x >= src.x && pos.y >= src.y && pos.x <= src.x + src.w && pos.y <= src.y + src.h;
-        (inside && opacity > 0.005).then(|| ResolvedCursor {
+        let alpha = f64::from(style.opacity);
+        let shown = opacity * alpha > 0.005;
+        (inside && shown).then(|| ResolvedCursor {
             x: dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w,
             y: dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h,
             size: f64::from(style.size) * CURSOR_BASE * dst.h / src.h.max(1e-9),
@@ -518,6 +596,10 @@ pub fn build_scene(
             shape: pointer_shape_at(&project.pointer_shapes, t),
             color: style.color,
             halo: style.halo,
+            look: style.drawn_look(),
+            hotspot: style.image.as_ref().map_or([0.0, 0.0], |i| i.hotspot),
+            alpha,
+            shadow: style.shadow,
         })
     });
 
@@ -747,6 +829,114 @@ mod tests {
         });
         assert!(build_scene(&p, &track, 1000, 1000, 0.5).cursor.is_some());
         assert!(build_scene(&p, &track, 1000, 1000, 4.0).cursor.is_none());
+    }
+
+    #[test]
+    fn the_pointer_carries_its_look_and_hides_when_transparent() {
+        let mut p = project_with_text();
+        p.events = vec![InputEvent::Move {
+            t: 0.0,
+            pos: DVec2::new(0.25, 0.5),
+        }];
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let c = |p: &Project| build_scene(p, &track, 1000, 1000, 1.0).cursor;
+
+        p.cursor = Some(CursorStyle::default());
+        let plain = c(&p).unwrap();
+        assert_eq!(plain.look, PointerLook::Classic);
+        assert!(plain.shadow);
+        assert!((plain.group_opacity() - 1.0).abs() < 1e-9);
+
+        p.cursor = Some(CursorStyle {
+            look: PointerLook::Image,
+            image: Some(vuoom_project::PointerImage {
+                path: "p.png".into(),
+                hotspot: [0.5, 0.25],
+            }),
+            opacity: 0.5,
+            shadow: false,
+            ..CursorStyle::default()
+        });
+        let styled = c(&p).unwrap();
+        assert_eq!(styled.look, PointerLook::Image);
+        assert_eq!(styled.hotspot, [0.5, 0.25]);
+        assert!((styled.group_opacity() - 0.5).abs() < 1e-6);
+        assert!(!styled.shadow);
+
+        // No picture to draw: Vuoom's own pointer instead.
+        if let Some(s) = p.cursor.as_mut() {
+            s.image = None;
+        }
+        assert_eq!(c(&p).unwrap().look, PointerLook::Classic);
+
+        // Fully transparent: nothing to draw at all.
+        if let Some(s) = p.cursor.as_mut() {
+            s.opacity = 0.0;
+        }
+        assert!(c(&p).is_none());
+    }
+
+    #[test]
+    fn clicks_play_the_chosen_effect_for_its_duration() {
+        let mut p = project_with_text();
+        p.events = vec![InputEvent::Click {
+            t: 1.0,
+            pos: DVec2::new(0.5, 0.5),
+            button: vuoom_zoom::MouseButton::Left,
+        }];
+        p.show_clicks = true;
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let marks = |p: &Project, t: f64| build_scene(p, &track, 1000, 1000, t).ripples;
+
+        // The classic ripple: one white ring, gone after its 0.45 s.
+        let ripple = marks(&p, 1.1);
+        assert_eq!(ripple.len(), 1);
+        assert!(!ripple[0].filled);
+        assert_eq!([ripple[0].color.r, ripple[0].color.b], [1.0, 1.0]);
+        assert!(marks(&p, 0.9).is_empty());
+        assert!(marks(&p, 1.5).is_empty());
+
+        // Two rings once the second has started; colored; and longer when slowed down.
+        p.click_style = ClickStyle {
+            effect: ClickEffect::Rings,
+            color: Some([1.0, 0.0, 0.0]),
+            duration: 1.0,
+            ..ClickStyle::default()
+        };
+        assert_eq!(marks(&p, 1.1).len(), 1);
+        let rings = marks(&p, 1.5);
+        assert_eq!(rings.len(), 2);
+        let red = |m: &ResolvedHighlight| [m.color.r, m.color.g, m.color.b] == [1.0, 0.0, 0.0];
+        assert!(rings.iter().all(red));
+        // The first ring is ahead, so wider.
+        assert!(rings[0].w > rings[1].w);
+
+        p.click_style.effect = ClickEffect::Pulse;
+        let pulse = marks(&p, 1.2);
+        assert_eq!(pulse.len(), 2);
+        assert!(pulse[0].filled && !pulse[1].filled);
+
+        p.click_style.effect = ClickEffect::Burst;
+        let burst = marks(&p, 1.2);
+        assert_eq!(burst.len(), BURST_DOTS as usize);
+        // The dots sit around the click, all at the same distance.
+        let center = |m: &ResolvedHighlight| DVec2::new(m.x + m.w / 2.0, m.y + m.h / 2.0);
+        let mid = burst.iter().map(center).sum::<DVec2>() / f64::from(BURST_DOTS);
+        let d0 = center(&burst[0]).distance(mid);
+        assert!(d0 > 1.0);
+        let even = |m: &ResolvedHighlight| (center(m).distance(mid) - d0).abs() < 1e-6;
+        assert!(burst.iter().all(even));
+
+        // A bigger effect reaches further.
+        let small = marks(&p, 1.2);
+        p.click_style.size = 2.0;
+        let big = marks(&p, 1.2);
+        let reach = |m: &ResolvedHighlight| center(m).distance(mid);
+        assert!(reach(&big[0]) > reach(&small[0]));
+
+        // Off: nothing.
+        p.show_clicks = false;
+        assert!(marks(&p, 1.2).is_empty());
     }
 
     #[test]

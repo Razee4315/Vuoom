@@ -32,6 +32,7 @@ import type {
   BoxAnn,
   CameraOverlay,
   Caption,
+  ClickStyle,
   ClipState,
   CropRect,
   CursorStyle,
@@ -41,6 +42,8 @@ import type {
   Color,
   Drag,
   Kind,
+  PointerLook,
+  PointerPicture,
   RecordingSummary,
   Selection,
   SpeedRegion,
@@ -832,6 +835,7 @@ export function createEditor() {
       setSpeed(cs.speed_regions);
       setCuts(cs.cuts);
       setShowClicks(cs.show_clicks);
+      setClickStyle(cs.click_style ?? DEFAULT_CLICK);
       setMotionBlur(cs.motion_blur ?? true);
       setShowKeys(cs.show_keys);
       setCrop(cs.crop);
@@ -3014,12 +3018,39 @@ export function createEditor() {
     });
   };
 
+  // How clicks are shown (the animation, its color, size and speed). The last choice is
+  // remembered and given to new takes.
+  const DEFAULT_CLICK: ClickStyle = { effect: "ripple", color: null, size: 1, duration: 0.45, opacity: 0.9 };
+  const [clickStyle, setClickStyle] = createSignal<ClickStyle>(DEFAULT_CLICK);
+  const clickStyleSync = createSyncSlot<ClickStyle>();
+  const updateClickStyle = (patch: Partial<ClickStyle>) => {
+    if (!hasClip()) return;
+    const next = { ...clickStyle(), ...patch };
+    setClickStyle(next);
+    prefs.clickStyle.set(next);
+    setDirty(true);
+    clickStyleSync.push(next, async (val, superseded) => {
+      try {
+        await invoke("set_click_style", { style: val });
+        await pushSeek(playhead());
+      } catch (e) {
+        if (!superseded()) toast(`Click style change failed: ${friendlyError(e)}`, "error");
+      }
+    });
+  };
+  /** The click effect's color as "#rrggbb", or null for white. */
+  const setClickColor = (hex: string | null) => {
+    const c = hex ? hexRgb(hex) : null;
+    updateClickStyle({ color: c ? [c.r, c.g, c.b] : null });
+  };
+
   // ── re-drawn pointer ────────────────────────────────────────────────────────────
   const DEFAULT_CURSOR: CursorStyle = { size: 1.5, smoothing: 0.05, hide_idle: false };
   const [cursorStyle, setCursorStyle] = createSignal<CursorStyle | null>(null);
   const [pointerCaptured, setPointerCaptured] = createSignal(true);
-  // Remembered while the pointer is off, so switching it back on restores the last look.
-  let lastCursor: CursorStyle = DEFAULT_CURSOR;
+  // Remembered while the pointer is off, so switching it back on restores the last look
+  // (the one last chosen in any take, when this take has none of its own yet).
+  let lastCursor: CursorStyle = prefs.pointerLook() ?? DEFAULT_CURSOR;
   // ── webcam bubble ──────────────────────────────────────────────────────────────
   const [cameraOverlay, setCameraOverlay] = createSignal<CameraOverlay | null>(null);
   const cameraSync = createSyncSlot<CameraOverlay>();
@@ -3043,7 +3074,11 @@ export function createEditor() {
   const cursorSync = createSyncSlot<{ style: CursorStyle | null }>();
   const applyCursor = (style: CursorStyle | null) => {
     if (!hasClip()) return;
-    if (style) lastCursor = style;
+    if (style) {
+      lastCursor = style;
+      // New takes start with the look last chosen here.
+      prefs.pointerLook.set(style);
+    }
     setCursorStyle(style);
     setDirty(true);
     cursorSync.push({ style }, async (val, superseded) => {
@@ -3055,7 +3090,12 @@ export function createEditor() {
       }
     });
   };
-  const toggleCursor = () => applyCursor(cursorStyle() ? null : lastCursor);
+  const toggleCursor = () => {
+    const cur = cursorStyle();
+    // Kept, so switching it back on finds the same look.
+    if (cur) lastCursor = cur;
+    applyCursor(cur ? null : lastCursor);
+  };
   const setCursorSize = (size: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), size });
   const setCursorSmoothing = (smoothing: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), smoothing });
   const setCursorHideIdle = (hide_idle: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), hide_idle });
@@ -3065,6 +3105,60 @@ export function createEditor() {
     applyCursor({ ...(cursorStyle() ?? lastCursor), color: c ? [c.r, c.g, c.b] : null });
   };
   const setCursorHalo = (halo: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), halo });
+  const setCursorOpacity = (opacity: number) => applyCursor({ ...(cursorStyle() ?? lastCursor), opacity });
+  const setCursorShadow = (shadow: boolean) => applyCursor({ ...(cursorStyle() ?? lastCursor), shadow });
+
+  // The pointer picture as the inspector shows it (a small preview and its size), read
+  // again whenever the picture's file changes. Null while there is none or it can't be read.
+  const [pointerPicture, setPointerPicture] = createSignal<PointerPicture | null>(null);
+  const pointerPicturePath = () => cursorStyle()?.image?.path ?? null;
+  let shownPicturePath: string | null = null;
+  createEffect(() => {
+    const path = pointerPicturePath();
+    if (path === shownPicturePath) return;
+    shownPicturePath = path;
+    setPointerPicture(null);
+    if (!path) return;
+    invoke<PointerPicture>("pointer_picture", { path })
+      .then((pic) => {
+        if (shownPicturePath === path) setPointerPicture(pic);
+      })
+      .catch(() => undefined);
+  });
+  /** Pick a picture file to use as the pointer. Its tip starts at the top-left corner. */
+  const chooseCursorPicture = async () => {
+    if (!hasClip()) return;
+    const path = await open({
+      title: "Choose a pointer picture",
+      filters: [{ name: "Pictures", extensions: ["png", "webp", "gif", "ico", "bmp", "jpg", "jpeg"] }],
+    });
+    if (!path) return;
+    try {
+      // Read it first: a file that isn't a picture is refused before anything changes.
+      const pic = await invoke<PointerPicture>("pointer_picture", { path });
+      shownPicturePath = path;
+      setPointerPicture(pic);
+      applyCursor({ ...(cursorStyle() ?? lastCursor), look: "image", image: { path, hotspot: [0, 0] } });
+      setStatus("Pointer: your picture. Click it in the Pointer panel to set where it points.");
+    } catch (e) {
+      toast(`Couldn't use that picture: ${friendlyError(e)}`, "error");
+    }
+  };
+  /** Vuoom's pointer, a dot, or your picture (asked for when there is none yet). */
+  const setCursorLook = (look: PointerLook) => {
+    const cur = cursorStyle() ?? lastCursor;
+    if (look === "image" && !cur.image) {
+      void chooseCursorPicture();
+      return;
+    }
+    applyCursor({ ...cur, look });
+  };
+  /** Where the picture points, as fractions of its width and height. */
+  const setCursorHotspot = (x: number, y: number) => {
+    const cur = cursorStyle() ?? lastCursor;
+    if (!cur.image) return;
+    applyCursor({ ...cur, image: { ...cur.image, hotspot: [clamp01(x), clamp01(y)] } });
+  };
 
   // ── keystroke overlay ──────────────────────────────────────────────────────────
   const keysSync = createSyncSlot<boolean>();
@@ -4156,6 +4250,15 @@ export function createEditor() {
     setCursorHideIdle,
     setCursorColor,
     setCursorHalo,
+    setCursorOpacity,
+    setCursorShadow,
+    setCursorLook,
+    setCursorHotspot,
+    chooseCursorPicture,
+    pointerPicture,
+    clickStyle,
+    updateClickStyle,
+    setClickColor,
     looping,
     setLooping,
     anns,

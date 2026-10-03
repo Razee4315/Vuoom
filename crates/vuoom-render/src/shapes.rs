@@ -7,7 +7,7 @@ use crate::scene::{
     ResolvedArrow, ResolvedCorner, ResolvedCursor, ResolvedHighlight, ResolvedStroke, Scene,
 };
 use std::f32::consts::{PI, TAU};
-use vuoom_project::Color;
+use vuoom_project::{Color, PointerLook};
 
 /// A colored 2D vertex in output-pixel space.
 #[repr(C)]
@@ -269,54 +269,98 @@ fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
     }
 }
 
-/// The pointer: an optional highlight disc, a soft shadow, an outline, then the body
-/// (white unless the style names a color; a dark body gets a light outline). A click
-/// presses it slightly smaller toward its tip; fading out while idle, it also shrinks a
-/// little.
-fn cursor(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
+/// The pointer's drawn height in pixels: a click presses it slightly smaller toward its
+/// tip, and fading out while idle it also shrinks a little.
+#[must_use]
+pub fn cursor_scale(c: &ResolvedCursor) -> f64 {
     let fade = c.opacity.clamp(0.0, 1.0);
-    let scale = c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0)) * (0.8 + 0.2 * fade);
+    c.size * (1.0 - 0.14 * c.press.clamp(0.0, 1.0)) * (0.8 + 0.2 * fade)
+}
+
+/// The highlight disc under the pointer, when it has one, faded with the pointer.
+fn cursor_halo(out: &mut Vec<ShapeVertex>, c: &ResolvedCursor) {
+    const HALO: [f32; 4] = [1.0, 0.84, 0.2, 0.32];
+    /// The highlight disc's radius, in pointer heights, around the tip.
+    const HALO_RADIUS: f64 = 0.8;
+    if !c.halo {
+        return;
+    }
+    let tip = [c.x as f32, c.y as f32];
+    let radius = (cursor_scale(c) * HALO_RADIUS) as f32;
+    let [r, g, b, a] = HALO;
+    let color = [r, g, b, a * c.group_opacity() as f32];
+    fan(out, tip, radius, [0.0, TAU], color);
+}
+
+/// The dot look's radius, in pointer heights.
+const DOT_RADIUS: f64 = 0.24;
+
+/// The pointer itself, fully opaque: a soft shadow (unless turned off), an outline, then
+/// the body (white unless the style names a color; a dark body gets a light outline).
+/// Its opacity is applied to all of it as one layer by the compositor, so the outline
+/// never shows through a see-through body. Nothing for a picture pointer, which the
+/// compositor draws from its texture.
+#[must_use]
+pub fn pointer_vertices(c: &ResolvedCursor) -> Vec<ShapeVertex> {
     const SHADOW: [f32; 4] = [0.0, 0.0, 0.0, 0.22];
     const OUTLINE: [f32; 4] = [0.04, 0.04, 0.05, 0.95];
     const LIGHT_OUTLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.95];
     const BODY: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    const HALO: [f32; 4] = [1.0, 0.84, 0.2, 0.32];
-    /// The highlight disc's radius, in pointer heights, around the tip.
-    const HALO_RADIUS: f64 = 0.8;
-    let faded = |[r, g, b, a]: [f32; 4]| [r, g, b, a * fade as f32];
-    let body = c.color.map_or(BODY, |[r, g, b]| [r, g, b, 1.0]);
-    let luma = 0.2126 * body[0] + 0.7152 * body[1] + 0.0722 * body[2];
-    let outline_color = if luma < 0.4 { LIGHT_OUTLINE } else { OUTLINE };
-    if c.halo {
-        let tip = [c.x as f32, c.y as f32];
-        let radius = (scale * HALO_RADIUS) as f32;
-        fan(out, tip, radius, [0.0, TAU], faded(HALO));
-    }
     // Grown by this much (pointer units) for the shadow and the outline, and the shadow's
     // offset down and to the right.
     const SHADOW_GROW: f64 = 0.09;
     const OUTLINE_GROW: f64 = 0.06;
     const SHADOW_SHIFT: [f64; 2] = [0.03, 0.06];
+    let mut out = Vec::new();
+    let scale = cursor_scale(c);
+    let body = c.color.map_or(BODY, |[r, g, b]| [r, g, b, 1.0]);
+    let luma = 0.2126 * body[0] + 0.7152 * body[1] + 0.0722 * body[2];
+    let outline_color = if luma < 0.4 { LIGHT_OUTLINE } else { OUTLINE };
+    match c.look {
+        PointerLook::Image => return out,
+        PointerLook::Dot => {
+            let disc = |out: &mut Vec<ShapeVertex>, grow: f64, shift: [f64; 2], color| {
+                let at = [
+                    (c.x + shift[0] * scale) as f32,
+                    (c.y + shift[1] * scale) as f32,
+                ];
+                let r = ((DOT_RADIUS + grow) * scale) as f32;
+                fan(out, at, r, [0.0, TAU], color);
+            };
+            if c.shadow {
+                disc(&mut out, SHADOW_GROW, SHADOW_SHIFT, SHADOW);
+            }
+            disc(&mut out, OUTLINE_GROW, [0.0, 0.0], outline_color);
+            disc(&mut out, 0.0, [0.0, 0.0], body);
+            return out;
+        }
+        PointerLook::Classic => {}
+    }
     let Some(parts) = pointer_parts(c.shape) else {
-        let shadow = offset_polygon(&ARROW, SHADOW_GROW);
+        if c.shadow {
+            let shadow = offset_polygon(&ARROW, SHADOW_GROW);
+            fill_arrow(&mut out, c, scale, &shadow, SHADOW_SHIFT, SHADOW);
+        }
         let outline = offset_polygon(&ARROW, OUTLINE_GROW);
-        fill_arrow(out, c, scale, &shadow, SHADOW_SHIFT, faded(SHADOW));
-        fill_arrow(out, c, scale, &outline, [0.0, 0.0], faded(outline_color));
-        fill_arrow(out, c, scale, &ARROW, [0.0, 0.0], faded(body));
-        return;
+        fill_arrow(&mut out, c, scale, &outline, [0.0, 0.0], outline_color);
+        fill_arrow(&mut out, c, scale, &ARROW, [0.0, 0.0], body);
+        return out;
     };
     // Layer by layer across all the parts, so no part's outline lies over another's body.
-    for part in &parts {
-        let shadow = offset_polygon(part, SHADOW_GROW);
-        fill_convex(out, c, scale, &shadow, SHADOW_SHIFT, faded(SHADOW));
+    if c.shadow {
+        for part in &parts {
+            let shadow = offset_polygon(part, SHADOW_GROW);
+            fill_convex(&mut out, c, scale, &shadow, SHADOW_SHIFT, SHADOW);
+        }
     }
     for part in &parts {
         let outline = offset_polygon(part, OUTLINE_GROW);
-        fill_convex(out, c, scale, &outline, [0.0, 0.0], faded(outline_color));
+        fill_convex(&mut out, c, scale, &outline, [0.0, 0.0], outline_color);
     }
     for part in &parts {
-        fill_convex(out, c, scale, part, [0.0, 0.0], faded(body));
+        fill_convex(&mut out, c, scale, part, [0.0, 0.0], body);
     }
+    out
 }
 
 /// Fill a convex polygon (pointer units, the hotspot at the origin) at the pointer's
@@ -395,9 +439,10 @@ pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) ->
     if let Some(p) = plate {
         highlight(&mut out, p);
     }
-    // Last, so the pointer sits above everything it points at.
+    // Last, under only the pointer, which sits above everything it points at (the
+    // compositor draws it next: see [`pointer_vertices`]).
     if let Some(c) = &scene.cursor {
-        cursor(&mut out, c);
+        cursor_halo(&mut out, c);
     }
     out
 }
@@ -429,34 +474,101 @@ mod tests {
         }
     }
 
+    const PLAIN: ResolvedCursor = ResolvedCursor {
+        x: 100.0,
+        y: 100.0,
+        size: 20.0,
+        press: 0.0,
+        opacity: 1.0,
+        shape: vuoom_project::PointerShape::Arrow,
+        color: None,
+        halo: false,
+        look: PointerLook::Classic,
+        hotspot: [0.0, 0.0],
+        alpha: 1.0,
+        shadow: true,
+    };
+
+    /// Triangles in a full disc drawn by [`fan`].
+    const DISC: usize = 2 * CAP_SEGS as usize * 3;
+
     #[test]
-    fn a_pointer_takes_its_color_and_a_halo() {
-        let plain = ResolvedCursor {
-            x: 100.0,
-            y: 100.0,
-            size: 20.0,
-            press: 0.0,
-            opacity: 1.0,
-            shape: vuoom_project::PointerShape::Arrow,
-            color: None,
-            halo: false,
-        };
-        let mut white = Vec::new();
-        cursor(&mut white, &plain);
+    fn a_pointer_takes_its_color() {
+        let white = pointer_vertices(&PLAIN);
         // The body is drawn last: white by default.
         assert_eq!(white.last().unwrap().color, [1.0, 1.0, 1.0, 1.0]);
-
-        let styled = ResolvedCursor {
+        let dark = pointer_vertices(&ResolvedCursor {
             color: Some([0.0, 0.0, 0.0]),
-            halo: true,
-            ..plain
-        };
-        let mut dark = Vec::new();
-        cursor(&mut dark, &styled);
+            ..PLAIN
+        });
         assert_eq!(dark.last().unwrap().color, [0.0, 0.0, 0.0, 1.0]);
-        // The halo adds one full disc, drawn first.
-        assert_eq!(dark.len(), white.len() + 2 * CAP_SEGS as usize * 3);
-        assert_eq!(dark[0].color, [1.0, 0.84, 0.2, 0.32]);
+        // A dark body gets a light outline.
+        assert!(dark.iter().any(|v| v.color == [1.0, 1.0, 1.0, 0.95]));
+        // Drawn opaque even when see-through: the compositor fades it as one layer.
+        let faint = pointer_vertices(&ResolvedCursor {
+            alpha: 0.3,
+            ..PLAIN
+        });
+        assert_eq!(faint.last().unwrap().color[3], 1.0);
+    }
+
+    #[test]
+    fn the_shadow_can_be_turned_off() {
+        let with = pointer_vertices(&PLAIN);
+        let without = pointer_vertices(&ResolvedCursor {
+            shadow: false,
+            ..PLAIN
+        });
+        // The arrow's shadow is one more copy of its triangles.
+        assert_eq!(with.len(), without.len() * 3 / 2);
+        assert!(with.iter().any(|v| v.color == [0.0, 0.0, 0.0, 0.22]));
+        assert!(!without.iter().any(|v| v.color == [0.0, 0.0, 0.0, 0.22]));
+    }
+
+    #[test]
+    fn a_dot_is_three_discs_around_the_point() {
+        let dot = pointer_vertices(&ResolvedCursor {
+            look: PointerLook::Dot,
+            ..PLAIN
+        });
+        assert_eq!(dot.len(), 3 * DISC);
+        // Centered on the point (the shadow is the only part pushed off it).
+        let body = &dot[2 * DISC..];
+        let r = (DOT_RADIUS * cursor_scale(&PLAIN)) as f32 + 0.01;
+        for v in body {
+            let [x, y] = v.pos;
+            assert!((x - 100.0).hypot(y - 100.0) <= r, "({x}, {y})");
+        }
+        let no_shadow = pointer_vertices(&ResolvedCursor {
+            look: PointerLook::Dot,
+            shadow: false,
+            ..PLAIN
+        });
+        assert_eq!(no_shadow.len(), 2 * DISC);
+    }
+
+    #[test]
+    fn a_picture_pointer_has_no_vector_body() {
+        let pic = ResolvedCursor {
+            look: PointerLook::Image,
+            ..PLAIN
+        };
+        assert!(pointer_vertices(&pic).is_empty());
+    }
+
+    #[test]
+    fn the_halo_fades_with_the_pointer() {
+        let mut out = Vec::new();
+        cursor_halo(&mut out, &PLAIN);
+        assert!(out.is_empty());
+        let lit = ResolvedCursor {
+            halo: true,
+            alpha: 0.5,
+            ..PLAIN
+        };
+        cursor_halo(&mut out, &lit);
+        assert_eq!(out.len(), DISC);
+        assert_eq!(out[0].color, [1.0, 0.84, 0.2, 0.16]);
     }
 
     #[test]

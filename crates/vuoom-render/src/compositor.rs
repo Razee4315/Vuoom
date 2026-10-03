@@ -1507,8 +1507,11 @@ impl Compositor {
                             opacity: opacity as f32,
                             ..SpriteUniforms::default()
                         };
-                        self.queue
-                            .write_buffer(&cache.layer_ubuf, 0, bytemuck::bytes_of(&uniforms));
+                        self.queue.write_buffer(
+                            &cache.layer_ubuf,
+                            0,
+                            bytemuck::bytes_of(&uniforms),
+                        );
                         layer_verts = body;
                     } else {
                         verts.extend(body);
@@ -1861,10 +1864,7 @@ mod tests {
         assert_eq!(u.rect_min, [-8.0, 12.0]);
         assert!((u.opacity - 0.5).abs() < 1e-6);
         assert!(u.shadow_alpha > 0.0);
-        let flat = ResolvedCursor {
-            shadow: false,
-            ..c
-        };
+        let flat = ResolvedCursor { shadow: false, ..c };
         let flat = picture_uniforms(&flat, (20, 10), (64, 64));
         assert!(flat.shadow_alpha.abs() < f32::EPSILON);
     }

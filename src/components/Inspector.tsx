@@ -146,26 +146,38 @@ const CLICK_EFFECTS: { value: ClickEffect; label: string; tip: string }[] = [
 /** Click colors: white (the default), then the pointer's palette without its black. */
 const CLICK_COLORS = ["#ffffff", "#ffd23f", "#e5484d", "#30a46c", "#6ea8ff", "#b48cff"];
 
-/** A click effect, frozen mid-animation, for its card. */
+/** A click effect for its card: still at rest, playing while the card is hovered and
+ *  twice when it is chosen (see .fx-art in inspector.css). */
 function ClickEffectArt(props: { effect: ClickEffect }): JSX.Element {
   const dots = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
     const a = (i * Math.PI) / 4;
     return { x: 12 + 8 * Math.cos(a), y: 12 + 8 * Math.sin(a) };
   });
   return (
-    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+    <svg
+      class="fx-art"
+      viewBox="0 0 24 24"
+      width="26"
+      height="26"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      aria-hidden="true"
+    >
       <Show when={props.effect === "ripple"}>
-        <circle cx="12" cy="12" r="7.5" />
+        <circle class="fx-a" cx="12" cy="12" r="7.5" />
       </Show>
       <Show when={props.effect === "rings"}>
-        <circle cx="12" cy="12" r="9" opacity="0.55" />
-        <circle cx="12" cy="12" r="4.8" />
+        <circle class="fx-a" cx="12" cy="12" r="9" />
+        <circle class="fx-b" cx="12" cy="12" r="9" />
       </Show>
       <Show when={props.effect === "pulse"}>
-        <circle cx="12" cy="12" r="8" fill="currentColor" fill-opacity="0.32" />
+        <circle class="fx-a" cx="12" cy="12" r="8" fill="currentColor" fill-opacity="0.32" />
       </Show>
       <Show when={props.effect === "burst"}>
-        <For each={dots}>{(d) => <circle cx={d.x} cy={d.y} r="1.5" fill="currentColor" stroke="none" />}</For>
+        <g class="fx-a">
+          <For each={dots}>{(d) => <circle cx={d.x} cy={d.y} r="1.5" fill="currentColor" stroke="none" />}</For>
+        </g>
       </Show>
     </svg>
   );

@@ -714,6 +714,44 @@
   box-shadow: 0 0 0 2px var(--panel-2), 0 0 0 3.5px var(--muted);
 }
 
+/* Click effects on their cards. At rest each is a still of itself (the second ring sits
+   inside the first); hovering a card plays it, and choosing one plays it twice. */
+.fx-art .fx-a,
+.fx-art .fx-b {
+  transform-origin: 12px 12px;
+  vector-effect: non-scaling-stroke;
+}
+.fx-art .fx-b {
+  transform: scale(0.55);
+}
+@keyframes fx-play {
+  from {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+/* Off when motion is reduced (in Settings or by the system): the stills stay. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduced"]) .look-card:hover .fx-a,
+  :root:not([data-motion="reduced"]) .look-card:focus-visible .fx-a {
+    animation: fx-play 1.2s ease-out infinite;
+  }
+  :root:not([data-motion="reduced"]) .look-card:hover .fx-b,
+  :root:not([data-motion="reduced"]) .look-card:focus-visible .fx-b {
+    animation: fx-play 1.2s ease-out 0.36s infinite backwards;
+  }
+  :root:not([data-motion="reduced"]) .look-card.on:not(:hover) .fx-a {
+    animation: fx-play 1.2s ease-out 2;
+  }
+  :root:not([data-motion="reduced"]) .look-card.on:not(:hover) .fx-b {
+    animation: fx-play 1.2s ease-out 0.36s 2 backwards;
+  }
+}
+
 /* The pointer picture in use: click it to say where it points. */
 .ptr-picture {
   display: flex;

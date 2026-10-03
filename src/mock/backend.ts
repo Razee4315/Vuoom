@@ -8,6 +8,7 @@ import type {
   AudioKind,
   CameraOverlay,
   CaptionStyle,
+  ClickStyle,
   CursorStyle,
   SpeedRegion,
   Trim,
@@ -16,7 +17,7 @@ import type {
 } from "../types";
 import { mockLevel, mockTrackWav } from "./audio";
 import { MOCK_CAMERAS, mockCameraJpeg } from "./camera";
-import { mockEngine, paintDesktop } from "./engine";
+import { mockEngine, mockPointerPicture, paintDesktop } from "./engine";
 
 const params = new URLSearchParams(window.location.search);
 
@@ -49,6 +50,7 @@ function save(opts?: SaveOptions): string {
 }
 function open(opts?: OpenOptions): string {
   // A file pick (with filters) gets a demo picture; a folder pick the demo project.
+  if (opts?.title?.includes("pointer")) return "C:\\Users\\demo\\Pictures\\Gold star.png";
   return opts?.filters ? "C:\\Users\\demo\\Pictures\\Mountains at dawn.jpg" : DEMO_DIR;
 }
 
@@ -246,6 +248,15 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "set_cursor_style":
       m.setCursorStyle(a.style as CursorStyle | null);
+      return null;
+    case "pointer_picture": {
+      // Any path "reads" as the demo star, except one named like a file that isn't a picture.
+      if (/\.(txt|pdf)$/i.test(a.path as string)) throw new Error("That file isn't a picture Vuoom can read.");
+      const pic = mockPointerPicture();
+      return { width: pic.width, height: pic.height, preview: pic.toDataURL("image/png") };
+    }
+    case "set_click_style":
+      m.setClickStyle(a.style as ClickStyle);
       return null;
     case "set_capture_fps":
     case "set_live_preview":

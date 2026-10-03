@@ -8,7 +8,9 @@
 use crate::displays::DisplayInfo;
 use crate::hotkey::{RecordingHotkey, StopHotkey};
 use crate::region_border::RegionBorder;
-use crate::session::{AnnotationSet, ClipState, PasteItem, PastedRef, RecordingSummary};
+use crate::session::{
+    AnnotationSet, ClipState, PasteItem, PastedRef, PointerPicture, RecordingSummary,
+};
 use crate::windows_ext::{copy_file_to_clipboard, exclude_from_capture, include_in_capture};
 use crate::{drag_wall, Engine};
 use serde::Serialize;
@@ -16,8 +18,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use vuoom_capture::CropRegion;
 use vuoom_project::{
-    AudioKind, CameraOverlay, Caption, CaptionStyle, Color, CropRect, CursorStyle, SpeedRegion,
-    Trim, ZoomKeyframe, ZoomStyle,
+    AudioKind, CameraOverlay, Caption, CaptionStyle, ClickStyle, Color, CropRect, CursorStyle,
+    SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
 };
 
 /// The visible frame around the recorded region, plus the region it should frame.
@@ -585,13 +587,26 @@ pub fn set_capture_cursor(
 }
 
 /// Turn the re-drawn pointer on (its look: size 0.5-3, smoothing in seconds, hide when
-/// idle) or off (`null`).
+/// idle, color, opacity, shadow, and Vuoom's pointer, a dot or the user's picture) or off
+/// (`null`). A picture that can't be read is refused.
 #[tauri::command]
 pub fn set_cursor_style(
     engine: tauri::State<'_, Engine>,
     style: Option<CursorStyle>,
 ) -> Result<(), String> {
     engine.session()?.set_cursor_style(style)
+}
+
+/// Read a picture chosen as the pointer: its size and a small preview for the editor.
+#[tauri::command]
+pub async fn pointer_picture(path: String) -> Result<PointerPicture, String> {
+    crate::session::pointer_picture(&path)
+}
+
+/// How clicks are shown: the animation, its color, size, speed and opacity.
+#[tauri::command]
+pub fn set_click_style(engine: tauri::State<'_, Engine>, style: ClickStyle) -> Result<(), String> {
+    engine.session()?.set_click_style(style)
 }
 
 /// Microphones (default first) and whether system sound can be recorded.

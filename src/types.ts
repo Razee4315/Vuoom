@@ -127,6 +127,8 @@ export interface ClipState {
   cuts: Trim[];
   zooms: ZoomSeg[];
   show_clicks: boolean;
+  /** How clicks are shown (absent from engines that predate it: the classic ripple). */
+  click_style?: ClickStyle;
   /** Blur along camera moves (absent from engines that predate it: treated as on). */
   motion_blur?: boolean;
   show_keys: boolean;
@@ -195,6 +197,49 @@ export interface CursorStyle {
   color?: [number, number, number] | null;
   /** A soft highlight disc under the pointer. */
   halo?: boolean;
+  /** Vuoom's pointer, a dot, or the picture in `image` (absent: classic). */
+  look?: PointerLook;
+  /** The picture for the "image" look, kept while another look is chosen. */
+  image?: PointerImage | null;
+  /** How opaque the pointer is, 0..1 (absent: 1). */
+  opacity?: number;
+  /** A soft shadow under the pointer (absent: on). */
+  shadow?: boolean;
+}
+
+/** Mirrors vuoom_project::PointerLook. */
+export type PointerLook = "classic" | "dot" | "image";
+
+/** Mirrors vuoom_project::PointerImage. */
+export interface PointerImage {
+  /** The picture's file. */
+  path: string;
+  /** The point that clicks, as a fraction of the picture's width and height. */
+  hotspot: [number, number];
+}
+
+/** Mirrors src-tauri session::PointerPicture: a pointer picture as the editor shows it. */
+export interface PointerPicture {
+  width: number;
+  height: number;
+  /** A small copy as a PNG data URL. */
+  preview: string;
+}
+
+/** Mirrors vuoom_project::ClickEffect. */
+export type ClickEffect = "ripple" | "rings" | "pulse" | "burst";
+
+/** Mirrors vuoom_project::ClickStyle: how clicks are shown. */
+export interface ClickStyle {
+  effect: ClickEffect;
+  /** RGB 0..1; null is white. */
+  color: [number, number, number] | null;
+  /** Size multiplier, 0.5..3. */
+  size: number;
+  /** How long one click's animation plays, 0.2..1.5 s. */
+  duration: number;
+  /** Opacity at the start of the animation, 0..1. */
+  opacity: number;
 }
 
 /** How new takes handle the mouse pointer. */

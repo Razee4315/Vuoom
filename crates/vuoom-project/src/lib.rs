@@ -22,7 +22,10 @@ pub use audio::{AudioKind, AudioTrack};
 pub use camera::{CameraOverlay, CameraShape, Corner};
 pub use captions::{caption_at, Caption, CaptionPosition, CaptionStyle};
 pub use color::{Color, Rect};
-pub use cursor::{pointer_shape_at, CursorStyle, PointerShape, PointerShapeAt};
+pub use cursor::{
+    pointer_shape_at, ClickEffect, ClickStyle, CursorStyle, PointerImage, PointerLook,
+    PointerShape, PointerShapeAt,
+};
 pub use frame::{AspectRatio, Background, FrameStyle, Shadow};
 pub use timeline::{output_duration, output_segments, output_to_source, source_to_output};
 pub use timing::TimeRange;
@@ -95,6 +98,9 @@ pub struct Project {
     /// Render an expanding ripple at every recorded mouse click (preview + export).
     #[serde(default)]
     pub show_clicks: bool,
+    /// How clicks are shown: the animation, its color, size and speed.
+    #[serde(default)]
+    pub click_style: ClickStyle,
     /// Shortcut/special key presses, captured at stop time for the keystroke overlay.
     #[serde(default)]
     pub key_taps: Vec<KeyTap>,
@@ -206,6 +212,7 @@ impl Project {
             speed_regions: Vec::new(),
             cuts: Vec::new(),
             show_clicks: false,
+            click_style: ClickStyle::default(),
             key_taps: Vec::new(),
             show_keys: false,
             crop: None,

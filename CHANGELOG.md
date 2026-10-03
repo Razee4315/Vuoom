@@ -23,6 +23,11 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
   Home > Options, the record panel's Options menu or Settings.
 - The smooth pointer changes shape like the real one: a text beam over text, a hand over a
   link, resize and move arrows, a crosshair.
+- Your own pointer: Clip > Pointer > Look can use any picture as the pointer (click its
+  preview to set where it points) or a simple dot, with an opacity slider and a shadow
+  switch. New takes start with the look you chose last.
+- Click effects: four animations (Ripple, Rings, Pulse, Burst) in any color, with size,
+  length and opacity sliders, under Clip > Overlays.
 - The zoom and stop hotkeys can be changed (Settings > Shortcuts), and the app you are
   recording no longer receives them: Ctrl+Shift+Z used to also trigger Redo in it.
 - The region picker offers the area you recorded last time, and Record remembers whether you

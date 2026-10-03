@@ -13,6 +13,7 @@ import type {
   Caption,
   CaptionStyle,
   CaptionsProgress,
+  ClickStyle,
   CursorStyle,
   ClipState,
   Color,
@@ -43,6 +44,47 @@ const cursorAt = (t: number) => ({
   y: 0.46 + 0.26 * Math.sin(t * 0.55 + 1.7),
 });
 const CLICK_TIMES = [1.3, 2.9, 5.1, 5.25, 7.6, 10.0, 12.2];
+
+/** Mirrors vuoom_project::ClickStyle::default. */
+const DEFAULT_CLICK: ClickStyle = { effect: "ripple", color: null, size: 1, duration: 0.45, opacity: 0.9 };
+const unit = (v: number) => Math.max(0, Math.min(1, v));
+
+/** What a new take starts with (mirrors session::TakeDefaults). */
+interface TakeDefaults {
+  clicks: boolean;
+  keys: boolean;
+  frame: string;
+  denoise: boolean;
+  auto_zoom: boolean;
+  pointer?: CursorStyle | null;
+  click_style?: ClickStyle | null;
+}
+
+/** The mock's stand-in for a picture chosen as the pointer: a bright hand-drawn star. */
+let pointerPictureCanvas: HTMLCanvasElement | null = null;
+export function mockPointerPicture(): HTMLCanvasElement {
+  if (pointerPictureCanvas) return pointerPictureCanvas;
+  const c = document.createElement("canvas");
+  c.width = 96;
+  c.height = 96;
+  const ctx = c.getContext("2d")!;
+  ctx.translate(48, 50);
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? 44 : 19;
+    const a = (i * Math.PI) / 5 - Math.PI / 2;
+    ctx.lineTo(r * Math.cos(a), r * Math.sin(a));
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#ffcf33";
+  ctx.strokeStyle = "#7a4b00";
+  ctx.lineWidth = 5;
+  ctx.lineJoin = "round";
+  ctx.fill();
+  ctx.stroke();
+  pointerPictureCanvas = c;
+  return c;
+}
 
 // A demo take used by recover / open-project / fresh recordings: annotations, zooms,
 // speed regions and a cut so every timeline affordance is visible at once.
@@ -147,9 +189,11 @@ class MockEngine {
   speed: SpeedRegion[] = [];
   cuts: Trim[] = [];
   showClicks = false;
+  /** How clicks are shown (mirrors Project::click_style). */
+  clickStyle: ClickStyle = { ...DEFAULT_CLICK };
   motionBlur = true;
   /** What the next mock take starts with (set_take_defaults). */
-  takeDefaults = { clicks: false, keys: false, frame: "none", denoise: false, auto_zoom: false };
+  takeDefaults: TakeDefaults = { clicks: false, keys: false, frame: "none", denoise: false, auto_zoom: false };
   showKeys = false;
   crop: { x: number; y: number; w: number; h: number } | null = null;
   audio: AudioTrack[] = [];
@@ -220,6 +264,7 @@ class MockEngine {
       speed: this.speed,
       cuts: [...this.cuts],
       showClicks: this.showClicks,
+      clickStyle: this.clickStyle,
       motionBlur: this.motionBlur,
       showKeys: this.showKeys,
       crop: this.crop ? { ...this.crop } : null,
@@ -256,6 +301,7 @@ class MockEngine {
     this.speed = st.speed;
     this.cuts = st.cuts;
     this.showClicks = st.showClicks;
+    this.clickStyle = st.clickStyle ?? { ...DEFAULT_CLICK };
     this.motionBlur = st.motionBlur ?? true;
     this.showKeys = st.showKeys;
     this.framePreset = st.framePreset;
@@ -278,6 +324,7 @@ class MockEngine {
     this.speed = [{ start: 9.8, end: 11.6, factor: 3 }];
     this.cuts = [{ start: 12.6, end: 13.4 }];
     this.showClicks = true;
+    this.clickStyle = { ...DEFAULT_CLICK };
     this.showKeys = true;
     this.framePreset = "subtle";
     this.bgPreset = "graphite";
@@ -316,6 +363,7 @@ class MockEngine {
       cuts: [...this.cuts],
       zooms: [...this.zooms],
       show_clicks: this.showClicks,
+      click_style: { ...this.clickStyle },
       motion_blur: this.motionBlur,
       show_keys: this.showKeys,
       crop: this.crop ? { ...this.crop } : null,
@@ -432,8 +480,26 @@ class MockEngine {
             hide_idle: !!style.hide_idle,
             color: style.color ?? null,
             halo: !!style.halo,
+            look: style.look === "image" && !style.image ? "classic" : (style.look ?? "classic"),
+            image: style.image
+              ? { path: style.image.path, hotspot: style.image.hotspot.map(unit) as [number, number] }
+              : null,
+            opacity: unit(style.opacity ?? 1),
+            shadow: style.shadow ?? true,
           }
         : null;
+    });
+  }
+
+  setClickStyle(style: ClickStyle) {
+    this.mutate("click-style", () => {
+      this.clickStyle = {
+        effect: style.effect,
+        color: style.color ?? null,
+        size: Math.max(0.5, Math.min(3, style.size)),
+        duration: Math.max(0.2, Math.min(1.5, style.duration)),
+        opacity: unit(style.opacity),
+      };
     });
   }
 
@@ -594,9 +660,10 @@ class MockEngine {
       ...(this.audioChoice.system ? [track("system")] : []),
     ];
     this.pointerCaptured = this.captureShow;
-    this.cursor = this.captureSmooth ? { size: 1.5, smoothing: 0.05 } : null;
+    this.cursor = this.captureSmooth ? (this.takeDefaults.pointer ?? { size: 1.5, smoothing: 0.05 }) : null;
     this.camera = this.cameraChoice.on ? defaultOverlay() : null;
     this.showClicks = this.takeDefaults.clicks;
+    this.clickStyle = { ...(this.takeDefaults.click_style ?? DEFAULT_CLICK) };
     this.showKeys = this.takeDefaults.keys;
     this.framePreset = this.takeDefaults.frame;
     const frame = this.takeDefaults.frame === "studio" ? FRAME_STUDIO : this.takeDefaults.frame === "subtle" ? FRAME_SUBTLE : FRAME_NONE;
@@ -1180,6 +1247,52 @@ function paintDesktop(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
     }
   }
 
+  // In the editor: clicks as the project shows them (mirrors the engine's click_marks).
+  if (opts.live === false && mockEngine.showClicks) {
+    const cs = mockEngine.clickStyle;
+    const [r, g, b] = (cs.color ?? [1, 1, 1]).map((v) => Math.round(v * 255));
+    const k = cs.size * h;
+    const ease = (x: number) => 1 - (1 - x) ** 3;
+    const ring = (x: number, y: number, radius: number, fade: number) => {
+      ctx.strokeStyle = `rgba(${r},${g},${b},${Math.max(0, fade) * cs.opacity})`;
+      ctx.lineWidth = Math.max(1.5, 0.0035 * k);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(0.1, radius - ctx.lineWidth / 2), 0, Math.PI * 2);
+      ctx.stroke();
+    };
+    const disc = (x: number, y: number, radius: number, fade: number) => {
+      ctx.fillStyle = `rgba(${r},${g},${b},${Math.max(0, fade) * cs.opacity})`;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    for (const ct of CLICK_TIMES) {
+      const age = t - ct;
+      if (age < 0 || age >= cs.duration) continue;
+      const p = age / cs.duration;
+      const at = cursorAt(ct);
+      const [x, y] = [at.x * w, at.y * h];
+      if (cs.effect === "rings") {
+        for (const delay of [0, 0.3]) {
+          const q = (p - delay) / (1 - delay);
+          if (q >= 0 && q < 1) ring(x, y, (0.008 + 0.034 * ease(q)) * k, 1 - q);
+        }
+      } else if (cs.effect === "pulse") {
+        const radius = (0.01 + 0.026 * ease(p)) * k;
+        disc(x, y, radius, (1 - p) * 0.45);
+        ring(x, y, radius, 1 - p);
+      } else if (cs.effect === "burst") {
+        const reach = (0.006 + 0.032 * ease(p)) * k;
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4;
+          disc(x + reach * Math.cos(a), y + reach * Math.sin(a), 0.0045 * (1 - 0.6 * p) * k, 1 - p);
+        }
+      } else {
+        ring(x, y, (0.008 + 0.03 * p) * k, 1 - p);
+      }
+    }
+  }
+
   // The pointer: the real one when the take captured it, the re-drawn one on top when the
   // project has it (sized like the engine's: 2.1% of the screen height per size unit).
   const c = cursorAt(Math.max(0, t));
@@ -1208,33 +1321,54 @@ function paintDesktop(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
   if (!opts.live && style) {
     const press = CLICK_TIMES.some((ct) => t - ct >= 0 && t - ct < 0.28) ? 0.86 : 1;
     const s = (style.size * 0.021 * h * press) / 17.3;
+    const opacity = style.opacity ?? 1;
+    const shadow = style.shadow ?? true;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(s, s);
     if (style.halo) {
-      ctx.fillStyle = "rgba(255,214,51,0.32)";
+      ctx.fillStyle = `rgba(255,214,51,${0.32 * opacity})`;
       ctx.beginPath();
       ctx.arc(0, 0, 17.3 * 0.8, 0, Math.PI * 2);
       ctx.fill();
     }
+    // The whole pointer fades as one, like the engine's pointer layer.
+    ctx.globalAlpha = opacity;
+    if (shadow) {
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = 3;
+      ctx.shadowOffsetY = 1;
+    }
+    const look = style.look ?? "classic";
+    if (look === "image" && style.image) {
+      // 17.3 units tall, its hotspot on the point.
+      const pic = mockPointerPicture();
+      const ph = 17.3;
+      const pw = (ph * pic.width) / pic.height;
+      const [hx, hy] = style.image.hotspot;
+      ctx.drawImage(pic, -hx * pw, -hy * ph, pw, ph);
+      ctx.restore();
+      return;
+    }
     const [r, g, b] = style.color ?? [1, 1, 1];
     const dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.4;
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowBlur = 3;
-    ctx.shadowOffsetY = 1;
     ctx.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
     ctx.strokeStyle = dark ? "#ffffff" : "#0a0a0d";
     ctx.lineWidth = 1.6;
     ctx.lineJoin = "round";
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(0, 14.9);
-    ctx.lineTo(3.6, 11.6);
-    ctx.lineTo(6.2, 17.3);
-    ctx.lineTo(8.6, 16.3);
-    ctx.lineTo(6, 10.7);
-    ctx.lineTo(10.7, 10.5);
-    ctx.closePath();
+    if (look === "dot") {
+      ctx.arc(0, 0, 17.3 * 0.24, 0, Math.PI * 2);
+    } else {
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 14.9);
+      ctx.lineTo(3.6, 11.6);
+      ctx.lineTo(6.2, 17.3);
+      ctx.lineTo(8.6, 16.3);
+      ctx.lineTo(6, 10.7);
+      ctx.lineTo(10.7, 10.5);
+      ctx.closePath();
+    }
     ctx.stroke();
     ctx.fill();
     ctx.restore();

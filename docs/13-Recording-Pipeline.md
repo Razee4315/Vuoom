@@ -32,10 +32,13 @@ or a scrolled panel changes. The frame store (`src-tauri/src/frame_store.rs`) ex
   become zero bytes, which LZ4 compresses to almost nothing.
 - **Keyframes** (every 30 frames, or on a size change) are LZ4 of the pixels themselves, so
   a random seek replays at most 30 deltas.
-- Frames are cut into horizontal strips that are compressed and decompressed in parallel on
-  rayon's pool, keeping a 4K frame well inside a 60 fps budget. LZ4 compresses at
-  >500 MB/s per core and decodes at GB/s ([lz4.org](https://lz4.org/),
-  [lz4_flex](https://github.com/pseitz/lz4_flex), pure Rust, no unsafe by default).
+- Frames are cut into up to 64 horizontal strips that are compressed and decompressed in
+  parallel, keeping a 4K frame well inside a 60 fps budget. A strip that didn't change has an
+  empty block in a delta: nothing stored, nothing to decode, so a seek replays only what
+  changed. LZ4 compresses at >500 MB/s per core and decodes at GB/s
+  ([lz4.org](https://lz4.org/), [lz4_flex](https://github.com/pseitz/lz4_flex)).
+- The disk has its own thread and a short queue, so a moment's stall on the drive holds up
+  the queue rather than the encoder.
 - When compression would not save bytes (tiny or noisy frames) the frame is stored raw.
 
 The encoding rides in the spare top three bits of each index record's length field, so
@@ -62,9 +65,14 @@ scratch store. Old PNG bundles still open, and saving over one removes its PNGs.
 The Media Foundation sink writer only considers hardware encoders (NVENC, Quick Sync, AMF)
 when `MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS` is set at creation
 ([docs](https://learn.microsoft.com/en-us/windows/win32/medfound/mf-readwrite-enable-hardware-transforms)).
-Vuoom sets it and also disables sink-writer throttling (export is offline, frames should be
-accepted as fast as we composite them). If a vendor MFT rejects the configuration, the
-writer is recreated with the software encoder.
+Vuoom sets it. Sink-writer throttling stays on: with it off, frames queue in memory without
+limit whenever the encoder is the slow stage, and a 4K export with a software encoder runs the
+computer out of memory. If a vendor MFT rejects the configuration, the writer is recreated
+with the software encoder.
+
+Reading frames, compositing them and encoding them each have a thread, with a short queue
+between them, so an export runs at the pace of the slowest stage rather than the sum of the
+three. H.264 stops at 4096 × 2304, so a frame around a 4K take comes out at that size.
 
 ## Future work
 

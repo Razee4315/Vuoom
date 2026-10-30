@@ -13,7 +13,9 @@ mod plan;
 mod settings;
 
 pub use error::EncodeError;
-pub use image::{encode_png_to_vec, read_png, swizzle_rb, write_png, RgbaImage};
+pub use image::{
+    encode_png_fast_to_vec, encode_png_to_vec, read_png, swizzle_rb, write_png, RgbaImage,
+};
 pub use native::{
     downscale_rgba, export_gif_native, export_gif_native_streaming, frame_delay_cs,
     quality_to_speed,

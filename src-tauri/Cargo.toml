@@ -29,9 +29,11 @@ tauri-plugin-process = "2"
 serde.workspace = true
 serde_json.workspace = true
 base64 = "0.22"
-# Frame store codec: LZ4 (pure Rust, no unsafe by default) over XOR deltas, with strips
-# compressed/decompressed in parallel on rayon's pool (see frame_store.rs).
-lz4_flex = "0.14"
+# Frame store codec: LZ4 over XOR deltas, with strips compressed/decompressed in parallel
+# (see frame_store.rs). `safe-encode` is left out: the encoder only sees our own frames and
+# runs a good deal faster without its bounds checks, which is what a busy 4K frame needs.
+# Decoding stays checked, it reads project files from anywhere.
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "safe-decode", "checked-decode"] }
 rayon = "1"
 
 # Diagnostics. `env-filter` gives us RUST_LOG honoring; `tracing-appender`

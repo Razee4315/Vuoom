@@ -14,7 +14,10 @@
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -100,14 +103,16 @@ fn decode_rec(b: &[u8]) -> FrameRec {
 /// Force a keyframe at least this often, bounding the delta chain a random seek replays.
 pub const KEY_EVERY: u32 = 30;
 
-/// Number of horizontal strips a `h`-row frame is split into (1..=16).
+/// Number of horizontal strips a new `h`-row frame is split into (1..=64). Small strips are
+/// what makes a delta cheap: one that didn't change costs nothing to store or decode, so a
+/// strip of a 4K frame (under 70 rows) confines a caret or a pointer to a sliver of the
+/// frame. Readers take the count from the payload, so stores cut differently still open.
 fn strip_count(h: u32) -> usize {
-    (h as usize / 96).clamp(1, 16)
+    (h as usize / 64).clamp(1, 64)
 }
 
-/// Byte ranges of each strip inside a tightly packed `w`×`h` BGRA frame.
-fn strip_ranges(w: u32, h: u32) -> Vec<std::ops::Range<usize>> {
-    let n = strip_count(h);
+/// Byte ranges of each of `n` strips inside a tightly packed `w`×`h` BGRA frame.
+fn strip_ranges(w: u32, h: u32, n: usize) -> Vec<std::ops::Range<usize>> {
     let row = w as usize * 4;
     let h = h as usize;
     (0..n)
@@ -115,17 +120,18 @@ fn strip_ranges(w: u32, h: u32) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
-/// The threads that compress frames: half the processor (2 to 6 threads). A full-screen take
-/// at 60 fps kept every core busy on rayon's global pool, which made the app being recorded
-/// (and the whole computer) sluggish; half leaves room for it. The threads also run below
-/// normal priority, so whenever the processor is contended the app being recorded and
-/// Vuoom's own panel go first; the encoder still gets every idle cycle.
+/// The threads that compress frames: three quarters of the processor (2 to 12 threads), so
+/// a busy 4K frame fits in its 16 ms on a mid-range PC, where half the cores could not keep
+/// up and frames were lost. The work per frame doesn't grow with the pool, so a small take
+/// leaves these threads idle. They run below normal priority: whenever the processor is
+/// contended the app being recorded and Vuoom's own panel go first, and the encoder takes
+/// the idle cycles.
 fn encode_pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
         let cores = std::thread::available_parallelism().map_or(4, usize::from);
         rayon::ThreadPoolBuilder::new()
-            .num_threads((cores / 2).clamp(2, 6))
+            .num_threads((cores * 3 / 4).clamp(2, 12))
             .thread_name(|i| format!("vuoom-encode-{i}"))
             .start_handler(|_| lower_thread_priority())
             .build()
@@ -147,101 +153,65 @@ pub fn lower_thread_priority() {
 #[cfg(not(windows))]
 pub fn lower_thread_priority() {}
 
-/// The compressed form of an all-zero strip, by strip length: what a strip that didn't
-/// change XORs to. A frame's strips come in one or two lengths, so this holds as many
-/// entries and each is compressed once per take.
-#[derive(Default)]
-struct ZeroBlocks(Vec<(usize, Vec<u8>)>);
-
-impl ZeroBlocks {
-    /// Make sure the block for a `len`-byte strip exists.
-    fn ensure(&mut self, len: usize) {
-        if !self.0.iter().any(|(l, _)| *l == len) {
-            let block = lz4_flex::block::compress(&vec![0u8; len]);
-            self.0.push((len, block));
-        }
-    }
-
-    /// The block for a `len`-byte strip ([`Self::ensure`] it first).
-    fn get(&self, len: usize) -> &[u8] {
-        match self.0.iter().find(|(l, _)| *l == len) {
-            Some((_, block)) => block,
-            None => &[],
-        }
-    }
-}
-
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the
 /// strip container: `u8 n`, `n × u32 compressed len`, then the concatenated LZ4 blocks.
 ///
-/// `band` is the span of rows `(top, bottom)` that may differ from `prev`, when the capture
-/// knows it. A delta's strips outside the band are all zeros by definition, so they take a
-/// ready-made block from `zeros` instead of being XORed and compressed: with a caret
-/// blinking or the pointer moving, that is all but one strip of the frame.
+/// In a delta, a strip that didn't change has an empty block: nothing to store, and nothing
+/// to decode later. `band` is the span of rows `(top, bottom)` that may differ from `prev`,
+/// when the capture knows it; strips outside it aren't even compared.
 fn encode_frame(
     cur: &[u8],
     prev: Option<&[u8]>,
     (w, h): (u32, u32),
     band: Option<(u32, u32)>,
-    zeros: &mut ZeroBlocks,
 ) -> Vec<u8> {
     use rayon::prelude::*;
-    let ranges = strip_ranges(w, h);
+    let ranges = strip_ranges(w, h, strip_count(h));
     let row = w as usize * 4;
     // Only a delta can skip strips (a keyframe stores every pixel).
     let band = band
         .filter(|_| prev.is_some())
         .map(|(top, bottom)| (top as usize * row, bottom as usize * row));
-    let changed = |r: &std::ops::Range<usize>| band.is_none_or(|(a, b)| r.start < b && a < r.end);
-    for r in ranges.iter().filter(|r| !changed(r)) {
-        zeros.ensure(r.len());
-    }
-    let zeros = &*zeros;
-    // `None` = an unchanged strip.
-    let blocks: Vec<Option<Vec<u8>>> = encode_pool().install(|| {
+    let in_band = |r: &std::ops::Range<usize>| band.is_none_or(|(a, b)| r.start < b && a < r.end);
+    let blocks: Vec<Vec<u8>> = encode_pool().install(|| {
         ranges
             .par_iter()
             .map_init(Vec::new, |scratch: &mut Vec<u8>, r| {
-                if !changed(r) {
-                    return None;
-                }
                 let Some(p) = prev else {
-                    return Some(lz4_flex::block::compress(&cur[r.clone()]));
+                    return lz4_flex::block::compress(&cur[r.clone()]);
                 };
                 let (now, before) = (&cur[r.clone()], &p[r.clone()]);
+                if !in_band(r) || now == before {
+                    return Vec::new();
+                }
                 scratch.clear();
                 scratch.extend(now.iter().zip(before).map(|(a, b)| a ^ b));
-                Some(lz4_flex::block::compress(scratch))
+                lz4_flex::block::compress(scratch)
             })
             .collect()
     });
-    let block = |k: usize| -> &[u8] {
-        match &blocks[k] {
-            Some(b) => b,
-            None => zeros.get(ranges[k].len()),
-        }
-    };
-    let body: usize = (0..blocks.len()).map(|k| block(k).len()).sum();
+    let body: usize = blocks.iter().map(Vec::len).sum();
     let mut out = Vec::with_capacity(1 + blocks.len() * 4 + body);
     out.push(blocks.len() as u8);
-    for k in 0..blocks.len() {
-        out.extend_from_slice(&(block(k).len() as u32).to_le_bytes());
+    for block in &blocks {
+        out.extend_from_slice(&(block.len() as u32).to_le_bytes());
     }
-    for k in 0..blocks.len() {
-        out.extend_from_slice(block(k));
+    for block in &blocks {
+        out.extend_from_slice(block);
     }
     out
 }
 
 /// Decode a strip container into `out` (`w`×`h` BGRA). With `xor`, the decoded bytes are
-/// XORed into `out`, which must already hold the previous frame.
+/// XORed into `out`, which must already hold the previous frame; a strip with an empty block
+/// is unchanged, so it is skipped without touching its bytes.
 fn decode_frame(payload: &[u8], w: u32, h: u32, out: &mut [u8], xor: bool) -> Result<(), String> {
     use rayon::prelude::*;
-    let ranges = strip_ranges(w, h);
     let n = *payload.first().ok_or("empty frame payload")? as usize;
-    if n != ranges.len() || payload.len() < 1 + n * 4 {
+    if n == 0 || n > h as usize || payload.len() < 1 + n * 4 {
         return Err("corrupt frame payload".into());
     }
+    let ranges = strip_ranges(w, h, n);
     let mut blocks = Vec::with_capacity(n);
     let mut at = 1 + n * 4;
     for k in 0..n {
@@ -260,17 +230,20 @@ fn decode_frame(payload: &[u8], w: u32, h: u32, out: &mut [u8], xor: bool) -> Re
         rest = tail;
         consumed = r.end;
     }
-    slices
-        .into_par_iter()
-        .zip(blocks)
-        .try_for_each(|(dst, block)| -> Result<(), String> {
+    slices.into_par_iter().zip(blocks).try_for_each_init(
+        Vec::new,
+        |scratch: &mut Vec<u8>, (dst, block)| -> Result<(), String> {
             if xor {
-                let delta = lz4_flex::block::decompress(block, dst.len())
+                if block.is_empty() {
+                    return Ok(());
+                }
+                scratch.resize(dst.len(), 0);
+                let got = lz4_flex::block::decompress_into(block, scratch)
                     .map_err(|e| format!("frame decode: {e}"))?;
-                if delta.len() != dst.len() {
+                if got != dst.len() {
                     return Err("frame decode: short delta".into());
                 }
-                for (d, x) in dst.iter_mut().zip(&delta) {
+                for (d, x) in dst.iter_mut().zip(scratch.iter()) {
                     *d ^= x;
                 }
             } else {
@@ -281,7 +254,8 @@ fn decode_frame(payload: &[u8], w: u32, h: u32, out: &mut [u8], xor: bool) -> Re
                 }
             }
             Ok(())
-        })
+        },
+    )
 }
 
 /// Root holding the per-session recovery subdirs. Each subdir is a full frame store
@@ -582,12 +556,88 @@ struct PrevFrame {
     len: u32,
 }
 
+/// Frames of compressed pixels waiting for the disk. A disk that stalls for a moment (Windows
+/// flushing its cache, an antivirus scan) stalls this queue instead of the encoder, and so
+/// doesn't cost frames. Bounded, so a disk that really can't keep up is felt by the capture
+/// (which then skips frames) rather than filling the memory.
+const DISK_QUEUE: usize = 16;
+
+/// Appends to `frames.raw` on its own thread, so writing never holds up encoding.
+struct DiskWriter {
+    tx: Option<SyncSender<Vec<u8>>>,
+    thread: Option<JoinHandle<Result<(), String>>>,
+    /// Why writing stopped, for [`Self::write`] to report on the next frame.
+    failed: Arc<Mutex<Option<String>>>,
+}
+
+impl DiskWriter {
+    fn new(file: File) -> Self {
+        let (tx, rx) = sync_channel::<Vec<u8>>(DISK_QUEUE);
+        let failed = Arc::new(Mutex::new(None));
+        let note = Arc::clone(&failed);
+        let thread = std::thread::spawn(move || -> Result<(), String> {
+            let mut out = BufWriter::with_capacity(1 << 20, file);
+            let mut result = Ok(());
+            // Once a write has failed the rest are dropped, but the queue is still drained.
+            for bytes in rx {
+                if result.is_ok() {
+                    result = out
+                        .write_all(&bytes)
+                        .map_err(|e| format!("frame write: {e}"));
+                    if let Err(e) = &result {
+                        *note.lock().unwrap_or_else(|p| p.into_inner()) = Some(e.clone());
+                    }
+                }
+            }
+            result?;
+            out.flush().map_err(|e| format!("frame flush: {e}"))
+        });
+        Self {
+            tx: Some(tx),
+            thread: Some(thread),
+            failed,
+        }
+    }
+
+    /// Queue `bytes` for the disk. Fails once an earlier write has.
+    fn write(&self, bytes: Vec<u8>) -> Result<(), String> {
+        let failed = self.failed.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(e) = failed.clone() {
+            return Err(e);
+        }
+        drop(failed);
+        match &self.tx {
+            Some(tx) => tx
+                .send(bytes)
+                .map_err(|_| "frame write: writer gone".to_string()),
+            None => Err("frame write: store closed".into()),
+        }
+    }
+
+    /// Write out everything queued and close the file. Only the first call does anything.
+    fn close(&mut self) -> Result<(), String> {
+        self.tx = None;
+        match self.thread.take() {
+            Some(thread) => thread
+                .join()
+                .unwrap_or_else(|_| Err("frame write: writer panicked".into())),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for DiskWriter {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
 /// Append-only writer used by the recording drain thread (and bundle open). Both the pixel
 /// file and the index grow incrementally, so a hard crash mid-take leaves a recoverable
 /// store rather than gigabytes of un-indexed pixels.
 pub struct FrameWriter {
     dir: PathBuf,
-    out: BufWriter<File>,
+    disk: DiskWriter,
     /// Append-only index: one `REC_SIZE` record per frame, flushed a few times a second.
     idx: BufWriter<File>,
     offset: u64,
@@ -599,8 +649,6 @@ pub struct FrameWriter {
     since_key: u32,
     /// Running totals for the compression readout (uncompressed vs. written bytes).
     stats: StoreStats,
-    /// Ready-made blocks for the strips of a delta that didn't change.
-    zeros: ZeroBlocks,
     /// The pixel buffer of a frame that is done with, for the capture to fill again (see
     /// [`Self::take_spare`]).
     spare: Option<Vec<u8>>,
@@ -627,14 +675,13 @@ impl FrameWriter {
         let idx = File::create(index_path(&dir)).map_err(|e| format!("frame index: {e}"))?;
         Ok(Self {
             dir,
-            out: BufWriter::with_capacity(1 << 20, file),
+            disk: DiskWriter::new(file),
             idx: BufWriter::new(idx),
             offset: 0,
             since_flush: 0,
             prev: None,
             since_key: 0,
             stats: StoreStats::default(),
-            zeros: ZeroBlocks::default(),
             spare: None,
         })
     }
@@ -701,26 +748,25 @@ impl FrameWriter {
                 None
             };
             let dims = (f.width, f.height);
-            let packed = encode_frame(&f.bgra, prev_px, dims, band, &mut self.zeros);
-            let (bytes, flags): (&[u8], u8) = if (packed.len() as u64) < raw_len {
+            let packed = encode_frame(&f.bgra, prev_px, dims, band);
+            let (bytes, flags) = if (packed.len() as u64) < raw_len {
                 let delta = if prev_px.is_some() { FLAG_DELTA } else { 0 };
-                (&packed, FLAG_COMPRESSED | delta)
+                (packed, FLAG_COMPRESSED | delta)
             } else {
-                (&f.bgra, 0)
+                (f.bgra.clone(), 0)
             };
-            self.out
-                .write_all(bytes)
-                .map_err(|e| format!("frame write: {e}"))?;
+            let written = bytes.len();
+            self.disk.write(bytes)?;
             let rec = FrameRec {
                 qpc: f.qpc,
                 w: f.width,
                 h: f.height,
                 offset: self.offset,
-                len: bytes.len() as u32,
+                len: written as u32,
                 flags,
             };
-            self.offset += bytes.len() as u64;
-            self.stats.stored_bytes += bytes.len() as u64;
+            self.offset += written as u64;
+            self.stats.stored_bytes += written as u64;
             self.since_key = if flags & FLAG_DELTA != 0 {
                 self.since_key + 1
             } else {
@@ -752,12 +798,18 @@ impl FrameWriter {
         Ok(())
     }
 
+    /// Wait until every frame pushed so far is on disk, and say if one couldn't be written.
+    /// Nothing more can be pushed after this.
+    pub fn settle(&mut self) -> Result<(), String> {
+        self.disk.close()
+    }
+
     /// Flush both files and reopen the store for reading.
     pub fn finish(mut self) -> Result<FrameStore, String> {
-        self.out.flush().map_err(|e| format!("frame flush: {e}"))?;
+        self.settle()?;
         self.idx.flush().map_err(|e| format!("frame index: {e}"))?;
         self.log_stats();
-        drop(self.out);
+        drop(self.disk);
         drop(self.idx);
         FrameStore::open(&self.dir)
     }
@@ -771,11 +823,11 @@ impl FrameWriter {
         tracing::warn!("finalizing a truncated recording after a mid-write failure, salvaging frames already on disk");
         // These may fail on a full disk; open()'s trim covers the gap. Log a flush failure so
         // the salvage attempt leaves a trace even when the writes themselves went silent.
-        if let Err(e) = self.out.flush() {
+        if let Err(e) = self.disk.close() {
             tracing::warn!("salvage flush of frame data failed (expected on a full disk): {e}");
         }
         let _ = self.idx.flush();
-        drop(self.out);
+        drop(self.disk);
         drop(self.idx);
         FrameStore::open(&self.dir)
     }
@@ -794,17 +846,32 @@ impl FrameWriter {
     }
 }
 
+/// One frame read back from a store.
+#[derive(Clone)]
+pub struct StoredFrame {
+    pub width: u32,
+    pub height: u32,
+    /// BGRA pixels, shared between frames that are identical.
+    pub bgra: Arc<Vec<u8>>,
+    pub qpc: i64,
+    /// The same for two frames only when their pixels are the same, in any store of this
+    /// run: lets the compositor skip uploading pixels it already has.
+    pub pixels_id: u64,
+}
+
 struct ReadState {
     file: File,
     /// One-slot cache: scrubbing hits the same/neighboring frame repeatedly, and sequential
     /// playback/export decodes frame `i` as a cheap delta on top of cached frame `i - 1`.
-    cache: Option<(usize, Arc<CapturedFrame>)>,
+    cache: Option<(usize, StoredFrame)>,
 }
 
 /// Read side of the store: random access by frame number.
 pub struct FrameStore {
     index: Vec<FrameRec>,
     read: Mutex<ReadState>,
+    /// Tells this store's frames from those of any other opened this run.
+    uid: u64,
 }
 
 impl FrameStore {
@@ -814,6 +881,7 @@ impl FrameStore {
     /// is simply ignored (`chunks_exact`), and any frame whose bytes didn't fully reach
     /// `frames.raw` is dropped, so the store only exposes frames that read back cleanly.
     pub fn open(dir: &Path) -> Result<Self, String> {
+        static NEXT_UID: AtomicU64 = AtomicU64::new(1);
         let bytes = fs::read(index_path(dir)).map_err(|e| format!("frame index: {e}"))?;
         let file = File::open(raw_path(dir)).map_err(|e| format!("frame file: {e}"))?;
         let raw_len = file.metadata().map(|m| m.len()).unwrap_or(0);
@@ -839,6 +907,7 @@ impl FrameStore {
         Ok(Self {
             index,
             read: Mutex::new(ReadState { file, cache: None }),
+            uid: NEXT_UID.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -855,31 +924,38 @@ impl FrameStore {
         &self.index
     }
 
+    /// Frame `i`'s record as a frame with the pixels `bgra`.
+    fn stored(&self, i: usize, bgra: Arc<Vec<u8>>) -> StoredFrame {
+        let rec = self.index[i];
+        StoredFrame {
+            width: rec.w,
+            height: rec.h,
+            bgra,
+            qpc: rec.qpc,
+            // A duplicate shares its original's offset, and every other record has its own.
+            pixels_id: (self.uid << 44) ^ rec.offset,
+        }
+    }
+
     /// Load frame `i` (cached for repeat hits).
     ///
     /// Anchor records (raw / keyframe) decode on their own. Delta and duplicate records need
     /// their predecessor, so this walks back to the nearest anchor (or to the cached frame,
     /// whichever is closer) and replays forward. [`KEY_EVERY`] bounds that replay, and
-    /// sequential access (playback, export) costs exactly one delta per frame.
-    pub fn frame(&self, i: usize) -> Result<Arc<CapturedFrame>, String> {
-        let target = *self.index.get(i).ok_or("no such frame")?;
+    /// sequential access (playback, export) costs exactly one delta per frame, or nothing at
+    /// all for a duplicate.
+    pub fn frame(&self, i: usize) -> Result<StoredFrame, String> {
+        self.index.get(i).ok_or("no such frame")?;
         let mut rs = self.read.lock().unwrap_or_else(|e| e.into_inner());
-        let cached = rs.cache.as_ref().map(|(ci, f)| (*ci, Arc::clone(f)));
-        if let Some((ci, f)) = &cached {
+        if let Some((ci, f)) = &rs.cache {
             if *ci == i {
-                return Ok(Arc::clone(f));
+                return Ok(f.clone());
             }
         }
         // Walk back to where decoding can start.
+        let cached_at = rs.cache.as_ref().map(|(ci, _)| *ci);
         let mut start = i;
-        let mut from_cache = None;
-        loop {
-            if let Some((ci, f)) = &cached {
-                if *ci == start && start != i {
-                    from_cache = Some(Arc::clone(f));
-                    break;
-                }
-            }
+        while start == i || cached_at != Some(start) {
             if self.index[start].is_anchor() {
                 break;
             }
@@ -888,19 +964,32 @@ impl FrameStore {
             }
             start -= 1;
         }
-        // Decode the starting frame into a working buffer, then replay forward to `i`.
-        let mut buf = match from_cache {
-            Some(f) => f.bgra.clone(),
+        let replay = &self.index[start + 1..=i];
+        let from_cache = cached_at == Some(start);
+        // Only duplicates in between: the cached pixels are this frame's too.
+        if from_cache && replay.iter().all(|r| r.flags & FLAG_DUP != 0) {
+            let cached = rs.cache.as_ref().map(|(_, f)| Arc::clone(&f.bgra));
+            if let Some(bgra) = cached {
+                let frame = self.stored(i, bgra);
+                rs.cache = Some((i, frame.clone()));
+                return Ok(frame);
+            }
+        }
+        // Decode the starting frame into a working buffer, then replay forward to `i`. Pixels
+        // nobody else holds are updated in place: copying them is most of what a sequential
+        // frame would otherwise cost.
+        let mut buf = match rs.cache.take().filter(|_| from_cache) {
+            Some((_, f)) => Arc::try_unwrap(f.bgra).unwrap_or_else(|shared| (*shared).clone()),
             None => self.decode_anchor(&mut rs.file, start)?,
         };
         let mut scratch = Vec::new();
-        for (k, &rec) in self.index.iter().enumerate().take(i + 1).skip(start + 1) {
+        for (k, &rec) in replay.iter().enumerate() {
             if rec.flags & FLAG_DUP != 0 {
                 continue;
             }
             if rec.flags & FLAG_DELTA == 0 {
                 // An anchor mid-chain can only happen when walking from the cache; restart there.
-                buf = self.decode_anchor(&mut rs.file, k)?;
+                buf = self.decode_anchor(&mut rs.file, start + 1 + k)?;
                 continue;
             }
             if buf.len() != rec.w as usize * rec.h as usize * 4 {
@@ -909,15 +998,22 @@ impl FrameStore {
             read_payload(&mut rs.file, &rec, &mut scratch)?;
             decode_frame(&scratch, rec.w, rec.h, &mut buf, true)?;
         }
-        let frame = Arc::new(CapturedFrame {
-            width: target.w,
-            height: target.h,
-            bgra: buf,
-            qpc: target.qpc,
-            dirty: None,
-        });
-        rs.cache = Some((i, Arc::clone(&frame)));
+        let frame = self.stored(i, Arc::new(buf));
+        rs.cache = Some((i, frame.clone()));
         Ok(frame)
+    }
+
+    /// The nearest frame at or before `i` that decodes on its own: as good as frame `i` for
+    /// a thumbnail, and a fraction of the work. Leaves the cache alone.
+    pub fn keyframe_near(&self, i: usize) -> Result<StoredFrame, String> {
+        self.index.get(i).ok_or("no such frame")?;
+        let k = (0..=i)
+            .rev()
+            .find(|&k| self.index[k].is_anchor())
+            .ok_or("frame store has no keyframe")?;
+        let mut rs = self.read.lock().unwrap_or_else(|e| e.into_inner());
+        let bgra = self.decode_anchor(&mut rs.file, k)?;
+        Ok(self.stored(k, Arc::new(bgra)))
     }
 
     /// Decode an anchor record (raw or compressed keyframe) to BGRA.
@@ -976,7 +1072,6 @@ pub fn has_store(dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// A fresh, unique temp dir for one test's store (auto-cleaned at the end of the test).
     fn tmp_dir(tag: &str) -> PathBuf {
@@ -1007,7 +1102,7 @@ mod tests {
         assert_eq!(f.width, 2);
         assert_eq!(f.height, 2);
         assert_eq!(f.qpc, qpc);
-        assert_eq!(f.bgra, vec![fill; 16], "frame {i} pixels");
+        assert_eq!(*f.bgra, vec![fill; 16], "frame {i} pixels");
     }
 
     #[test]
@@ -1067,7 +1162,7 @@ mod tests {
         assert_ne!(recs[1].offset, recs[0].offset);
         assert_eq!(recs[1].flags & (FLAG_DUP | FLAG_DELTA), 0);
         let f = store.frame(1).unwrap();
-        assert_eq!((f.width, f.bgra.clone()), (3, vec![0xAA; 24]));
+        assert_eq!((f.width, (*f.bgra).clone()), (3, vec![0xAA; 24]));
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1190,7 +1285,7 @@ mod tests {
         for i in order {
             let got = store.frame(i as usize).unwrap();
             let want = screen(w, h, step_of(i), 0);
-            assert!(got.bgra == want.bgra, "frame {i} differs");
+            assert!(*got.bgra == want.bgra, "frame {i} differs");
         }
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1251,7 +1346,7 @@ mod tests {
             for i in (0..n).chain((0..n).rev()).chain([40, 3, 61, 0, 33, 32, 31]) {
                 let f = s.frame(i).unwrap();
                 assert_eq!(f.qpc, i as i64);
-                assert!(f.bgra == expect(i), "frame {i} pixels");
+                assert!(*f.bgra == expect(i), "frame {i} pixels");
             }
         }
         let _ = fs::remove_dir_all(&dir);
@@ -1293,7 +1388,7 @@ mod tests {
         drop(f);
         let store = FrameStore::open(&dir).unwrap();
         assert_eq!(store.len(), 9);
-        assert!(store.frame(8).unwrap().bgra == screen(256, 192, 8, 8).bgra);
+        assert!(*store.frame(8).unwrap().bgra == screen(256, 192, 8, 8).bgra);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1312,10 +1407,178 @@ mod tests {
         for i in 0..12 {
             let f = store.frame(i).unwrap();
             assert_eq!(f.qpc, i as i64);
-            assert!(f.bgra == screen(256, 192, i as u32, 0).bgra);
+            assert!(*f.bgra == screen(256, 192, i as u32, 0).bgra);
         }
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn a_duplicate_shares_its_originals_pixels() {
+        let dir = tmp_dir("share");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        w.push(frame(0xAA, 10)).unwrap();
+        w.push(frame(0xAA, 20)).unwrap();
+        w.push(frame(0xBB, 30)).unwrap();
+        let store = w.finish().unwrap();
+        let (a, b, c) = (
+            store.frame(0).unwrap(),
+            store.frame(1).unwrap(),
+            store.frame(2).unwrap(),
+        );
+        assert!(Arc::ptr_eq(&a.bgra, &b.bgra), "no copy for a duplicate");
+        assert_eq!((a.qpc, b.qpc), (10, 20), "each keeps its own time");
+        assert_eq!(a.pixels_id, b.pixels_id);
+        assert_ne!(b.pixels_id, c.pixels_id);
+        // Another store's frames are never mistaken for these.
+        let other = FrameStore::open(&dir).unwrap();
+        assert_ne!(other.frame(0).unwrap().pixels_id, a.pixels_id);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stores_cut_into_other_strip_counts_still_open() {
+        // What older builds wrote: 16 strips where this one cuts more.
+        let (w, h) = (64u32, 2160u32);
+        let px = vec![7u8; (w * h * 4) as usize];
+        let n = 16;
+        let mut payload = vec![n as u8];
+        let blocks: Vec<Vec<u8>> = strip_ranges(w, h, n)
+            .into_iter()
+            .map(|r| lz4_flex::block::compress(&px[r]))
+            .collect();
+        for b in &blocks {
+            payload.extend_from_slice(&(b.len() as u32).to_le_bytes());
+        }
+        for b in &blocks {
+            payload.extend_from_slice(b);
+        }
+        let mut out = vec![0u8; px.len()];
+        decode_frame(&payload, w, h, &mut out, false).unwrap();
+        assert!(out == px);
+    }
+
+    #[test]
+    fn corrupt_strip_counts_are_refused() {
+        let mut out = vec![0u8; 16];
+        assert!(decode_frame(&[0], 2, 2, &mut out, false).is_err());
+        assert!(decode_frame(&[200], 2, 2, &mut out, false).is_err());
+    }
+
+    #[test]
+    fn a_thumbnail_comes_from_the_keyframe_before_it() {
+        let dir = tmp_dir("keyframe");
+        let mut w = FrameWriter::create(dir.clone()).unwrap();
+        for i in 0..KEY_EVERY as i64 + 10 {
+            w.push(screen(256, 192, i as u32, i)).unwrap();
+        }
+        let store = w.finish().unwrap();
+        // Frame 5 is a delta: the frame handed back is the first, and whole.
+        let key = store.keyframe_near(5).unwrap();
+        assert_eq!(key.qpc, 0);
+        assert!(*key.bgra == screen(256, 192, 0, 0).bgra);
+        assert!(store.keyframe_near(9999).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A 4K desktop: flat panels and rows of small dark marks where text would be.
+    fn desktop(w: usize, h: usize) -> Vec<u8> {
+        let mut px = vec![0u8; w * h * 4];
+        for (y, row) in px.chunks_exact_mut(w * 4).enumerate() {
+            let panel = 236 - ((y / 240) % 3) as u8 * 18;
+            for (x, p) in row.chunks_exact_mut(4).enumerate() {
+                let line = y % 26 < 15 && x > 120 && x % 3840 < 3000;
+                let ink = line && (x * 7 + (y / 26) * 31) % 11 < 4;
+                let v = if ink { 40 } else { panel };
+                p.copy_from_slice(&[v, v, v, 255]);
+            }
+        }
+        px
+    }
+
+    /// Paint noise over a rectangle, as a video playing on screen would.
+    fn noise(px: &mut [u8], w: usize, (x0, y0, rw, rh): (usize, usize, usize, usize), seed: u64) {
+        let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        for y in y0..y0 + rh {
+            let row = &mut px[(y * w + x0) * 4..(y * w + x0 + rw) * 4];
+            for p in row.chunks_exact_mut(4) {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                p[..3].copy_from_slice(&s.to_le_bytes()[..3]);
+            }
+        }
+    }
+
+    /// Writes `count` 4K frames through the store and reads them back, printing the rates.
+    fn bench(name: &str, count: usize, mut next: impl FnMut(usize, &mut Vec<u8>) -> Option<(u32, u32)>) {
+        use std::time::Instant;
+        let (w, h) = (3840usize, 2160usize);
+        let dir = tmp_dir("perf");
+        let mut writer = FrameWriter::create(dir.clone()).unwrap();
+        let mut px = desktop(w, h);
+        let mut took = std::time::Duration::ZERO;
+        for i in 0..count {
+            let dirty = next(i, &mut px);
+            let frame = CapturedFrame {
+                width: w as u32,
+                height: h as u32,
+                bgra: px.clone(),
+                qpc: i as i64,
+                dirty,
+            };
+            let start = Instant::now();
+            writer.push(frame).unwrap();
+            took += start.elapsed();
+        }
+        let start = Instant::now();
+        let store = writer.finish().unwrap();
+        let settled = start.elapsed();
+        let written = count as f64 / (took + settled).as_secs_f64();
+        let start = Instant::now();
+        for i in 0..store.len() {
+            store.frame(i).unwrap();
+        }
+        let read = store.len() as f64 / start.elapsed().as_secs_f64();
+        let start = Instant::now();
+        let seeks = 24;
+        for k in 0..seeks {
+            store.frame((k * 37 + 11) % store.len()).unwrap();
+        }
+        let seek = start.elapsed().as_secs_f64() * 1000.0 / seeks as f64;
+        let size = fs::metadata(raw_path(&dir)).map_or(0, |m| m.len());
+        println!(
+            "PERF store 4K {name}: write {written:.0} fps, read {read:.0} fps, \
+             seek {seek:.0} ms, {:.1} MB/frame",
+            size as f64 / count as f64 / 1e6
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "a 4K benchmark, run by the engine-4k workflow"]
+    fn perf_4k_frame_store() {
+        // Typing: a word's worth of pixels, and the capture says which rows.
+        bench("typing", 120, |i, px| {
+            let y = 300 + i % 40;
+            noise(px, 3840, (400 + i * 12, y, 12, 24), i as u64);
+            Some((y as u32, y as u32 + 24))
+        });
+        // The same through Windows Graphics Capture, which doesn't say.
+        bench("typing, no rows", 120, |i, px| {
+            noise(px, 3840, (400 + i * 12, 300, 12, 24), i as u64);
+            None
+        });
+        // Scrolling: every row of the screen changes.
+        bench("scrolling", 90, |_, px| {
+            px.rotate_left(3840 * 4 * 6);
+            None
+        });
+        // The worst case: a 1080p video in the middle of the screen.
+        bench("video", 90, |i, px| {
+            noise(px, 3840, (960, 540, 1920, 1080), i as u64);
+            None
+        });
     }
 
     #[test]

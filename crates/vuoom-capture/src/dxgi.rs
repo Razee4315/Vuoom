@@ -43,6 +43,8 @@ const ACQUIRE_MS: u32 = 100;
 /// Pause before reopening a duplication that was lost (the secure desktop is up, a display
 /// mode is changing).
 const REOPEN_WAIT: Duration = Duration::from_millis(250);
+/// The shortest pause (seconds) after the consumer's queue was found full.
+const BACKOFF_MIN: f64 = 1.0 / 120.0;
 
 /// Open a duplication of `monitor`, if Desktop Duplication can record it: the display must
 /// hang off the device's adapter (not always so on hybrid-GPU laptops) and be unrotated
@@ -174,6 +176,9 @@ impl Readback {
         unsafe {
             self.context
                 .CopySubresourceRegion(dst, 0, 0, rows.0, 0, tex, 0, Some(&src));
+            // Start the copy now: left queued, the GPU would only begin when the read below
+            // asks for it, and the capture thread would wait out the whole copy of a 4K frame.
+            self.context.Flush();
         }
     }
 
@@ -337,6 +342,9 @@ struct Pacer {
     pointer_rows: Option<(u32, u32)>,
     /// Changed rows of frames the consumer never got.
     owed: Owed,
+    /// Hold back frames until this time: the consumer's queue was just full, and reading
+    /// back a frame it can't take only adds to the load that filled it.
+    hold_until: i64,
     /// Whether a frame has gone out yet (the first can't say what changed).
     sent_any: bool,
     /// A buffer to fill the next frame into, when one is at hand.
@@ -368,6 +376,8 @@ impl Pacer {
     fn undelivered(&mut self, frame: CapturedFrame) {
         self.owed = self.owed.add(frame.dirty);
         self.spare = Some(frame.bgra);
+        let wait = self.interval.max(BACKOFF_MIN) * self.clock.freq() as f64;
+        self.hold_until = self.clock.now() + wait as i64;
     }
 
     /// Whether something changed since the last frame out.
@@ -380,7 +390,8 @@ impl Pacer {
         let Some(last) = self.last_sent else {
             return true;
         };
-        self.clock.seconds_between(last, self.clock.now()) >= self.interval
+        let now = self.clock.now();
+        now >= self.hold_until && self.clock.seconds_between(last, now) >= self.interval
     }
 
     /// How long the next acquire may wait: until a pending frame is due, else the usual.
@@ -533,6 +544,7 @@ pub(crate) fn run(
         origin: (0, 0),
         pointer_rows: None,
         owed: Owed::Nothing,
+        hold_until: 0,
         sent_any: false,
         spare: None,
     };

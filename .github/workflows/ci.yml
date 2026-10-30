@@ -27,6 +27,29 @@ env:
   GGML_NATIVE: "OFF"
 
 jobs:
+  # The answer for a frontend change in about a minute, ahead of the long Windows job.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check, lint, build
+        run: pnpm run typecheck && pnpm run lint && pnpm run build
+
   ci:
     runs-on: windows-latest # Vuoom is Windows-only (WGC capture, wgpu DX12)
     steps:

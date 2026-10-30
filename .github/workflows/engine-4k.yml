@@ -1,0 +1,88 @@
+name: Engine 4K
+
+# Runs 4K frames through the real frame store, compositor and H.264 encoder on a Windows
+# runner, and writes what each stage costs into the run's summary. The runner has no GPU
+# (Windows' software rasterizer stands in) and four cores, so read the numbers as a floor.
+# The store benchmark is CPU-only and compares directly from run to run.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/engine-4k.yml'
+
+concurrency:
+  group: engine-4k-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GGML_NATIVE: "OFF"
+
+jobs:
+  benchmark:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      # Tauri's generate_context! needs dist/ to exist.
+      - name: Build frontend
+        run: pnpm install --frozen-lockfile && pnpm run build
+
+      - name: Run the 4K benchmarks
+        shell: pwsh
+        env:
+          VUOOM_PERF_OUT: ${{ runner.temp }}/perf
+        run: |
+          cargo test --profile perf -p vuoom --lib perf_4k -- --ignored --nocapture --test-threads=1 2>&1 |
+            Tee-Object -FilePath perf.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check the exported MP4s
+        shell: pwsh
+        env:
+          PERF_DIR: ${{ runner.temp }}/perf
+        run: |
+          choco install ffmpeg -y --no-progress | Out-Null
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          foreach ($name in 'plain', 'framed') {
+            $file = Join-Path $env:PERF_DIR "$name.mp4"
+            ffprobe -v error -select_streams v:0 -count_frames `
+              -show_entries stream=codec_name,profile,width,height,pix_fmt,nb_read_frames,r_frame_rate,color_space `
+              -of default=noprint_wrappers=1 $file | Tee-Object -Variable info
+            ffmpeg -v error -i $file -f null - # Decodes every frame: any damage fails the job.
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            "PERF file ${name}: $($info -join ', ')" | Out-File -Append perf.log
+          }
+
+      - name: Write the summary
+        if: always()
+        shell: pwsh
+        run: |
+          "## 4K engine benchmark`n" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          Select-String -Path perf.log -Pattern '^PERF ' | ForEach-Object {
+            "- " + ($_.Line -replace '^PERF ', '')
+          } | Out-File -Append $env:GITHUB_STEP_SUMMARY

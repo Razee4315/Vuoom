@@ -44,12 +44,27 @@ pub fn write_png(path: &Path, img: &RgbaImage) -> Result<(), EncodeError> {
 /// Returns [`EncodeError`] if the pixel buffer is the wrong size or encoding fails.
 pub fn encode_png_to_vec(img: &RgbaImage) -> Result<Vec<u8>, EncodeError> {
     let mut out = Vec::new();
-    encode_png(&mut out, img)?;
+    encode_png(&mut out, img, png::Compression::Default)?;
+    Ok(out)
+}
+
+/// Encode to PNG bytes as fast as the format allows, for a full 4K frame someone is waiting
+/// on: a few times larger than [`encode_png_to_vec`], and a small fraction of the time.
+///
+/// # Errors
+/// Returns an [`EncodeError`] if encoding fails.
+pub fn encode_png_fast_to_vec(img: &RgbaImage) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    encode_png(&mut out, img, png::Compression::Fast)?;
     Ok(out)
 }
 
 /// Shared PNG encode into any writer.
-fn encode_png<W: std::io::Write>(w: W, img: &RgbaImage) -> Result<(), EncodeError> {
+fn encode_png<W: std::io::Write>(
+    w: W,
+    img: &RgbaImage,
+    compression: png::Compression,
+) -> Result<(), EncodeError> {
     if !img.is_valid() {
         return Err(EncodeError::Png(format!(
             "pixel buffer {} != {}x{}x4",
@@ -61,6 +76,7 @@ fn encode_png<W: std::io::Write>(w: W, img: &RgbaImage) -> Result<(), EncodeErro
     let mut encoder = png::Encoder::new(w, img.width, img.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(compression);
     let mut writer = encoder
         .write_header()
         .map_err(|e| EncodeError::Png(e.to_string()))?;

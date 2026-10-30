@@ -31,9 +31,9 @@ import { defaultOverlay } from "./camera";
 const DEMO_DURATION = 14.4;
 
 const color = (hex: string, a = 1): Color => ({
-  r: parseInt(hex.slice(1, 3), 16),
-  g: parseInt(hex.slice(3, 5), 16),
-  b: parseInt(hex.slice(5, 7), 16),
+  r: parseInt(hex.slice(1, 3), 16) / 255,
+  g: parseInt(hex.slice(3, 5), 16) / 255,
+  b: parseInt(hex.slice(5, 7), 16) / 255,
   a,
 });
 const range = (start: number, end: number) => ({ start, end, fade_in: 0.15, fade_out: 0.25 });

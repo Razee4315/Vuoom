@@ -1511,7 +1511,11 @@ mod tests {
     }
 
     /// Writes `count` 4K frames through the store and reads them back, printing the rates.
-    fn bench(name: &str, count: usize, mut next: impl FnMut(usize, &mut Vec<u8>) -> Option<(u32, u32)>) {
+    fn bench(
+        name: &str,
+        count: usize,
+        mut next: impl FnMut(usize, &mut Vec<u8>) -> Option<(u32, u32)>,
+    ) {
         use std::time::Instant;
         let (w, h) = (3840usize, 2160usize);
         let dir = tmp_dir("perf");

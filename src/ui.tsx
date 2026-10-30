@@ -66,13 +66,25 @@ export function Seg<T extends string | number>(props: {
       class={`seg ${props.class ?? ""}`}
       classList={{ disabled: !!props.disabled, full: !!props.full }}
       style={{ "--n": props.options.length, "--i": idx() }}
+      role="radiogroup"
+      aria-label={props.label}
+      onKeyDown={(e) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (!step || props.disabled) return;
+        e.preventDefault();
+        const n = props.options.length;
+        props.onChange(props.options[(idx() + step + n) % n].value);
+        (e.currentTarget.querySelector(".seg-btn.on") as HTMLElement | null)?.focus();
+      }}
     >
       <span class="seg-thumb" aria-hidden="true" />
       <For each={props.options}>
         {(o) => (
           <button
             type="button"
-            aria-pressed={props.value === o.value}
+            role="radio"
+            aria-checked={props.value === o.value}
+            tabindex={props.value === o.value ? 0 : -1}
             data-tip={o.tip}
             disabled={props.disabled}
             classList={{ "seg-btn": true, on: props.value === o.value }}

@@ -151,6 +151,15 @@ export default function App() {
         </Show>
       </Show>
 
+      <Show when={ed.busy()}>
+        {(message) => (
+          <div class="busy-veil" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true" />
+            <span>{message()}</span>
+          </div>
+        )}
+      </Show>
+
       <Show when={ed.showSource()}>
         <SourcePicker />
       </Show>

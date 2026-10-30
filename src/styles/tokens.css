@@ -25,7 +25,7 @@
   --text: #f5f5f6;
   --text-2: #c9c9cf;
   --muted: #8b8b95;
-  --faint: #5c5c66;
+  --faint: #7b7b85;
   --ink: #f5f5f6;
   --ink-text: #0e0e11;
   --stage-a: #19191d;
@@ -51,7 +51,7 @@
   --text: #141417;
   --text-2: #3e3e46;
   --muted: #6d6d77;
-  --faint: #a2a2ad;
+  --faint: #757580;
   --ink: #141417;
   --ink-text: #ffffff;
   --stage-a: #e1e1e7;
@@ -77,7 +77,7 @@
   --text: #eaedf0;
   --text-2: #c2c8cd;
   --muted: #8b959e;
-  --faint: #5f6972;
+  --faint: #7a848d;
   --ink: #eaedf0;
   --ink-text: #14181b;
   --stage-a: #1e2429;
@@ -103,7 +103,7 @@
   --text: #28261f;
   --text-2: #4a473d;
   --muted: #6f6b5e;
-  --faint: #9c9788;
+  --faint: #757061;
   --ink: #28261f;
   --ink-text: #f7f5f0;
   --stage-a: #ddd7ca;
@@ -129,7 +129,7 @@
   --text: #e8edf5;
   --text-2: #b8c2d1;
   --muted: #8490a3;
-  --faint: #566174;
+  --faint: #727d90;
   --ink: #e8edf5;
   --ink-text: #0a0f17;
   --stage-a: #121a27;
@@ -179,7 +179,7 @@
   --fs-md: 13px;
   --fs-sm: 12px;
   --fs-xs: 11px;
-  --fs-2xs: 10px;
+  --fs-2xs: 11px;
 
   --dur-1: 0.12s;
   --dur-2: 0.2s;
@@ -207,4 +207,16 @@
     --dur-2: 0s;
     --dur-3: 0s;
   }
+}
+
+/* The shared accents, darkened until they read on a light panel. */
+:root[data-theme="mono-dark"] {
+  --ok: #11883d;
+  --warn: #a56900;
+  --record: #d83b40;
+}
+:root[data-theme="graphite"] {
+  --ok: #0b8237;
+  --warn: #9f6300;
+  --record: #d13439;
 }

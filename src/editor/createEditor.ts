@@ -364,11 +364,14 @@ export function createEditor() {
     }
   };
   const [recentSearch, setRecentSearch] = createSignal("");
+  // A slow job the whole app waits on (opening a project), for the screen to say so.
+  const [busy, setBusy] = createSignal<string | null>(null);
 
   // Open a project folder. A failed open leaves the current clip as it was; a folder that
   // is gone (moved or deleted) can be dropped from the recents grid.
   const openProjectAt = async (dir: string) => {
     setStatus("Opening project…");
+    setBusy("Opening project…");
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
       setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
@@ -383,6 +386,7 @@ export function createEditor() {
         toast("Project opened", "success");
       }
     } catch (e) {
+      setBusy(null);
       fail("Could not open project", e, 9000);
       if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
@@ -390,6 +394,8 @@ export function createEditor() {
         { title: "Project unavailable", kind: "warning", okLabel: "Remove", cancelLabel: "Keep" },
       );
       if (remove) removeRecent(dir);
+    } finally {
+      setBusy(null);
     }
   };
   const OPEN_DISCARD = "Open another project? Unsaved edits to the current clip will be discarded.";
@@ -4443,6 +4449,7 @@ export function createEditor() {
     editStyle,
     setShape,
     setArrowStyle,
+    busy,
     setMaskPixelate,
     arrowLook,
     setArrowLook,

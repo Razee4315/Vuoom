@@ -5,7 +5,7 @@ import { Icon } from "./icons";
 import { prefs } from "./prefs";
 import { Field, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
-import { fmtBytes, friendlyError } from "./format";
+import { fmtBytes, friendlyError, timeLeft } from "./format";
 import { outputDuration } from "./geometry";
 import type { ClipState, SpeedRegion, Trim } from "./types";
 
@@ -45,6 +45,11 @@ export function ExportDialog(props: {
   const [quality, setQuality] = createSignal(80);
   const [phase, setPhase] = createSignal<Phase>("configure");
   const [progress, setProgress] = createSignal(0);
+  // For the time-left line: when the export began, and a clock that ticks while it runs.
+  const [startedAt, setStartedAt] = createSignal(0);
+  const [now, setNow] = createSignal(0);
+  const clock = window.setInterval(() => setNow(Date.now()), 1000);
+  onCleanup(() => window.clearInterval(clock));
   const [estimate, setEstimate] = createSignal<number | null>(null); // -1 = unavailable
   const [outPath, setOutPath] = createSignal("");
   const [copied, setCopied] = createSignal("");
@@ -240,6 +245,8 @@ export function ExportDialog(props: {
         exportStarted = false;
         return;
       }
+      setStartedAt(Date.now());
+      setNow(Date.now());
       setPhase("exporting");
       setProgress(0);
       props.onStatus(`Exporting ${f.toUpperCase()}...`);
@@ -578,7 +585,9 @@ export function ExportDialog(props: {
             <h2 data-phase-title tabindex="-1">
               Exporting {format().toUpperCase()}
             </h2>
-            <p class="muted small">Rendering every frame with your zooms and annotations.</p>
+            <p class="muted small">
+              {timeLeft(progress(), startedAt(), now()) || "Rendering every frame with your zooms and annotations."}
+            </p>
             <button type="button" class="btn ghost" onClick={cancelExport}>
               Cancel export
             </button>

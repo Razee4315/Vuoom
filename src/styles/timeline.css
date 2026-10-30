@@ -689,3 +689,14 @@
   background: var(--record);
   box-shadow: 0 0 0 2px var(--panel);
 }
+
+/* The filmstrip while its pictures are on their way. */
+.tl-film:empty {
+  background: linear-gradient(90deg, var(--raised), var(--hover), var(--raised)) 0 0 / 200% 100%;
+  animation: film-wait 1.6s linear infinite;
+}
+@keyframes film-wait {
+  to {
+    background-position: -200% 0;
+  }
+}

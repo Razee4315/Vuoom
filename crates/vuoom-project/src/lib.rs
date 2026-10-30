@@ -277,7 +277,7 @@ impl Project {
         self.zooms.extend(take.zooms.iter().map(|z| ZoomKeyframe {
             start: z.start + at,
             end: z.end + at,
-            ..z.clone()
+            ..*z
         }));
         self.key_taps.extend(take.key_taps.iter().map(|k| KeyTap {
             t: k.t + at,

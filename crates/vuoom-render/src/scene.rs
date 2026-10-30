@@ -278,6 +278,16 @@ fn corners_of(r: Rect, radius: f64, ow: f64, oh: f64, color: Color) -> Vec<Resol
 /// real pointer on a 1080p screen).
 const CURSOR_BASE: f64 = 0.021;
 
+/// How tall the recorded screen is against the part of it recorded (`content`, width and
+/// height in pixels): a pointer belongs to the screen, so it is as large on a small region
+/// as on the whole display. Held to 2, so a small region of a big screen isn't all pointer.
+fn screen_scale(project: &Project, content: (u32, u32)) -> f64 {
+    if project.screen_height == 0 || content.1 == 0 {
+        return 1.0;
+    }
+    (f64::from(project.screen_height) / f64::from(content.1)).clamp(1.0, 2.0)
+}
+
 /// Fast at first, settling at the end.
 fn ease_out(x: f64) -> f64 {
     let u = 1.0 - x.clamp(0.0, 1.0);
@@ -562,6 +572,10 @@ pub fn build_scene(
             if !(0.0..len).contains(&age) {
                 continue;
             }
+            // A click outside the recorded area (the panel, another display) shows nothing.
+            if !(0.0..=1.0).contains(&pos.x) || !(0.0..=1.0).contains(&pos.y) {
+                continue;
+            }
             // Click positions are in source space; map through the camera crop into the
             // drawn content rect so ripples stay glued to the content while zoomed.
             let cx = dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w;
@@ -590,7 +604,8 @@ pub fn build_scene(
         (inside && shown).then(|| ResolvedCursor {
             x: dst.x + (pos.x - src.x) / src.w.max(1e-9) * dst.w,
             y: dst.y + (pos.y - src.y) / src.h.max(1e-9) * dst.h,
-            size: f64::from(style.size) * CURSOR_BASE * dst.h / src.h.max(1e-9),
+            size: f64::from(style.size) * CURSOR_BASE * screen_scale(project, content) * dst.h
+                / src.h.max(1e-9),
             press: press_at(&project.events, t),
             opacity,
             shape: pointer_shape_at(&project.pointer_shapes, t),

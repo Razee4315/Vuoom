@@ -526,12 +526,19 @@ export default function RecordOverlay(props: {
       return;
     }
     if (drag.mode === "new") {
+      // Held to the display, and a fixed shape is fitted to the room there is: a region
+      // hanging off the edge is clamped by the capture, and would lose its shape.
       const ratio = preset().ratio;
-      const x = Math.min(drag.px0, e.clientX);
-      const y = Math.min(drag.py0, e.clientY);
-      const w = Math.abs(e.clientX - drag.px0);
-      const h = typeof ratio === "number" ? w / ratio : Math.abs(e.clientY - drag.py0);
-      setSel({ x, y, w, h });
+      const px = Math.min(Math.max(e.clientX, 0), window.innerWidth);
+      const py = Math.min(Math.max(e.clientY, 0), window.innerHeight);
+      const up = py < drag.py0;
+      let w = Math.abs(px - drag.px0);
+      let h = Math.abs(py - drag.py0);
+      if (typeof ratio === "number") {
+        h = Math.min(w / ratio, up ? drag.py0 : window.innerHeight - drag.py0);
+        w = h * ratio;
+      }
+      setSel({ x: px < drag.px0 ? drag.px0 - w : drag.px0, y: up ? drag.py0 - h : drag.py0, w, h });
     } else if (drag.mode === "move") {
       const r0 = drag.rect0;
       setSel(clampToView({ x: r0.x + (e.clientX - drag.px0), y: r0.y + (e.clientY - drag.py0), w: r0.w, h: r0.h }));

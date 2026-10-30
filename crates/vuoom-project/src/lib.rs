@@ -130,6 +130,10 @@ pub struct Project {
     /// made before this was recorded: an arrow throughout.
     #[serde(default)]
     pub pointer_shapes: Vec<PointerShapeAt>,
+    /// The height in pixels of the display the take was recorded on (0 = not known): the
+    /// re-drawn pointer is sized to the screen, not to the part of it recorded.
+    #[serde(default)]
+    pub screen_height: u32,
     /// Blur the picture along the camera's movement during zooms and pans, like a real
     /// camera's shutter.
     #[serde(default = "yes")]
@@ -222,6 +226,7 @@ impl Project {
             pointer_captured: true,
             cursor: None,
             pointer_shapes: Vec::new(),
+            screen_height: 0,
             motion_blur: true,
             camera: None,
             captions: Vec::new(),

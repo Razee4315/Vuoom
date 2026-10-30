@@ -11,8 +11,12 @@ import type { ClipState, SpeedRegion, Trim } from "./types";
 
 /** The widest GIF on offer (a wider one is enormous and no chat app plays it smoothly). */
 const GIF_MAX_WIDTH = 1920;
-/** The widest MP4 on offer: 4K. */
-const MP4_MAX_WIDTH = 3840;
+/** The largest frame H.264 encoders take: no side over 4096, and at most 4096 x 2304 pixels. */
+const H264_MAX_SIDE = 4096;
+const H264_MAX_PIXELS = 4096 * 2304;
+/** The widest MP4 of a `w` x `h` picture: its own width, or what H.264 can hold of that shape. */
+const mp4Width = (w: number, h: number): number =>
+  Math.floor(w * Math.min(1, H264_MAX_SIDE / w, H264_MAX_SIDE / h, Math.sqrt(H264_MAX_PIXELS / (w * h))));
 /** The width slider's step. */
 const WIDTH_STEP = 20;
 
@@ -54,14 +58,20 @@ export function ExportDialog(props: {
   // The take's full picture width and the frame rate it was recorded at, from the engine:
   // the most an export can hold. Until they arrive (and on engines that don't say), a
   // 1080p take at 30 fps is assumed.
-  const [full, setFull] = createSignal({ width: 1920, fps: 30 });
+  const [full, setFull] = createSignal({ width: 1920, height: 1080, fps: 30 });
   void invoke<ClipState>("clip_state")
     .then((cs) => {
-      if (cs.out_width && cs.out_width > 0) setFull({ width: cs.out_width, fps: cs.source_fps ?? 30 });
+      if (cs.out_width && cs.out_width > 0) {
+        setFull({ width: cs.out_width, height: cs.out_height ?? 0, fps: cs.source_fps ?? 30 });
+      }
     })
     .catch(() => undefined);
   /** The widest this format exports the take: its own width, up to the format's limit. */
-  const widest = () => Math.min(full().width, format() === "mp4" ? MP4_MAX_WIDTH : GIF_MAX_WIDTH);
+  const widest = () => {
+    const { width: w, height: h } = full();
+    if (format() !== "mp4") return Math.min(w, GIF_MAX_WIDTH);
+    return h > 0 ? mp4Width(w, h) : Math.min(w, H264_MAX_SIDE);
+  };
   /** The slider's top stop: the widest, rounded up to a whole step so it can be reached. */
   const sliderMax = () => Math.max(400, Math.ceil(widest() / WIDTH_STEP) * WIDTH_STEP);
   /** The width the export really gets: never wider than the take. */

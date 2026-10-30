@@ -1578,10 +1578,12 @@ impl Compositor {
                     right: out_w as i32,
                     bottom: out_h as i32,
                 },
-                default_color: GlyphColor::rgb(
+                // With its alpha: a label's fade in and out live there.
+                default_color: GlyphColor::rgba(
                     (label.color.r * 255.0) as u8,
                     (label.color.g * 255.0) as u8,
                     (label.color.b * 255.0) as u8,
+                    (label.color.a * 255.0) as u8,
                 ),
                 custom_glyphs: &[],
             })
@@ -1678,6 +1680,8 @@ impl Compositor {
             let _ = renderer.render(atlas, viewport, &mut pass);
         }
         self.queue.submit(Some(encoder.finish()));
+        // Glyphs this frame didn't use can go, or the atlas grows through a long export.
+        atlas.trim();
         self.read_back_into(
             &cache.target,
             &cache.readback,

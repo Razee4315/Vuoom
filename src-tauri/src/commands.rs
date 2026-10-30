@@ -193,6 +193,13 @@ pub fn enter_overlay(
             }
         }
     }
+    // A window take has no region of its own: one left from an earlier take would draw its
+    // border, and park the panel, around nothing.
+    if matches!(target, Target::Window { .. }) {
+        if let Ok(mut slot) = border.region.lock() {
+            *slot = None;
+        }
+    }
     if let Ok(mut slot) = border.origin.lock() {
         // Region-relative origin: the client rect for window capture, the monitor origin
         // for display capture.

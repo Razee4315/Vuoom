@@ -86,6 +86,8 @@ fn click_segments(events: &[InputEvent], duration: f64, cfg: &ZoomConfig) -> Vec
         .iter()
         .filter(|e| e.is_click_trigger())
         .filter_map(|e| e.pos().map(|p| (e.t(), p)))
+        // A click outside the recorded area (the panel, another display) isn't in the shot.
+        .filter(|(_, p)| (0.0..=1.0).contains(&p.x) && (0.0..=1.0).contains(&p.y))
         .collect();
     triggers.sort_by(|a, b| a.0.total_cmp(&b.0));
     if triggers.is_empty() {

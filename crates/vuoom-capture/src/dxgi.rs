@@ -21,15 +21,18 @@ use std::sync::mpsc::{Receiver, TrySendError};
 use std::time::Duration;
 
 use vuoom_input::Clock;
+use windows::core::Interface;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11 as d3d;
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_MODE_ROTATION_IDENTITY, DXGI_MODE_ROTATION_UNSPECIFIED,
+    DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_MODE_ROTATION_IDENTITY,
+    DXGI_MODE_ROTATION_UNSPECIFIED,
 };
 use windows::Win32::Graphics::Dxgi::{
-    IDXGIOutputDuplication, DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_MOVE_RECT,
-    DXGI_OUTDUPL_POINTER_SHAPE_INFO,
+    CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput6, IDXGIOutputDuplication,
+    DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_MOVE_RECT, DXGI_OUTDUPL_POINTER_SHAPE_INFO,
 };
+use windows::Win32::Graphics::Gdi::HMONITOR;
 use windows_capture::dxgi_duplication_api::{
     DxgiDuplicationApi, DxgiDuplicationFrame, Error as DupError,
 };
@@ -49,13 +52,45 @@ const BACKOFF_MIN: f64 = 1.0 / 120.0;
 /// Open a duplication of `monitor`, if Desktop Duplication can record it: the display must
 /// hang off the device's adapter (not always so on hybrid-GPU laptops) and be unrotated
 /// (a rotated display's desktop image arrives unrotated).
+///
+/// A display with HDR on is left to Windows Graphics Capture too: the Duplication mode used
+/// here hands over the HDR desktop in 8 bits with nothing mapping it down to normal
+/// brightness, where WGC gets a picture Windows has already converted.
 fn open(monitor: Monitor) -> Result<DxgiDuplicationApi, String> {
+    if hdr_on(&monitor) {
+        return Err("the display is in HDR mode".into());
+    }
     let dup = DxgiDuplicationApi::new(monitor).map_err(|e| e.to_string())?;
     let rotation = dup.duplication_desc().Rotation;
     if rotation != DXGI_MODE_ROTATION_IDENTITY && rotation != DXGI_MODE_ROTATION_UNSPECIFIED {
         return Err("the display is rotated".into());
     }
     Ok(dup)
+}
+
+/// Whether Windows is running `monitor` in HDR. Anything that can't be found out counts as
+/// no: an older Windows without these interfaces has no HDR desktop to speak of.
+fn hdr_on(monitor: &Monitor) -> bool {
+    let wanted = HMONITOR(monitor.as_raw_hmonitor());
+    // SAFETY: plain COM calls; every interface is owned by a smart pointer here.
+    unsafe {
+        let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+            return false;
+        };
+        let adapters = (0..).map_while(|a| factory.EnumAdapters1(a).ok());
+        for adapter in adapters {
+            let outputs = (0..).map_while(|o| adapter.EnumOutputs(o).ok());
+            for output in outputs {
+                if output.GetDesc().is_ok_and(|d| d.Monitor == wanted) {
+                    return output
+                        .cast::<IDXGIOutput6>()
+                        .and_then(|o| o.GetDesc1())
+                        .is_ok_and(|d| d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Whether Desktop Duplication can record `monitor` (opens a duplication and releases it).

@@ -270,6 +270,8 @@ impl FrameInfo {
 type DrainOutcome = Result<(FrameStore, Option<String>, bool), String>;
 
 struct Active {
+    /// The recorded display's height in pixels (0 = not known).
+    screen_height: u32,
     /// Streams frames from the capture channel to the disk store (see `frame_store`).
     drain: Option<JoinHandle<DrainOutcome>>,
     /// Tells the drain thread to stop waiting for further frames.
@@ -1033,7 +1035,11 @@ impl Session {
             max_fps: self.pending_fps.load(Ordering::Relaxed),
             cursor: pointer_captured,
         };
-        let (frames_rx, capture) = spawn_capture(region, &source, opts);
+        let crop = match &window {
+            Some(w) => Some(crate::windows_list::client_crop(w.hwnd, w.w, w.h, region)),
+            None => region,
+        };
+        let (frames_rx, capture) = spawn_capture(crop, &source, opts);
         let hides_panel = window.is_some() || capture.backend().hides_excluded_windows();
         let (recorder, events_rx) = InputRecorder::start();
         // The live preview is handed small copies of the recorded frames by the drain below
@@ -1179,6 +1185,7 @@ impl Session {
             hides_panel,
             pointer_captured,
             smooth_cursor,
+            screen_height: monitor.as_ref().map_or(0, |m| m.h),
         });
         Ok(())
     }
@@ -1329,6 +1336,7 @@ impl Session {
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(|| self.new_pointer_style());
+        project.screen_height = session.screen_height;
         // The real pointer's shape through the take (arrow, text beam, hand...), for the
         // re-drawn pointer to follow.
         project.pointer_shapes =
@@ -4094,11 +4102,13 @@ fn compose_capture_region(
 ) -> CaptureRegion {
     let (mx, my) = mon_origin;
     match region {
+        // The size is the frames', not the request: a region that hung off the display was
+        // clamped by the capture, and the pointer has to map onto what was recorded.
         Some(r) => CaptureRegion {
             x: mx + r.x as i32,
             y: my + r.y as i32,
-            w: r.w as i32,
-            h: r.h as i32,
+            w: full_w as i32,
+            h: full_h as i32,
         },
         None => CaptureRegion {
             x: mx,
@@ -4558,7 +4568,9 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         let drawn = windows::Win32::Storage::Xps::PrintWindow(
             hwnd,
             hdc_mem,
-            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
+            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(
+                PW_RENDERFULLCONTENT | windows::Win32::Storage::Xps::PW_CLIENTONLY.0,
+            ),
         );
         let _ = drawn; // a partial grab still yields a usable backdrop
 
@@ -4803,11 +4815,24 @@ mod tests {
             w: 800,
             h: 600,
         };
-        let region = compose_capture_region((-1920, -100), Some(r), 1920, 1080);
+        let region = compose_capture_region((-1920, -100), Some(r), 800, 600);
         assert_eq!(
             (region.x, region.y, region.w, region.h),
             (-1820, -50, 800, 600)
         );
+    }
+
+    #[test]
+    fn a_region_that_hung_off_the_display_maps_onto_what_was_recorded() {
+        // 2667 rows asked for, 1860 left on the display.
+        let r = CropRegion {
+            x: 750,
+            y: 300,
+            w: 1500,
+            h: 2667,
+        };
+        let region = compose_capture_region((0, 0), Some(r), 1500, 1860);
+        assert_eq!((region.w, region.h), (1500, 1860));
     }
 
     #[test]

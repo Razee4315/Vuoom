@@ -35,7 +35,11 @@ impl RgbaImage {
 /// # Errors
 /// Returns [`EncodeError`] on I/O failure or if the pixel buffer is the wrong size.
 pub fn write_png(path: &Path, img: &RgbaImage) -> Result<(), EncodeError> {
-    encode_png(BufWriter::new(File::create(path)?), img)
+    encode_png(
+        BufWriter::new(File::create(path)?),
+        img,
+        png::Compression::default(),
+    )
 }
 
 /// Encode an [`RgbaImage`] to an in-memory PNG (e.g. for a data-URL screenshot).
@@ -44,7 +48,7 @@ pub fn write_png(path: &Path, img: &RgbaImage) -> Result<(), EncodeError> {
 /// Returns [`EncodeError`] if the pixel buffer is the wrong size or encoding fails.
 pub fn encode_png_to_vec(img: &RgbaImage) -> Result<Vec<u8>, EncodeError> {
     let mut out = Vec::new();
-    encode_png(&mut out, img, png::Compression::Default)?;
+    encode_png(&mut out, img, png::Compression::default())?;
     Ok(out)
 }
 

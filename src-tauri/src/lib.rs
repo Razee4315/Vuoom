@@ -283,6 +283,7 @@ pub fn run() {
             commands::set_highlight_shape,
             commands::set_arrow_style,
             commands::add_step,
+            commands::set_append_take,
             commands::set_mask_pixelate,
             commands::update_annotation_range,
             commands::set_annotation_fades,

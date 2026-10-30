@@ -31,6 +31,7 @@ ignore = [
     # neither applies, and an update archive is only opened after its signature is verified.
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
 
 [licenses]

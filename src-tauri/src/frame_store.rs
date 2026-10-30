@@ -1057,6 +1057,41 @@ pub fn copy_store(src: &Path, dst: &Path, map_qpc: impl Fn(i64) -> i64) -> Resul
     Ok(store.len())
 }
 
+/// Add the store in `take` to the end of the store in `base`, with `shift` added to each of
+/// its timestamps, and reopen it. The frames are copied as they are; the first of a take is
+/// always a keyframe, so nothing in it depends on what now comes before it. The pixels land
+/// first and the index last, so a crash part way leaves `base` as it was.
+pub fn append_store(base: &Path, take: &Path, shift: i64) -> Result<FrameStore, String> {
+    let added = FrameStore::open(take)?;
+    let at = fs::metadata(raw_path(base))
+        .map_err(|e| format!("frame file: {e}"))?
+        .len();
+    let mut out = fs::OpenOptions::new()
+        .append(true)
+        .open(raw_path(base))
+        .map_err(|e| format!("frame file: {e}"))?;
+    let mut from = File::open(raw_path(take)).map_err(|e| format!("frame file: {e}"))?;
+    std::io::copy(&mut from, &mut out).map_err(|e| format!("copy frames: {e}"))?;
+    out.flush().map_err(|e| format!("copy frames: {e}"))?;
+    let mut idx = Vec::with_capacity(added.len() * REC_SIZE);
+    for r in added.recs() {
+        idx.extend_from_slice(&encode_rec(&FrameRec {
+            qpc: r.qpc + shift,
+            offset: r.offset + at,
+            ..*r
+        }));
+    }
+    let mut index = fs::OpenOptions::new()
+        .append(true)
+        .open(index_path(base))
+        .map_err(|e| format!("frame index: {e}"))?;
+    index
+        .write_all(&idx)
+        .map_err(|e| format!("frame index: {e}"))?;
+    drop(index);
+    FrameStore::open(base)
+}
+
 /// How many frame records `dir`'s index holds, readable or not. More than
 /// [`FrameStore::len`] means the store was cut short (its tail is dropped on open).
 pub fn record_count(dir: &Path) -> usize {
@@ -1411,6 +1446,31 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&src);
         let _ = fs::remove_dir_all(&dst);
+    }
+
+    #[test]
+    fn a_take_appended_to_a_store_reads_back_after_it() {
+        let (first, second) = (tmp_dir("base"), tmp_dir("take"));
+        let mut w = FrameWriter::create(first.clone()).unwrap();
+        for i in 0..40 {
+            w.push(screen(256, 192, i, i64::from(i))).unwrap();
+        }
+        drop(w.finish().unwrap());
+        let mut w = FrameWriter::create(second.clone()).unwrap();
+        for i in 0..40 {
+            w.push(screen(256, 192, i + 100, i64::from(i))).unwrap();
+        }
+        drop(w.finish().unwrap());
+        let store = append_store(&first, &second, 1000).unwrap();
+        assert_eq!(store.len(), 80);
+        // The first take is untouched, the second follows it, in any order of reading.
+        assert!(*store.frame(79).unwrap().bgra == screen(256, 192, 139, 0).bgra);
+        assert!(*store.frame(5).unwrap().bgra == screen(256, 192, 5, 0).bgra);
+        let joined = store.frame(40).unwrap();
+        assert!(*joined.bgra == screen(256, 192, 100, 0).bgra);
+        assert_eq!(joined.qpc, 1000);
+        let _ = fs::remove_dir_all(&first);
+        let _ = fs::remove_dir_all(&second);
     }
 
     #[test]

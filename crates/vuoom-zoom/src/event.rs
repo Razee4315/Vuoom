@@ -41,6 +41,21 @@ pub enum InputEvent {
 }
 
 impl InputEvent {
+    /// This event, `dt` seconds later.
+    #[must_use]
+    pub fn shifted(mut self, dt: f64) -> Self {
+        match &mut self {
+            Self::Move { t, .. }
+            | Self::Click { t, .. }
+            | Self::Scroll { t, .. }
+            | Self::DragStart { t, .. }
+            | Self::DragEnd { t, .. }
+            | Self::KeyType { t }
+            | Self::ZoomMark { t, .. } => *t += dt,
+        }
+        self
+    }
+
     /// The event's timestamp in seconds.
     #[must_use]
     pub fn t(&self) -> f64 {

@@ -110,6 +110,8 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.addText(a as unknown as { text: string; x: number; y: number; t: number });
     case "add_arrow":
       return m.addArrow(a as unknown as { fx: number; fy: number; tx: number; ty: number; t: number });
+    case "set_append_take":
+      return null;
     case "add_step":
       return m.addStep(a as unknown as { x: number; y: number; t: number });
     case "set_mask_pixelate": {

@@ -66,7 +66,7 @@ export function Seg<T extends string | number>(props: {
       class={`seg ${props.class ?? ""}`}
       classList={{ disabled: !!props.disabled, full: !!props.full }}
       style={{ "--n": props.options.length, "--i": idx() }}
-      role="radiogroup"
+      role="group"
       aria-label={props.label}
       onKeyDown={(e) => {
         const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
@@ -82,8 +82,7 @@ export function Seg<T extends string | number>(props: {
         {(o) => (
           <button
             type="button"
-            role="radio"
-            aria-checked={props.value === o.value}
+            aria-pressed={props.value === o.value}
             tabindex={props.value === o.value ? 0 : -1}
             data-tip={o.tip}
             disabled={props.disabled}

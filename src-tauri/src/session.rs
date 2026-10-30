@@ -270,6 +270,8 @@ impl FrameInfo {
 type DrainOutcome = Result<(FrameStore, Option<String>, bool), String>;
 
 struct Active {
+    /// The clip this take goes on the end of, and the folder holding it, when adding a take.
+    base: Option<(Edited, PathBuf)>,
     /// The recorded display's height in pixels (0 = not known).
     screen_height: u32,
     /// Streams frames from the capture channel to the disk store (see `frame_store`).
@@ -431,6 +433,8 @@ pub struct Session {
     pending_zoom: Mutex<f64>,
     /// Frame-rate cap for the next recording (see [`Session::set_capture_fps`]).
     pending_fps: AtomicU32,
+    /// The next recording is added to the loaded clip (see [`Session::set_append_take`]).
+    append_next: AtomicBool,
     /// Whether the recording panel shows the live picture (see [`Session::set_live_preview`]).
     /// Shared with the running take, so switching it applies at once.
     live_preview_on: Arc<AtomicBool>,
@@ -519,6 +523,7 @@ impl Session {
             pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
+            append_next: AtomicBool::new(false),
             live_preview_on: Arc::new(AtomicBool::new(true)),
             pending_cursor: AtomicBool::new(true),
             pending_smooth: AtomicBool::new(false),
@@ -981,13 +986,21 @@ impl Session {
             })?,
         };
 
+        // An added take keeps the loaded clip to join it to. Everything else replaces it.
+        let base_dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .filter(|_| self.append_next.swap(false, Ordering::Relaxed));
         // Rotate: this take streams into its own fresh recovery subdir, so the previous
         // session's store survives until a later recording ages it out. `new_session_dir`
         // prunes older sessions first, keeping disk use bounded.
         let recovery_dir = frame_store::new_session_dir();
         // Drop the previous clip BEFORE creating the new store: its open handles may point at
         // a store we might otherwise touch.
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
+        let previous = std::mem::take(&mut *self.edited.lock().unwrap_or_else(|e| e.into_inner()));
+        let base = base_dir.map(|dir| (previous, dir));
         let writer = FrameWriter::create(recovery_dir.clone()).map_err(|e| {
             tracing::error!("could not open frame store for recording: {e}");
             e
@@ -1165,6 +1178,7 @@ impl Session {
         });
 
         *active = Some(Active {
+            base,
             drain: Some(drain),
             drain_stop,
             capture,
@@ -1251,6 +1265,10 @@ impl Session {
         // loudly so the editor shows a clear message instead of a silent, empty player.
         if store.is_empty() {
             tracing::error!("recording stopped with no frames, screen capture never produced any");
+            // Adding a take must never cost the clip it was being added to.
+            if let Some((base, dir)) = session.base.take() {
+                self.restore_base(base, dir);
+            }
             return Err("No frames were captured, screen capture failed to start.".into());
         }
 
@@ -1349,6 +1367,14 @@ impl Session {
             let _ = std::fs::write(frame_store::project_path(&session.recovery_dir), json);
         }
 
+        // An added take goes on the end of the clip it was recorded for.
+        if let Some((base, dir)) = session.base.take() {
+            let (take_dir, take_qpc) = (&session.recovery_dir, session.start_qpc);
+            let (summary, note) = self.join_take(base, dir, store, &project, take_dir, take_qpc);
+            let warning = note.or(write_warning);
+            return Ok(RecordingSummary { warning, ..summary });
+        }
+
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
         // Fresh clip → fresh (empty) undo history.
         *edited = Edited {
@@ -1400,6 +1426,106 @@ impl Session {
             auto_zooms,
             warning,
         })
+    }
+
+    /// Put a clip back as the loaded one, after a take that was to join it didn't.
+    fn restore_base(&self, base: Edited, dir: PathBuf) {
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = base;
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+    }
+
+    /// Join a finished take onto `base`, the clip it was recorded for, and make that the
+    /// loaded clip. Whatever goes wrong, the clip survives and the take stays in its own
+    /// folder, where Recover can still find it: the note says so.
+    fn join_take(
+        &self,
+        base: Edited,
+        dir: PathBuf,
+        store: FrameStore,
+        take: &Project,
+        take_dir: &Path,
+        take_qpc: i64,
+    ) -> (RecordingSummary, Option<String>) {
+        let summary = |project: &Project, frames: usize| RecordingSummary {
+            duration: project.source.duration,
+            frames,
+            zooms: project.zooms.len(),
+            auto_zooms: false,
+            warning: None,
+        };
+        let same_size = |p: &Project| {
+            (p.source.width, p.source.height) == (take.source.width, take.source.height)
+        };
+        let (Some(project), base_qpc) = (base.project.clone(), base.start_qpc) else {
+            self.restore_base(base, dir);
+            let empty = summary(take, store.len());
+            return (empty, Some("There was no clip to add this take to.".into()));
+        };
+        let frames_before = base.frames.as_ref().map_or(0, |f| f.len());
+        if !same_size(&project) {
+            let result = summary(&project, frames_before);
+            self.restore_base(base, dir);
+            let note = format!(
+                "The new take is {} x {} and this clip is {} x {}, so it wasn't added. \
+                 File > Recover last session opens it on its own.",
+                take.source.width, take.source.height, project.source.width, project.source.height
+            );
+            return (result, Some(note));
+        }
+        let at = project.source.duration;
+        let shift = base_qpc + (at * self.clock.freq() as f64).round() as i64 - take_qpc;
+        drop(store);
+        let joined = match frame_store::append_store(&dir, take_dir, shift) {
+            Ok(joined) => joined,
+            Err(e) => {
+                tracing::error!("adding a take failed: {e}");
+                let result = summary(&project, frames_before);
+                self.restore_base(base, dir);
+                let note = format!(
+                    "The take couldn't be added ({e}). File > Recover last session opens it \
+                     on its own."
+                );
+                return (result, Some(note));
+            }
+        };
+        let mut project = project;
+        project.audio = crate::audio::append(
+            std::mem::take(&mut project.audio),
+            &dir,
+            &take.audio,
+            take_dir,
+            at,
+        );
+        project.append(take);
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(&dir), json);
+        }
+        let _ = std::fs::remove_dir_all(take_dir);
+        let note = take.camera.is_some().then(|| {
+            "The added take's camera isn't shown: a clip has one camera track.".to_string()
+        });
+        let result = summary(&project, joined.len());
+        let mut merged = Edited {
+            frames: Some(Arc::new(joined)),
+            project: Some(project),
+            start_qpc: base_qpc,
+            ..Edited::default()
+        };
+        resimulate(&mut merged);
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = merged;
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+        (result, note)
+    }
+
+    /// Whether the next recording goes on the end of the loaded clip, instead of replacing it.
+    pub fn set_append_take(&self, on: bool) {
+        self.append_next.store(on, Ordering::Relaxed);
     }
 
     /// Composite the frame at time `t` (seconds) and publish it to the preview.

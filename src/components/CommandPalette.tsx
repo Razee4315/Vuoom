@@ -48,6 +48,7 @@ export default function CommandPalette() {
     { id: "rec-full", label: "Record full screen", group: "Record", icon: "fullscreen", run: () => void ed.startRecord("full") },
     { id: "rec-region", label: "Record a region", group: "Record", icon: "region", run: () => void ed.startRecord("region") },
     { id: "rec-win", label: "Record a window", group: "Record", icon: "window", run: () => void ed.startRecord("window") },
+    { id: "rec-add", label: "Add a take to this clip", group: "Record", icon: "plus", run: () => void ed.addTake(), when: clip },
     ...FPS_CHOICES.map((c) => ({
       id: `fps${c.value}`,
       label: `Record at ${c.label}`,

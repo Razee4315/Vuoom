@@ -2336,17 +2336,19 @@ export function createEditor() {
   const setRecordMode = (m: RecordMode) => prefs.recordMode.set(m);
   const [sourceTab, setSourceTab] = createSignal<"display" | "window">("display");
 
-  const startRecord = async (mode: RecordMode = recordMode()) => {
+  const startRecord = async (mode: RecordMode = recordMode(), add = false) => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
     // Soft copy: the previous session's recovery dir survives one more recording.
-    const ok = await confirmDiscard(
-      "Start new recording? Unsaved edits to the current clip will be discarded.",
-      "Discard & record",
-    );
+    const ok =
+      add ||
+      (await confirmDiscard(
+        "Start new recording? Unsaved edits to the current clip will be discarded.",
+        "Discard & record",
+      ));
     if (!ok) return;
     // Recording keeps the take before this one; the one before that loses its video now.
     // If that take never reached a project or an export, say so before it goes.
-    const atRisk = await invoke<number | null>("take_at_risk").catch(() => null);
+    const atRisk = add ? null : await invoke<number | null>("take_at_risk").catch(() => null);
     if (typeof atRisk === "number") {
       const go = await ask(
         `An earlier take (${fmt(atRisk)} long) was never saved or exported. Starting a new recording deletes its video for good.`,
@@ -2360,6 +2362,7 @@ export function createEditor() {
     }
     setCoachRecord(false);
     setRecordMode(mode);
+    await invoke("set_append_take", { on: add }).catch(() => undefined);
     let displays: DisplayInfo[] = [];
     try {
       displays = await invoke<DisplayInfo[]>("list_displays");
@@ -2489,13 +2492,17 @@ export function createEditor() {
       toast(`Recording loaded: ${summary.duration.toFixed(1)}s, ${n} zoom${n === 1 ? "" : "s"}`, "success");
     }
   };
+  /** Record another take onto the end of this clip, at the same size. */
+  const addTake = () => startRecord(recordMode(), true);
   const onRecordCancel = () => {
+    void invoke("set_append_take", { on: false }).catch(() => undefined);
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
     setStatus("Recording cancelled");
   };
   const onRecordFailed = (message: string) => {
+    void invoke("set_append_take", { on: false }).catch(() => undefined);
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
@@ -4449,6 +4456,7 @@ export function createEditor() {
     editStyle,
     setShape,
     setArrowStyle,
+    addTake,
     busy,
     setMaskPixelate,
     arrowLook,

@@ -16,6 +16,12 @@ export default function Titlebar() {
     { label: "New recording", icon: "region", kbd: "Ctrl+Shift+R", onSelect: () => void ed.startRecord() },
     { label: "Record full screen", icon: "fullscreen", onSelect: () => void ed.startRecord("full") },
     { label: "Record a window", icon: "window", onSelect: () => void ed.startRecord("window") },
+    {
+      label: "Add a take to this clip…",
+      icon: "plus",
+      disabled: !ed.hasClip(),
+      onSelect: () => void ed.addTake(),
+    },
     { separator: true },
     { label: "Open project…", icon: "folder", kbd: "Ctrl+O", onSelect: () => void ed.onOpenProject() },
     {

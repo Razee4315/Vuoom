@@ -1653,6 +1653,13 @@ pub fn set_annotation_style(
         .set_annotation_style(id, thickness, filled, radius, curve)
 }
 
+/// Choose whether the next recording goes on the end of the loaded clip.
+#[tauri::command]
+pub fn set_append_take(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
+    engine.session()?.set_append_take(on);
+    Ok(())
+}
+
 /// Add a numbered step marker at a normalized position; returns its id.
 #[tauri::command]
 pub fn add_step(engine: tauri::State<'_, Engine>, x: f64, y: f64, t: f64) -> Result<u32, String> {

@@ -62,6 +62,7 @@ export function Seg<T extends string | number>(props: {
 }): JSX.Element {
   const idx = () => Math.max(0, props.options.findIndex((o) => o.value === props.value));
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset can't lay out as this control.
     <div
       class={`seg ${props.class ?? ""}`}
       classList={{ disabled: !!props.disabled, full: !!props.full }}

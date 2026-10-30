@@ -1523,6 +1523,70 @@ impl Session {
         (result, note)
     }
 
+    /// Load the built-in sample clip (see `sample.rs`) as if it had just been recorded.
+    pub fn load_sample(&self) -> Result<RecordingSummary, String> {
+        use crate::sample::{self, FPS, HEIGHT, SECONDS, WIDTH};
+        let dir = frame_store::new_session_dir();
+        let mut writer = FrameWriter::create(dir.clone())?;
+        let start_qpc = self.clock.now();
+        let tick = self.clock.freq() as f64 / f64::from(FPS);
+        for i in 0..SECONDS * FPS {
+            writer.push(CapturedFrame {
+                width: WIDTH,
+                height: HEIGHT,
+                bgra: sample::frame(f64::from(i) / f64::from(FPS)),
+                qpc: start_qpc + (f64::from(i) * tick) as i64,
+                dirty: None,
+            })?;
+        }
+        let store = writer.finish()?;
+        let duration = f64::from(SECONDS);
+        let mut project = Project::new(SourceInfo {
+            path: String::new(),
+            width: WIDTH,
+            height: HEIGHT,
+            fps: f64::from(FPS),
+            duration,
+        });
+        let events = sample::events();
+        let cfg = ZoomConfig {
+            auto_zoom_on_click: true,
+            ..ZoomConfig::default()
+        };
+        let zooms = plan_zooms(&events, duration, &cfg);
+        let track = simulate(&events, &zooms, duration, f64::from(FPS), &cfg);
+        project.zooms = zooms;
+        project.zoom_config = cfg;
+        project.events = events;
+        project.show_clicks = true;
+        project.pointer_captured = false;
+        project.cursor = Some(self.new_pointer_style());
+        let summary = RecordingSummary {
+            duration,
+            frames: store.len(),
+            zooms: project.zooms.len(),
+            auto_zooms: true,
+            warning: None,
+        };
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(&dir), json);
+        }
+        // Nothing lost if a recording replaces it: don't ask about it.
+        frame_store::mark_kept(&dir);
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited {
+            frames: Some(Arc::new(store)),
+            project: Some(project),
+            track: Some(track),
+            start_qpc,
+            ..Edited::default()
+        };
+        Ok(summary)
+    }
+
     /// Whether the next recording goes on the end of the loaded clip, instead of replacing it.
     pub fn set_append_take(&self, on: bool) {
         self.append_next.store(on, Ordering::Relaxed);

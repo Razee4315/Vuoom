@@ -1660,6 +1660,12 @@ pub fn set_append_take(engine: tauri::State<'_, Engine>, on: bool) -> Result<(),
     Ok(())
 }
 
+/// Load the built-in sample clip, to try the editor without recording anything.
+#[tauri::command]
+pub async fn load_sample(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {
+    engine.session()?.load_sample()
+}
+
 /// Add a numbered step marker at a normalized position; returns its id.
 #[tauri::command]
 pub fn add_step(engine: tauri::State<'_, Engine>, x: f64, y: f64, t: f64) -> Result<u32, String> {

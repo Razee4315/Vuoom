@@ -369,6 +369,7 @@ mod tests {
     fn json_round_trip_is_lossless() {
         let mut p = Project::new(sample_source());
         p.texts.push(TextAnnotation {
+            badge: false,
             id: 1,
             text: "Hello, README!".into(),
             pos: glam::DVec2::new(0.1, 0.1),

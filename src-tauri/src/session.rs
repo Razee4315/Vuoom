@@ -1440,6 +1440,7 @@ impl Session {
         scene.highlights.clear();
         scene.spot_corners.clear();
         scene.strokes.clear();
+        // Hide masks do stay: they move with a zoom, which the overlay can't show.
         let cam_frames = scene.camera.and_then(|_| self.camera_frames());
         let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
         let rgba = compositor.composite_scene(
@@ -1967,6 +1968,31 @@ impl Session {
             italic: false,
             background: false,
             font: String::new(),
+            badge: false,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add a step marker (a numbered disc, the next number along) centered on normalized
+    /// `(x, y)`, visible for ~3s from time `t`. Returns its id.
+    pub fn add_step(&self, x: f64, y: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.texts.push(TextAnnotation {
+            id,
+            text: next_step(project).to_string(),
+            pos: DVec2::new(x, y),
+            font_size: 0.03,
+            color: Color::rgb(0.95, 0.25, 0.25),
+            bold: true,
+            italic: false,
+            background: false,
+            font: String::new(),
+            badge: true,
             range,
         });
         Ok(id)
@@ -1986,6 +2012,7 @@ impl Session {
             color: Color::rgb(0.95, 0.25, 0.25),
             thickness: 0.006,
             style: ArrowStyle::Arrow,
+            curve: 0.0,
             range,
         });
         Ok(id)
@@ -2016,6 +2043,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgb(1.0, 0.82, 0.1),
@@ -2036,6 +2064,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             // Warm marker yellow at low opacity so content shows through.
@@ -2057,6 +2086,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.3);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgba(0.0, 0.0, 0.0, 0.6),
@@ -2079,6 +2109,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.0);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgb(0.04, 0.04, 0.05),
@@ -3086,6 +3117,7 @@ impl Session {
         thickness: Option<f64>,
         filled: Option<bool>,
         radius: Option<f64>,
+        curve: Option<f64>,
     ) -> Result<(), String> {
         // The thickness slider streams values while dragging, coalesce per element.
         self.with_project(&format!("style:{id}"), |p| {
@@ -3094,6 +3126,10 @@ impl Session {
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 if let Some(t) = th {
                     a.thickness = t;
+                }
+                if let Some(c) = curve {
+                    let most = ArrowAnnotation::MAX_CURVE;
+                    a.curve = (c as f32).clamp(-most, most);
                 }
                 return Ok(());
             }
@@ -3116,6 +3152,15 @@ impl Session {
                 return Ok(());
             }
             Err("no such arrow, highlight or stroke".into())
+        })
+    }
+
+    /// Whether a hide mask pixelates what it covers, rather than blacking it out.
+    pub fn set_mask_pixelate(&self, id: u32, pixelate: bool) -> Result<(), String> {
+        self.with_project("", |p| {
+            let mask = p.highlights.iter_mut().find(|h| h.id == id);
+            mask.ok_or("no such mask")?.pixelate = pixelate;
+            Ok(())
         })
     }
 
@@ -4409,6 +4454,15 @@ fn caption_mut(project: &mut Project, id: u32) -> Result<&mut Caption, String> {
         .iter_mut()
         .find(|c| c.id == id)
         .ok_or_else(|| "no such caption".to_string())
+}
+
+/// The number the next step marker carries: one past the highest so far.
+fn next_step(project: &Project) -> u32 {
+    let steps = project.texts.iter().filter(|t| t.badge);
+    let highest = steps
+        .filter_map(|t| t.text.trim().parse::<u32>().ok())
+        .max();
+    highest.unwrap_or(0) + 1
 }
 
 fn next_id(project: &Project) -> u32 {

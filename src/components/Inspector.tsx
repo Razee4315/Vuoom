@@ -272,8 +272,21 @@ function ToolCard() {
     <Show when={ed.tool() !== "pen"} fallback={<PenCard />}>
       <PanelTitle icon="wand" title={`${t()?.label} tool`} sub={t()?.hint} />
       <div class="insp-pad">
+        <Show when={ed.tool() === "shape"}>
+          <Field label="Draw">
+            <Seg
+              value={ed.shapeEllipse() ? "ellipse" : "box"}
+              onChange={(v) => ed.setShapeEllipse(v === "ellipse")}
+              options={[
+                { value: "box", label: "Box" },
+                { value: "ellipse", label: "Ellipse" },
+              ]}
+            />
+          </Field>
+        </Show>
         <p class="note">
-          Options appear here once you place one. <kbd>Esc</kbd> returns to Select.
+          Options appear here once you place one. Hold <kbd>Shift</kbd> for clean angles and squares,{" "}
+          <kbd>Esc</kbd> returns to Select.
         </p>
         <Field label="Draw several" hint="Keep this tool after each one instead of returning to Select">
           <Switch checked={ed.toolLock()} label="Draw several" onChange={(v) => ed.setToolLock(v)} />
@@ -619,8 +632,18 @@ function AnnotationProps() {
 
       <Show when={ed.isMask()}>
         <Section id="ann-mask" title="Hide" icon="eyeOff">
+          <Field label="Cover">
+            <Seg
+              value={ed.selectedBox()!.pixelate ? "pixelate" : "black"}
+              onChange={(v) => ed.setMaskPixelate(v === "pixelate")}
+              options={[
+                { value: "black", label: "Black", tip: "Solid black. Nothing of what's under it remains" },
+                { value: "pixelate", label: "Pixelate", tip: "Large blocks. Softer on the eye; use Black for passwords" },
+              ]}
+            />
+          </Field>
           <p class="note">
-            Covered with solid black in the export, so nothing underneath can be read. Drag its bar on the
+            Covers the same part of the recording through every zoom, and never fades. Drag its bar on the
             timeline to choose when it covers the frame.
           </p>
         </Section>
@@ -644,13 +667,26 @@ function AnnotationProps() {
               <ScrubField
                 value={a().thickness}
                 min={0.002}
-                max={0.02}
+                max={0.05}
                 step={0.001}
                 displayScale={100}
                 suffix="%"
                 title="Stroke thickness as a percent of height"
                 onInput={(v) => ed.editStyle({ thickness: v })}
                 onCommit={(v) => ed.editStyle({ thickness: v })}
+              />
+            </Field>
+            <Field label="Curve" hint="Bow the arrow to either side, to swing around something">
+              <ScrubField
+                value={a().curve ?? 0}
+                min={-0.6}
+                max={0.6}
+                step={0.01}
+                displayScale={100}
+                suffix="%"
+                title="How far the middle bows off the straight line"
+                onInput={(v) => ed.editStyle({ curve: v })}
+                onCommit={(v) => ed.editStyle({ curve: v })}
               />
             </Field>
           </Section>
@@ -812,7 +848,7 @@ function SpeedProps() {
         <Field label="Rate" stack>
           <Slider
             value={r().factor}
-            min={1.25}
+            min={0.25}
             max={8}
             step={0.25}
             label="Playback rate"

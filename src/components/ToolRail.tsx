@@ -18,6 +18,7 @@ const GLYPH: Record<RailItem, IconName> = {
   crop: "crop",
   text: "text",
   arrow: "arrow",
+  step: "step",
   pen: "pen",
   shape: "shape",
   highlight: "highlight",
@@ -25,7 +26,7 @@ const GLYPH: Record<RailItem, IconName> = {
   mask: "eyeOff",
 };
 
-const GROUPS: RailItem[][] = [["select"], ["zoom", "crop"], ["text", "arrow", "pen", "shape", "highlight", "spotlight", "mask"]];
+const GROUPS: RailItem[][] = [["select"], ["zoom", "crop"], ["text", "arrow", "step", "pen", "shape", "highlight", "spotlight", "mask"]];
 
 const CROP = { label: "Crop", key: CROP_KEY.key, tip: "Crop the recording" };
 

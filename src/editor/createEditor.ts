@@ -69,6 +69,25 @@ function boxLabel(b: BoxAnn): string {
 /** Any one annotation. */
 type AnyAnn = TextAnn | ArrowAnn | BoxAnn | StrokeAnn;
 /** Where each kind lives in the annotation set. */
+/** With Shift held, a drag being drawn keeps to a clean angle or shape: arrows to steps of 45
+ *  degrees, boxes to squares (on the screen, not in the frame's stretched 0..1 space). */
+function constrained(mode: string, start: Vec2, cur: Vec2, shift: boolean, aspect: number): Vec2 {
+  if (!shift) return cur;
+  const dx = (cur.x - start.x) * aspect;
+  const dy = cur.y - start.y;
+  if (mode === "create-arrow") {
+    const step = Math.PI / 4;
+    const a = Math.round(Math.atan2(dy, dx) / step) * step;
+    const len = Math.hypot(dx, dy);
+    return { x: start.x + (Math.cos(a) * len) / aspect, y: start.y + Math.sin(a) * len };
+  }
+  if (mode === "create-box" || mode === "create-ellipse" || mode === "create-highlight") {
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    return { x: start.x + (Math.sign(dx || 1) * side) / aspect, y: start.y + Math.sign(dy || 1) * side };
+  }
+  return cur;
+}
+
 const LIST = { text: "texts", arrow: "arrows", box: "highlights", stroke: "strokes" } as const;
 
 export function createEditor() {
@@ -132,6 +151,10 @@ export function createEditor() {
     (anns()[LIST[kind]] as AnyAnn[]).find((a) => a.id === id);
   // The Pen tool's look for the next stroke: the pen or the marker, and its color and width.
   const [penLook, setPenLook] = createSignal({ marker: false, ...PEN_LOOKS.pen });
+  // How the next arrow looks: the last one's color and weight.
+  const [arrowLook, setArrowLook] = createSignal({ color: { r: 0.95, g: 0.25, b: 0.25, a: 1 }, thickness: 0.006 });
+  // What the Shape tool draws next.
+  const [shapeEllipse, setShapeEllipse] = createSignal(false);
   const [zooms, setZooms] = createSignal<ZoomSeg[]>([]);
   const [trim, setTrimState] = createSignal<Trim | null>(null);
   const [speed, setSpeed] = createSignal<SpeedRegion[]>([]);
@@ -754,10 +777,15 @@ export function createEditor() {
   // sent and drawn at several times the pixels. The width is in screen pixels, rounded up
   // to a step so dragging a panel doesn't ask for a new size on every pixel.
   const PREVIEW_STEP = 160;
+  // While playing, no wider than this: nobody reads fine detail in moving pictures, and on a
+  // 4K screen a full-width stage is several times the pixels to draw 60 times a second. The
+  // frame sharpens to full width as soon as it stops.
+  const PLAYBACK_MAX_WIDTH = 1600;
   const previewWidth = (): number | undefined => {
     const w = canvasEl?.clientWidth ?? 0;
     if (w <= 0) return undefined; // not laid out yet: full size
-    return Math.ceil((w * (window.devicePixelRatio || 1)) / PREVIEW_STEP) * PREVIEW_STEP;
+    const wide = Math.ceil((w * (window.devicePixelRatio || 1)) / PREVIEW_STEP) * PREVIEW_STEP;
+    return playing() ? Math.min(wide, PLAYBACK_MAX_WIDTH) : wide;
   };
   /** The width the last frame was asked for at. */
   let sentWidth = 0;
@@ -790,9 +818,11 @@ export function createEditor() {
     void pushSeek(t);
   };
   // The stage grew past the last frame's size (a panel dragged away, the window
-  // maximized): ask for a sharper frame. Playback asks again on its own every frame.
+  // maximized), or playback stopped: ask for a sharper frame. Playback asks again on its
+  // own every frame.
   createEffect(() => {
     stage();
+    playing();
     untrack(() => {
       if (hasClip() && !playing() && (previewWidth() ?? 0) > sentWidth) void pushSeek(playhead());
     });
@@ -1247,6 +1277,12 @@ export function createEditor() {
     for (const t of [...anns().texts].reverse()) {
       if (!inView(t.range, false)) continue;
       const pos = v2(t.pos);
+      if (t.badge) {
+        const r = t.font_size * 0.92 * stage().h;
+        const near = Math.hypot((p.x - pos.x) * stage().w, (p.y - pos.y) * stage().h) <= r + 4;
+        if (near) return { kind: "text", id: t.id };
+        continue;
+      }
       const [w, h] = [textWNorm(t), textHNorm(t)];
       if (p.x >= pos.x - TOL() && p.x <= pos.x + w + TOL() && p.y >= pos.y - TOL() && p.y <= pos.y + h + TOL())
         return { kind: "text", id: t.id };
@@ -1424,6 +1460,20 @@ export function createEditor() {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
+    if (t === "step") {
+      void (async () => {
+        try {
+          const id = await invoke<number>("add_step", { x: p.x, y: p.y, t: playhead() });
+          await refresh();
+          await pushSeek(playhead());
+          setSelected({ kind: "text", id });
+          if (!toolLock()) setTool("select");
+        } catch (err) {
+          fail("Could not add the step", err);
+        }
+      })();
+      return;
+    }
     if (t === "pen") {
       setDrag({ mode: "create-stroke", pts: [p], marker: penLook().marker });
       return;
@@ -1433,7 +1483,7 @@ export function createEditor() {
       return;
     }
     if (t === "shape") {
-      setDrag({ mode: "create-box", start: p, cur: p });
+      setDrag({ mode: shapeEllipse() ? "create-ellipse" : "create-box", start: p, cur: p });
       return;
     }
     if (t === "highlight") {
@@ -1578,7 +1628,7 @@ export function createEditor() {
       d.mode === "create-mask" ||
       d.mode === "create-spotlight"
     ) {
-      setDrag({ ...d, cur: p });
+      setDrag({ ...d, cur: constrained(d.mode, d.start, p, e.shiftKey, stage().w / stage().h) });
       return;
     }
     if (d.mode === "scale-text") {
@@ -1639,7 +1689,9 @@ export function createEditor() {
     if (!d) return;
     setSnapX(null);
     setSnapY(null);
-    const p = norm(e);
+    const raw = norm(e);
+    const aspect = stage().w / stage().h;
+    const p = "start" in d ? constrained(d.mode, d.start as Vec2, raw, e.shiftKey, aspect) : raw;
     if (d.mode === "create-zoom") {
       setDrag(null);
       await addZoomAimed(zoomFrame(d.start, p, zoomStrength()));
@@ -1655,6 +1707,11 @@ export function createEditor() {
             ty: p.y,
             t: playhead(),
           });
+          // The next arrow looks like the last one.
+          const look = arrowLook();
+          const { r, g, b } = look.color;
+          await invoke("set_annotation_color", { id, r, g, b });
+          await invoke("set_annotation_style", { id, thickness: look.thickness });
           await refresh();
           await pushSeek(playhead());
           setSelZoom(null);
@@ -1805,15 +1862,20 @@ export function createEditor() {
   // every pointer-move or keystroke, so they run through pushEdit, the same edit throttle
   // the inline text editor uses, to bound the invoke→refresh→seek round-trips. pushEdit
   // appends the seek and always lets the trailing value land, so the drag-end value sticks.
-  const editStyle = (patch: { thickness?: number; filled?: boolean; radius?: number }) => {
+  const editStyle = (patch: { thickness?: number; filled?: boolean; radius?: number; curve?: number }) => {
     const s = selected();
     if (!s) return;
     const { id, kind } = s;
+    if (kind === "arrow" && patch.thickness !== undefined) {
+      const thickness = patch.thickness;
+      setArrowLook((look) => ({ ...look, thickness }));
+    }
     pushEdit(
       `sty:${id}`,
       () =>
         patchAnn(kind, id, (a) => {
           if (patch.thickness !== undefined) (a as ArrowAnn).thickness = patch.thickness;
+          if (patch.curve !== undefined && kind === "arrow") (a as ArrowAnn).curve = patch.curve;
           if (patch.filled !== undefined && kind === "box") (a as BoxAnn).filled = patch.filled;
           if (patch.radius !== undefined && kind === "box") (a as BoxAnn).radius = patch.radius;
         }),
@@ -1836,6 +1898,25 @@ export function createEditor() {
       } catch (e) {
         await refresh();
         toast(`Shape failed: ${friendlyError(e)}`, "error");
+      }
+    })();
+  };
+  // Whether a hide mask pixelates or blacks out. Drawn by the engine, so it needs a new frame.
+  const setMaskPixelate = (pixelate: boolean) => {
+    const s = selected();
+    if (s?.kind !== "box") return;
+    const { id } = s;
+    patchAnn("box", id, (a) => {
+      (a as BoxAnn).pixelate = pixelate;
+    });
+    void (async () => {
+      try {
+        await invoke("set_mask_pixelate", { id, pixelate });
+        await refresh();
+        await pushSeek(playhead());
+      } catch (e) {
+        await refresh();
+        toast(`Could not change it: ${friendlyError(e)}`, "error");
       }
     })();
   };
@@ -1900,6 +1981,7 @@ export function createEditor() {
     if (!s) return;
     const { id, kind } = s;
     const c = hexRgb(hex);
+    if (kind === "arrow") setArrowLook((look) => ({ ...look, color: { ...look.color, ...c } }));
     pushEdit(
       `col:${id}`,
       () =>
@@ -4361,6 +4443,11 @@ export function createEditor() {
     editStyle,
     setShape,
     setArrowStyle,
+    setMaskPixelate,
+    arrowLook,
+    setArrowLook,
+    shapeEllipse,
+    setShapeEllipse,
     setOpacity,
     isMask,
     isSpotlight,

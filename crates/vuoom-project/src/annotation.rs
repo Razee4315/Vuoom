@@ -33,6 +33,9 @@ pub struct TextAnnotation {
     /// older projects keep the sans look.
     #[serde(default)]
     pub font: String,
+    /// Draw as a step marker: the text centered in a disc of `color` at `pos`.
+    #[serde(default)]
+    pub badge: bool,
     pub range: TimeRange,
 }
 
@@ -60,7 +63,16 @@ pub struct ArrowAnnotation {
     /// Head style. Defaults to `Arrow` so projects saved before this existed still load.
     #[serde(default)]
     pub style: ArrowStyle,
+    /// How far the middle of the arrow bows off the straight line, as a fraction of its
+    /// length; the sign picks the side. 0 is a straight arrow.
+    #[serde(default)]
+    pub curve: f32,
     pub range: TimeRange,
+}
+
+impl ArrowAnnotation {
+    /// The largest bow on offer, either way (past this the arrow folds on itself).
+    pub const MAX_CURVE: f32 = 0.6;
 }
 
 /// The geometry a highlight draws within its rect.
@@ -95,6 +107,10 @@ pub struct HighlightBox {
     /// 0 (the default, and what older projects load as) keeps square corners.
     #[serde(default)]
     pub radius: f32,
+    /// A [`HighlightShape::Mask`] that shows the picture as large blocks instead of solid
+    /// black. Black is the default, and the only one that keeps nothing of what is under it.
+    #[serde(default)]
+    pub pixelate: bool,
     pub range: TimeRange,
 }
 

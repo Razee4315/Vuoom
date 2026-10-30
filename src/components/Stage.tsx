@@ -12,9 +12,15 @@ import { arrowHeads, roundedRectPath, v2, zoomFrame } from "../geometry";
 import { Icon } from "../icons";
 import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
+import type { Color } from "../types";
 import { stageMenu } from "./contextMenus";
 import CropEditor, { CropBar } from "./CropEditor";
 import type { Vec2 } from "../types";
+
+/** The number on a step marker: white on a dark disc, near-black on a light one. */
+function badgeInk(c: Color): string {
+  return c.r * 0.3 + c.g * 0.6 + c.b * 0.1 > 0.6 ? "#0d0d0f" : "#ffffff";
+}
 
 export default function Stage() {
   const ed = useEditor();
@@ -93,10 +99,21 @@ export default function Stage() {
                           d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z ${roundedRectPath(a().x, a().y, s().x, s().y, (b.radius ?? 0) * ed.stage().h)}`}
                         />
                       </Show>
+                      {/* The engine draws a mask into the frame itself, following any zoom. */}
+                      <Show when={b.shape === "Mask"}>
+                        <rect
+                          class="mask-outline"
+                          classList={{ on: sel() }}
+                          x={a().x}
+                          y={a().y}
+                          width={s().x}
+                          height={s().y}
+                        />
+                      </Show>
                       <Show
                         when={b.shape === "Ellipse"}
                         fallback={
-                          <Show when={b.shape !== "Spotlight"}>
+                          <Show when={b.shape !== "Spotlight" && b.shape !== "Mask"}>
                             <rect
                               x={a().x}
                               y={a().y}
@@ -212,6 +229,7 @@ export default function Stage() {
                         width={Math.max(ar.thickness * ed.stage().h, 1.5)}
                         headFrom={arrowHeads(ar.style).from}
                         headTo={arrowHeads(ar.style).to}
+                        curve={ar.curve ?? 0}
                       />
                       <Show when={sel()}>
                         <Handles pts={[f(), tp()]} cursors={["move", "move"]} />
@@ -241,7 +259,24 @@ export default function Stage() {
                       opacity={ed.isGhost(tx.range, sel()) ? 0.35 : 1}
                       style={{ cursor: sel() ? "move" : undefined }}
                     >
-                      <Show when={tx.background}>
+                      <Show when={tx.badge}>
+                        <circle cx={p().x} cy={p().y} r={fs() * 0.92} fill={cssColor(tx.color)} />
+                        <text
+                          x={p().x}
+                          y={p().y}
+                          font-size={String(fs())}
+                          fill={badgeInk(tx.color)}
+                          text-anchor="middle"
+                          dominant-baseline="central"
+                          style={{ "font-family": fontCss(tx.font), "font-weight": "700" }}
+                        >
+                          {tx.text}
+                        </text>
+                        <Show when={sel()}>
+                          <circle class="sel-outline" cx={p().x} cy={p().y} r={fs() * 0.92 + 4} />
+                        </Show>
+                      </Show>
+                      <Show when={tx.background && !tx.badge}>
                         <rect
                           class="text-plate"
                           x={p().x - fs() * 0.3}
@@ -256,6 +291,7 @@ export default function Stage() {
                         y={p().y + fs()}
                         font-size={String(fs())}
                         fill={cssColor(tx.color)}
+                        display={tx.badge ? "none" : undefined}
                         style={{
                           "font-family": fontCss(tx.font),
                           "font-weight": tx.bold ? "700" : "400",
@@ -271,7 +307,7 @@ export default function Stage() {
                           )}
                         </Index>
                       </text>
-                      <Show when={sel()}>
+                      <Show when={sel() && !tx.badge}>
                         <rect
                           class="sel-outline"
                           x={p().x - 4}
@@ -301,7 +337,14 @@ export default function Stage() {
         <Show when={ed.drag()?.mode === "create-arrow"}>
           {(() => {
             const d = ed.drag() as { start: Vec2; cur: Vec2 };
-            return <ArrowLine from={ed.px(d.start)} to={ed.px(d.cur)} color="#e5484d" />;
+            return (
+              <ArrowLine
+                from={ed.px(d.start)}
+                to={ed.px(d.cur)}
+                color={cssColor(ed.arrowLook().color)}
+                width={Math.max(ed.arrowLook().thickness * ed.stage().h, 1.5)}
+              />
+            );
           })()}
         </Show>
         <Show when={ed.drag()?.mode === "create-zoom"}>

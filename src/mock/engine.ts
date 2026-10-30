@@ -726,6 +726,26 @@ class MockEngine {
     });
     return id;
   }
+  addStep(a: { x: number; y: number; t: number }): number {
+    const id = this.nextAnnId();
+    const steps = this.anns.texts.filter((t) => t.badge).length;
+    this.mutate(undefined, () => {
+      this.anns.texts.push({
+        id,
+        text: String(steps + 1),
+        pos: [a.x, a.y],
+        font_size: 0.03,
+        color: color("#e5484d"),
+        bold: true,
+        italic: false,
+        background: false,
+        font: "",
+        badge: true,
+        range: range(Math.max(0, a.t - 0.2), Math.min(this.duration, a.t + 2.8)),
+      });
+    });
+    return id;
+  }
   addArrow(a: { fx: number; fy: number; tx: number; ty: number; t: number }): number {
     const id = this.nextAnnId();
     this.mutate(undefined, () => {
@@ -844,7 +864,7 @@ class MockEngine {
       if (ann) ann.color.a = a;
     });
   }
-  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean; radius?: number }) {
+  setAnnStyle(id: number, patch: { thickness?: number; filled?: boolean; radius?: number; curve?: number }) {
     this.mutate(`sty:${id}`, () => {
       const b = this.anns.highlights.find((x) => x.id === id);
       if (b) {
@@ -854,6 +874,7 @@ class MockEngine {
       }
       const ar = this.anns.arrows.find((x) => x.id === id);
       if (ar && patch.thickness !== undefined) ar.thickness = patch.thickness;
+      if (ar && patch.curve !== undefined) ar.curve = patch.curve;
       const st = this.anns.strokes.find((x) => x.id === id);
       if (st && patch.thickness !== undefined) st.thickness = patch.thickness;
     });

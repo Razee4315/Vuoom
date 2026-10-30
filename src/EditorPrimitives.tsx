@@ -35,6 +35,15 @@ export function Handles(props: { pts: Vec2[]; cursors?: string[] }): JSX.Element
   );
 }
 
+/** The control point that bows the line `from`-`to` by `curve` (a fraction of its length). */
+export function arrowCtrl(from: Vec2, to: Vec2, curve: number): Vec2 {
+  // A quadratic Bézier's middle is half way to its control point, hence the 2.
+  return {
+    x: (from.x + to.x) / 2 - (to.y - from.y) * curve * 2,
+    y: (from.y + to.y) / 2 + (to.x - from.x) * curve * 2,
+  };
+}
+
 export function ArrowLine(props: {
   from: Vec2;
   to: Vec2;
@@ -42,26 +51,43 @@ export function ArrowLine(props: {
   width?: number;
   headFrom?: boolean;
   headTo?: boolean;
+  /** How far the middle bows off the straight line (see `ArrowAnn.curve`). */
+  curve?: number;
 }): JSX.Element {
   const w = () => props.width ?? 3;
-  const headLen = () => Math.max(w() * 4, 10); // mirrors the export head (thickness × 4, min 10)
-  const ang = () => Math.atan2(props.to.y - props.from.y, props.to.x - props.from.x);
+  const ctrl = () => arrowCtrl(props.from, props.to, props.curve ?? 0);
+  const len = () => Math.hypot(props.to.x - props.from.x, props.to.y - props.from.y);
+  // Mirrors the export head: thickness × 4, at least 10, at most half the arrow.
+  const headLen = () => Math.min(Math.max(w() * 4, 10), len() * 0.5);
   const headTo = () => props.headTo ?? true;
   const headFrom = () => props.headFrom ?? false;
-  // Triangle for a head whose tip is at `tip`, pointing along angle `a`.
-  const tri = (tip: Vec2, a: number) => {
-    const p1 = { x: tip.x - headLen() * Math.cos(a - 0.5), y: tip.y - headLen() * Math.sin(a - 0.5) };
-    const p2 = { x: tip.x - headLen() * Math.cos(a + 0.5), y: tip.y - headLen() * Math.sin(a + 0.5) };
-    return `${tip.x},${tip.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`;
+  // A head whose tip is at `tip`, coming from `base` (a point just behind it on the line).
+  const tri = (tip: Vec2, base: Vec2) => {
+    const a = Math.atan2(tip.y - base.y, tip.x - base.x);
+    const bx = tip.x - headLen() * Math.cos(a);
+    const by = tip.y - headLen() * Math.sin(a);
+    const [px, py] = [-Math.sin(a) * headLen() * 0.55, Math.cos(a) * headLen() * 0.55];
+    return `${tip.x},${tip.y} ${bx + px},${by + py} ${bx - px},${by - py}`;
   };
+  // Stop the line short of a head, so its round end doesn't show past the head's point.
+  const trim = (end: Vec2, toward: Vec2) => {
+    const d = Math.hypot(toward.x - end.x, toward.y - end.y) || 1;
+    const k = headLen() * 0.9;
+    return { x: end.x + ((toward.x - end.x) / d) * k, y: end.y + ((toward.y - end.y) / d) * k };
+  };
+  const start = () => (headFrom() ? trim(props.from, ctrl()) : props.from);
+  const end = () => (headTo() ? trim(props.to, ctrl()) : props.to);
   return (
     <g stroke={props.color} fill={props.color} stroke-width={w()} stroke-linecap="round">
-      <line x1={props.from.x} y1={props.from.y} x2={props.to.x} y2={props.to.y} />
+      <path
+        d={`M${start().x} ${start().y}Q${ctrl().x} ${ctrl().y} ${end().x} ${end().y}`}
+        fill="none"
+      />
       <Show when={headTo()}>
-        <polygon points={tri(props.to, ang())} stroke="none" />
+        <polygon points={tri(props.to, ctrl())} stroke="none" />
       </Show>
       <Show when={headFrom()}>
-        <polygon points={tri(props.from, ang() + Math.PI)} stroke="none" />
+        <polygon points={tri(props.from, ctrl())} stroke="none" />
       </Show>
     </g>
   );

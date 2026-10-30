@@ -110,6 +110,13 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return m.addText(a as unknown as { text: string; x: number; y: number; t: number });
     case "add_arrow":
       return m.addArrow(a as unknown as { fx: number; fy: number; tx: number; ty: number; t: number });
+    case "add_step":
+      return m.addStep(a as unknown as { x: number; y: number; t: number });
+    case "set_mask_pixelate": {
+      const box = m.anns.highlights.find((h) => h.id === (a.id as number));
+      if (box) box.pixelate = a.pixelate as boolean;
+      return null;
+    }
     case "add_stroke":
       return m.addStroke(a as unknown as Parameters<typeof m.addStroke>[0]);
     case "add_box":
@@ -184,6 +191,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
         thickness: a.thickness as number | undefined,
         filled: a.filled as boolean | undefined,
         radius: a.radius as number | undefined,
+        curve: a.curve as number | undefined,
       });
       return null;
     case "set_highlight_shape":

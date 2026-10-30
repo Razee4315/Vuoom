@@ -7,11 +7,11 @@
 use crate::cursor::{idle_opacity, press_at, smooth_pos};
 use crate::layout::{compute_layout, CompositeLayout, NormRect, PxRect};
 use vuoom_project::{
-    caption_at, pointer_shape_at, ArrowStyle, CameraOverlay, CaptionPosition, ClickEffect,
-    ClickStyle, Color, Corner, HighlightShape, InputEvent, PointerLook, PointerShape, Project,
-    Rect,
+    caption_at, pointer_shape_at, ArrowAnnotation, ArrowStyle, CameraOverlay, CaptionPosition,
+    ClickEffect, ClickStyle, Color, Corner, HighlightShape, InputEvent, PointerLook, PointerShape,
+    Project, Rect,
 };
-use vuoom_zoom::CameraTrack;
+use vuoom_zoom::{CameraState, CameraTrack};
 
 /// A text label resolved to output pixels with fade opacity baked into its alpha.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +40,8 @@ pub struct ResolvedArrow {
     /// Draw a head at the `from` end / the `to` end.
     pub head_from: bool,
     pub head_to: bool,
+    /// The control point of a curved arrow (a quadratic Bézier), in output pixels.
+    pub ctrl: Option<[f64; 2]>,
 }
 
 /// A pen stroke resolved to output pixels.
@@ -382,6 +384,11 @@ pub struct Scene {
     pub key_chips: Vec<ResolvedHighlight>,
     /// Keystroke-overlay labels (separate from `texts` for the same reason).
     pub key_texts: Vec<ResolvedText>,
+    /// Hide masks. Apart from `highlights` because they are drawn in the preview too: they
+    /// follow the camera, and the editor overlay can only outline them.
+    pub masks: Vec<ResolvedHighlight>,
+    /// Masks that pixelate (x, y, width, height in output pixels).
+    pub mosaics: Vec<[f32; 4]>,
     /// The re-drawn pointer, when the project has one and it's in view.
     pub cursor: Option<ResolvedCursor>,
     /// The webcam bubble, when the take has one and it's shown.
@@ -392,6 +399,54 @@ pub struct Scene {
     /// Motion blur: the source crop one exposure ago, while the camera is moving visibly.
     /// The compositor smears the picture from there to `layout.src_rect`.
     pub blur_from: Option<NormRect>,
+}
+
+/// The most masks that pixelate at once; any more are drawn black.
+pub const MAX_MOSAICS: usize = 8;
+
+/// A line's width in ems, near enough to size what goes behind it: a CJK character is a
+/// full em, a Latin one a little over half.
+fn text_em(line: &str) -> f64 {
+    line.chars()
+        .map(|c| if u32::from(c) >= 0x2E80 { 1.0 } else { 0.6 })
+        .sum()
+}
+
+/// The control point that bows arrow `a` by its `curve`, in output pixels. `None` if straight.
+fn arrow_ctrl(a: &ArrowAnnotation, ow: f64, oh: f64) -> Option<[f64; 2]> {
+    if a.curve.abs() < 1e-3 {
+        return None;
+    }
+    let (fx, fy) = (a.from.x * ow, a.from.y * oh);
+    let (tx, ty) = (a.to.x * ow, a.to.y * oh);
+    let (dx, dy) = (tx - fx, ty - fy);
+    // A quadratic Bézier's middle is half way to its control point, hence the 2.
+    let bow = f64::from(a.curve) * 2.0;
+    Some([(fx + tx) / 2.0 - dy * bow, (fy + ty) / 2.0 + dx * bow])
+}
+
+/// `rect` (output pixels) as drawn in `whole` (the picture with no zoom), moved to where the
+/// same part of the recording is in `now`, and clipped to the picture. `None` once it is
+/// out of view.
+fn follow_camera(
+    rect: [f64; 4],
+    whole: &CompositeLayout,
+    now: &CompositeLayout,
+) -> Option<[f64; 4]> {
+    let (wd, ws) = (whole.dst_rect, whole.src_rect);
+    let (nd, ns) = (now.dst_rect, now.src_rect);
+    let map_x = |x: f64| {
+        let src = ws.x + (x - wd.x) / wd.w.max(1e-9) * ws.w;
+        nd.x + (src - ns.x) / ns.w.max(1e-9) * nd.w
+    };
+    let map_y = |y: f64| {
+        let src = ws.y + (y - wd.y) / wd.h.max(1e-9) * ws.h;
+        nd.y + (src - ns.y) / ns.h.max(1e-9) * nd.h
+    };
+    let [x, y, w, h] = rect;
+    let (x0, x1) = (map_x(x).max(nd.x), map_x(x + w).min(nd.x + nd.w));
+    let (y0, y1) = (map_y(y).max(nd.y), map_y(y + h).min(nd.y + nd.h));
+    (x1 > x0 && y1 > y0).then_some([x0, y0, x1 - x0, y1 - y0])
 }
 
 fn fade(color: Color, opacity: f64) -> Color {
@@ -452,13 +507,45 @@ pub fn build_scene(
             continue;
         }
         let font_px = f64::from(ta.font_size) * oh;
+        if ta.badge {
+            // `pos` is the center of the disc; the number sits in the middle of it.
+            let (cx, cy) = (ta.pos.x * ow, ta.pos.y * oh);
+            let r = font_px * 0.92;
+            highlights.push(ResolvedHighlight {
+                x: cx - r,
+                y: cy - r,
+                w: r * 2.0,
+                h: r * 2.0,
+                thickness_px: 0.0,
+                filled: true,
+                ellipse: true,
+                color: fade(ta.color, o),
+            });
+            let light = ta.color.r * 0.3 + ta.color.g * 0.6 + ta.color.b * 0.1 > 0.6;
+            let ink = if light {
+                Color::rgb(0.05, 0.05, 0.06)
+            } else {
+                Color::WHITE
+            };
+            texts.push(ResolvedText {
+                text: ta.text.clone(),
+                x: cx - text_em(&ta.text) * font_px / 2.0,
+                y: cy - font_px * 0.625,
+                font_px,
+                color: fade(ink, o),
+                bold: true,
+                italic: false,
+                font: ta.font.clone(),
+            });
+            continue;
+        }
         if ta.background {
             // A translucent plate behind the glyphs (estimated text box, every line of it),
             // drawn in the shape pass so it sits under the text. Mirrors the keystroke-chip
             // backing.
-            let widest = ta.text.split('\n').map(|l| l.chars().count()).max();
+            let widest = ta.text.split('\n').map(text_em).fold(0.0, f64::max);
             let lines = ta.text.split('\n').count().max(1) as f64;
-            let tw = widest.unwrap_or(0) as f64 * font_px * 0.6;
+            let tw = widest * font_px;
             let pad_x = font_px * 0.3;
             let pad_y = font_px * 0.16;
             highlights.push(ResolvedHighlight {
@@ -509,6 +596,7 @@ pub fn build_scene(
             ArrowStyle::DoubleArrow => (true, true),
         };
         arrows.push(ResolvedArrow {
+            ctrl: arrow_ctrl(a, ow, oh),
             from_x: a.from.x * ow,
             from_y: a.from.y * oh,
             to_x: a.to.x * ow,
@@ -534,29 +622,59 @@ pub fn build_scene(
             spot_corners.extend(corners_of(h.rect, f64::from(h.radius), ow, oh, color));
             continue;
         }
-        // A mask is an OPAQUE redaction block: the compositor forces a near-black fill
-        // and ignores the stored color/thickness so masked content can never leak.
-        let is_mask = h.shape == HighlightShape::Mask;
+        // Masks are drawn on their own below.
+        if h.shape == HighlightShape::Mask {
+            continue;
+        }
         highlights.push(ResolvedHighlight {
             x: h.rect.x * ow,
             y: h.rect.y * oh,
             w: h.rect.w * ow,
             h: h.rect.h * oh,
-            thickness_px: if is_mask {
-                0.0
-            } else {
-                f64::from(h.thickness) * oh
-            },
-            filled: h.filled || is_mask,
+            thickness_px: f64::from(h.thickness) * oh,
+            filled: h.filled,
             ellipse: h.shape == HighlightShape::Ellipse,
-            color: if is_mask {
-                fade(Color::rgb(0.04, 0.04, 0.05), o)
-            } else {
-                fade(h.color, o)
-            },
+            color: fade(h.color, o),
         });
     }
     highlights.splice(0..0, dim);
+
+    // Hide masks stay on what they cover through a zoom, or a zoom would slide private
+    // content out from under them, and never fade: a mask half way through a fade doesn't
+    // hide anything.
+    let mut masks = Vec::new();
+    let mut mosaics = Vec::new();
+    let whole = compute_layout(
+        out_w,
+        out_h,
+        &project.frame,
+        &CameraState::default(),
+        project.crop,
+        content,
+    );
+    for h in &project.highlights {
+        if h.shape != HighlightShape::Mask || t < h.range.start || t >= h.range.end {
+            continue;
+        }
+        let rect = [h.rect.x * ow, h.rect.y * oh, h.rect.w * ow, h.rect.h * oh];
+        let Some([x, y, w, h_px]) = follow_camera(rect, &whole, &layout) else {
+            continue;
+        };
+        if h.pixelate && mosaics.len() < MAX_MOSAICS {
+            mosaics.push([x as f32, y as f32, w as f32, h_px as f32]);
+            continue;
+        }
+        masks.push(ResolvedHighlight {
+            x,
+            y,
+            w,
+            h: h_px,
+            thickness_px: 0.0,
+            filled: true,
+            ellipse: false,
+            color: Color::rgb(0.04, 0.04, 0.05),
+        });
+    }
 
     let mut ripples = Vec::new();
     if project.show_clicks {
@@ -690,6 +808,8 @@ pub fn build_scene(
         ripples,
         key_chips,
         key_texts,
+        masks,
+        mosaics,
         cursor,
         camera: webcam,
         caption,
@@ -714,6 +834,7 @@ mod tests {
             duration: 5.0,
         });
         p.texts.push(TextAnnotation {
+            badge: false,
             id: 1,
             text: "Hi".into(),
             pos: DVec2::new(0.1, 0.2),
@@ -741,11 +862,131 @@ mod tests {
         assert!((t.font_px - 50.0).abs() < 1e-4);
     }
 
+    fn mask(pixelate: bool) -> HighlightBox {
+        HighlightBox {
+            pixelate,
+            id: 9,
+            rect: Rect::new(0.25, 0.25, 0.5, 0.5),
+            color: Color::rgba(1.0, 0.0, 0.0, 0.1),
+            thickness: 0.0,
+            filled: true,
+            shape: HighlightShape::Mask,
+            radius: 0.0,
+            range: TimeRange::with_fade(1.0, 3.0, 0.5),
+        }
+    }
+
+    #[test]
+    fn a_mask_is_solid_from_its_first_moment_to_its_last() {
+        let mut p = project_with_text();
+        p.highlights.push(mask(false));
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        for t in [1.0, 1.1, 2.9] {
+            let scene = build_scene(&p, &track, 1000, 1000, t);
+            assert_eq!(scene.masks.len(), 1, "at {t}");
+            assert!(scene.masks[0].color.a >= 1.0, "at {t}");
+            assert!(scene.highlights.is_empty(), "drawn once, as a mask");
+        }
+        assert!(build_scene(&p, &track, 1000, 1000, 3.0).masks.is_empty());
+    }
+
+    #[test]
+    fn a_mask_stays_on_what_it_covers_through_a_zoom() {
+        let whole = CompositeLayout {
+            src_rect: NormRect {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+            },
+            dst_rect: PxRect {
+                x: 0.0,
+                y: 0.0,
+                w: 1000.0,
+                h: 1000.0,
+            },
+            corner_radius_px: 0.0,
+            shadow: crate::layout::PxShadow::default(),
+        };
+        // Zoomed 2x into the top-left quarter: the picture there is twice the size.
+        let zoomed = CompositeLayout {
+            src_rect: NormRect {
+                x: 0.0,
+                y: 0.0,
+                w: 0.5,
+                h: 0.5,
+            },
+            ..whole
+        };
+        let moved = follow_camera([100.0, 200.0, 50.0, 50.0], &whole, &zoomed);
+        assert_eq!(moved, Some([200.0, 400.0, 100.0, 100.0]));
+        // Half way out of view: clipped to the picture.
+        let edge = follow_camera([450.0, 0.0, 100.0, 10.0], &whole, &zoomed).unwrap();
+        assert_eq!(edge[0] + edge[2], 1000.0);
+        // Wholly out of view: nothing to draw.
+        assert_eq!(
+            follow_camera([600.0, 0.0, 100.0, 10.0], &whole, &zoomed),
+            None
+        );
+    }
+
+    #[test]
+    fn a_pixelating_mask_goes_to_the_mosaic_list() {
+        let mut p = project_with_text();
+        p.highlights.push(mask(true));
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        assert!(scene.masks.is_empty());
+        assert_eq!(scene.mosaics, vec![[250.0, 250.0, 500.0, 500.0]]);
+    }
+
+    #[test]
+    fn a_step_marker_is_a_disc_with_its_number_in_the_middle() {
+        let mut p = project_with_text();
+        p.texts[0].badge = true;
+        p.texts[0].text = "12".into();
+        p.texts[0].pos = DVec2::new(0.5, 0.5);
+        p.texts[0].color = Color::rgb(0.9, 0.1, 0.1);
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let scene = build_scene(&p, &track, 1000, 1000, 2.0);
+        let disc = &scene.highlights[0];
+        assert!(disc.ellipse && disc.filled);
+        assert!((disc.x + disc.w / 2.0 - 500.0).abs() < 1e-6);
+        let number = &scene.texts[0];
+        assert!(number.x < 500.0 && number.bold);
+        assert_eq!(number.color.g, 1.0, "white on a dark disc");
+    }
+
+    #[test]
+    fn a_bowed_arrow_has_a_control_point_to_the_side() {
+        let a = ArrowAnnotation {
+            id: 1,
+            from: DVec2::new(0.0, 0.5),
+            to: DVec2::new(1.0, 0.5),
+            color: Color::WHITE,
+            thickness: 0.01,
+            style: ArrowStyle::Arrow,
+            curve: 0.25,
+            range: TimeRange::new(0.0, 1.0),
+        };
+        assert_eq!(arrow_ctrl(&a, 100.0, 100.0), Some([50.0, 100.0]));
+        assert_eq!(
+            arrow_ctrl(&ArrowAnnotation { curve: 0.0, ..a }, 100.0, 100.0),
+            None
+        );
+    }
+
+    #[test]
+    fn chinese_text_counts_as_wide() {
+        assert!(text_em("中文") > text_em("ab") * 1.5);
+    }
+
     #[test]
     fn a_spotlight_dims_all_around_its_rect_and_goes_under_the_rest() {
         let mut p = project_with_text();
         p.texts[0].background = true;
         p.highlights.push(HighlightBox {
+            pixelate: false,
             id: 3,
             rect: Rect::new(0.2, 0.3, 0.4, 0.5),
             color: Color::rgba(0.0, 0.0, 0.0, 0.6),

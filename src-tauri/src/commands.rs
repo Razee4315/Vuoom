@@ -1646,10 +1646,27 @@ pub fn set_annotation_style(
     thickness: Option<f64>,
     filled: Option<bool>,
     radius: Option<f64>,
+    curve: Option<f64>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .set_annotation_style(id, thickness, filled, radius)
+        .set_annotation_style(id, thickness, filled, radius, curve)
+}
+
+/// Add a numbered step marker at a normalized position; returns its id.
+#[tauri::command]
+pub fn add_step(engine: tauri::State<'_, Engine>, x: f64, y: f64, t: f64) -> Result<u32, String> {
+    engine.session()?.add_step(x, y, t)
+}
+
+/// Choose whether a hide mask pixelates what it covers, or blacks it out.
+#[tauri::command]
+pub fn set_mask_pixelate(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    pixelate: bool,
+) -> Result<(), String> {
+    engine.session()?.set_mask_pixelate(id, pixelate)
 }
 
 /// Set the alpha/opacity (0..1) of an annotation's color.

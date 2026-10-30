@@ -6,7 +6,7 @@
 //! `new()` returns `None` when no GPU adapter is available (e.g. a CI runner without a
 //! GPU), so tests skip gracefully rather than fail.
 
-use crate::scene::{ResolvedCaption, ResolvedCursor, ResolvedHighlight, Scene};
+use crate::scene::{ResolvedCaption, ResolvedCursor, ResolvedHighlight, Scene, MAX_MOSAICS};
 use crate::shapes::{build_shape_vertices, cursor_scale, pointer_vertices, ShapeVertex};
 use glyphon::{
     Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
@@ -94,10 +94,19 @@ struct Uniforms {
     /// Samples across and down per output pixel (see [`area_taps`]).
     taps: [f32; 2],
     _pad3: [f32; 2],
+    /// Rects (x, y, w, h in output pixels) where the picture shows as blocks.
+    mosaic: [[f32; 4]; MAX_MOSAICS],
+    mosaic_count: f32,
+    mosaic_px: f32,
+    _pad4: [f32; 2],
 }
 
 /// Spare capacity left on a composited frame's buffer, for a trailer appended in place.
 const READBACK_SPARE: usize = 64;
+
+/// A mosaic block's side, as a fraction of the output's height: coarse enough that text
+/// under it can't be read.
+const MOSAIC_CELL: f32 = 0.022;
 
 /// Finished frames kept to be filled again (see [`Compositor::recycle`]).
 const SPARE_FRAMES: usize = 4;
@@ -1461,6 +1470,16 @@ impl Compositor {
                 area_taps(src.h, src_h, dst.h, max_taps),
             ],
             _pad3: [0.0, 0.0],
+            mosaic: {
+                let mut rects = [[0.0; 4]; MAX_MOSAICS];
+                for (slot, rect) in rects.iter_mut().zip(&scene.mosaics) {
+                    *slot = *rect;
+                }
+                rects
+            },
+            mosaic_count: scene.mosaics.len().min(MAX_MOSAICS) as f32,
+            mosaic_px: (out_h as f32 * MOSAIC_CELL).max(4.0),
+            _pad4: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -1841,6 +1860,8 @@ mod tests {
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),
+            masks: Vec::new(),
+            mosaics: Vec::new(),
             cursor: None,
             camera: None,
             caption: None,

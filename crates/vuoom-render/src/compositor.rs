@@ -1965,6 +1965,8 @@ mod tests {
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),
+            masks: Vec::new(),
+            mosaics: Vec::new(),
             cursor: Some(cursor),
             camera: None,
             caption: None,

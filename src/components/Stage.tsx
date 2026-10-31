@@ -284,7 +284,6 @@ export default function Stage() {
                           y={p().y - fs() * 0.16}
                           width={wbox() + fs() * 0.6}
                           height={box().h + fs() * 0.32}
-                          rx={fs() * 0.12}
                         />
                       </Show>
                       <text

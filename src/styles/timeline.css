@@ -456,7 +456,7 @@
   border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
   border-radius: 7px;
   background: color-mix(in srgb, var(--c) 22%, var(--panel));
-  color: color-mix(in srgb, var(--c) 30%, var(--text));
+  color: color-mix(in srgb, var(--c) 12%, var(--text));
   font-size: var(--fs-xs);
   font-weight: 650;
   white-space: nowrap;

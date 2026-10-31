@@ -61,6 +61,16 @@ export default function Welcome() {
               </button>
               <button
                 type="button"
+                class="btn"
+                onClick={() => {
+                  ed.dismissWelcome(false);
+                  void ed.trySample();
+                }}
+              >
+                {t("Try a sample clip")}
+              </button>
+              <button
+                type="button"
                 class="btn record lg"
                 onClick={() => {
                   ed.dismissWelcome(false);

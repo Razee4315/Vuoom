@@ -163,6 +163,9 @@ export default function Home() {
               <button type="button" class="btn ghost sm" onClick={() => void ed.onOpenProject()}>
                 <Icon name="folder" size={14} /> {t("Open a saved project")}
               </button>
+              <button type="button" class="btn ghost sm" onClick={() => void ed.trySample()}>
+                <Icon name="wand" size={14} /> {t("Try a sample clip")}
+              </button>
               <span class="home-keys">
                 <Kbd keys={RECORD_KEYS} /> {t("record")} <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> {t("stop")}
               </span>

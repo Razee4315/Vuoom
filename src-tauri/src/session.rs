@@ -4748,7 +4748,7 @@ fn dropped_frames_warning(dropped: u64, kept: usize) -> Option<String> {
     if dropped > DROP_WARN_MIN_FRAMES || pct > DROP_WARN_FRACTION * 100.0 {
         Some(format!(
             "Capture couldn't keep up, dropped {dropped} frames ({pct:.1}%). \
-             Try a smaller region or a less busy disk."
+             Try 30 fps, a smaller region or a less busy disk."
         ))
     } else {
         None

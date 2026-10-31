@@ -166,7 +166,6 @@
   "Captions need a newer processor (with AVX2, most PCs from 2015 on)": "字幕功能需要较新的处理器（需支持 AVX2，2015 年以后的电脑大多支持）",
   "Captions saved. Upload the .srt next to your video.": "字幕已保存。请将 .srt 文件与视频一起上传。",
   "Captions: {why}": "字幕：{why}",
-  "Capture couldn't keep up, dropped {dropped} frames ({percent}%). Try a smaller region or a less busy disk.": "采集速度跟不上，丢失了 {dropped} 帧（{percent}%）。请尝试缩小录制区域，或换一块负载较低的磁盘。",
   "Capture ended unexpectedly (monitor disconnected?). Kept the frames recorded up to that point.": "采集意外结束（显示器是否已断开？）。已保留此前录制的画面。",
   "capture region is empty": "录制区域为空",
   "capture window is too small": "要录制的窗口太小",
@@ -1064,5 +1063,14 @@
   "Zoom timeline out": "缩小时间轴",
   "Zooms": "缩放",
   "Zooms removed. Ctrl+Z brings them back.": "缩放已移除。按 Ctrl+Z 可恢复。",
-  "Zooms, annotations, speed-ups and cuts are baked into the file.": "缩放、标注、变速和剪切都会写入文件。"
+  "Zooms, annotations, speed-ups and cuts are baked into the file.": "缩放、标注、变速和剪切都会写入文件。",
+  "Capture couldn't keep up, dropped {dropped} frames ({percent}%). Try 30 fps, a smaller region or a less busy disk.": "采集速度跟不上，丢失了 {dropped} 帧（{percent}%）。请尝试改用 30 fps、缩小录制区域，或换一块负载较低的磁盘。",
+  "Getting the sample ready…": "正在准备示例…",
+  "Sample clip": "示例片段",
+  "This is a sample. Press Space to play it, then try the tools on the left.": "这是一个示例。按空格键播放，然后试试左侧的工具。",
+  "Could not open the sample": "无法打开示例",
+  "Your take is ready. Press Space to watch it, Z to add a zoom, and Ctrl+E to export.": "录制完成。按空格键观看，按 Z 添加缩放，按 Ctrl+E 导出。",
+  "Try a sample clip": "试用示例片段",
+  "Recording this much at 60 fps can lose frames on this PC": "在这台电脑上以 60 fps 录制这么大的区域可能会丢帧",
+  "Use 30 fps": "改用 30 fps"
 }

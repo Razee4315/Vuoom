@@ -81,8 +81,8 @@ const ENGINE_PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
     (m) => t("Recording was cut short to protect your disk, {why}. Kept the {frames} frames captured before that.", { why: m[1], frames: m[2] }),
   ],
   [
-    /^Capture couldn't keep up, dropped (\d+) frames \((.+)%\)\. Try a smaller region or a less busy disk\.$/,
-    (m) => t("Capture couldn't keep up, dropped {dropped} frames ({percent}%). Try a smaller region or a less busy disk.", { dropped: m[1], percent: m[2] }),
+    /^Capture couldn't keep up, dropped (\d+) frames \((.+)%\)\. Try 30 fps, a smaller region or a less busy disk\.$/,
+    (m) => t("Capture couldn't keep up, dropped {dropped} frames ({percent}%). Try 30 fps, a smaller region or a less busy disk.", { dropped: m[1], percent: m[2] }),
   ],
   [/^Audio was not recorded: (.+)\.$/, (m) => t("Audio was not recorded: {why}.", { why: friendlyError(m[1]) })],
   [/^The camera was not recorded \((.+)\)\.$/, (m) => t("The camera was not recorded ({why}).", { why: friendlyError(m[1]) })],

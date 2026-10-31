@@ -68,6 +68,9 @@ export type RecordTarget =
   | { kind: "window"; hwnd: number; label: string }
   | null;
 
+/** From this many pixels (a 3K screen) a take at 60 fps gets the offer of a lighter rate. */
+const HEAVY_PIXELS = 6_000_000;
+
 export default function RecordOverlay(props: {
   backdrop: string | null;
   zoom: number;
@@ -632,6 +635,15 @@ export default function RecordOverlay(props: {
     return `${Math.round(r.w * sx)} × ${Math.round(r.h * sy)} px`;
   };
 
+  // A big area at the top frame rate is hard work for a mid-range PC. Better to offer the
+  // way out here than to report lost frames after the take.
+  const heavyTake = () => {
+    const r = preset().ratio === "full" ? null : sel();
+    const { sx, sy } = toPhysical();
+    const w = r ? r.w * sx : window.innerWidth * sx;
+    const h = r ? r.h * sy : window.innerHeight * sy;
+    return w * h >= HEAVY_PIXELS && prefs.captureFps() >= 60 && (navigator.hardwareConcurrency || 8) < 12;
+  };
   const windowMode = () => props.target?.kind === "window";
   const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
   /** Show or hide the live picture. Applies at once, also mid-take: off, the engine stops
@@ -1003,6 +1015,19 @@ export default function RecordOverlay(props: {
           />
           <span class="hud-sep" />
           <div class="hud-actions">
+            <Show when={heavyTake()}>
+              <button
+                type="button"
+                class="hud-heavy"
+                data-tip={t("Recording this much at 60 fps can lose frames on this PC")}
+                onClick={() => {
+                  prefs.captureFps.set(30);
+                  void invoke("set_capture_fps", { fps: 30 }).catch(() => undefined);
+                }}
+              >
+                {t("Use 30 fps")}
+              </button>
+            </Show>
             <span class="hud-dims">{windowMode() ? t("Window") : dims()}</span>
             <button type="button" class="hud-cancel" disabled={phase() === "preparing"} onClick={cancel} data-tip={t("Cancel")} data-kbd="Esc">
               <Icon name="close" size={14} />

@@ -92,6 +92,7 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
     case "clear_recovery_storage":
       return 412_589_056;
     case "recover_session":
+    case "load_sample":
       return m.recoverSession();
     case "open_project_bundle":
       return m.openProject();

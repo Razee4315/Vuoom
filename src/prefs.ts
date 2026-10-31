@@ -68,6 +68,8 @@ export interface LastRegion {
 export const prefs = {
   /** Capture frame-rate cap for new recordings. */
   captureFps: persisted<number>("capture-fps", 60),
+  /** The first-take tip has been shown. */
+  seenFirstTake: persisted<boolean>("seen-first-take", false),
   /**
    * The pointer in new takes: re-drawn and smoothed (the real one hidden), captured as is,
    * or left out. Installs that chose show/hide before this option existed keep that.

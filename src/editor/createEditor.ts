@@ -1397,7 +1397,7 @@ export function createEditor() {
         pos: [p.x, p.y],
         font_size: 0.05,
         color: { r: 255, g: 255, b: 255, a: 1 },
-        bold: false,
+        bold: true,
         italic: false,
         background: false,
         font: "",
@@ -2475,11 +2475,32 @@ export function createEditor() {
     }
   };
 
+  /** Open the built-in sample clip, to try everything without recording anything first. */
+  const trySample = async () => {
+    setBusy(t("Getting the sample ready…"));
+    try {
+      const summary = await invoke<RecordingSummary>("load_sample");
+      setProjectName(t("Sample clip"));
+      await loadFinishedClip(summary);
+      toast(t("This is a sample. Press Space to play it, then try the tools on the left."), "info", 9000);
+    } catch (e) {
+      fail(t("Could not open the sample"), e);
+    } finally {
+      setBusy(null);
+    }
+  };
+  // The first take ever: say what comes next, once.
+  const firstTakeTip = () => {
+    if (prefs.seenFirstTake()) return;
+    prefs.seenFirstTake.set(true);
+    toast(t("Your take is ready. Press Space to watch it, Z to add a zoom, and Ctrl+E to export."), "info", 10000);
+  };
   const onRecordFinished = async (summary: RecordingSummary) => {
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
     await loadFinishedClip(summary);
+    firstTakeTip();
     // The take before this one is still on disk: keep Recover last session on offer.
     void refreshRecoverable();
     const n = summary.zooms;
@@ -4470,6 +4491,7 @@ export function createEditor() {
     setShape,
     setArrowStyle,
     addTake,
+    trySample,
     busy,
     setMaskPixelate,
     arrowLook,

@@ -418,6 +418,7 @@ function TimingSection(props: { id: string }) {
       <Field label={t("On screen")}>
         <span class="readout">{(r().end - r().start).toFixed(2)}s</span>
       </Field>
+      <Show when={!ed.isMask()}>
       <Field label={t("Fade in")} hint={t("0 pops in instantly")}>
         <ScrubField
           value={Number(r().fade_in.toFixed(2))}
@@ -442,6 +443,7 @@ function TimingSection(props: { id: string }) {
           onCommit={(v) => ed.editFades(r().fade_in, v)}
         />
       </Field>
+      </Show>
       <div class="btn-row">
         <button type="button" class="btn sm" data-tip={t("Start at the playhead")} onClick={() => {
           const len = r().end - r().start;

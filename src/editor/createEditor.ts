@@ -2565,7 +2565,9 @@ export function createEditor() {
     setSelCut(null);
     setStatus(
       summary.warning ??
-        t("Recorded {duration}s · {zooms} zooms", { duration: summary.duration.toFixed(1), zooms: summary.zooms }),
+        summary.zooms === 1
+          ? t("Recorded {duration}s · 1 zoom", { duration: summary.duration.toFixed(1) })
+          : t("Recorded {duration}s · {zooms} zooms", { duration: summary.duration.toFixed(1), zooms: summary.zooms }),
     );
     await refresh();
     await refreshClip();

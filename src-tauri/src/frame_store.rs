@@ -320,6 +320,12 @@ pub fn free_scratch_dir(in_use: Option<&Path>) -> PathBuf {
     }
 }
 
+/// The folder of the built-in sample clip. Named non-numerically, like the scratch folders,
+/// so it is no take: recovery and rotation pass it by.
+pub fn sample_dir() -> PathBuf {
+    recovery_root().join("sample")
+}
+
 /// Whether `dir` is one of the [`scratch_dirs`].
 pub fn is_scratch(dir: &Path) -> bool {
     scratch_dirs().iter().any(|s| s == dir)
@@ -510,7 +516,7 @@ pub fn recovery_usage() -> (u64, usize) {
 /// dir: one that fails to delete is left in place and not counted.
 pub fn clear_recovery(keep: Option<&Path>) -> u64 {
     let mut targets = session_dirs();
-    for scratch in scratch_dirs() {
+    for scratch in scratch_dirs().into_iter().chain([sample_dir()]) {
         if scratch.is_dir() {
             targets.push(scratch);
         }

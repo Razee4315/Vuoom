@@ -191,6 +191,9 @@ export default function Home() {
               <button type="button" class="btn sm ghost" onClick={() => void ed.onOpenProject()}>
                 <Icon name="folder" size={14} /> {t("Open project")}
               </button>
+              <button type="button" class="btn sm ghost" onClick={() => void ed.trySample()}>
+                <Icon name="wand" size={14} /> {t("Try a sample clip")}
+              </button>
             </header>
             <div class="recents-grid">
               <For

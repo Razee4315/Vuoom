@@ -10,6 +10,9 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 ## [Unreleased]
 
 ### Added
+- Try a sample clip, on Home, in the File menu and on the welcome card: the whole editor to play
+  with before recording anything.
+- A big area at 60 fps offers 30 fps before the take, on a PC that may struggle with it.
 - Simplified Chinese: the whole app, the installer, and captions that split properly (#94).
   Vuoom picks it up from Windows, and Settings has a language switch.
 - Add a take: File > Add a take to this clip records onto the end of the clip, sharing one
@@ -69,6 +72,8 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
   are reused, and the editor preview is drawn at the size it is shown.
 
 ### Fixed
+- Every take lost its opening frames while the audio devices opened. Frames are now taken from
+  the first one, at any resolution.
 - A hide mask stays on what it covers through a zoom and never fades. Private details could
   slide out from under one during a zoom, or show through while it faded in.
 - A long 4K export can't run the computer out of memory: frames used to pile up whenever the

@@ -1563,6 +1563,11 @@ impl Session {
         project.zooms = zooms;
         project.zoom_config = cfg;
         project.events = events;
+        // A new take's look, so the sample shows what a recording of yours will get.
+        self.take_defaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .apply(&mut project);
         project.show_clicks = true;
         project.pointer_captured = false;
         project.cursor = Some(self.new_pointer_style());

@@ -1072,5 +1072,6 @@
   "Your take is ready. Press Space to watch it, Z to add a zoom, and Ctrl+E to export.": "录制完成。按空格键观看，按 Z 添加缩放，按 Ctrl+E 导出。",
   "Try a sample clip": "试用示例片段",
   "Recording this much at 60 fps can lose frames on this PC": "在这台电脑上以 60 fps 录制这么大的区域可能会丢帧",
-  "Use 30 fps": "改用 30 fps"
+  "Use 30 fps": "改用 30 fps",
+  "Recorded {duration}s · 1 zoom": "已录制 {duration} 秒 · 1 处缩放"
 }

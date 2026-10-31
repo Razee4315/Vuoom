@@ -3,6 +3,7 @@
 // user frames the shot (the same camera then records without reopening).
 import { createEffect, createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { invoke } from "../bridge";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { prefs } from "../prefs";
 import type { CameraDevice } from "../types";
@@ -45,7 +46,7 @@ export function pushCameraChoice(): void {
 /** The chosen camera's name, or a generic one. */
 export function cameraName(cameras: CameraDevice[]): string {
   const id = prefs.cameraDevice();
-  return (cameras.find((c) => c.id === id) ?? cameras[0])?.name ?? "Camera";
+  return (cameras.find((c) => c.id === id) ?? cameras[0])?.name ?? t("Camera");
 }
 
 /** Menu entries: camera off, then each camera. */
@@ -58,11 +59,11 @@ export function cameraMenuItems(cameras: CameraDevice[]): MenuItem[] {
   const current = prefs.cameraDevice();
   const knownCurrent = cameras.some((c) => c.id === current);
   const items: MenuItem[] = [
-    { heading: "Camera" },
-    { label: "Off", icon: "cameraOff", checked: !prefs.recordCamera(), onSelect: () => pick(false, null) },
+    { heading: t("Camera") },
+    { label: t("Off"), icon: "cameraOff", checked: !prefs.recordCamera(), onSelect: () => pick(false, null) },
   ];
   if (cameras.length === 0) {
-    items.push({ label: "No camera found", icon: "camera", disabled: true, onSelect: () => undefined });
+    items.push({ label: t("No camera found"), icon: "camera", disabled: true, onSelect: () => undefined });
   }
   cameras.forEach((c, i) => {
     const chosen = prefs.recordCamera() && (current === c.id || (!knownCurrent && i === 0));
@@ -150,11 +151,11 @@ export function CameraPicker(props: { class?: string }): JSX.Element {
           class={`audio-picker ${props.class ?? ""}`}
           classList={{ on: m.open, off: !prefs.recordCamera() }}
           ref={m.ref}
-          data-tip={prefs.recordCamera() ? cameraName(cameras()) : "Add your webcam as a bubble over the recording"}
+          data-tip={prefs.recordCamera() ? cameraName(cameras()) : t("Add your webcam as a bubble over the recording")}
           onClick={m.toggle}
         >
           <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
-          <span>{prefs.recordCamera() ? "Camera" : "No camera"}</span>
+          <span>{prefs.recordCamera() ? t("Camera") : t("No camera")}</span>
           <Icon name="chevronDown" size={12} />
         </button>
       )}

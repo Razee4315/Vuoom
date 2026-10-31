@@ -1,6 +1,7 @@
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isMock } from "./bridge";
+import { t } from "./i18n";
 
 /** Browser no-op stand-in so the controls render (and do nothing) outside the app shell. */
 function mockWindow() {
@@ -45,8 +46,8 @@ export default function WindowControls() {
     <div class="winctl">
       <button
         class="winbtn"
-        title="Minimize"
-        aria-label="Minimize"
+        title={t("Minimize")}
+        aria-label={t("Minimize")}
         onClick={() => void appWindow.minimize()}
       >
         <svg width="11" height="11" viewBox="0 0 11 11">
@@ -56,8 +57,8 @@ export default function WindowControls() {
 
       <button
         class="winbtn"
-        title={maximized() ? "Restore" : "Maximize"}
-        aria-label={maximized() ? "Restore" : "Maximize"}
+        title={maximized() ? t("Restore") : t("Maximize")}
+        aria-label={maximized() ? t("Restore") : t("Maximize")}
         onClick={() => void appWindow.toggleMaximize()}
       >
         <Show
@@ -77,8 +78,8 @@ export default function WindowControls() {
 
       <button
         class="winbtn close"
-        title="Close"
-        aria-label="Close"
+        title={t("Close")}
+        aria-label={t("Close")}
         onClick={() => void appWindow.close()}
       >
         <svg width="11" height="11" viewBox="0 0 11 11">

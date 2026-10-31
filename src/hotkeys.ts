@@ -2,6 +2,7 @@
 // rebound (Settings > Shortcuts); every label that names them reads the current chord from
 // here, and the engine is told whenever they change.
 import { invoke } from "./bridge";
+import { t } from "./i18n";
 import { prefs } from "./prefs";
 
 export const ZOOM_DEFAULT = "Ctrl+Shift+Z";
@@ -40,12 +41,12 @@ export type ChordAttempt =
 export function chordFromEvent(e: KeyboardEvent): ChordAttempt {
   if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return { pending: true };
   const key = keyName(e.code);
-  if (!key) return { error: "Use a letter, a digit or F1 to F12" };
+  if (!key) return { error: t("Use a letter, a digit or F1 to F12") };
   const mods = [e.ctrlKey && "Ctrl", e.shiftKey && "Shift", e.altKey && "Alt"].filter(
     (m): m is string => !!m,
   );
   if (!key.startsWith("F") || key.length === 1) {
-    if (mods.length < 2) return { error: "Hold two of Ctrl, Shift and Alt with it" };
+    if (mods.length < 2) return { error: t("Hold two of Ctrl, Shift and Alt with it") };
   }
   return { chord: [...mods, key].join("+") };
 }

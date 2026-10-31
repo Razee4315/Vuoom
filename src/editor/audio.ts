@@ -12,6 +12,7 @@
 // track while the old one keeps playing.
 import { createSignal } from "solid-js";
 import { invoke } from "../bridge";
+import { t } from "../i18n";
 import type { AudioKind, AudioTrack } from "../types";
 
 /** Waveform resolution: peak buckets per second of audio. */
@@ -49,7 +50,7 @@ export function computePeaks(buf: AudioBuffer): Float32Array {
   return out;
 }
 
-export const trackLabel = (k: AudioKind) => (k === "mic" ? "Microphone" : "System sound");
+export const trackLabel = (k: AudioKind) => (k === "mic" ? t("Microphone") : t("System sound"));
 export const effectiveGain = (t: AudioTrack) => (t.muted ? 0 : Math.max(0, Math.min(4, t.gain)));
 /** Which processed version of a track plays (older engines send no clean-up fields). */
 const version = (t: AudioTrack) => `${t.denoise ? "d" : ""}${t.level ? "l" : ""}`;

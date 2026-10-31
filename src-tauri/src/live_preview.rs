@@ -247,7 +247,7 @@ fn render_preview(
     let y0 = (cy - i64::from(vh) / 2).clamp(0, i64::from(fh - vh)) as u32;
 
     let viewport = (x0, y0, vw, vh);
-    let mut small = shrink(frame, viewport, PREVIEW_WIDTH.min(vw));
+    let mut small = shrink(&frame.bgra, fw, viewport, PREVIEW_WIDTH.min(vw));
     if let Some(p) = marker {
         // The pointer in viewport terms, then preview pixels.
         let px = (p.x * f64::from(fw) - f64::from(x0)) / f64::from(vw) * f64::from(small.width);
@@ -265,11 +265,16 @@ fn render_preview(
     Some(pack_frame(&small.pixels, meta))
 }
 
-/// The `viewport` (x, y, w, h) of `frame` (BGRA) as an RGBA image `width` px wide, in one
-/// pass: each output pixel is the average of the source pixels it covers.
-fn shrink(frame: &CapturedFrame, viewport: (u32, u32, u32, u32), width: u32) -> RgbaImage {
+/// The `viewport` (x, y, w, h) of a BGRA image `stride` pixels wide as an RGBA image `width`
+/// px wide, in one pass: each output pixel is the average of the source pixels it covers.
+pub(crate) fn shrink(
+    bgra: &[u8],
+    stride: u32,
+    viewport: (u32, u32, u32, u32),
+    width: u32,
+) -> RgbaImage {
     let (x0, y0, vw, vh) = viewport;
-    let (dw, stride) = (width.max(1) as usize, frame.width as usize);
+    let (dw, stride) = (width.max(1) as usize, stride as usize);
     let dh = ((u64::from(vh) * dw as u64) / u64::from(vw.max(1))).max(1) as usize;
     let (vw, vh) = (vw as usize, vh as usize);
     // Each output column's source span, worked out once for all rows.
@@ -288,7 +293,7 @@ fn shrink(frame: &CapturedFrame, viewport: (u32, u32, u32, u32), width: u32) -> 
             let mut sum = [0u32; 3];
             for sy in a..b {
                 let row = (y0 as usize + sy) * stride + x0 as usize;
-                let span = &frame.bgra[(row + c0) * 4..(row + c1) * 4];
+                let span = &bgra[(row + c0) * 4..(row + c1) * 4];
                 let (src, _) = span.as_chunks::<4>();
                 for p in src {
                     sum[0] += u32::from(p[0]);
@@ -339,11 +344,12 @@ fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32)
     // The cursor is in virtual-desktop coords; the crop is monitor-relative.
     let (mx, my) = (f64::from(origin.0), f64::from(origin.1));
     let (ox, oy, w, h) = match region {
+        // The frames' size, not the request's: the capture clamps a region to the display.
         Some(r) => (
             mx + f64::from(r.x),
             my + f64::from(r.y),
-            f64::from(r.w),
-            f64::from(r.h),
+            f64::from(fw),
+            f64::from(fh),
         ),
         None => (mx, my, f64::from(fw), f64::from(fh)),
     };
@@ -440,12 +446,12 @@ mod tests {
                 [0, 0, 100, 255]
             };
         }
-        let img = shrink(&f, (0, 0, 4, 2), 2);
+        let img = shrink(&f.bgra, 4, (0, 0, 4, 2), 2);
         assert_eq!((img.width, img.height), (2, 1));
         assert_eq!(img.pixels[..4], [0, 0, 200, 255]);
         assert_eq!(img.pixels[4..], [100, 0, 0, 255]);
         // A viewport: only the right half, one output pixel.
-        let img = shrink(&f, (2, 0, 2, 2), 1);
+        let img = shrink(&f.bgra, 4, (2, 0, 2, 2), 1);
         assert_eq!(img.pixels, [100, 0, 0, 255]);
     }
 

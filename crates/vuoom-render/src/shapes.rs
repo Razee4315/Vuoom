@@ -211,7 +211,79 @@ fn stroke(out: &mut Vec<ShapeVertex>, s: &ResolvedStroke) {
     fan(out, pts[pts.len() - 1], h, [end, PI], color);
 }
 
+/// Points along a quadratic Bézier, ends included.
+const CURVE_STEPS: usize = 40;
+
+/// A head whose tip is at `tip`, pointing along the unit vector `dir`.
+fn arrow_head(
+    out: &mut Vec<ShapeVertex>,
+    tip: [f32; 2],
+    dir: [f32; 2],
+    (head, half_width): (f32, f32),
+    color: [f32; 4],
+) {
+    let base = [tip[0] - dir[0] * head, tip[1] - dir[1] * head];
+    let perp = [-dir[1], dir[0]];
+    let side = |k: f32| ShapeVertex {
+        pos: [base[0] + perp[0] * k, base[1] + perp[1] * k],
+        color,
+    };
+    out.push(side(half_width));
+    out.push(ShapeVertex { pos: tip, color });
+    out.push(side(-half_width));
+}
+
+/// A curved arrow: the line through the Bézier from `a` to `b` around `c`, stopping short of
+/// each end that carries a head, so the head isn't doubled over.
+fn curved_arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow, ctrl: [f64; 2]) {
+    let (p0, p2) = ([a.from_x, a.from_y], [a.to_x, a.to_y]);
+    let at = |t: f64| {
+        let u = 1.0 - t;
+        [
+            u * u * p0[0] + 2.0 * u * t * ctrl[0] + t * t * p2[0],
+            u * u * p0[1] + 2.0 * u * t * ctrl[1] + t * t * p2[1],
+        ]
+    };
+    let pts: Vec<[f64; 2]> = (0..=CURVE_STEPS)
+        .map(|k| at(k as f64 / CURVE_STEPS as f64))
+        .collect();
+    let len: f64 = pts
+        .windows(2)
+        .map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]))
+        .sum();
+    let th = a.thickness_px.max(1.0);
+    let head = (th * 4.0).max(10.0).min(len * 0.5);
+    let keep = |p: &[f64; 2]| {
+        let clear = |end: [f64; 2]| (p[0] - end[0]).hypot(p[1] - end[1]) >= head * 0.9;
+        (!a.head_from || clear(p0)) && (!a.head_to || clear(p2))
+    };
+    let shaft = ResolvedStroke {
+        points: pts.iter().copied().filter(keep).collect(),
+        thickness_px: th,
+        color: a.color,
+    };
+    stroke(out, &shaft);
+    let color = col(a.color);
+    let size = (head as f32, head as f32 * 0.55);
+    let unit = |from: [f64; 2], to: [f64; 2]| {
+        let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+        let l = dx.hypot(dy).max(1e-6);
+        [(dx / l) as f32, (dy / l) as f32]
+    };
+    let tip = |p: [f64; 2]| [p[0] as f32, p[1] as f32];
+    if a.head_to {
+        arrow_head(out, tip(p2), unit(pts[CURVE_STEPS - 4], p2), size, color);
+    }
+    if a.head_from {
+        arrow_head(out, tip(p0), unit(pts[4], p0), size, color);
+    }
+}
+
 fn arrow(out: &mut Vec<ShapeVertex>, a: &ResolvedArrow) {
+    if let Some(ctrl) = a.ctrl {
+        curved_arrow(out, a, ctrl);
+        return;
+    }
     let color = col(a.color);
     let from = [a.from_x as f32, a.from_y as f32];
     let to = [a.to_x as f32, a.to_y as f32];
@@ -435,6 +507,9 @@ pub fn build_shape_vertices(scene: &Scene, plate: Option<&ResolvedHighlight>) ->
     }
     for a in &scene.arrows {
         arrow(&mut out, a);
+    }
+    for m in &scene.masks {
+        highlight(&mut out, m);
     }
     if let Some(p) = plate {
         highlight(&mut out, p);

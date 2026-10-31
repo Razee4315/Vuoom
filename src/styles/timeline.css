@@ -456,7 +456,7 @@
   border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
   border-radius: 7px;
   background: color-mix(in srgb, var(--c) 22%, var(--panel));
-  color: color-mix(in srgb, var(--c) 30%, var(--text));
+  color: color-mix(in srgb, var(--c) 12%, var(--text));
   font-size: var(--fs-xs);
   font-weight: 650;
   white-space: nowrap;
@@ -688,4 +688,15 @@
   border-radius: 3px 3px 6px 6px;
   background: var(--record);
   box-shadow: 0 0 0 2px var(--panel);
+}
+
+/* The filmstrip while its pictures are on their way. */
+.tl-film:empty {
+  background: linear-gradient(90deg, var(--raised), var(--hover), var(--raised)) 0 0 / 200% 100%;
+  animation: film-wait 1.6s linear infinite;
+}
+@keyframes film-wait {
+  to {
+    background-position: -200% 0;
+  }
 }

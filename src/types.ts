@@ -1,7 +1,17 @@
 // Shared editor types. These mirror the src-tauri / vuoom_* serde shapes and are
 // imported across the frontend. Keep names identical to their App.tsx origins.
 
-export type Tool = "select" | "zoom" | "text" | "arrow" | "pen" | "shape" | "highlight" | "spotlight" | "mask";
+export type Tool =
+  | "select"
+  | "zoom"
+  | "text"
+  | "arrow"
+  | "step"
+  | "pen"
+  | "shape"
+  | "highlight"
+  | "spotlight"
+  | "mask";
 export type Vec2 = { x: number; y: number };
 
 /** Mirrors src-tauri session::RecordingSummary. */
@@ -39,6 +49,8 @@ export interface TextAnn {
   italic: boolean;
   background: boolean;
   font: string;
+  /** A step marker: `text` centered in a disc of `color`, at `pos`. */
+  badge?: boolean;
   range: TimeRange;
 }
 export interface ArrowAnn {
@@ -49,6 +61,8 @@ export interface ArrowAnn {
   thickness: number;
   /// Mirrors vuoom_project::ArrowStyle, externally tagged unit variants serialize as the name.
   style?: "Arrow" | "Line" | "DoubleArrow";
+  /** How far the middle bows off the straight line, as a fraction of its length. */
+  curve?: number;
   range: TimeRange;
 }
 export interface BoxAnn {
@@ -60,6 +74,8 @@ export interface BoxAnn {
   shape: "Rect" | "Ellipse" | "Mask" | "Spotlight";
   /** A spotlight's corner radius, as a fraction of the height (absent from older engines). */
   radius?: number;
+  /** A hide mask that shows large blocks instead of solid black. */
+  pixelate?: boolean;
   range: TimeRange;
 }
 /** A freehand pen stroke, mirrors vuoom_project::StrokeAnnotation. */

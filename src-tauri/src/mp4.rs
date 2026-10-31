@@ -12,7 +12,9 @@
 //! keyframe every two seconds. The sink writer only considers hardware encoders (NVENC,
 //! Quick Sync, AMF) when the hardware-transforms attribute is set, so it is, with fallbacks
 //! to Microsoft's software encoder and then to the encoder's own defaults for a driver that
-//! rejects the setup.
+//! rejects the setup. Sink-writer throttling stays on: it blocks a write while too many frames
+//! wait for the encoder, which is all that keeps a 4K export from queueing frames in memory
+//! faster than a software encoder takes them, until the computer runs out.
 //! With a soundtrack, an AAC stream (48 kHz stereo, 192 kbps, the OS encoder again) is fed
 //! 16-bit PCM interleaved with the video; if the AAC encoder is unavailable the file is
 //! written without audio rather than failing.
@@ -77,13 +79,36 @@ pub(crate) fn rgba_to_nv12(rgba: &[u8], w: usize, y: &mut [u8], uv: &mut [u8]) {
         .for_each(|((y_rows, uv_row), src)| nv12_row_pair(src, w, y_rows, uv_row));
 }
 
+/// The largest frame H.264 encoders take, by the High profile's level 5.2 and in practice:
+/// no side over 4096 and no more pixels than 4096×2304.
+const H264_MAX_SIDE: f64 = 4096.0;
+const H264_MAX_PIXELS: f64 = 4096.0 * 2304.0;
+
+/// `w`×`h` (even) as they are if an H.264 encoder takes that size, else shrunk to fit with the
+/// same shape. A frame around a 4K take grows the picture past what any H.264 encoder takes,
+/// and the export must still work: the framed picture comes out at the most H.264 can hold.
+pub(crate) fn fit_h264(w: u32, h: u32) -> (u32, u32) {
+    let (fw, fh) = (f64::from(w), f64::from(h));
+    let k = (H264_MAX_SIDE / fw)
+        .min(H264_MAX_SIDE / fh)
+        .min((H264_MAX_PIXELS / (fw * fh)).sqrt());
+    if k >= 1.0 {
+        return (w, h);
+    }
+    let even = |v: f64| ((v * k / 2.0).floor() as u32 * 2).max(2);
+    (even(fw), even(fh))
+}
+
+/// The most bits per second we ask of an encoder: 4K at 60 fps at the top of the slider.
+const MAX_BITRATE: u32 = 120_000_000;
+
 /// Map the 40-100 quality slider to an H.264 average bitrate for this size/rate.
 /// Roughly 0.04-0.2 bits per pixel per frame, README-screencast territory.
 pub(crate) fn bitrate(w: u32, h: u32, fps: u32, quality: u8) -> u32 {
     let q = f64::from(quality.clamp(40, 100));
     let bpp = 0.04 + (q - 40.0) / 60.0 * 0.16;
     let bits = f64::from(w) * f64::from(h) * f64::from(fps) * bpp;
-    (bits as u32).clamp(1_000_000, 50_000_000)
+    (bits as u32).clamp(1_000_000, MAX_BITRATE)
 }
 
 #[cfg(windows)]
@@ -104,7 +129,7 @@ mod imp {
         MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE,
         MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_TRANSFER_FUNCTION,
         MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES, MF_MT_YUV_MATRIX,
-        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SINK_WRITER_DISABLE_THROTTLING, MF_VERSION,
+        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
@@ -326,13 +351,10 @@ mod imp {
             // SAFETY: standard sink-writer setup; all pointers outlive the calls.
             unsafe {
                 let mut attrs: Option<IMFAttributes> = None;
-                ok(MFCreateAttributes(&mut attrs, 2))?;
+                ok(MFCreateAttributes(&mut attrs, 1))?;
                 let attrs = attrs.ok_or("sink writer attributes")?;
                 let hardware = u32::from(setup.hardware);
                 ok(attrs.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, hardware))?;
-                // We feed frames as fast as we can composite them (offline export), so let the
-                // writer accept samples without pacing them to real time.
-                ok(attrs.SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1))?;
                 let writer = MFCreateSinkWriterFromURL(
                     PCWSTR(wide.as_ptr()),
                     None::<&IMFByteStream>,
@@ -548,6 +570,107 @@ mod tests {
         assert!(bitrate(1920, 1080, 60, 100).abs_diff(high * 2) <= 2);
         // Clamped at both ends.
         assert_eq!(bitrate(64, 64, 8, 40), 1_000_000);
-        assert_eq!(bitrate(7680, 4320, 60, 100), 50_000_000);
+        assert_eq!(bitrate(7680, 4320, 60, 100), 120_000_000);
+        // 4K at 60 fps gets the bits its pixels call for.
+        assert!(bitrate(3840, 2160, 60, 100) > 90_000_000);
+    }
+
+    /// One 4K export through the real compositor and encoder, printing what each stage costs.
+    /// Writes the file to `VUOOM_PERF_OUT` for the workflow to inspect.
+    #[cfg(windows)]
+    fn bench_export(name: &str, padding: f64, out: &std::path::Path) -> (u32, u32) {
+        use std::time::{Duration, Instant};
+        use vuoom_project::{Project, SourceInfo};
+        use vuoom_render::{build_scene, BgFill, Compositor};
+        use vuoom_zoom::{simulate, ZoomConfig};
+        const FPS: u32 = 30;
+        const FRAMES: u32 = 45;
+        let (sw, sh) = (3840u32, 2160u32);
+        let Some(compositor) = Compositor::new() else {
+            panic!("no GPU adapter on this machine");
+        };
+        println!("PERF adapter: {}", compositor.adapter());
+        let mut project = Project::new(SourceInfo {
+            path: String::new(),
+            width: sw,
+            height: sh,
+            fps: f64::from(FPS),
+            duration: f64::from(FRAMES) / f64::from(FPS),
+        });
+        project.frame.padding = padding;
+        let cfg = ZoomConfig::default();
+        let duration = project.source.duration;
+        let track = simulate(&[], &[], duration, f64::from(FPS), &cfg);
+        let (w, h) = project.output_dims();
+        let (w, h) = fit_h264(w + w % 2, h + h % 2);
+        let mut source = vec![255u8; (sw * sh * 4) as usize];
+        for (i, p) in source.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            p[0] = (i % 251) as u8;
+            p[1] = (i / 3840 % 256) as u8;
+        }
+        let bg = BgFill::solid([0.1, 0.1, 0.12, 1.0]);
+        let encoder = Mp4Encoder::new(out, w, h, FPS, 85, false).expect("MP4 encoder");
+        let (mut drawn, mut encoded) = (Duration::ZERO, Duration::ZERO);
+        let start = Instant::now();
+        for i in 0..FRAMES {
+            // A bar that moves, so each frame has something new to encode.
+            let row = (i * 40) as usize * sw as usize * 4;
+            source[row..row + sw as usize * 40].fill(i as u8 * 5);
+            let t = f64::from(i) / f64::from(FPS);
+            let scene = build_scene(&project, &track, w, h, t);
+            let at = Instant::now();
+            let rgba = compositor.composite_scene(&source, None, sw, sh, w, h, &scene, bg, None);
+            drawn += at.elapsed();
+            let at = Instant::now();
+            encoder.write_rgba(&rgba, i).expect("encode");
+            encoded += at.elapsed();
+            compositor.recycle(rgba);
+        }
+        encoder.finish().expect("finish");
+        let total = start.elapsed().as_secs_f64();
+        println!(
+            "PERF export {name} {w}x{h}: {:.1} fps, composite {:.0} ms, encode {:.0} ms a frame",
+            f64::from(FRAMES) / total,
+            drawn.as_secs_f64() * 1000.0 / f64::from(FRAMES),
+            encoded.as_secs_f64() * 1000.0 / f64::from(FRAMES),
+        );
+        assert!(std::fs::metadata(out).is_ok_and(|m| m.len() > 1000));
+        (w, h)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "a 4K benchmark, run by the engine-4k workflow"]
+    fn perf_4k_export() {
+        let dir = std::env::var_os("VUOOM_PERF_OUT").map_or_else(std::env::temp_dir, Into::into);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            bench_export("plain", 0.0, &dir.join("plain.mp4")),
+            (3840, 2160)
+        );
+        let (w, h) = bench_export("framed", 0.08, &dir.join("framed.mp4"));
+        assert!(w <= 4096 && h <= 2304, "{w}x{h}");
+    }
+
+    #[test]
+    fn frames_that_fit_h264_are_left_alone() {
+        assert_eq!(fit_h264(1920, 1080), (1920, 1080));
+        assert_eq!(fit_h264(3840, 2160), (3840, 2160));
+        assert_eq!(fit_h264(4096, 2304), (4096, 2304));
+    }
+
+    #[test]
+    fn a_framed_4k_take_shrinks_to_what_h264_holds() {
+        let (w, h) = fit_h264(4454, 2506);
+        assert!(w <= 4096 && h <= 4096, "{w}x{h}");
+        assert!(u64::from(w) * u64::from(h) <= 4096 * 2304, "{w}x{h}");
+        assert!(w % 2 == 0 && h % 2 == 0, "{w}x{h}");
+        let (was, now) = (4454.0 / 2506.0, f64::from(w) / f64::from(h));
+        assert!((was - now).abs() < 0.01, "shape {was} became {now}");
+        // Tall, and an 8K take.
+        let (w, h) = fit_h264(2160, 7680);
+        assert!(h <= 4096 && w % 2 == 0, "{w}x{h}");
+        let (w, h) = fit_h264(7680, 4320);
+        assert!(w <= 4096 && h <= 4096, "{w}x{h}");
     }
 }

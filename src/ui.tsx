@@ -12,6 +12,7 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import { t } from "./i18n";
 import { Icon, type IconName } from "./icons";
 import { sectionOpen, toggleSection } from "./prefs";
 
@@ -62,10 +63,21 @@ export function Seg<T extends string | number>(props: {
 }): JSX.Element {
   const idx = () => Math.max(0, props.options.findIndex((o) => o.value === props.value));
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset can't lay out as this control.
     <div
       class={`seg ${props.class ?? ""}`}
       classList={{ disabled: !!props.disabled, full: !!props.full }}
       style={{ "--n": props.options.length, "--i": idx() }}
+      role="group"
+      aria-label={props.label}
+      onKeyDown={(e) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (!step || props.disabled) return;
+        e.preventDefault();
+        const n = props.options.length;
+        props.onChange(props.options[(idx() + step + n) % n].value);
+        (e.currentTarget.querySelector(".seg-btn.on") as HTMLElement | null)?.focus();
+      }}
     >
       <span class="seg-thumb" aria-hidden="true" />
       <For each={props.options}>
@@ -73,6 +85,7 @@ export function Seg<T extends string | number>(props: {
           <button
             type="button"
             aria-pressed={props.value === o.value}
+            tabindex={props.value === o.value ? 0 : -1}
             data-tip={o.tip}
             disabled={props.disabled}
             classList={{ "seg-btn": true, on: props.value === o.value }}
@@ -220,6 +233,21 @@ export function Field(props: {
 }
 
 /** Keyboard chip(s). A string like "Ctrl+Shift+R" renders one chip per key. */
+/**
+ * A translated sentence with elements inside it: each {name} left in `text` is replaced by
+ * `parts.name`, so the sentence stays whole and each language places the element itself.
+ */
+export function Rich(props: { text: string; parts: Record<string, () => JSX.Element> }): JSX.Element {
+  return (
+    <>
+      {props.text.split(/(\{\w+\})/).map((piece) => {
+        const part = props.parts[piece.slice(1, -1)];
+        return part ? part() : piece;
+      })}
+    </>
+  );
+}
+
 export function Kbd(props: { keys: string }): JSX.Element {
   return (
     <span class="kbds">
@@ -556,34 +584,34 @@ export function ToastHost(): JSX.Element {
   return (
     <div class="toasts" role="status" aria-live="polite">
       <For each={toasts()}>
-        {(t) => (
+        {(item) => (
           <div
             class="toast"
-            classList={{ [t.kind]: true }}
-            onPointerEnter={() => clearTimeout(toastTimers.get(t.id))}
-            onPointerLeave={() => scheduleDismiss(t.id, 2000)}
+            classList={{ [item.kind]: true }}
+            onPointerEnter={() => clearTimeout(toastTimers.get(item.id))}
+            onPointerLeave={() => scheduleDismiss(item.id, 2000)}
           >
             <span class="toast-icon">
-              <Icon name={TOAST_ICON[t.kind]} size={14} stroke={2.2} />
+              <Icon name={TOAST_ICON[item.kind]} size={14} stroke={2.2} />
             </span>
-            <span class="toast-text">{t.text}</span>
-            <Show when={t.action}>
+            <span class="toast-text">{item.text}</span>
+            <Show when={item.action}>
               <button
                 type="button"
                 class="toast-action"
                 onClick={() => {
-                  t.action!.run();
-                  dismissToast(t.id);
+                  item.action!.run();
+                  dismissToast(item.id);
                 }}
               >
-                {t.action!.label}
+                {item.action!.label}
               </button>
             </Show>
             <button
               type="button"
               class="toast-x"
-              aria-label="Dismiss notification"
-              onClick={() => dismissToast(t.id)}
+              aria-label={t("Dismiss notification")}
+              onClick={() => dismissToast(item.id)}
             >
               <Icon name="close" size={10} stroke={2.5} />
             </button>

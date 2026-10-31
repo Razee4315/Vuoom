@@ -2,6 +2,7 @@
 // window under the pointer lights up with its name, and a click records it. The list of
 // windows stays one button away, for a window that is hidden or on another display.
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import type { WindowInfo } from "../types";
 import "../RecordOverlay.css";
@@ -94,7 +95,7 @@ export default function WindowPicker(props: {
       <Show when={hover()} fallback={
         <div class="sel-fullhint">
           <Icon name="window" size={18} />
-          Point at a window and click to record it
+          {t("Point at a window and click to record it")}
         </div>
       }>
         {(w) => {
@@ -106,7 +107,7 @@ export default function WindowPicker(props: {
                 style={{ left: `${b().x}px`, top: `${b().y}px`, width: `${b().w}px`, height: `${b().h}px` }}
               />
               <div class="sel-dimtag" style={{ left: `${Math.max(4, b().x)}px`, top: `${Math.max(4, b().y - 30)}px` }}>
-                {w().title || "Untitled window"} · {w().w} × {w().h}
+                {w().title || t("Untitled window")} · {w().w} × {w().h}
               </div>
             </>
           );
@@ -114,19 +115,19 @@ export default function WindowPicker(props: {
       </Show>
 
       <div class="hud" onPointerDown={(e) => e.stopPropagation()} onPointerMove={(e) => e.stopPropagation()}>
-        <span class="hud-label">Window</span>
+        <span class="hud-label">{t("Window")}</span>
         <button
           type="button"
           class="hud-options"
-          data-tip="Pick from a list instead, for a window that is covered or on another display"
+          data-tip={t("Pick from a list instead, for a window that is covered or on another display")}
           onClick={props.onList}
         >
           <Icon name="layers" size={14} />
-          <span>Choose from a list</span>
+          <span>{t("Choose from a list")}</span>
         </button>
         <span class="hud-sep" />
         <div class="hud-actions">
-          <button type="button" class="hud-cancel" aria-label="Cancel" data-tip="Cancel" data-kbd="Esc" onClick={props.onCancel}>
+          <button type="button" class="hud-cancel" aria-label={t("Cancel")} data-tip={t("Cancel")} data-kbd="Esc" onClick={props.onCancel}>
             <Icon name="close" size={14} />
           </button>
         </div>

@@ -3,25 +3,27 @@ import { For, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { zoomKeys } from "../hotkeys";
+import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { LogoMark } from "../Logo";
+import { Rich } from "../ui";
 
-const STEPS: { icon: IconName; title: string; text: () => string }[] = [
+const STEPS = (): { icon: IconName; title: string; text: () => string }[] => [
   {
     icon: "region",
-    title: "Record",
+    title: t("Record"),
     text: () =>
-      `Pick a region, a window or the whole screen. Vuoom zooms in where you click, or press ${zoomKeys()} to zoom yourself.`,
+      t("Pick a region, a window or the whole screen. Vuoom zooms in where you click, or press {keys} to zoom yourself.", { keys: zoomKeys() }),
   },
   {
     icon: "sparkle",
-    title: "Polish",
-    text: () => "Trim, cut the fumbles, skim idle time, add labels, arrows and highlights.",
+    title: t("Polish"),
+    text: () => t("Trim, cut the fumbles, skim idle time, add labels, arrows and highlights."),
   },
   {
     icon: "export",
-    title: "Ship",
-    text: () => "Export a crisp GIF or MP4 and paste it straight into Slack or GitHub.",
+    title: t("Ship"),
+    text: () => t("Export a crisp GIF or MP4 and paste it straight into Slack or GitHub."),
   },
 ];
 
@@ -33,15 +35,15 @@ export default function Welcome() {
         <div class="modal-backdrop welcome-backdrop">
           <div
             class="welcome"
-            ref={(el) => dialogA11y(el, "Welcome to Vuoom", () => ed.dismissWelcome(true))}
+            ref={(el) => dialogA11y(el, t("Welcome to Vuoom"), () => ed.dismissWelcome(true))}
           >
             <div class="welcome-mark">
               <LogoMark size={40} />
             </div>
-            <h2>Screen recordings that zoom where it matters.</h2>
-            <p class="muted">Three steps, one window, no account.</p>
+            <h2>{t("Screen recordings that zoom where it matters.")}</h2>
+            <p class="muted">{t("Three steps, one window, no account.")}</p>
             <div class="welcome-steps">
-              <For each={STEPS}>
+              <For each={STEPS()}>
                 {(s, i) => (
                   <div class="welcome-step" style={{ "animation-delay": `${i() * 70}ms` }}>
                     <span class="welcome-step-icon">
@@ -55,7 +57,17 @@ export default function Welcome() {
             </div>
             <div class="welcome-actions">
               <button type="button" class="btn ghost" onClick={() => ed.dismissWelcome(true)}>
-                Look around first
+                {t("Look around first")}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                onClick={() => {
+                  ed.dismissWelcome(false);
+                  void ed.trySample();
+                }}
+              >
+                {t("Try a sample clip")}
               </button>
               <button
                 type="button"
@@ -65,7 +77,7 @@ export default function Welcome() {
                   void ed.startRecord();
                 }}
               >
-                <span class="rec-dot" /> Start recording
+                <span class="rec-dot" /> {t("Start recording")}
               </button>
             </div>
           </div>
@@ -78,10 +90,19 @@ export default function Welcome() {
         >
           <span class="coach-arrow" />
           <p>
-            Record any time from here, or press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>R</kbd>.
+            <Rich
+              text={t("Record any time from here, or press {keys}.")}
+              parts={{
+                keys: () => (
+                  <>
+                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>R</kbd>
+                  </>
+                ),
+              }}
+            />
           </p>
           <button type="button" class="btn sm" onClick={() => ed.setCoachRecord(false)}>
-            Got it
+            {t("Got it")}
           </button>
         </div>
       </Show>

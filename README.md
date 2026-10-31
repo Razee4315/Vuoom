@@ -109,9 +109,10 @@ The interface is a quiet workspace built from floating panels you control:
   and rule-of-thirds guides, or pick a centered preset.
 - ✏️ **Annotations**: text you type right on the video (six display fonts,
   bold/italic, several lines, legible plate), a freehand **pen and marker**,
-  arrows, lines, boxes, ellipses, highlights, a **spotlight** that dims everything
-  else, and **redaction masks**, each with
-  its own timeline bar, colour, opacity, fade in / fade out and stacking order.
+  straight or **curved arrows**, lines, **numbered steps**, boxes, ellipses,
+  highlights, a **spotlight** that dims everything else, and **hide masks** (black
+  or pixelated) that stay on what they cover through a zoom, each with its own
+  timeline bar, colour, opacity, fade in / fade out and stacking order.
 - 👆 **Demo polish**: click ripples, a keystroke overlay that shows shortcuts
   (never plain typing), and Subtle / Studio frame presets on seven backdrops.
 - 📦 **Export GIF or MP4**: optimized GIF with a live size estimate and a
@@ -120,7 +121,9 @@ The interface is a quiet workspace built from floating panels you control:
   file anywhere.
 - 💾 **Projects and crash recovery**: save a `.vuoom` project in seconds (the
   compressed frames are copied, not re-encoded), reopen it from the recents grid,
-  and recover the last unsaved take after a crash.
+  and recover the last unsaved take after a crash. Need another go? **Add a take**
+  and it joins the same timeline.
+- 🌏 **English and 简体中文**: the whole app, picked up from Windows or set in Settings.
 - 🎨 **Five themes**, reduced-motion mode, and zero purple.
 - 🪶 **Lightweight**: Tauri + Rust, not Electron. The webview is just the
   cockpit; capture, compositing (wgpu) and encoding run natively.
@@ -151,7 +154,8 @@ The interface is a quiet workspace built from floating panels you control:
 | `←` / `→` | Scrub the playhead (`Shift` = 1s jumps, `Home`/`End` = trim bounds) |
 | `I` / `O` | Trim start / end at the playhead (`Shift` clears) |
 | `Z` / `X` / `C` | Insert a zoom / speed-up / cut at the playhead |
-| `V` `T` `A` `P` `S` `H` `L` `M` | Select, Text, Arrow, Pen, Shape, Highlight, Spotlight, Hide |
+| `V` `T` `A` `N` `P` `S` `H` `L` `M` | Select, Text, Arrow, Step, Pen, Shape, Highlight, Spotlight, Hide |
+| `Shift` while drawing | Arrows at 45 degree steps, square shapes |
 | Arrow keys | Nudge the selected annotation (`Shift` = bigger steps) |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo any edit |
 | `Ctrl+D` / `Ctrl+C` / `Ctrl+V` | Duplicate / copy / paste annotations |
@@ -206,7 +210,7 @@ pnpm dev            # then open the printed localhost URL with ?mock=1
 
 Useful mock URL flags: `?mock=1` (force the mock), `&demo=1` (load a sample
 take), `&export=1` (open export), `&record=1` (jump to the region selector),
-`&theme=graphite` (force a theme). The mock is dev-only; the packaged app never
+`&theme=graphite` (force a theme), `&lang=zh-CN` (force the language). The mock is dev-only; the packaged app never
 uses it.
 
 Releases are built and published by [GitHub Actions](.github/workflows/release.yml)

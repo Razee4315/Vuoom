@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -30,7 +30,7 @@ use vuoom_capture::{
     CropRegion,
 };
 use vuoom_encode::{
-    downscale_rgba, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
+    encode_png_fast_to_vec, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
     export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
@@ -270,6 +270,10 @@ impl FrameInfo {
 type DrainOutcome = Result<(FrameStore, Option<String>, bool), String>;
 
 struct Active {
+    /// The clip this take goes on the end of, and the folder holding it, when adding a take.
+    base: Option<(Edited, PathBuf)>,
+    /// The recorded display's height in pixels (0 = not known).
+    screen_height: u32,
     /// Streams frames from the capture channel to the disk store (see `frame_store`).
     drain: Option<JoinHandle<DrainOutcome>>,
     /// Tells the drain thread to stop waiting for further frames.
@@ -429,6 +433,8 @@ pub struct Session {
     pending_zoom: Mutex<f64>,
     /// Frame-rate cap for the next recording (see [`Session::set_capture_fps`]).
     pending_fps: AtomicU32,
+    /// The next recording is added to the loaded clip (see [`Session::set_append_take`]).
+    append_next: AtomicBool,
     /// Whether the recording panel shows the live picture (see [`Session::set_live_preview`]).
     /// Shared with the running take, so switching it applies at once.
     live_preview_on: Arc<AtomicBool>,
@@ -517,6 +523,7 @@ impl Session {
             pending_window: Mutex::new(None),
             pending_zoom: Mutex::new(ZoomConfig::default().amount),
             pending_fps: AtomicU32::new(DEFAULT_CAPTURE_FPS),
+            append_next: AtomicBool::new(false),
             live_preview_on: Arc::new(AtomicBool::new(true)),
             pending_cursor: AtomicBool::new(true),
             pending_smooth: AtomicBool::new(false),
@@ -838,14 +845,16 @@ impl Session {
         handle.stop();
         let frame = frame.map_err(|e| format!("screenshot capture failed: {e}"))?;
         let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
-        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        // The picker is waiting on this, and it is on screen only while framing the shot.
+        let png = encode_png_fast_to_vec(&img).map_err(|e| e.to_string())?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(format!("data:image/png;base64,{b64}"))
     }
 
     /// `count` evenly spaced thumbnails of the recorded frames (not composited), each
-    /// `width` px wide, as PNG data URLs, for the timeline filmstrip. Frames are read in
-    /// time order, so the delta-compressed store decodes each one incrementally.
+    /// `width` px wide, as PNG data URLs, for the timeline filmstrip. Each is the keyframe
+    /// nearest its spot: a filmstrip can't show the difference, and replaying the deltas up
+    /// to the exact frame, 120 times over, kept a long 4K take busy for many seconds.
     pub fn thumbnails(&self, count: u32, width: u32) -> Result<Vec<String>, String> {
         let (store, start_qpc, duration) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -862,9 +871,10 @@ impl Session {
         for k in 0..count {
             let t = (f64::from(k) + 0.5) / f64::from(count) * duration;
             let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
-            let frame = store.frame(idx)?;
-            let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
-            let small = downscale_rgba(&img, width);
+            let frame = store.keyframe_near(idx)?;
+            let (fw, fh) = (frame.width, frame.height);
+            let view = (0, 0, fw, fh);
+            let small = crate::live_preview::shrink(&frame.bgra, fw, view, width.min(fw));
             let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
             out.push(format!("data:image/png;base64,{b64}"));
@@ -976,13 +986,21 @@ impl Session {
             })?,
         };
 
+        // An added take keeps the loaded clip to join it to. Everything else replaces it.
+        let base_dir = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .filter(|_| self.append_next.swap(false, Ordering::Relaxed));
         // Rotate: this take streams into its own fresh recovery subdir, so the previous
         // session's store survives until a later recording ages it out. `new_session_dir`
         // prunes older sessions first, keeping disk use bounded.
         let recovery_dir = frame_store::new_session_dir();
         // Drop the previous clip BEFORE creating the new store: its open handles may point at
         // a store we might otherwise touch.
-        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
+        let previous = std::mem::take(&mut *self.edited.lock().unwrap_or_else(|e| e.into_inner()));
+        let base = base_dir.map(|dir| (previous, dir));
         let writer = FrameWriter::create(recovery_dir.clone()).map_err(|e| {
             tracing::error!("could not open frame store for recording: {e}");
             e
@@ -1030,13 +1048,17 @@ impl Session {
             max_fps: self.pending_fps.load(Ordering::Relaxed),
             cursor: pointer_captured,
         };
-        let (frames_rx, capture) = spawn_capture(region, &source, opts);
+        let crop = match &window {
+            Some(w) => Some(crate::windows_list::client_crop(w.hwnd, w.w, w.h, region)),
+            None => region,
+        };
+        let (frames_rx, capture) = spawn_capture(crop, &source, opts);
         let hides_panel = window.is_some() || capture.backend().hides_excluded_windows();
         let (recorder, events_rx) = InputRecorder::start();
         // The live preview is handed small copies of the recorded frames by the drain below
         // (it never waits on the preview). One capture, not two: Desktop Duplication allows
         // a single capture of a display per process.
-        let (tap_tx, tap_rx) = std::sync::mpsc::sync_channel(1);
+        let (tap_tx, tap_rx) = sync_channel(1);
         let sink = self.preview.sink();
         let preview_on = Arc::clone(&self.live_preview_on);
         let tap_on = Arc::clone(&preview_on);
@@ -1143,6 +1165,10 @@ impl Session {
                     }
                 }
             }
+            // A write that failed after the last frame went into the disk queue.
+            if write_err.is_none() {
+                write_err = writer.settle().err();
+            }
             let store = if write_err.is_some() {
                 writer.finish_salvage()?
             } else {
@@ -1152,6 +1178,7 @@ impl Session {
         });
 
         *active = Some(Active {
+            base,
             drain: Some(drain),
             drain_stop,
             capture,
@@ -1172,6 +1199,7 @@ impl Session {
             hides_panel,
             pointer_captured,
             smooth_cursor,
+            screen_height: monitor.as_ref().map_or(0, |m| m.h),
         });
         Ok(())
     }
@@ -1237,6 +1265,10 @@ impl Session {
         // loudly so the editor shows a clear message instead of a silent, empty player.
         if store.is_empty() {
             tracing::error!("recording stopped with no frames, screen capture never produced any");
+            // Adding a take must never cost the clip it was being added to.
+            if let Some((base, dir)) = session.base.take() {
+                self.restore_base(base, dir);
+            }
             return Err("No frames were captured, screen capture failed to start.".into());
         }
 
@@ -1291,11 +1323,7 @@ impl Session {
             ..ZoomConfig::default()
         };
         let zooms = plan_zooms(&events, duration, &cfg);
-        let fps = if duration > 0.0 {
-            store.len() as f64 / duration
-        } else {
-            60.0
-        };
+        let fps = recorded_fps(store.recs(), self.clock).unwrap_or(60.0);
         let track = simulate(&events, &zooms, duration, fps.max(1.0), &cfg);
 
         let mut project = Project::new(SourceInfo {
@@ -1326,6 +1354,7 @@ impl Session {
             .apply(&mut project);
         project.pointer_captured = session.pointer_captured;
         project.cursor = session.smooth_cursor.then(|| self.new_pointer_style());
+        project.screen_height = session.screen_height;
         // The real pointer's shape through the take (arrow, text beam, hand...), for the
         // re-drawn pointer to follow.
         project.pointer_shapes =
@@ -1336,6 +1365,14 @@ impl Session {
         // closed before exporting.
         if let Ok(json) = project.to_json() {
             let _ = std::fs::write(frame_store::project_path(&session.recovery_dir), json);
+        }
+
+        // An added take goes on the end of the clip it was recorded for.
+        if let Some((base, dir)) = session.base.take() {
+            let (take_dir, take_qpc) = (&session.recovery_dir, session.start_qpc);
+            let (summary, note) = self.join_take(base, dir, store, &project, take_dir, take_qpc);
+            let warning = note.or(write_warning);
+            return Ok(RecordingSummary { warning, ..summary });
         }
 
         let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
@@ -1391,6 +1428,170 @@ impl Session {
         })
     }
 
+    /// Put a clip back as the loaded one, after a take that was to join it didn't.
+    fn restore_base(&self, base: Edited, dir: PathBuf) {
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = base;
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+    }
+
+    /// Join a finished take onto `base`, the clip it was recorded for, and make that the
+    /// loaded clip. Whatever goes wrong, the clip survives and the take stays in its own
+    /// folder, where Recover can still find it: the note says so.
+    fn join_take(
+        &self,
+        base: Edited,
+        dir: PathBuf,
+        store: FrameStore,
+        take: &Project,
+        take_dir: &Path,
+        take_qpc: i64,
+    ) -> (RecordingSummary, Option<String>) {
+        let summary = |project: &Project, frames: usize| RecordingSummary {
+            duration: project.source.duration,
+            frames,
+            zooms: project.zooms.len(),
+            auto_zooms: false,
+            warning: None,
+        };
+        let same_size = |p: &Project| {
+            (p.source.width, p.source.height) == (take.source.width, take.source.height)
+        };
+        let (Some(project), base_qpc) = (base.project.clone(), base.start_qpc) else {
+            self.restore_base(base, dir);
+            let empty = summary(take, store.len());
+            return (empty, Some("There was no clip to add this take to.".into()));
+        };
+        let frames_before = base.frames.as_ref().map_or(0, |f| f.len());
+        if !same_size(&project) {
+            let result = summary(&project, frames_before);
+            self.restore_base(base, dir);
+            let note = format!(
+                "The new take is {} x {} and this clip is {} x {}, so it wasn't added. \
+                 File > Recover last session opens it on its own.",
+                take.source.width, take.source.height, project.source.width, project.source.height
+            );
+            return (result, Some(note));
+        }
+        let at = project.source.duration;
+        let shift = base_qpc + (at * self.clock.freq() as f64).round() as i64 - take_qpc;
+        drop(store);
+        let joined = match frame_store::append_store(&dir, take_dir, shift) {
+            Ok(joined) => joined,
+            Err(e) => {
+                tracing::error!("adding a take failed: {e}");
+                let result = summary(&project, frames_before);
+                self.restore_base(base, dir);
+                let note = format!(
+                    "The take couldn't be added ({e}). File > Recover last session opens it \
+                     on its own."
+                );
+                return (result, Some(note));
+            }
+        };
+        let mut project = project;
+        project.audio = crate::audio::append(
+            std::mem::take(&mut project.audio),
+            &dir,
+            &take.audio,
+            take_dir,
+            at,
+        );
+        project.append(take);
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(&dir), json);
+        }
+        let _ = std::fs::remove_dir_all(take_dir);
+        let note = take.camera.is_some().then(|| {
+            "The added take's camera isn't shown: a clip has one camera track.".to_string()
+        });
+        let result = summary(&project, joined.len());
+        let mut merged = Edited {
+            frames: Some(Arc::new(joined)),
+            project: Some(project),
+            start_qpc: base_qpc,
+            ..Edited::default()
+        };
+        resimulate(&mut merged);
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = merged;
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+        (result, note)
+    }
+
+    /// Load the built-in sample clip (see `sample.rs`) as if it had just been recorded.
+    pub fn load_sample(&self) -> Result<RecordingSummary, String> {
+        use crate::sample::{self, FPS, HEIGHT, SECONDS, WIDTH};
+        let dir = frame_store::new_session_dir();
+        let mut writer = FrameWriter::create(dir.clone())?;
+        let start_qpc = self.clock.now();
+        let tick = self.clock.freq() as f64 / f64::from(FPS);
+        for i in 0..SECONDS * FPS {
+            writer.push(CapturedFrame {
+                width: WIDTH,
+                height: HEIGHT,
+                bgra: sample::frame(f64::from(i) / f64::from(FPS)),
+                qpc: start_qpc + (f64::from(i) * tick) as i64,
+                dirty: None,
+            })?;
+        }
+        let store = writer.finish()?;
+        let duration = f64::from(SECONDS);
+        let mut project = Project::new(SourceInfo {
+            path: String::new(),
+            width: WIDTH,
+            height: HEIGHT,
+            fps: f64::from(FPS),
+            duration,
+        });
+        let events = sample::events();
+        let cfg = ZoomConfig {
+            auto_zoom_on_click: true,
+            ..ZoomConfig::default()
+        };
+        let zooms = plan_zooms(&events, duration, &cfg);
+        let track = simulate(&events, &zooms, duration, f64::from(FPS), &cfg);
+        project.zooms = zooms;
+        project.zoom_config = cfg;
+        project.events = events;
+        project.show_clicks = true;
+        project.pointer_captured = false;
+        project.cursor = Some(self.new_pointer_style());
+        let summary = RecordingSummary {
+            duration,
+            frames: store.len(),
+            zooms: project.zooms.len(),
+            auto_zooms: true,
+            warning: None,
+        };
+        if let Ok(json) = project.to_json() {
+            let _ = std::fs::write(frame_store::project_path(&dir), json);
+        }
+        // Nothing lost if a recording replaces it: don't ask about it.
+        frame_store::mark_kept(&dir);
+        *self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dir);
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited {
+            frames: Some(Arc::new(store)),
+            project: Some(project),
+            track: Some(track),
+            start_qpc,
+            ..Edited::default()
+        };
+        Ok(summary)
+    }
+
+    /// Whether the next recording goes on the end of the loaded clip, instead of replacing it.
+    pub fn set_append_take(&self, on: bool) {
+        self.append_next.store(on, Ordering::Relaxed);
+    }
+
     /// Composite the frame at time `t` (seconds) and publish it to the preview.
     ///
     /// `max_width` is how wide the editor's stage shows it, in screen pixels. The frame is
@@ -1429,10 +1630,12 @@ impl Session {
         scene.highlights.clear();
         scene.spot_corners.clear();
         scene.strokes.clear();
+        // Hide masks do stay: they move with a zoom, which the overlay can't show.
         let cam_frames = scene.camera.and_then(|_| self.camera_frames());
         let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
         let rgba = compositor.composite_scene(
             &frame.bgra,
+            Some(frame.pixels_id),
             frame.width,
             frame.height,
             out_w,
@@ -1579,6 +1782,7 @@ impl Session {
             let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
             let rgba = compositor.composite_scene(
                 &frame.bgra,
+                Some(frame.pixels_id),
                 frame.width,
                 frame.height,
                 out_w,
@@ -1678,6 +1882,7 @@ impl Session {
         // scales the picture as it draws it, so no frame is resized on the processor.
         let (out_w, out_h) = project.output_dims();
         let (out_w, out_h) = scaled_dims(out_w, out_h, width, true);
+        let (out_w, out_h) = crate::mp4::fit_h264(out_w, out_h);
         let bg = background_fill(&project.frame);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
@@ -1694,79 +1899,111 @@ impl Session {
             (true, Some(d)) => crate::audio::Mix::load(&d, &project, t0, span, &regions, &cuts),
             _ => None,
         };
-        let encoder = crate::mp4::Mp4Encoder::new(
-            Path::new(&out_path),
-            out_w,
-            out_h,
-            fps,
-            quality,
-            mix.is_some(),
-        )?;
-        // The encoder falls back to video-only when the OS has no usable AAC encoder.
-        let mix = mix.filter(|_| encoder.has_audio());
-        let audio_rate = f64::from(vuoom_audio::OUTPUT_RATE);
-        let mut audio_done = 0u64;
-        // Track the first frame error instead of `?`-ing out mid-stream, so a failure can
-        // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
-        let mut frame_err: Option<String> = None;
-        for i in 0..total {
-            // Poll once per frame so a cancel request (Cancel button / window-close) aborts
-            // mid-encode; the shared cleanup below then deletes the half-written .mp4.
-            if self.export_cancel.load(Ordering::SeqCst) {
-                frame_err = Some("export cancelled".into());
-                break;
-            }
-            let t_out = (i as f64 / f64::from(fps)).min(d_out);
-            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = match nearest_idx(store.recs(), self.clock, start_qpc, t_src) {
-                Some(idx) => idx,
-                None => {
-                    frame_err = Some("no frames".into());
+        // Three stages, each on its own thread with a short queue between them: reading frames
+        // from the store, compositing on the GPU, and converting and encoding. One after the
+        // other they add up to several times the slowest of them, which is what a 4K export
+        // costs; side by side the export runs at the pace of the slowest.
+        let stopped = AtomicBool::new(false);
+        let result = std::thread::scope(|scope| -> Result<(), String> {
+            let (frames_tx, frames_rx) = sync_channel(READ_AHEAD);
+            let (rgba_tx, rgba_rx) = sync_channel::<Vec<u8>>(ENCODE_AHEAD);
+            let (store_ref, regions_ref, cuts_ref) = (&store, &regions, &cuts);
+            let clock = self.clock;
+            scope.spawn(move || {
+                for i in 0..total {
+                    let t_out = (i as f64 / f64::from(fps)).min(d_out);
+                    let t_src = t0 + output_to_source(t_out, span, regions_ref, cuts_ref);
+                    let frame = nearest_idx(store_ref.recs(), clock, start_qpc, t_src)
+                        .ok_or_else(|| "no frames".to_string())
+                        .and_then(|idx| store_ref.frame(idx))
+                        .map(|frame| (t_src, frame));
+                    let failed = frame.is_err();
+                    if frames_tx.send(frame).is_err() || failed {
+                        break;
+                    }
+                }
+            });
+            let (path, stopped_ref) = (out_path.as_str(), &stopped);
+            let encoding = scope.spawn(move || -> Result<(), String> {
+                let encoder = crate::mp4::Mp4Encoder::new(
+                    Path::new(path),
+                    out_w,
+                    out_h,
+                    fps,
+                    quality,
+                    mix.is_some(),
+                )?;
+                // Falls back to video-only when the OS has no usable AAC encoder.
+                let mix = mix.filter(|_| encoder.has_audio());
+                let audio_rate = f64::from(vuoom_audio::OUTPUT_RATE);
+                let mut audio_done = 0u64;
+                for (i, rgba) in rgba_rx.iter().enumerate() {
+                    encoder.write_rgba(&rgba, i as u32)?;
+                    compositor.recycle(rgba);
+                    // Keep the soundtrack level with the video: audio up to this frame's end.
+                    if let Some(mix) = &mix {
+                        let until = ((i + 1) as f64 / f64::from(fps) * audio_rate).round() as u64;
+                        let until = until.min(mix.frames());
+                        if until > audio_done {
+                            let chunk = mix.render(audio_done, (until - audio_done) as usize);
+                            encoder.write_audio(&chunk, audio_done)?;
+                            audio_done = until;
+                        }
+                    }
+                }
+                if stopped_ref.load(Ordering::SeqCst) {
+                    return Ok(()); // Not finalized: the caller deletes the partial file.
+                }
+                encoder.finish()
+            });
+            // Track the first frame error instead of `?`-ing out mid-stream, so a failure can
+            // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
+            let mut frame_err: Option<String> = None;
+            for i in 0..total {
+                // Poll once per frame so a cancel request (Cancel button / window-close) aborts
+                // mid-encode; the shared cleanup below then deletes the half-written .mp4.
+                if self.export_cancel.load(Ordering::SeqCst) {
+                    frame_err = Some("export cancelled".into());
                     break;
                 }
-            };
-            let frame = match store.frame(idx) {
-                Ok(frame) => frame,
-                Err(e) => {
-                    frame_err = Some(e);
-                    break;
-                }
-            };
-            let scene = build_scene(&project, &track, out_w, out_h, t_src);
-            let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
-            let rgba = compositor.composite_scene(
-                &frame.bgra,
-                frame.width,
-                frame.height,
-                out_w,
-                out_h,
-                &scene,
-                bg,
-                cam.as_deref().map(Decoded::image),
-            );
-            if let Err(e) = encoder.write_rgba(&rgba, i as u32) {
-                frame_err = Some(e);
-                break;
-            }
-            // Keep the soundtrack level with the video: write audio up to this frame's end.
-            if let Some(mix) = &mix {
-                let until = ((i + 1) as f64 / f64::from(fps) * audio_rate).round() as u64;
-                let until = until.min(mix.frames());
-                if until > audio_done {
-                    let chunk = mix.render(audio_done, (until - audio_done) as usize);
-                    if let Err(e) = encoder.write_audio(&chunk, audio_done) {
+                let (t_src, frame) = match frames_rx.recv() {
+                    Ok(Ok(next)) => next,
+                    Ok(Err(e)) => {
                         frame_err = Some(e);
                         break;
                     }
-                    audio_done = until;
+                    Err(_) => {
+                        frame_err = Some("no frames".into());
+                        break;
+                    }
+                };
+                let scene = build_scene(&project, &track, out_w, out_h, t_src);
+                let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
+                let rgba = compositor.composite_scene(
+                    &frame.bgra,
+                    Some(frame.pixels_id),
+                    frame.width,
+                    frame.height,
+                    out_w,
+                    out_h,
+                    &scene,
+                    bg,
+                    cam.as_deref().map(Decoded::image),
+                );
+                // Gone only when the encoder failed: joining it below gives the reason.
+                if rgba_tx.send(rgba).is_err() {
+                    break;
                 }
+                progress(i as u32 + 1, total as u32 + 1);
             }
-            progress(i as u32 + 1, total as u32 + 1);
-        }
-        let result = match frame_err {
-            Some(e) => Err(e),
-            None => encoder.finish(),
-        };
+            stopped.store(frame_err.is_some(), Ordering::SeqCst);
+            drop(rgba_tx);
+            drop(frames_rx);
+            let encoded = encoding
+                .join()
+                .unwrap_or_else(|_| Err("the MP4 encoder stopped unexpectedly".into()));
+            frame_err.map_or(encoded, Err)
+        });
         if result.is_err() {
             let _ = std::fs::remove_file(&out_path);
         }
@@ -1890,6 +2127,7 @@ impl Session {
             let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
             let rgba = compositor.composite_scene(
                 &frame.bgra,
+                Some(frame.pixels_id),
                 frame.width,
                 frame.height,
                 out_w,
@@ -1920,6 +2158,31 @@ impl Session {
             italic: false,
             background: false,
             font: String::new(),
+            badge: false,
+            range,
+        });
+        Ok(id)
+    }
+
+    /// Add a step marker (a numbered disc, the next number along) centered on normalized
+    /// `(x, y)`, visible for ~3s from time `t`. Returns its id.
+    pub fn add_step(&self, x: f64, y: f64, t: f64) -> Result<u32, String> {
+        let mut edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot(&mut edited, "");
+        let project = edited.project.as_mut().ok_or("no recording")?;
+        let id = next_id(project);
+        let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
+        project.texts.push(TextAnnotation {
+            id,
+            text: next_step(project).to_string(),
+            pos: DVec2::new(x, y),
+            font_size: 0.03,
+            color: Color::rgb(0.95, 0.25, 0.25),
+            bold: true,
+            italic: false,
+            background: false,
+            font: String::new(),
+            badge: true,
             range,
         });
         Ok(id)
@@ -1939,6 +2202,7 @@ impl Session {
             color: Color::rgb(0.95, 0.25, 0.25),
             thickness: 0.006,
             style: ArrowStyle::Arrow,
+            curve: 0.0,
             range,
         });
         Ok(id)
@@ -1969,6 +2233,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgb(1.0, 0.82, 0.1),
@@ -1989,6 +2254,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.2);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             // Warm marker yellow at low opacity so content shows through.
@@ -2010,6 +2276,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.3);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgba(0.0, 0.0, 0.0, 0.6),
@@ -2032,6 +2299,7 @@ impl Session {
         let id = next_id(project);
         let range = TimeRange::with_fade(t, default_end(t, project.source.duration), 0.0);
         project.highlights.push(HighlightBox {
+            pixelate: false,
             id,
             rect: Rect::new(x, y, w, h),
             color: Color::rgb(0.04, 0.04, 0.05),
@@ -2164,7 +2432,11 @@ impl Session {
             caption_style: project.caption_style,
             out_width,
             out_height,
-            source_fps: project.source.fps,
+            source_fps: edited
+                .frames
+                .as_ref()
+                .and_then(|store| recorded_fps(store.recs(), self.clock))
+                .map_or(project.source.fps, |fps| fps.max(project.source.fps)),
         })
     }
 
@@ -3035,6 +3307,7 @@ impl Session {
         thickness: Option<f64>,
         filled: Option<bool>,
         radius: Option<f64>,
+        curve: Option<f64>,
     ) -> Result<(), String> {
         // The thickness slider streams values while dragging, coalesce per element.
         self.with_project(&format!("style:{id}"), |p| {
@@ -3043,6 +3316,10 @@ impl Session {
             if let Some(a) = p.arrows.iter_mut().find(|a| a.id == id) {
                 if let Some(t) = th {
                     a.thickness = t;
+                }
+                if let Some(c) = curve {
+                    let most = ArrowAnnotation::MAX_CURVE;
+                    a.curve = (c as f32).clamp(-most, most);
                 }
                 return Ok(());
             }
@@ -3065,6 +3342,15 @@ impl Session {
                 return Ok(());
             }
             Err("no such arrow, highlight or stroke".into())
+        })
+    }
+
+    /// Whether a hide mask pixelates what it covers, rather than blacking it out.
+    pub fn set_mask_pixelate(&self, id: u32, pixelate: bool) -> Result<(), String> {
+        self.with_project("", |p| {
+            let mask = p.highlights.iter_mut().find(|h| h.id == id);
+            mask.ok_or("no such mask")?.pixelate = pixelate;
+            Ok(())
         })
     }
 
@@ -3728,11 +4014,7 @@ impl Session {
             project.source.width = first.w;
             project.source.height = first.h;
             project.source.duration = duration;
-            project.source.fps = if duration > 0.0 {
-                store.len() as f64 / duration
-            } else {
-                60.0
-            };
+            project.source.fps = recorded_fps(store.recs(), self.clock).unwrap_or(60.0);
         }
 
         let track = simulate(
@@ -3871,6 +4153,27 @@ fn encode_sample_bytes(
 
 /// Recording length (s) implied by the stored frames' QPC span. Rebuilds the source
 /// duration when recovering a crashed take whose manifest is only the startup placeholder.
+/// The frame rate a take was recorded at, from the gaps between its frames.
+///
+/// Frames only arrive when the screen changes, so dividing the count by the length says how
+/// busy the screen was, not the rate: a 60 fps take of a mostly still screen comes out under
+/// 10, and zooms exported at that rate stutter. The gaps while the screen was changing are
+/// the rate, and the short end of them is that. Checks a few thousand gaps at most.
+fn recorded_fps(recs: &[FrameRec], clock: Clock) -> Option<f64> {
+    const MAX_GAPS: usize = 4096;
+    let step = (recs.len() / MAX_GAPS).max(1);
+    let mut gaps: Vec<f64> = recs
+        .windows(2)
+        .step_by(step)
+        .map(|w| clock.seconds_between(w[0].qpc, w[1].qpc))
+        .filter(|&gap| gap > 0.0)
+        .collect();
+    gaps.sort_by(f64::total_cmp);
+    // A tenth of the way in: past the odd pair of frames that came unusually close.
+    let gap = *gaps.get(gaps.len() / 10)?;
+    Some((1.0 / gap).round().clamp(1.0, 240.0))
+}
+
 fn store_duration(store: &FrameStore, clock: Clock) -> f64 {
     match (store.recs().first(), store.recs().last()) {
         (Some(a), Some(b)) => clock.seconds_between(a.qpc, b.qpc),
@@ -4034,11 +4337,13 @@ fn compose_capture_region(
 ) -> CaptureRegion {
     let (mx, my) = mon_origin;
     match region {
+        // The size is the frames', not the request: a region that hung off the display was
+        // clamped by the capture, and the pointer has to map onto what was recorded.
         Some(r) => CaptureRegion {
             x: mx + r.x as i32,
             y: my + r.y as i32,
-            w: r.w as i32,
-            h: r.h as i32,
+            w: full_w as i32,
+            h: full_h as i32,
         },
         None => CaptureRegion {
             x: mx,
@@ -4245,7 +4550,7 @@ pub struct PointerPicture {
 pub fn pointer_picture(path: &str) -> Result<PointerPicture, String> {
     let (width, height, px) = load_pointer(path)?;
     let img = RgbaImage::new(width, height, swizzle_rb(&px));
-    let small = downscale_rgba(&img, 160);
+    let small = vuoom_encode::downscale_rgba(&img, 160);
     let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     Ok(PointerPicture {
@@ -4341,6 +4646,15 @@ fn caption_mut(project: &mut Project, id: u32) -> Result<&mut Caption, String> {
         .ok_or_else(|| "no such caption".to_string())
 }
 
+/// The number the next step marker carries: one past the highest so far.
+fn next_step(project: &Project) -> u32 {
+    let steps = project.texts.iter().filter(|t| t.badge);
+    let highest = steps
+        .filter_map(|t| t.text.trim().parse::<u32>().ok())
+        .max();
+    highest.unwrap_or(0) + 1
+}
+
 fn next_id(project: &Project) -> u32 {
     let mut max = 0;
     for t in &project.texts {
@@ -4379,6 +4693,10 @@ fn default_end(t: f64, duration: f64) -> f64 {
 
 /// Default capture-rate cap for a recording (the UI can pick another, see `set_capture_fps`).
 const DEFAULT_CAPTURE_FPS: u32 = 60;
+/// Frames an MP4 export reads ahead of the compositor, and composites ahead of the encoder.
+/// Each is a full frame in memory, so these are kept short.
+const READ_AHEAD: usize = 3;
+const ENCODE_AHEAD: usize = 2;
 
 /// Conservative capture rate (fps) used to size the write estimate. Real capture is
 /// usually 30-60 fps; picking the low end keeps the estimate from over-reserving space.
@@ -4430,7 +4748,7 @@ fn dropped_frames_warning(dropped: u64, kept: usize) -> Option<String> {
     if dropped > DROP_WARN_MIN_FRAMES || pct > DROP_WARN_FRACTION * 100.0 {
         Some(format!(
             "Capture couldn't keep up, dropped {dropped} frames ({pct:.1}%). \
-             Try a smaller region or a less busy disk."
+             Try 30 fps, a smaller region or a less busy disk."
         ))
     } else {
         None
@@ -4494,7 +4812,9 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         let drawn = windows::Win32::Storage::Xps::PrintWindow(
             hwnd,
             hdc_mem,
-            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(PW_RENDERFULLCONTENT),
+            windows::Win32::Storage::Xps::PRINT_WINDOW_FLAGS(
+                PW_RENDERFULLCONTENT | windows::Win32::Storage::Xps::PW_CLIENTONLY.0,
+            ),
         );
         let _ = drawn; // a partial grab still yields a usable backdrop
 
@@ -4691,6 +5011,23 @@ mod tests {
     }
 
     #[test]
+    fn the_recorded_rate_comes_from_the_gaps_not_the_count() {
+        let clock = Clock::new();
+        let frame = (clock.freq() as f64 / 60.0).round() as i64;
+        // Three bursts of a 60 fps take with long still stretches between them: twenty
+        // frames in a minute, which by count is a third of a frame a second.
+        let mut recs = Vec::new();
+        for burst in 0..3 {
+            let start = i64::from(burst) * 20 * clock.freq();
+            recs.extend((0..7).map(|k| rec(start + k * frame)));
+        }
+        assert_eq!(recorded_fps(&recs, clock), Some(60.0));
+        // Nothing to go on.
+        assert_eq!(recorded_fps(&[rec(1)], clock), None);
+        assert_eq!(recorded_fps(&[], clock), None);
+    }
+
+    #[test]
     fn nearest_idx_picks_closest_frame_by_time() {
         let clock = Clock::new();
         let f = clock.freq();
@@ -4722,11 +5059,24 @@ mod tests {
             w: 800,
             h: 600,
         };
-        let region = compose_capture_region((-1920, -100), Some(r), 1920, 1080);
+        let region = compose_capture_region((-1920, -100), Some(r), 800, 600);
         assert_eq!(
             (region.x, region.y, region.w, region.h),
             (-1820, -50, 800, 600)
         );
+    }
+
+    #[test]
+    fn a_region_that_hung_off_the_display_maps_onto_what_was_recorded() {
+        // 2667 rows asked for, 1860 left on the display.
+        let r = CropRegion {
+            x: 750,
+            y: 300,
+            w: 1500,
+            h: 2667,
+        };
+        let region = compose_capture_region((0, 0), Some(r), 1500, 1860);
+        assert_eq!((region.w, region.h), (1500, 1860));
     }
 
     #[test]

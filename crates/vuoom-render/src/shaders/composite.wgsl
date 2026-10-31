@@ -22,6 +22,10 @@ struct Uniforms {
     shadow: vec4<f32>,     // the recording's shadow: offset x, y, blur (pixels), strength
     taps: vec2<f32>,       // samples across and down per output pixel (1 = a single sample)
     _pad3: vec2<f32>,
+    mosaic: array<vec4<f32>, 8>, // rects where the picture shows as blocks: x, y, w, h (pixels)
+    mosaic_count: f32,
+    mosaic_px: f32,        // a block's side (pixels)
+    _pad4: vec2<f32>,
 };
 
 // Samples along the camera's path for motion blur.
@@ -100,6 +104,18 @@ fn sample_area(uv: vec2<f32>, span: vec2<f32>) -> vec4<f32> {
     return acc / f32(nx * ny);
 }
 
+// The point of the recording pixel `px` shows: itself, or the middle of its block inside a
+// mosaic rect, so every pixel of a block shows the same part of the picture.
+fn mosaic_point(px: vec2<f32>) -> vec2<f32> {
+    for (var i = 0; i < i32(u.mosaic_count); i = i + 1) {
+        let r = u.mosaic[i];
+        if px.x >= r.x && px.y >= r.y && px.x < r.x + r.z && px.y < r.y + r.w {
+            return (floor(px / u.mosaic_px) + vec2<f32>(0.5)) * u.mosaic_px;
+        }
+    }
+    return px;
+}
+
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let px = in.uv * u.out_size;
@@ -126,7 +142,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // Map the pixel within the destination rect into the source crop.
-    let local = (px - u.dst_min) / u.dst_size;
+    let local = (mosaic_point(px) - u.dst_min) / u.dst_size;
     var col: vec4<f32>;
     if u.blur > 0.5 {
         // Motion blur: average what this pixel saw as the camera moved from where it was

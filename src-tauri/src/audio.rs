@@ -171,6 +171,60 @@ pub fn track_pcm(dir: &Path, t: &AudioTrack) -> Result<Pcm, String> {
     Ok(pcm)
 }
 
+/// Join an added take's audio onto a project's: `base` tracks in `base_dir` and `take` tracks
+/// in `take_dir`, the take starting at source time `at`. A track only one side has comes
+/// through (the other side's stretch is silent); a track both have is joined into one file,
+/// with silence over any gap. Returns the project's tracks.
+pub fn append(
+    base: Vec<AudioTrack>,
+    base_dir: &Path,
+    take: &[AudioTrack],
+    take_dir: &Path,
+    at: f64,
+) -> Vec<AudioTrack> {
+    let mut tracks = base;
+    for added in take {
+        let (name, from) = (
+            added.kind.file_name(),
+            take_dir.join(added.kind.file_name()),
+        );
+        let start = at + added.offset;
+        let joined = match tracks.iter().find(|t| t.kind == added.kind) {
+            Some(mine) => join_wav(&base_dir.join(name), mine.offset, &from, start),
+            None => std::fs::copy(&from, base_dir.join(name))
+                .map(|_| ())
+                .map_err(|e| e.to_string()),
+        };
+        match joined {
+            Ok(()) if tracks.iter().any(|t| t.kind == added.kind) => {}
+            Ok(()) => tracks.push(AudioTrack {
+                offset: start,
+                ..added.clone()
+            }),
+            Err(e) => tracing::warn!("{:?} audio of the added take left out: {e}", added.kind),
+        }
+    }
+    tracks
+}
+
+/// Rewrite the WAV at `base` (its first sample at source time `base_start`) with the WAV at
+/// `take` after it (its first sample at source time `take_start`), silence between them.
+fn join_wav(base: &Path, base_start: f64, take: &Path, take_start: f64) -> Result<(), String> {
+    let mut pcm = vuoom_audio::wav::read(base)?;
+    let next = vuoom_audio::wav::read(take)?;
+    if pcm.rate != next.rate || pcm.channels != next.channels {
+        return Err("the takes were recorded in different formats".into());
+    }
+    let frames = ((take_start - base_start) * f64::from(pcm.rate))
+        .round()
+        .max(0.0) as usize;
+    pcm.samples.resize(frames * usize::from(pcm.channels), 0);
+    pcm.samples.extend_from_slice(&next.samples);
+    let part = base.with_extension("wav.part");
+    std::fs::write(&part, vuoom_audio::wav::encode(&pcm)).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, base).map_err(|e| e.to_string())
+}
+
 /// Whether `cache` exists and was written no earlier than `source` last changed.
 fn is_fresh(cache: &Path, source: &Path) -> bool {
     let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();

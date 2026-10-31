@@ -1,21 +1,22 @@
 // Right-click menus for the stage and the timeline. Each builder selects what was
 // clicked (so the menu always acts on what you see highlighted) and returns its items.
 import type { Editor } from "../editor/createEditor";
+import { t } from "../i18n";
 import { TOOLS } from "../shortcuts";
 import type { Kind } from "../types";
 import { type MenuItem, openContextMenu } from "../ui";
 
 function annotationItems(ed: Editor): MenuItem[] {
   return [
-    { label: "Duplicate", icon: "duplicate", kbd: "Ctrl+D", onSelect: () => void ed.duplicateSelected() },
-    { label: "Copy", icon: "copy", kbd: "Ctrl+C", onSelect: () => void ed.copySelected() },
+    { label: t("Duplicate"), icon: "duplicate", kbd: "Ctrl+D", onSelect: () => void ed.duplicateSelected() },
+    { label: t("Copy"), icon: "copy", kbd: "Ctrl+C", onSelect: () => void ed.copySelected() },
     { separator: true },
-    { label: "Bring forward", icon: "bringForward", kbd: "Ctrl+]", onSelect: () => void ed.reorderSelected("forward") },
-    { label: "Send backward", icon: "sendBackward", kbd: "Ctrl+[", onSelect: () => void ed.reorderSelected("backward") },
-    { label: "Bring to front", onSelect: () => void ed.reorderSelected("front") },
-    { label: "Send to back", onSelect: () => void ed.reorderSelected("back") },
+    { label: t("Bring forward"), icon: "bringForward", kbd: "Ctrl+]", onSelect: () => void ed.reorderSelected("forward") },
+    { label: t("Send backward"), icon: "sendBackward", kbd: "Ctrl+[", onSelect: () => void ed.reorderSelected("backward") },
+    { label: t("Bring to front"), onSelect: () => void ed.reorderSelected("front") },
+    { label: t("Send to back"), onSelect: () => void ed.reorderSelected("back") },
     { separator: true },
-    { label: "Show from playhead", icon: "timer", onSelect: () => {
+    { label: t("Show from playhead"), icon: "timer", onSelect: () => {
       const r = ed.selectedRange();
       if (r) ed.editRange(ed.playhead(), Math.min(ed.duration(), ed.playhead() + (r.end - r.start)));
     } },
@@ -26,9 +27,9 @@ function annotationItems(ed: Editor): MenuItem[] {
 
 function insertItems(ed: Editor): MenuItem[] {
   return [
-    { label: "Zoom here", icon: "zoomIn", kbd: "Z", onSelect: () => void ed.addZoomAt() },
-    { label: "Speed up here", icon: "speed", kbd: "X", onSelect: () => void ed.addSpeedAtPlayhead() },
-    { label: "Cut here", icon: "cut", kbd: "C", onSelect: () => void ed.addCutAtPlayhead() },
+    { label: t("Zoom here"), icon: "zoomIn", kbd: "Z", onSelect: () => void ed.addZoomAt() },
+    { label: t("Speed up here"), icon: "speed", kbd: "X", onSelect: () => void ed.addSpeedAtPlayhead() },
+    { label: t("Cut here"), icon: "cut", kbd: "C", onSelect: () => void ed.addCutAtPlayhead() },
   ];
 }
 
@@ -44,24 +45,24 @@ export function stageMenu(ed: Editor, e: MouseEvent): void {
       ed.clearExtra();
       ed.setSelected(hit);
     }
-    openContextMenu(e, [{ heading: ed.selCount() > 1 ? `${ed.selCount()} selected` : ed.inspTitle() }, ...annotationItems(ed)]);
+    openContextMenu(e, [{ heading: ed.selCount() > 1 ? t("{count} selected", { count: ed.selCount() }) : ed.inspTitle() }, ...annotationItems(ed)]);
     return;
   }
   openContextMenu(e, [
     {
-      label: "Paste at playhead",
+      label: t("Paste at playhead"),
       icon: "copy",
       kbd: "Ctrl+V",
       disabled: ed.clipboard().length === 0,
       onSelect: () => void ed.pasteClipboard(),
     },
     { separator: true },
-    { heading: "Draw" },
-    ...TOOLS.filter((t) => t.id !== "select").map(
+    { heading: t("Draw") },
+    ...TOOLS().filter((t) => t.id !== "select").map(
       (t): MenuItem => ({ label: t.label, kbd: t.key, onSelect: () => ed.setTool(t.id) }),
     ),
     { separator: true },
-    { heading: "At the playhead" },
+    { heading: t("At the playhead") },
     ...insertItems(ed),
   ]);
 }
@@ -75,7 +76,7 @@ export function zoomMenu(ed: Editor, e: MouseEvent, index: number): void {
   const z = ed.zooms()[index];
   if (!z) return;
   openContextMenu(e, [
-    { heading: `Zoom ${z.amount.toFixed(1)}×` },
+    { heading: t("Zoom {amount}×", { amount: z.amount.toFixed(1) }) },
     ...[1.5, 1.8, 2, 2.5, 3].map(
       (a): MenuItem => ({
         label: `${a}×`,
@@ -84,15 +85,15 @@ export function zoomMenu(ed: Editor, e: MouseEvent, index: number): void {
       }),
     ),
     { separator: true },
-    { label: "Follow pointer", checked: typeof z.mode !== "object", onSelect: () => void ed.applyZoomFocus(null) },
+    { label: t("Follow pointer"), checked: typeof z.mode !== "object", onSelect: () => void ed.applyZoomFocus(null) },
     {
-      label: "Fixed point",
+      label: t("Fixed point"),
       checked: typeof z.mode === "object",
       onSelect: () => void ed.applyZoomFocus(ed.selZoomFocus() ?? { x: 0.5, y: 0.5 }),
     },
     { separator: true },
-    { label: "Jump to start", onSelect: () => ed.scrub(z.start) },
-    { label: "Delete zoom", icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelectedZoom() },
+    { label: t("Jump to start"), onSelect: () => ed.scrub(z.start) },
+    { label: t("Delete zoom"), icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelectedZoom() },
   ]);
 }
 
@@ -105,7 +106,7 @@ export function speedMenu(ed: Editor, e: MouseEvent, index: number): void {
   const r = ed.speed()[index];
   if (!r) return;
   openContextMenu(e, [
-    { heading: `Speed ${r.factor}×` },
+    { heading: t("Speed {factor}×", { factor: r.factor }) },
     ...[1.5, 2, 3, 4, 6, 8].map(
       (f): MenuItem => ({
         label: `${f}×`,
@@ -114,7 +115,7 @@ export function speedMenu(ed: Editor, e: MouseEvent, index: number): void {
       }),
     ),
     { separator: true },
-    { label: "Delete speed-up", icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelectedSpeed() },
+    { label: t("Delete speed-up"), icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelectedSpeed() },
   ]);
 }
 
@@ -125,8 +126,8 @@ export function cutMenu(ed: Editor, e: MouseEvent, index: number): void {
   ed.setSelSpeed(null);
   ed.setSelCut(index);
   openContextMenu(e, [
-    { heading: "Cut" },
-    { label: "Restore this section", icon: "reset", kbd: "Del", onSelect: () => void ed.deleteSelectedCut() },
+    { heading: t("Cut") },
+    { label: t("Restore this section"), icon: "reset", kbd: "Del", onSelect: () => void ed.deleteSelectedCut() },
   ]);
 }
 
@@ -147,12 +148,12 @@ export function timelineMenu(ed: Editor, e: MouseEvent): void {
   if (!ed.hasClip()) return;
   ed.scrub(ed.timeFromClientX(e.clientX));
   openContextMenu(e, [
-    { heading: "At this moment" },
+    { heading: t("At this moment") },
     ...insertItems(ed),
     { separator: true },
-    { label: "Set trim start here", onSelect: () => void setTrim(ed, "start") },
-    { label: "Set trim end here", onSelect: () => void setTrim(ed, "end") },
-    { label: "Clear trim", disabled: !ed.trim(), onSelect: () => void clearTrim(ed) },
+    { label: t("Set trim start here"), onSelect: () => void setTrim(ed, "start") },
+    { label: t("Set trim end here"), onSelect: () => void setTrim(ed, "end") },
+    { label: t("Clear trim"), disabled: !ed.trim(), onSelect: () => void clearTrim(ed) },
   ]);
 }
 

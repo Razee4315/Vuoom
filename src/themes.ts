@@ -1,16 +1,17 @@
 // Theme definitions. Black & white first, plus a few neutral options. No purple.
+import { t } from "./i18n";
 
 export interface Theme {
   id: string;
   name: string;
 }
 
-export const THEMES: Theme[] = [
-  { id: "mono-dark", name: "Mono Dark" },
-  { id: "mono-light", name: "Mono Light" },
-  { id: "graphite", name: "Graphite" },
-  { id: "paper", name: "Paper" },
-  { id: "midnight", name: "Midnight" },
+export const THEMES = (): Theme[] => [
+  { id: "mono-dark", name: t("Mono Dark") },
+  { id: "mono-light", name: t("Mono Light") },
+  { id: "graphite", name: t("Graphite") },
+  { id: "paper", name: t("Paper") },
+  { id: "midnight", name: t("Midnight") },
 ];
 
 const STORAGE_KEY = "vuoom-theme";
@@ -30,7 +31,7 @@ export function applyTheme(id: string): void {
 export function initialTheme(): string {
   try {
     const override = new URLSearchParams(window.location.search).get("theme");
-    if (override && THEMES.some((t) => t.id === override)) return override;
+    if (override && THEMES().some((t) => t.id === override)) return override;
   } catch {
     /* no location.search */
   }

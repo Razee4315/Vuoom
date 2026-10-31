@@ -22,12 +22,19 @@ pub struct Cue {
 
 /// A cue's longest line in characters (subtitle guidelines put a line at about 42).
 pub const MAX_CHARS: usize = 42;
+/// The same for Chinese, Japanese and Korean, whose characters are about twice as wide.
+pub const MAX_CJK_CHARS: usize = 22;
 /// A cue never covers more speech than this (seconds).
 pub const MAX_SECS: f64 = 5.0;
 /// A pause this long between words starts a new cue (seconds).
 pub const PAUSE_SECS: f64 = 0.6;
 /// A short cue stays up at least this long, when the next one leaves room (seconds).
 pub const MIN_SECS: f64 = 1.0;
+
+/// Whether `c` is written without spaces around it: Chinese, Japanese and their punctuation.
+fn unspaced(c: char) -> bool {
+    matches!(u32::from(c), 0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFF60)
+}
 
 /// Group words, in order, into cues.
 #[must_use]
@@ -40,18 +47,23 @@ pub fn group(words: &[Word]) -> Vec<Cue> {
             continue;
         }
         if let Some(c) = cur.as_mut() {
-            // A continuation (no leading space) always stays with its word.
-            if !w.text.starts_with(char::is_whitespace) {
+            // A continuation (no leading space) always stays with its word. Chinese and
+            // Japanese never have spaces, so there a token with none is a word of its own.
+            let cjk = text.chars().next().is_some_and(unspaced);
+            if !cjk && !w.text.starts_with(char::is_whitespace) {
                 c.text.push_str(text);
                 c.end = c.end.max(w.end);
                 continue;
             }
             let len = c.text.chars().count() + 1 + text.chars().count();
-            let fits = len <= MAX_CHARS && w.end - c.start <= MAX_SECS;
-            let sentence_ended = c.text.ends_with(['.', '?', '!']);
+            let limit = if cjk { MAX_CJK_CHARS } else { MAX_CHARS };
+            let fits = len <= limit && w.end - c.start <= MAX_SECS;
+            let sentence_ended = c.text.ends_with(['.', '?', '!', '。', '？', '！']);
             let paused = w.start - c.end >= PAUSE_SECS;
             if fits && !sentence_ended && !paused {
-                c.text.push(' ');
+                if !cjk {
+                    c.text.push(' ');
+                }
                 c.text.push_str(text);
                 c.end = c.end.max(w.end);
                 continue;
@@ -94,6 +106,23 @@ mod tests {
 
     fn texts(cues: &[Cue]) -> Vec<&str> {
         cues.iter().map(|c| c.text.as_str()).collect()
+    }
+
+    #[test]
+    fn chinese_splits_into_cues_of_a_readable_length() {
+        // Whisper's Chinese tokens have no spaces, and a sentence end is a full-width stop.
+        let words: Vec<Word> = (0..40)
+            .map(|i| {
+                let t = f64::from(i) * 0.2;
+                let text = if i == 7 { "。" } else { "字" };
+                w(text, t, t + 0.2)
+            })
+            .collect();
+        let cues = group(&words);
+        assert!(cues.len() >= 3, "{cues:?}");
+        assert!(cues.iter().all(|c| c.text.chars().count() <= MAX_CJK_CHARS));
+        assert!(cues.iter().all(|c| !c.text.contains(' ')));
+        assert!(cues[0].text.ends_with('。'), "{cues:?}");
     }
 
     #[test]

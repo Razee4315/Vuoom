@@ -3,18 +3,19 @@
 // folded behind Options. A crashed session and recent projects show only when they exist.
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
+import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { RECORD_KEYS, stopKeys, zoomKeys } from "../hotkeys";
 import { prefs } from "../prefs";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES, type Choice } from "../recordOptions";
-import { Kbd, Seg } from "../ui";
+import { Kbd, Rich, Seg } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
 
-const SOURCES: { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] = [
-  { mode: "region", icon: "region", title: "Region", sub: "Any area you drag out" },
-  { mode: "full", icon: "fullscreen", title: "Full screen", sub: "Everything on one display" },
-  { mode: "window", icon: "window", title: "Window", sub: "One app, wherever it goes" },
+const SOURCES = (): { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] => [
+  { mode: "region", icon: "region", title: t("Region"), sub: t("Any area you drag out") },
+  { mode: "full", icon: "fullscreen", title: t("Full screen"), sub: t("Everything on one display") },
+  { mode: "window", icon: "window", title: t("Window"), sub: t("One app, wherever it goes") },
 ];
 
 const labelOf = (choices: Choice[], v: number) => choices.find((c) => c.value === v)?.label ?? String(v);
@@ -28,34 +29,37 @@ export default function Home() {
   });
   // One line that says how the next take is set up, so the options can stay folded.
   const summary = () => {
-    const strength = labelOf(ZOOM_CHOICES, prefs.recordZoom());
+    const strength = labelOf(ZOOM_CHOICES(), prefs.recordZoom());
     const zoom =
-      prefs.recordZoom() <= 1 ? "No zoom" : prefs.recordAutoZoom() ? `Auto zoom ${strength}` : `${strength} zoom`;
-    const count = prefs.countdown() > 0 ? `${prefs.countdown()}s countdown` : "No countdown";
-    return `${labelOf(FPS_CHOICES, prefs.captureFps())} · ${zoom} · ${count}`;
+      prefs.recordZoom() <= 1 ? t("No zoom") : prefs.recordAutoZoom() ? t("Auto zoom {strength}", { strength }) : t("{strength} zoom", { strength });
+    const count = prefs.countdown() > 0 ? t("{countdown}s countdown", { countdown: prefs.countdown() }) : t("No countdown");
+    return `${labelOf(FPS_CHOICES(), prefs.captureFps())} · ${zoom} · ${count}`;
   };
 
   return (
     <main class="home">
       <div class="home-inner">
         <section class="home-hero">
-          <h1 class="home-title">Record something worth showing.</h1>
+          <h1 class="home-title">{t("Record something worth showing.")}</h1>
           <p class="home-sub">
             <Show
               when={prefs.recordAutoZoom() && prefs.recordZoom() > 1}
               fallback={
-                <>
-                  Choose what to capture. Press <Kbd keys={zoomKeys()} /> while you record to zoom in.
-                </>
+                <Rich
+                  text={t("Choose what to capture. Press {keys} while you record to zoom in.")}
+                  parts={{ keys: () => <Kbd keys={zoomKeys()} /> }}
+                />
               }
             >
-              Choose what to capture. Vuoom zooms in where you click, or press <Kbd keys={zoomKeys()} /> to
-              zoom yourself.
+              <Rich
+                text={t("Choose what to capture. Vuoom zooms in where you click, or press {keys} to zoom yourself.")}
+                parts={{ keys: () => <Kbd keys={zoomKeys()} /> }}
+              />
             </Show>
           </p>
 
           <div class="source-cards">
-            <For each={SOURCES}>
+            <For each={SOURCES()}>
               {(s) => (
                 <button
                   type="button"
@@ -97,42 +101,42 @@ export default function Home() {
           <Show when={more()}>
             <div class="home-opts">
               <div class="home-opt">
-                <span>Frame rate</span>
+                <span>{t("Frame rate")}</span>
                 <Seg
-                  label="Frame rate"
+                  label={t("Frame rate")}
                   value={prefs.captureFps()}
                   onChange={(v) => prefs.captureFps.set(v)}
-                  options={FPS_CHOICES}
+                  options={FPS_CHOICES()}
                 />
               </div>
               <div class="home-opt">
-                <span>Zooms</span>
+                <span>{t("Zooms")}</span>
                 <Seg
-                  label="How zooms are made"
+                  label={t("How zooms are made")}
                   value={prefs.recordAutoZoom() ? "auto" : "hotkey"}
                   onChange={(v) => prefs.recordAutoZoom.set(v === "auto")}
                   options={[
-                    { value: "auto", label: "Auto", tip: "Calm zooms where you click, unless you use the hotkey" },
-                    { value: "hotkey", label: "Hotkey only", tip: `Zoom only when you press ${zoomKeys()}` },
+                    { value: "auto", label: t("Auto"), tip: t("Calm zooms where you click, unless you use the hotkey") },
+                    { value: "hotkey", label: t("Hotkey only"), tip: t("Zoom only when you press {keys}", { keys: zoomKeys() }) },
                   ]}
                 />
               </div>
               <div class="home-opt">
-                <span>Zoom strength</span>
+                <span>{t("Zoom strength")}</span>
                 <Seg
-                  label="Zoom strength"
+                  label={t("Zoom strength")}
                   value={prefs.recordZoom()}
                   onChange={(v) => prefs.recordZoom.set(v)}
-                  options={ZOOM_CHOICES}
+                  options={ZOOM_CHOICES()}
                 />
               </div>
               <div class="home-opt">
-                <span>Countdown</span>
+                <span>{t("Countdown")}</span>
                 <Seg
-                  label="Countdown"
+                  label={t("Countdown")}
                   value={prefs.countdown()}
                   onChange={(v) => prefs.countdown.set(v)}
-                  options={COUNTDOWN_CHOICES}
+                  options={COUNTDOWN_CHOICES()}
                 />
               </div>
             </div>
@@ -145,10 +149,10 @@ export default function Home() {
               <Icon name="history" size={18} />
             </span>
             <span class="recover-text">
-              <strong>Your last take wasn't saved</strong>
-              <small>{ed.recoverable()!.toFixed(1)}s with the edits you made. Pick it back up.</small>
+              <strong>{t("Your last take wasn't saved")}</strong>
+              <small>{t("{seconds}s with the edits you made. Pick it back up.", { seconds: ed.recoverable()!.toFixed(1) })}</small>
             </span>
-            <span class="btn sm">Recover</span>
+            <span class="btn sm">{t("Recover")}</span>
           </button>
         </Show>
 
@@ -157,38 +161,41 @@ export default function Home() {
           fallback={
             <div class="home-foot">
               <button type="button" class="btn ghost sm" onClick={() => void ed.onOpenProject()}>
-                <Icon name="folder" size={14} /> Open a saved project
+                <Icon name="folder" size={14} /> {t("Open a saved project")}
+              </button>
+              <button type="button" class="btn ghost sm" onClick={() => void ed.trySample()}>
+                <Icon name="wand" size={14} /> {t("Try a sample clip")}
               </button>
               <span class="home-keys">
-                <Kbd keys={RECORD_KEYS} /> record <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> stop
+                <Kbd keys={RECORD_KEYS} /> {t("record")} <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> {t("stop")}
               </span>
             </div>
           }
         >
           <section class="home-recents">
             <header class="home-recents-head">
-              <h2>Recent projects</h2>
+              <h2>{t("Recent projects")}</h2>
               <Show when={ed.recents().length > 3}>
                 <div class="input-wrap home-search">
                   <Icon name="search" size={14} />
                   <input
                     class="input"
                     type="search"
-                    placeholder="Search"
-                    aria-label="Search recent projects"
+                    placeholder={t("Search")}
+                    aria-label={t("Search recent projects")}
                     value={ed.recentSearch()}
                     onInput={(e) => ed.setRecentSearch(e.currentTarget.value)}
                   />
                 </div>
               </Show>
               <button type="button" class="btn sm ghost" onClick={() => void ed.onOpenProject()}>
-                <Icon name="folder" size={14} /> Open project
+                <Icon name="folder" size={14} /> {t("Open project")}
               </button>
             </header>
             <div class="recents-grid">
               <For
                 each={filtered()}
-                fallback={<div class="recents-empty">No projects match "{ed.recentSearch()}".</div>}
+                fallback={<div class="recents-empty">{t('No projects match "{query}".', { query: ed.recentSearch() })}</div>}
               >
                 {(r) => (
                   <div class="recent">
@@ -206,8 +213,8 @@ export default function Home() {
                     <button
                       type="button"
                       class="recent-remove"
-                      aria-label={`Remove ${r.name} from recents`}
-                      data-tip="Remove from recents"
+                      aria-label={t("Remove {name} from recents", { name: r.name })}
+                      data-tip={t("Remove from recents")}
                       onClick={() => ed.removeRecent(r.dir)}
                     >
                       <Icon name="close" size={10} stroke={2.4} />

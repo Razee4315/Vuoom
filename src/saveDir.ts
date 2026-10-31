@@ -3,6 +3,7 @@
 // folder; off, exports go straight into it under a name no earlier file uses.
 import { createResource } from "solid-js";
 import { invoke, open, save } from "./bridge";
+import { t } from "./i18n";
 import { prefs } from "./prefs";
 
 let fallback: Promise<string> | null = null;
@@ -47,7 +48,7 @@ export async function pickSavePath(
 
 /** Let the user choose a new save folder. */
 export async function chooseSaveDir(): Promise<void> {
-  const picked = await open({ directory: true, title: "Choose where Vuoom saves videos" });
+  const picked = await open({ directory: true, title: t("Choose where Vuoom saves videos") });
   if (picked) prefs.saveDir.set(picked);
 }
 

@@ -7,10 +7,14 @@
 //! frameworks leave behind.
 
 use serde::Serialize;
-use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use vuoom_capture::CropRegion;
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Graphics::Dwm::{
+    DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    ClientToScreen, GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetWindowLongW, GetWindowTextLengthW, GetWindowTextW,
@@ -35,6 +39,42 @@ pub struct WindowInfo {
 const WS_EX_TOOLWINDOW: i32 = 0x80;
 /// A window with no WS_CAPTION has no title bar; almost always chrome-less chrome.
 const WS_CAPTION: i32 = 0xC0_0000;
+
+/// Where the client area of `hwnd` sits inside the picture a window capture delivers: the
+/// window as DWM draws it, title bar and borders included.
+fn client_offset(hwnd: isize) -> Option<(u32, u32)> {
+    let hwnd = HWND(hwnd as _);
+    let mut frame = RECT::default();
+    let size = u32::try_from(std::mem::size_of::<RECT>()).ok()?;
+    let bounds = std::ptr::from_mut(&mut frame).cast();
+    // SAFETY: `frame` is a live RECT of exactly `size` bytes for the call.
+    unsafe { DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, bounds, size) }.ok()?;
+    let mut client = POINT::default();
+    // SAFETY: `client` is a live POINT for the call.
+    unsafe { ClientToScreen(hwnd, &mut client) }.ok().ok()?;
+    let dx = u32::try_from(client.x - frame.left).ok()?;
+    let dy = u32::try_from(client.y - frame.top).ok()?;
+    Some((dx, dy))
+}
+
+/// What to crop a window capture's frames to, to keep the client area `w`×`h` of `hwnd`, or
+/// `region` (relative to the client area) inside it. The take's coordinates are all client
+/// coordinates: with the title bar left in, the pointer, clicks and zooms all land a title
+/// bar's height away from where they happened.
+#[must_use]
+pub fn client_crop(hwnd: isize, w: u32, h: u32, region: Option<CropRegion>) -> CropRegion {
+    let (dx, dy) = client_offset(hwnd).unwrap_or((0, 0));
+    offset_crop(region.unwrap_or(CropRegion { x: 0, y: 0, w, h }), dx, dy)
+}
+
+/// `r`, moved by (`dx`, `dy`).
+fn offset_crop(r: CropRegion, dx: u32, dy: u32) -> CropRegion {
+    CropRegion {
+        x: r.x + dx,
+        y: r.y + dy,
+        ..r
+    }
+}
 
 /// The window's display, resolved through the nearest-monitor rule.
 #[must_use]

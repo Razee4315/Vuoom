@@ -2,6 +2,7 @@
 // capture settings for the next take on the right.
 import { Show } from "solid-js";
 import { useEditor } from "../editor/context";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { prefs } from "../prefs";
 import { FPS_CHOICES } from "../recordOptions";
@@ -17,18 +18,18 @@ export default function StatusBar() {
       </span>
       <span class="grow" />
       <Show when={ed.hasClip()}>
-        <span class="sb-item" data-tip="Recorded length">
+        <span class="sb-item" data-tip={t("Recorded length")}>
           <Icon name="film" size={12} /> {ed.duration().toFixed(1)}s
         </span>
-        <span class="sb-item" data-tip="Zoom blocks">
+        <span class="sb-item" data-tip={t("Zoom blocks")}>
           <Icon name="zoomIn" size={12} /> {ed.zooms().length}
         </span>
       </Show>
       <Menu
         align="end"
         items={() => [
-          { heading: "Frame rate for the next recording" },
-          ...FPS_CHOICES.map((c) => ({
+          { heading: t("Frame rate for the next recording") },
+          ...FPS_CHOICES().map((c) => ({
             label: `${c.label}: ${c.tip}`,
             checked: prefs.captureFps() === c.value,
             onSelect: () => prefs.captureFps.set(c.value),
@@ -40,7 +41,7 @@ export default function StatusBar() {
             class="sb-item sb-btn"
             classList={{ on: m.open }}
             ref={m.ref}
-            data-tip="Frame rate for the next recording"
+            data-tip={t("Frame rate for the next recording")}
             onClick={m.toggle}
           >
             <Icon name="monitor" size={12} /> {prefs.captureFps()} fps
@@ -50,11 +51,11 @@ export default function StatusBar() {
       <button
         type="button"
         class="sb-item sb-btn"
-        data-tip="Keyboard shortcuts"
+        data-tip={t("Keyboard shortcuts")}
         data-kbd="?"
         onClick={() => ed.setSettingsTab("shortcuts")}
       >
-        <Icon name="keyboard" size={12} /> Shortcuts
+        <Icon name="keyboard" size={12} /> {t("Shortcuts")}
       </button>
     </footer>
   );

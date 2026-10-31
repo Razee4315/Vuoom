@@ -130,6 +130,10 @@ pub struct Project {
     /// made before this was recorded: an arrow throughout.
     #[serde(default)]
     pub pointer_shapes: Vec<PointerShapeAt>,
+    /// The height in pixels of the display the take was recorded on (0 = not known): the
+    /// re-drawn pointer is sized to the screen, not to the part of it recorded.
+    #[serde(default)]
+    pub screen_height: u32,
     /// Blur the picture along the camera's movement during zooms and pans, like a real
     /// camera's shutter.
     #[serde(default = "yes")]
@@ -222,6 +226,7 @@ impl Project {
             pointer_captured: true,
             cursor: None,
             pointer_shapes: Vec::new(),
+            screen_height: 0,
             motion_blur: true,
             camera: None,
             captions: Vec::new(),
@@ -258,6 +263,39 @@ impl Project {
         match self.trim {
             Some(t) => (t.start, t.end),
             None => (0.0, self.source.duration),
+        }
+    }
+
+    /// Add `take` to the end of this project: one timeline, with the take's input log,
+    /// zooms, pauses and pointer moved to where it now plays. The look of the project stays
+    /// (frame, annotations, pointer style), and so does any trim, unless it ran to the old
+    /// end, when it runs to the new one. Audio is the caller's: it lives in files.
+    pub fn append(&mut self, take: &Project) {
+        let at = self.source.duration;
+        self.events
+            .extend(take.events.iter().map(|e| e.shifted(at)));
+        self.zooms.extend(take.zooms.iter().map(|z| ZoomKeyframe {
+            start: z.start + at,
+            end: z.end + at,
+            ..*z
+        }));
+        self.key_taps.extend(take.key_taps.iter().map(|k| KeyTap {
+            t: k.t + at,
+            label: k.label.clone(),
+        }));
+        self.pointer_shapes.extend(
+            take.pointer_shapes
+                .iter()
+                .map(|p| PointerShapeAt { t: p.t + at, ..*p }),
+        );
+        self.cuts.extend(take.cuts.iter().map(|c| Trim {
+            start: c.start + at,
+            end: c.end + at,
+        }));
+        self.source.duration = at + take.source.duration;
+        self.source.fps = self.source.fps.max(take.source.fps);
+        if let Some(trim) = self.trim.as_mut().filter(|t| t.end >= at - 1e-6) {
+            trim.end = self.source.duration;
         }
     }
 
@@ -341,6 +379,36 @@ fn migrate(from: u32, value: &mut serde_json::Value) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_take_joins_the_end_of_the_timeline() {
+        let mut a = Project::new(sample_source());
+        let start = a.source.duration;
+        a.trim = Some(Trim {
+            start: 1.0,
+            end: start,
+        });
+        let mut take = Project::new(SourceInfo {
+            duration: 4.0,
+            ..sample_source()
+        });
+        take.events.push(InputEvent::KeyType { t: 1.5 });
+        take.cuts.push(Trim {
+            start: 1.0,
+            end: 2.0,
+        });
+        take.key_taps.push(KeyTap {
+            t: 0.5,
+            label: "Ctrl+S".into(),
+        });
+        a.append(&take);
+        assert_eq!(a.source.duration, start + 4.0);
+        assert_eq!(a.events[0].t(), start + 1.5);
+        assert_eq!(a.cuts[0].start, start + 1.0);
+        assert_eq!(a.key_taps[0].t, start + 0.5);
+        // A trim that ran to the old end runs to the new one.
+        assert_eq!(a.trim.unwrap().end, start + 4.0);
+    }
+
     fn sample_source() -> SourceInfo {
         SourceInfo {
             path: "capture.mkv".into(),
@@ -364,6 +432,7 @@ mod tests {
     fn json_round_trip_is_lossless() {
         let mut p = Project::new(sample_source());
         p.texts.push(TextAnnotation {
+            badge: false,
             id: 1,
             text: "Hello, README!".into(),
             pos: glam::DVec2::new(0.1, 0.1),

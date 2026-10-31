@@ -6,6 +6,7 @@ import { useEditor } from "../editor/context";
 import { isSwallowed } from "../editor/constants";
 import { fmt, fmtT } from "../format";
 import { outputDuration } from "../geometry";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { layout, prefs, setTimelineH } from "../prefs";
 import { trackLabel } from "../editor/audio";
@@ -53,7 +54,7 @@ export default function Timeline() {
       class="timeline panel"
       classList={{ collapsed: !open() }}
       style={{ height: open() ? `${layout.timelineH()}px` : undefined }}
-      aria-label="Timeline"
+      aria-label={t("Timeline")}
     >
       <Show when={open()}>
         <div
@@ -68,12 +69,12 @@ export default function Timeline() {
 
       <header class="tl-head">
         <div class="tl-transport">
-          <IconButton icon="toStart" tip="Back to start" kbd="Home" onClick={ed.restart} />
+          <IconButton icon="toStart" tip={t("Back to start")} kbd="Home" onClick={ed.restart} />
           <button
             type="button"
             class="tl-play"
-            aria-label={ed.playing() ? "Pause" : "Play"}
-            data-tip={ed.playing() ? "Pause" : "Play"}
+            aria-label={ed.playing() ? t("Pause") : t("Play")}
+            data-tip={ed.playing() ? t("Pause") : t("Play")}
             data-kbd="Space"
             onClick={ed.togglePlay}
           >
@@ -81,7 +82,7 @@ export default function Timeline() {
           </button>
           <IconButton
             icon="loop"
-            tip="Loop playback"
+            tip={t("Loop playback")}
             active={ed.looping()}
             onClick={() => {
               ed.setLooping(!ed.looping());
@@ -91,7 +92,7 @@ export default function Timeline() {
           <Menu
             items={() =>
               [0.25, 0.5, 1, 1.5, 2].map((r) => ({
-                label: r === 1 ? "Normal speed" : `${r}×`,
+                label: r === 1 ? t("Normal speed") : `${r}×`,
                 checked: prefs.previewRate() === r,
                 onSelect: () => prefs.previewRate.set(r),
               }))
@@ -102,7 +103,7 @@ export default function Timeline() {
                 class="tl-rate"
                 classList={{ on: m.open, off: prefs.previewRate() !== 1 }}
                 ref={m.ref}
-                data-tip="Preview speed (export is unaffected)"
+                data-tip={t("Preview speed (export is unaffected)")}
                 onClick={m.toggle}
               >
                 {prefs.previewRate()}×
@@ -114,7 +115,7 @@ export default function Timeline() {
             <span class="tl-time-sep">/</span>
             <span>{fmt(ed.duration())}</span>
             <Show when={ed.trim() || ed.speed().length > 0 || ed.cuts().length > 0}>
-              <span class="tl-time-out" data-tip="Final length after trim, speed-ups and cuts">
+              <span class="tl-time-out" data-tip={t("Final length after trim, speed-ups and cuts")}>
                 <Icon name="chevronRight" size={11} />
                 {outDur().toFixed(1)}s
               </span>
@@ -123,52 +124,52 @@ export default function Timeline() {
         </div>
 
         <div class="tl-insert">
-          <button type="button" class="tl-ins zoom" data-tip="Add a zoom at the playhead. To aim it, use the Zoom tool (Z)" onClick={() => void ed.addZoomAt()}>
-            <Icon name="zoomIn" size={14} /> Zoom
+          <button type="button" class="tl-ins zoom" data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")} onClick={() => void ed.addZoomAt()}>
+            <Icon name="zoomIn" size={14} /> {t("Zoom")}
           </button>
-          <button type="button" class="tl-ins speed" data-tip={`Speed up 2s at ${ed.skimFactor()}×`} data-kbd="X" onClick={() => void ed.addSpeedAtPlayhead()}>
-            <Icon name="speed" size={14} /> Speed
+          <button type="button" class="tl-ins speed" data-tip={t("Speed up 2s at {factor}×", { factor: ed.skimFactor() })} data-kbd="X" onClick={() => void ed.addSpeedAtPlayhead()}>
+            <Icon name="speed" size={14} /> {t("Speed")}
           </button>
-          <button type="button" class="tl-ins cut" data-tip="Remove 1s at the playhead" data-kbd="C" onClick={() => void ed.addCutAtPlayhead()}>
-            <Icon name="cut" size={14} /> Cut
+          <button type="button" class="tl-ins cut" data-tip={t("Remove 1s at the playhead")} data-kbd="C" onClick={() => void ed.addCutAtPlayhead()}>
+            <Icon name="cut" size={14} /> {t("Cut")}
           </button>
         </div>
 
         <div class="tl-tools">
           <IconButton
             icon="magnet"
-            tip={prefs.snapping() ? "Snapping on (hold Alt to bypass)" : "Snapping off"}
+            tip={prefs.snapping() ? t("Snapping on (hold Alt to bypass)") : t("Snapping off")}
             active={prefs.snapping()}
             onClick={() => prefs.snapping.set(!prefs.snapping())}
           />
           <IconButton
             icon="film"
-            tip={layout.filmstrip() ? "Hide frame thumbnails" : "Show frame thumbnails"}
+            tip={layout.filmstrip() ? t("Hide frame thumbnails") : t("Show frame thumbnails")}
             active={layout.filmstrip()}
             onClick={() => layout.filmstrip.set(!layout.filmstrip())}
           />
           <IconButton
             icon={layout.compactNotes() ? "expand" : "compact"}
-            tip={layout.compactNotes() ? "One lane per annotation" : "All annotations on one lane"}
+            tip={layout.compactNotes() ? t("One lane per annotation") : t("All annotations on one lane")}
             active={layout.compactNotes()}
             onClick={() => layout.compactNotes.set(!layout.compactNotes())}
           />
           <span class="tl-sep" />
-          <IconButton icon="minus" tip="Zoom timeline out" disabled={ed.tlScale() === null} onClick={() => ed.zoomTimeline(-1)} />
+          <IconButton icon="minus" tip={t("Zoom timeline out")} disabled={ed.tlScale() === null} onClick={() => ed.zoomTimeline(-1)} />
           <button
             type="button"
             class="tl-fit"
             classList={{ on: ed.tlScale() === null }}
-            data-tip="Fit the whole clip"
+            data-tip={t("Fit the whole clip")}
             onClick={() => ed.setTlScale(null)}
           >
-            Fit
+            {t("Fit")}
           </button>
-          <IconButton icon="plus" tip="Zoom timeline in (Ctrl+scroll)" onClick={() => ed.zoomTimeline(1)} />
+          <IconButton icon="plus" tip={t("Zoom timeline in (Ctrl+scroll)")} onClick={() => ed.zoomTimeline(1)} />
           <span class="tl-sep" />
           <IconButton
             icon={open() ? "chevronDown" : "chevronUp"}
-            tip={open() ? "Collapse timeline" : "Expand timeline"}
+            tip={open() ? t("Collapse timeline") : t("Expand timeline")}
             kbd="Ctrl+3"
             onClick={() => layout.timelineOpen.set(!open())}
           />
@@ -182,44 +183,44 @@ export default function Timeline() {
             <Show when={layout.filmstrip()}>
               <div class="tl-headcell film" aria-hidden="true">
                 <Icon name="film" size={12} />
-                <span>Frames</span>
+                <span>{t("Frames")}</span>
               </div>
             </Show>
             <div class="tl-headcell zoom" aria-hidden="true">
               <span class="tl-swatch" />
-              <span>Zooms</span>
+              <span>{t("Zooms")}</span>
               <span class="tl-count">{ed.zooms().length}</span>
             </div>
             <div class="tl-headcell notes" aria-hidden="true" style={{ height: `calc(var(--lane-h) * ${noteLanes()})` }}>
               <span class="tl-swatch" />
-              <span>Notes</span>
+              <span>{t("Notes")}</span>
               <span class="tl-count">{ed.annBars().length}</span>
             </div>
             <div class="tl-headcell effects" aria-hidden="true">
               <span class="tl-swatch" />
-              <span>Speed · Cuts</span>
+              <span>{t("Speed · Cuts")}</span>
             </div>
             <Show when={ed.captions.list().length > 0}>
               <div class="tl-headcell captions" aria-hidden="true">
                 <span class="tl-swatch" />
-                <span>Captions</span>
+                <span>{t("Captions")}</span>
                 <span class="tl-count">{ed.captions.list().length}</span>
               </div>
             </Show>
             <Index each={ed.audio.tracks()}>
-              {(t) => (
-                <div class="tl-headcell audio" classList={{ muted: t().muted }}>
+              {(track) => (
+                <div class="tl-headcell audio" classList={{ muted: track().muted }}>
                   <button
                     type="button"
                     class="tl-mute"
-                    aria-pressed={t().muted}
-                    aria-label={`${t().muted ? "Unmute" : "Mute"} ${trackLabel(t().kind)}`}
-                    data-tip={t().muted ? "Unmute" : "Mute"}
-                    onClick={() => ed.audio.toggleMute(t().kind)}
+                    aria-pressed={track().muted}
+                    aria-label={track().muted ? t("Unmute {track}", { track: trackLabel(track().kind) }) : t("Mute {track}", { track: trackLabel(track().kind) })}
+                    data-tip={track().muted ? t("Unmute") : t("Mute")}
+                    onClick={() => ed.audio.toggleMute(track().kind)}
                   >
-                    <Icon name={t().muted ? "volumeOff" : t().kind === "mic" ? "mic" : "volume"} size={12} />
+                    <Icon name={track().muted ? "volumeOff" : track().kind === "mic" ? "mic" : "volume"} size={12} />
                   </button>
-                  <span>{t().kind === "mic" ? "Mic" : "System"}</span>
+                  <span>{track().kind === "mic" ? t("Mic") : t("System")}</span>
                 </div>
               )}
             </Index>
@@ -271,7 +272,7 @@ export default function Timeline() {
                 {/* Camera: zoom blocks. Click empty lane space to add one. */}
                 <div class="tl-lane tl-zoomlane" onPointerLeave={() => ed.setGhostT(null)}>
                   <Show when={ed.zooms().length === 0 && prefs.hints()}>
-                    <div class="tl-lanehint">Click anywhere in this lane to zoom in at that moment</div>
+                    <div class="tl-lanehint">{t("Click anywhere in this lane to zoom in at that moment")}</div>
                   </Show>
                   <Show when={ed.ghostT() !== null && !ed.zoomDrag() && !ed.speedDrag() && !ed.cutDrag()}>
                     {(() => {
@@ -279,7 +280,7 @@ export default function Timeline() {
                       const left = () => Math.max(0, Math.min(100 - gw(), ed.pct(ed.ghostT()!) - gw() / 2));
                       return (
                         <div class="tl-ghost" style={{ left: `${left()}%`, width: `${gw()}%` }}>
-                          <Icon name="plus" size={10} stroke={2.5} /> Zoom
+                          <Icon name="plus" size={10} stroke={2.5} /> {t("Zoom")}
                         </div>
                       );
                     })()}
@@ -294,9 +295,9 @@ export default function Timeline() {
                           class="tl-seg tl-zoom"
                           classList={{ selected: ed.selZoom() === i(), swallowed: gone() }}
                           style={{ left: `${ed.pct(g().start)}%`, width: w(g().start, g().end) }}
-                          aria-label={`Zoom ${z.amount.toFixed(1)} times, ${z.start.toFixed(1)} to ${z.end.toFixed(1)} seconds`}
+                          aria-label={t("Zoom {amount} times, {start} to {end} seconds", { amount: z.amount.toFixed(1), start: z.start.toFixed(1), end: z.end.toFixed(1) })}
                           aria-pressed={ed.selZoom() === i()}
-                          data-tip={gone() ? "Hidden by a cut, never exported" : undefined}
+                          data-tip={gone() ? t("Hidden by a cut, never exported") : undefined}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
@@ -327,7 +328,7 @@ export default function Timeline() {
                 {/* Notes: one lane per annotation (or all on one lane in compact mode). */}
                 <div class="tl-notes" style={{ height: `calc(var(--lane-h) * ${noteLanes()})` }}>
                   <Show when={ed.annBars().length === 0 && prefs.hints()}>
-                    <div class="tl-lanehint">Text, arrows and boxes you draw get a bar here</div>
+                    <div class="tl-lanehint">{t("Text, arrows and boxes you draw get a bar here")}</div>
                   </Show>
                   <For each={ed.annBars()}>
                     {(b, i) => {
@@ -343,9 +344,9 @@ export default function Timeline() {
                             width: w(g().start, g().end),
                             top: `calc(var(--lane-h) * ${layout.compactNotes() ? 0 : i()} + 3px)`,
                           }}
-                          aria-label={`${b.label}, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                          aria-label={t("{label}, {start} to {end} seconds", { label: b.label, start: g().start.toFixed(1), end: g().end.toFixed(1) })}
                           aria-pressed={ed.isSelected(b.kind, b.id)}
-                          data-tip={gone() ? "Hidden by a cut, never exported" : undefined}
+                          data-tip={gone() ? t("Hidden by a cut, never exported") : undefined}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
@@ -373,7 +374,7 @@ export default function Timeline() {
                 {/* Speed + cuts: amber means faster, striped red means removed. */}
                 <div class="tl-lane tl-effects">
                   <Show when={ed.speed().length === 0 && ed.cuts().length === 0 && prefs.hints()}>
-                    <div class="tl-lanehint">Speed-ups and cuts land here. Try Skim idle in the Clip panel</div>
+                    <div class="tl-lanehint">{t("Speed-ups and cuts land here. Try Skim idle in the Clip panel")}</div>
                   </Show>
                   <For each={ed.speed()}>
                     {(r, i) => {
@@ -389,7 +390,7 @@ export default function Timeline() {
                           <button
                             type="button"
                             class="tl-seg-body"
-                            aria-label={`Plays at ${r.factor} times, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                            aria-label={t("Plays at {factor} times, {start} to {end} seconds", { factor: r.factor, start: g().start.toFixed(1), end: g().end.toFixed(1) })}
                             aria-pressed={ed.selSpeed() === i()}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
@@ -426,7 +427,7 @@ export default function Timeline() {
                           <button
                             type="button"
                             class="tl-seg-body"
-                            aria-label={`Removed section, ${g().start.toFixed(1)} to ${g().end.toFixed(1)} seconds`}
+                            aria-label={t("Removed section, {start} to {end} seconds", { start: g().start.toFixed(1), end: g().end.toFixed(1) })}
                             aria-pressed={ed.selCut() === i()}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
@@ -437,14 +438,14 @@ export default function Timeline() {
                               }
                             }}
                             onContextMenu={(e) => cutMenu(ed, e, i())}
-                            data-tip="Removed from the export. Delete restores it"
+                            data-tip={t("Removed from the export. Delete restores it")}
                             onPointerDown={ed.onCutDown(i(), c, "move")}
                             onPointerMove={ed.frameCut(ed.onCutMove)}
                             onPointerUp={() => void ed.onCutUp()}
                             onLostPointerCapture={() => void ed.onCutUp()}
                           >
                             <Icon name="cut" size={11} />
-                            <span class="tl-seg-label">Cut</span>
+                            <span class="tl-seg-label">{t("Cut")}</span>
                           </button>
                           <span class="tl-handle r" onPointerDown={ed.onCutDown(i(), c, "r")} onPointerMove={ed.frameCut(ed.onCutMove)} onPointerUp={() => void ed.onCutUp()} onLostPointerCapture={() => void ed.onCutUp()} />
                         </div>
@@ -470,8 +471,8 @@ export default function Timeline() {
                             <button
                               type="button"
                               class="tl-seg-body"
-                              aria-label={`Caption: ${c.text || "empty"}`}
-                              data-tip={gone() ? "Hidden by a cut, never exported" : c.text || "Empty caption"}
+                              aria-label={t("Caption: {text}", { text: c.text || t("empty") })}
+                              data-tip={gone() ? t("Hidden by a cut, never exported") : c.text || t("Empty caption")}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                   e.preventDefault();
@@ -485,7 +486,7 @@ export default function Timeline() {
                               onPointerUp={() => void ed.onCaptionUp()}
                               onLostPointerCapture={() => void ed.onCaptionUp()}
                             >
-                              <span class="tl-seg-label">{c.text.trim() || "Empty"}</span>
+                              <span class="tl-seg-label">{c.text.trim() || t("Empty")}</span>
                             </button>
                             <span class="tl-handle r" onPointerDown={ed.onCaptionDown(c, "r")} onPointerMove={ed.frameCaption(ed.onCaptionMove)} onPointerUp={() => void ed.onCaptionUp()} onLostPointerCapture={() => void ed.onCaptionUp()} />
                           </div>
@@ -518,7 +519,7 @@ export default function Timeline() {
                 <div
                   class="tl-trim start"
                   style={{ left: `${ed.pct(ed.tStart())}%` }}
-                  data-tip="Trim start"
+                  data-tip={t("Trim start")}
                   onPointerDown={ed.onTrimDown("start")}
                   onPointerMove={ed.frameTrim(ed.onTrimMove)}
                   onPointerUp={() => void ed.onTrimUp()}
@@ -527,7 +528,7 @@ export default function Timeline() {
                 <div
                   class="tl-trim end"
                   style={{ left: `${ed.pct(ed.tEnd())}%` }}
-                  data-tip="Trim end"
+                  data-tip={t("Trim end")}
                   onPointerDown={ed.onTrimDown("end")}
                   onPointerMove={ed.frameTrim(ed.onTrimMove)}
                   onPointerUp={() => void ed.onTrimUp()}

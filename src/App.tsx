@@ -17,7 +17,8 @@ import WindowPicker from "./components/WindowPicker";
 import { EditorContext } from "./editor/context";
 import { createEditor } from "./editor/createEditor";
 import { ExportDialog } from "./ExportDialog";
-import { GPU_FAILED_MSG } from "./format";
+import { gpuFailedMsg } from "./format";
+import { t } from "./i18n";
 import { Icon } from "./icons";
 import { layout, prefs, resetLayout } from "./prefs";
 import RecordOverlay from "./RecordOverlay";
@@ -94,8 +95,8 @@ export default function App() {
         <Show when={ed.gpuLost()}>
           <div class="banner" role="alert">
             <Icon name="warning" size={14} />
-            <span>{GPU_FAILED_MSG}</span>
-            <button type="button" class="ibtn sm" aria-label="Dismiss" onClick={() => ed.setGpuLost(false)}>
+            <span>{gpuFailedMsg()}</span>
+            <button type="button" class="ibtn sm" aria-label={t("Dismiss")} onClick={() => ed.setGpuLost(false)}>
               <Icon name="close" size={12} />
             </button>
           </div>
@@ -149,6 +150,15 @@ export default function App() {
             />
           )}
         </Show>
+      </Show>
+
+      <Show when={ed.busy()}>
+        {(message) => (
+          <div class="busy-veil" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true" />
+            <span>{message()}</span>
+          </div>
+        )}
       </Show>
 
       <Show when={ed.showSource()}>

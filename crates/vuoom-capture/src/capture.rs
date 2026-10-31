@@ -106,16 +106,18 @@ pub(crate) fn clamp_region(r: CropRegion, w: u32, h: u32) -> (u32, u32, u32, u32
     (cx, cy, cw, ch)
 }
 
-/// Crop a tightly-packed BGRA buffer to `region`, returning `(w, h, pixels)`.
-fn crop_bgra(full: &[u8], w: u32, h: u32, region: CropRegion) -> (u32, u32, Vec<u8>) {
+/// Crop a tightly-packed BGRA buffer to `region`, into `out` (replacing what it held),
+/// returning the crop's `(w, h)`.
+fn crop_bgra(full: &[u8], w: u32, h: u32, region: CropRegion, out: &mut Vec<u8>) -> (u32, u32) {
     let (cx, cy, cw, ch) = clamp_region(region, w, h);
     let row_bytes = (cw * 4) as usize;
-    let mut out = Vec::with_capacity(row_bytes * ch as usize);
+    out.clear();
+    out.reserve(row_bytes * ch as usize);
     for row in cy..cy + ch {
         let s = ((row * w + cx) * 4) as usize;
         out.extend_from_slice(&full[s..s + row_bytes]);
     }
-    (cw, ch, out)
+    (cw, ch)
 }
 
 /// Per-session capture options.
@@ -256,6 +258,11 @@ struct Handler {
     /// [`update_interval`]) only exists on Windows 11 and lands a little above the target;
     /// on Windows 10 every screen refresh arrives here.
     pacer: FramePacer,
+    /// Frame buffers the consumer is done with (see [`CaptureHandle::recycle`]).
+    recycle: Receiver<Vec<u8>>,
+    /// Unpacks frames that arrive with row padding. Kept for the whole take: a frame is
+    /// megabytes, and a fresh buffer has every page zeroed by the OS on first touch.
+    unpadded: Vec<u8>,
 }
 
 impl GraphicsCaptureApiHandler for Handler {
@@ -265,11 +272,12 @@ impl GraphicsCaptureApiHandler for Handler {
         Option<CropRegion>,
         Arc<AtomicU64>,
         u32,
+        Receiver<Vec<u8>>,
     );
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let (tx, stop, crop, dropped, max_fps) = ctx.flags;
+        let (tx, stop, crop, dropped, max_fps, recycle) = ctx.flags;
         let clock = Clock::new();
         Ok(Self {
             tx,
@@ -278,6 +286,8 @@ impl GraphicsCaptureApiHandler for Handler {
             crop,
             dropped,
             pacer: FramePacer::new(max_fps, clock.freq()),
+            recycle,
+            unpadded: Vec::new(),
         })
     }
 
@@ -317,11 +327,15 @@ impl GraphicsCaptureApiHandler for Handler {
             .map(|t| t as i64)
             .unwrap_or(now);
         let buffer = frame.buffer()?;
-        let mut scratch: Vec<u8> = Vec::new();
-        let full = buffer.as_nopadding_buffer(&mut scratch);
-        let (w, h, bgra) = match self.crop {
-            Some(r) => crop_bgra(full, width, height, r),
-            None => (width, height, full.to_vec()),
+        let full = buffer.as_nopadding_buffer(&mut self.unpadded);
+        let mut bgra = self.recycle.try_recv().unwrap_or_default();
+        let (w, h) = match self.crop {
+            Some(r) => crop_bgra(full, width, height, r, &mut bgra),
+            None => {
+                bgra.clear();
+                bgra.extend_from_slice(full);
+                (width, height)
+            }
         };
         // Bounded, drop-newest: never block this WGC callback thread and never let full
         // BGRA frames pile up in RAM. If the drain lags we drop the newest frame (and warn);
@@ -375,11 +389,10 @@ fn pick_window(hwnd: isize) -> Result<Window, CaptureError> {
 ///
 /// # Errors
 /// Returns [`CaptureError`] if the window or capture session cannot be started.
-pub fn run_window(
-    tx: SyncSender<CapturedFrame>,
+pub(crate) fn run_window(
+    out: Output,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    dropped: Arc<AtomicU64>,
     hwnd: isize,
     opts: CaptureOptions,
 ) -> Result<(), CaptureError> {
@@ -397,7 +410,7 @@ pub fn run_window(
         update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (tx, stop, crop, dropped, opts.max_fps),
+        (out.tx, stop, crop, out.dropped, opts.max_fps, out.recycle),
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
@@ -421,11 +434,10 @@ fn pick_monitor(name: Option<&str>) -> Result<Monitor, CaptureError> {
 ///
 /// # Errors
 /// Returns [`CaptureError`] if the monitor or capture session cannot be started.
-pub fn run_display(
-    tx: SyncSender<CapturedFrame>,
+pub(crate) fn run_display(
+    out: Output,
     stop: Arc<AtomicBool>,
     crop: Option<CropRegion>,
-    dropped: Arc<AtomicU64>,
     monitor: Option<&str>,
     opts: CaptureOptions,
 ) -> Result<(), CaptureError> {
@@ -447,7 +459,7 @@ pub fn run_display(
         update_interval(opts.max_fps),
         DirtyRegionSettings::Default,
         ColorFormat::Bgra8,
-        (tx, stop, crop, dropped, opts.max_fps),
+        (out.tx, stop, crop, out.dropped, opts.max_fps, out.recycle),
     );
     Handler::start(settings).map_err(|e| CaptureError::Start(e.to_string()))?;
     Ok(())
@@ -480,7 +492,7 @@ fn run_monitor(
         Err(e) => {
             tracing::info!("desktop duplication unavailable ({e}), using graphics capture");
             let _ = ready.send(Backend::GraphicsCapture);
-            run_display(out.tx, stop, crop, out.dropped, monitor, opts)
+            run_display(out, stop, crop, monitor, opts)
         }
     }
 }
@@ -532,7 +544,7 @@ pub fn spawn_capture(
             }
             CaptureSource::Window { hwnd } => {
                 let _ = ready_tx.send(Backend::GraphicsCapture);
-                run_window(out.tx, stop, crop, out.dropped, *hwnd, opts)
+                run_window(out, stop, crop, *hwnd, opts)
             }
         };
         if let Err(e) = result {
@@ -586,7 +598,8 @@ mod tests {
     #[test]
     fn crop_extracts_subrect() {
         let full = ramp(4, 2); // indices 0..7
-        let (w, h, out) = crop_bgra(
+        let mut out = vec![9; 3]; // What a reused buffer still holds doesn't matter.
+        let (w, h) = crop_bgra(
             &full,
             4,
             2,
@@ -596,7 +609,9 @@ mod tests {
                 w: 2,
                 h: 2,
             },
+            &mut out,
         );
+        assert_eq!(out.len(), 16);
         assert_eq!((w, h), (2, 2));
         // row0: idx 1,2 ; row1: idx 5,6
         assert_eq!(out[0], 1);

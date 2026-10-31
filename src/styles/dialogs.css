@@ -218,8 +218,8 @@
 }
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
 }
 .theme-card {
   display: flex;
@@ -775,4 +775,32 @@
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   width: 100%;
+}
+
+/* Covers the app while something it can't work without is on its way. */
+.busy-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--overlay);
+  color: var(--text);
+  font-size: var(--fs-md);
+  animation: fade-in var(--dur-2) var(--ease);
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--text) 25%, transparent);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

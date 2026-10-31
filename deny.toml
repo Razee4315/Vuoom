@@ -26,6 +26,12 @@ ignore = [
     # doesn't accept yet; Dependabot will pick it up when it does.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    # zip 4.x archive extraction on Unix (setuid bits, symlink targets). Pulled by
+    # tauri-plugin-updater, which holds it below the fixed 9.x. Vuoom is Windows-only, where
+    # neither applies, and an update archive is only opened after its signature is verified.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
 
 [licenses]

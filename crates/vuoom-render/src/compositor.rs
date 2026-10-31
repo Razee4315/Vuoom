@@ -6,7 +6,7 @@
 //! `new()` returns `None` when no GPU adapter is available (e.g. a CI runner without a
 //! GPU), so tests skip gracefully rather than fail.
 
-use crate::scene::{ResolvedCaption, ResolvedCursor, ResolvedHighlight, Scene};
+use crate::scene::{ResolvedCaption, ResolvedCursor, ResolvedHighlight, Scene, MAX_MOSAICS};
 use crate::shapes::{build_shape_vertices, cursor_scale, pointer_vertices, ShapeVertex};
 use glyphon::{
     Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
@@ -94,10 +94,22 @@ struct Uniforms {
     /// Samples across and down per output pixel (see [`area_taps`]).
     taps: [f32; 2],
     _pad3: [f32; 2],
+    /// Rects (x, y, w, h in output pixels) where the picture shows as blocks.
+    mosaic: [[f32; 4]; MAX_MOSAICS],
+    mosaic_count: f32,
+    mosaic_px: f32,
+    _pad4: [f32; 2],
 }
 
 /// Spare capacity left on a composited frame's buffer, for a trailer appended in place.
 const READBACK_SPARE: usize = 64;
+
+/// A mosaic block's side, as a fraction of the output's height: coarse enough that text
+/// under it can't be read.
+const MOSAIC_CELL: f32 = 0.022;
+
+/// Finished frames kept to be filled again (see [`Compositor::recycle`]).
+const SPARE_FRAMES: usize = 4;
 
 /// Most samples per axis the composite shader takes for one output pixel.
 const MAX_TAPS: f64 = 4.0;
@@ -292,6 +304,8 @@ struct CompositeCache {
     readback: wgpu::Buffer,
     /// `bytes_per_row` of `readback`, rounded up to `COPY_BYTES_PER_ROW_ALIGNMENT` (256).
     padded_bpr: u32,
+    /// The pixels now in `src_tex`, when the caller named them.
+    source_id: Option<u64>,
 }
 
 impl CompositeCache {
@@ -328,6 +342,8 @@ pub struct Compositor {
     backdrop: Mutex<Backdrop>,
     /// The GPU in use (name, graphics API, type, driver), for diagnostics.
     adapter: String,
+    /// Finished frames to fill again (see [`Compositor::recycle`]).
+    spare_frames: Mutex<Vec<Vec<u8>>>,
 }
 
 /// A backdrop placeholder: one opaque black pixel.
@@ -424,6 +440,16 @@ impl Compositor {
         &self.adapter
     }
 
+    /// Hand back a frame [`Self::composite_scene`] returned, for its memory to be used again:
+    /// a 4K frame is 33 MB, and a fresh allocation has every page faulted in by the OS.
+    pub fn recycle(&self, frame: Vec<u8>) {
+        if let Ok(mut spare) = self.spare_frames.lock() {
+            if spare.len() < SPARE_FRAMES {
+                spare.push(frame);
+            }
+        }
+    }
+
     /// Bring up a headless GPU compositor, or `None` if no adapter is available.
     #[must_use]
     pub fn new() -> Option<Self> {
@@ -437,8 +463,19 @@ impl Compositor {
             .await
             .ok()?;
         let adapter_desc = describe_adapter(&adapter.get_info());
+        // Everything the GPU can do on texture and buffer size: the defaults stop at 8192
+        // pixels a side, under a framed 8K take or a very wide multi-monitor region.
+        let most = adapter.limits();
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: most.max_texture_dimension_2d,
+            max_buffer_size: most.max_buffer_size,
+            ..wgpu::Limits::default()
+        };
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+            .request_device(&wgpu::DeviceDescriptor {
+                required_limits: limits,
+                ..wgpu::DeviceDescriptor::default()
+            })
             .await
             .ok()?;
 
@@ -780,6 +817,7 @@ impl Compositor {
             pointer: Mutex::new(None),
             text,
             cache: Mutex::new(None),
+            spare_frames: Mutex::new(Vec::new()),
             camera_cache: Mutex::new(None),
             backdrop: Mutex::new(backdrop),
         })
@@ -1065,8 +1103,11 @@ impl Compositor {
 
         let data = slice.get_mapped_range();
         let len = (unpadded * height) as usize;
+        let spare = self.spare_frames.lock().ok().and_then(|mut s| s.pop());
+        let mut out = spare.unwrap_or_default();
+        out.clear();
         // A little spare room, so the preview can append its frame trailer in place.
-        let mut out = Vec::with_capacity(len + READBACK_SPARE);
+        out.reserve(len + READBACK_SPARE);
         if padded == unpadded {
             // No row padding (widths that are a multiple of 64): one straight copy.
             out.extend_from_slice(&data[..len]);
@@ -1179,6 +1220,7 @@ impl Compositor {
             layer_bind_group,
             readback,
             padded_bpr,
+            source_id: None,
         }
     }
 
@@ -1329,11 +1371,15 @@ impl Compositor {
 
     /// Composite a frame and overlay the scene's shape annotations (highlight boxes and
     /// arrows). Text is drawn by the separate glyphon pass. Returns RGBA8 bytes.
+    ///
+    /// `source_id`, when given, names the pixels: a frame with the id of the last one drawn
+    /// isn't uploaded again, which is most of the cost of a zoom gliding over a still screen.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn composite_scene(
         &self,
         source_bgra: &[u8],
+        source_id: Option<u64>,
         src_w: u32,
         src_h: u32,
         out_w: u32,
@@ -1362,28 +1408,32 @@ impl Compositor {
             cache.bind_group = self.bind_composite(&cache.ubuf, &cache.src_view, &backdrop.view);
             cache.backdrop_generation = backdrop.generation;
         }
+        let uploaded = source_id.is_some() && cache.source_id == source_id;
+        cache.source_id = source_id;
         let cache = &*cache;
 
         // Stream this frame's source pixels into the cached source texture.
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &cache.src_tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            source_bgra,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(src_w * 4),
-                rows_per_image: Some(src_h),
-            },
-            wgpu::Extent3d {
-                width: src_w,
-                height: src_h,
-                depth_or_array_layers: 1,
-            },
-        );
+        if !uploaded {
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &cache.src_tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                source_bgra,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(src_w * 4),
+                    rows_per_image: Some(src_h),
+                },
+                wgpu::Extent3d {
+                    width: src_w,
+                    height: src_h,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
 
         let prev = scene.blur_from.unwrap_or(layout.src_rect);
         let max_taps = if scene.blur_from.is_some() {
@@ -1420,6 +1470,16 @@ impl Compositor {
                 area_taps(src.h, src_h, dst.h, max_taps),
             ],
             _pad3: [0.0, 0.0],
+            mosaic: {
+                let mut rects = [[0.0; 4]; MAX_MOSAICS];
+                for (slot, rect) in rects.iter_mut().zip(&scene.mosaics) {
+                    *slot = *rect;
+                }
+                rects
+            },
+            mosaic_count: scene.mosaics.len().min(MAX_MOSAICS) as f32,
+            mosaic_px: (out_h as f32 * MOSAIC_CELL).max(4.0),
+            _pad4: [0.0, 0.0],
         };
         self.queue
             .write_buffer(&cache.ubuf, 0, bytemuck::bytes_of(&uniforms));
@@ -1537,10 +1597,12 @@ impl Compositor {
                     right: out_w as i32,
                     bottom: out_h as i32,
                 },
-                default_color: GlyphColor::rgb(
+                // With its alpha: a label's fade in and out live there.
+                default_color: GlyphColor::rgba(
                     (label.color.r * 255.0) as u8,
                     (label.color.g * 255.0) as u8,
                     (label.color.b * 255.0) as u8,
+                    (label.color.a * 255.0) as u8,
                 ),
                 custom_glyphs: &[],
             })
@@ -1637,6 +1699,8 @@ impl Compositor {
             let _ = renderer.render(atlas, viewport, &mut pass);
         }
         self.queue.submit(Some(encoder.finish()));
+        // Glyphs this frame didn't use can go, or the atlas grows through a long export.
+        atlas.trim();
         self.read_back_into(
             &cache.target,
             &cache.readback,
@@ -1796,6 +1860,8 @@ mod tests {
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),
+            masks: Vec::new(),
+            mosaics: Vec::new(),
             cursor: None,
             camera: None,
             caption: None,
@@ -1803,6 +1869,7 @@ mod tests {
         };
         let px = compositor.composite_scene(
             &source,
+            None,
             4,
             4,
             8,
@@ -1898,13 +1965,15 @@ mod tests {
             ripples: Vec::new(),
             key_chips: Vec::new(),
             key_texts: Vec::new(),
+            masks: Vec::new(),
+            mosaics: Vec::new(),
             cursor: Some(cursor),
             camera: None,
             caption: None,
             blur_from: None,
         };
         let bg = BgFill::solid([0.0, 0.0, 0.0, 1.0]);
-        let px = compositor.composite_scene(&source, 64, 64, 64, 64, &scene, bg, None);
+        let px = compositor.composite_scene(&source, None, 64, 64, 64, 64, &scene, bg, None);
         let i = (32 * 64 + 32) * 4;
         [px[i], px[i + 1], px[i + 2], px[i + 3]]
     }

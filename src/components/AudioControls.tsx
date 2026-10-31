@@ -3,6 +3,7 @@
 // picks a microphone and system sound.
 import { createEffect, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { invoke } from "../bridge";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { prefs } from "../prefs";
 import type { AudioDevices } from "../types";
@@ -41,17 +42,17 @@ export function pushAudioChoice(): void {
 export function audioSummary(): string {
   const mic = prefs.recordMic();
   const sys = prefs.recordSystem();
-  if (mic && sys) return "Mic + system";
-  if (mic) return "Mic";
-  if (sys) return "System sound";
-  return "No audio";
+  if (mic && sys) return t("Mic + system");
+  if (mic) return t("Mic");
+  if (sys) return t("System sound");
+  return t("No audio");
 }
 
 /** Name of the chosen microphone, for tooltips. */
 export function micName(devices: AudioDevices): string {
   const id = prefs.micDevice();
   const d = devices.inputs.find((x) => x.id === id) ?? devices.inputs.find((x) => x.is_default);
-  return d?.name ?? "Default microphone";
+  return d?.name ?? t("Default microphone");
 }
 
 /** Menu entries: microphone off / each device, then system sound. */
@@ -64,12 +65,12 @@ export function audioMenuItems(devices: AudioDevices): MenuItem[] {
   const current = prefs.micDevice();
   const knownCurrent = devices.inputs.some((d) => d.id === current);
   const items: MenuItem[] = [
-    { heading: "Microphone" },
-    { label: "Off", icon: "micOff", checked: !prefs.recordMic(), onSelect: () => pickMic(false, null) },
+    { heading: t("Microphone") },
+    { label: t("Off"), icon: "micOff", checked: !prefs.recordMic(), onSelect: () => pickMic(false, null) },
   ];
   if (devices.inputs.length === 0) {
     items.push({
-      label: "Default microphone",
+      label: t("Default microphone"),
       icon: "mic",
       checked: prefs.recordMic(),
       onSelect: () => pickMic(true, null),
@@ -78,15 +79,15 @@ export function audioMenuItems(devices: AudioDevices): MenuItem[] {
   for (const d of devices.inputs) {
     const chosen = prefs.recordMic() && (current === d.id || (!knownCurrent && d.is_default));
     items.push({
-      label: d.is_default ? `${d.name} (default)` : d.name,
+      label: d.is_default ? t("{name} (default)", { name: d.name }) : d.name,
       icon: "mic",
       checked: chosen,
       onSelect: () => pickMic(true, d.is_default ? null : d.id),
     });
   }
-  items.push({ heading: "Computer sound" });
+  items.push({ heading: t("Computer sound") });
   items.push({
-    label: "Record system sound",
+    label: t("Record system sound"),
     icon: "volume",
     checked: prefs.recordSystem(),
     disabled: devices.inputs.length > 0 && !devices.has_output,
@@ -152,7 +153,7 @@ export function AudioPicker(props: { class?: string }): JSX.Element {
           class={`audio-picker ${props.class ?? ""}`}
           classList={{ on: m.open, off: off() }}
           ref={m.ref}
-          data-tip={prefs.recordMic() ? micName(devices()) : "Record your voice or the computer's sound"}
+          data-tip={prefs.recordMic() ? micName(devices()) : t("Record your voice or the computer's sound")}
           onClick={m.toggle}
         >
           <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />

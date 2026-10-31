@@ -193,6 +193,13 @@ pub fn enter_overlay(
             }
         }
     }
+    // A window take has no region of its own: one left from an earlier take would draw its
+    // border, and park the panel, around nothing.
+    if matches!(target, Target::Window { .. }) {
+        if let Ok(mut slot) = border.region.lock() {
+            *slot = None;
+        }
+    }
     if let Ok(mut slot) = border.origin.lock() {
         // Region-relative origin: the client rect for window capture, the monitor origin
         // for display capture.
@@ -1639,10 +1646,40 @@ pub fn set_annotation_style(
     thickness: Option<f64>,
     filled: Option<bool>,
     radius: Option<f64>,
+    curve: Option<f64>,
 ) -> Result<(), String> {
     engine
         .session()?
-        .set_annotation_style(id, thickness, filled, radius)
+        .set_annotation_style(id, thickness, filled, radius, curve)
+}
+
+/// Choose whether the next recording goes on the end of the loaded clip.
+#[tauri::command]
+pub fn set_append_take(engine: tauri::State<'_, Engine>, on: bool) -> Result<(), String> {
+    engine.session()?.set_append_take(on);
+    Ok(())
+}
+
+/// Load the built-in sample clip, to try the editor without recording anything.
+#[tauri::command]
+pub async fn load_sample(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {
+    engine.session()?.load_sample()
+}
+
+/// Add a numbered step marker at a normalized position; returns its id.
+#[tauri::command]
+pub fn add_step(engine: tauri::State<'_, Engine>, x: f64, y: f64, t: f64) -> Result<u32, String> {
+    engine.session()?.add_step(x, y, t)
+}
+
+/// Choose whether a hide mask pixelates what it covers, or blacks it out.
+#[tauri::command]
+pub fn set_mask_pixelate(
+    engine: tauri::State<'_, Engine>,
+    id: u32,
+    pixelate: bool,
+) -> Result<(), String> {
+    engine.session()?.set_mask_pixelate(id, pixelate)
 }
 
 /// Set the alpha/opacity (0..1) of an annotation's color.

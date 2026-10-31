@@ -23,6 +23,7 @@ export default function Titlebar() {
       disabled: !ed.hasClip(),
       onSelect: () => void ed.addTake(),
     },
+    { label: t("Try a sample clip"), icon: "wand", onSelect: () => void ed.trySample() },
     { separator: true },
     { label: t("Open project…"), icon: "folder", kbd: "Ctrl+O", onSelect: () => void ed.onOpenProject() },
     {

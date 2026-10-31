@@ -1071,33 +1071,6 @@ impl Session {
             sink,
             preview_on,
         );
-        // Audio opens after video so device setup never delays frame 0; each track lays its
-        // packets onto the timeline by their counter timestamps. The mic check is stopped
-        // first so it doesn't hold a second stream on the same device.
-        *self.mic_check.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        let choice = self
-            .audio_choice
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let anchor = Anchor {
-            start_qpc,
-            freq: self.clock.freq(),
-        };
-        let (audio, audio_failed) = crate::audio::start(&choice, &recovery_dir, anchor);
-        // The webcam is usually already open (its bubble showed while framing), so it starts
-        // writing from its next frame; a camera that isn't open yet is opened here.
-        let cam_choice = self
-            .camera_choice
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let cam_clock = vuoom_camera::Clock {
-            start_qpc,
-            freq: self.clock.freq(),
-        };
-        let (camera, camera_note) = self.camera.start(&cam_choice, &recovery_dir, cam_clock);
-
         // Stream frames straight to disk so recording length is bounded by disk, not RAM.
         let drain_stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&drain_stop);
@@ -1176,6 +1149,35 @@ impl Session {
             };
             Ok((store, write_err, ended_early))
         });
+
+        // Audio opens after the drain is running: opening a device takes a good part of a
+        // second, and with nothing taking frames meanwhile the capture's queue overflowed and
+        // every take lost its opening frames. Each track lays its
+        // packets onto the timeline by their counter timestamps. The mic check is stopped
+        // first so it doesn't hold a second stream on the same device.
+        *self.mic_check.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let choice = self
+            .audio_choice
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let anchor = Anchor {
+            start_qpc,
+            freq: self.clock.freq(),
+        };
+        let (audio, audio_failed) = crate::audio::start(&choice, &recovery_dir, anchor);
+        // The webcam is usually already open (its bubble showed while framing), so it starts
+        // writing from its next frame; a camera that isn't open yet is opened here.
+        let cam_choice = self
+            .camera_choice
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let cam_clock = vuoom_camera::Clock {
+            start_qpc,
+            freq: self.clock.freq(),
+        };
+        let (camera, camera_note) = self.camera.start(&cam_choice, &recovery_dir, cam_clock);
 
         *active = Some(Active {
             base,
@@ -1526,7 +1528,10 @@ impl Session {
     /// Load the built-in sample clip (see `sample.rs`) as if it had just been recorded.
     pub fn load_sample(&self) -> Result<RecordingSummary, String> {
         use crate::sample::{self, FPS, HEIGHT, SECONDS, WIDTH};
-        let dir = frame_store::new_session_dir();
+        // Off the take rotation: trying the sample must never push out a real take. The
+        // old clip goes first, it may be an earlier sample in this same folder.
+        *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = Edited::default();
+        let dir = frame_store::sample_dir();
         let mut writer = FrameWriter::create(dir.clone())?;
         let start_qpc = self.clock.now();
         let tick = self.clock.freq() as f64 / f64::from(FPS);
@@ -1571,8 +1576,6 @@ impl Session {
         if let Ok(json) = project.to_json() {
             let _ = std::fs::write(frame_store::project_path(&dir), json);
         }
-        // Nothing lost if a recording replaces it: don't ask about it.
-        frame_store::mark_kept(&dir);
         *self
             .current_recovery
             .lock()
@@ -4169,8 +4172,8 @@ fn recorded_fps(recs: &[FrameRec], clock: Clock) -> Option<f64> {
         .filter(|&gap| gap > 0.0)
         .collect();
     gaps.sort_by(f64::total_cmp);
-    // A tenth of the way in: past the odd pair of frames that came unusually close.
-    let gap = *gaps.get(gaps.len() / 10)?;
+    // A quarter of the way in: past the pairs of frames that came close together.
+    let gap = *gaps.get(gaps.len() / 4)?;
     Some((1.0 / gap).round().clamp(1.0, 240.0))
 }
 

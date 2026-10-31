@@ -15,7 +15,7 @@ import {
   ZOOM_DEFAULT,
   zoomKeys,
 } from "../hotkeys";
-import { t } from "../i18n";
+import { type Locale, locale, setLocale, t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { layout, type Persisted, prefs, resetLayout } from "../prefs";
 import { chooseSaveDir, openSaveDir, useSaveDir } from "../saveDir";
@@ -195,6 +195,16 @@ export default function Settings() {
                 }}
               </For>
             </div>
+            <h3>{t("Language")}</h3>
+            <Seg
+              label={t("Language")}
+              value={locale()}
+              onChange={(l: Locale) => void setLocale(l)}
+              options={[
+                { value: "en", label: "English" },
+                { value: "zh-CN", label: "简体中文" },
+              ]}
+            />
             <h3>{t("Interface")}</h3>
             <Field label={t("Reduce motion")} hint={t("Turn off panel and control animations")}>
               <Switch checked={prefs.reduceMotion()} label={t("Reduce motion")} onChange={(v) => prefs.reduceMotion.set(v)} />

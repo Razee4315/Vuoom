@@ -4550,7 +4550,7 @@ pub struct PointerPicture {
 pub fn pointer_picture(path: &str) -> Result<PointerPicture, String> {
     let (width, height, px) = load_pointer(path)?;
     let img = RgbaImage::new(width, height, swizzle_rb(&px));
-    let small = downscale_rgba(&img, 160);
+    let small = vuoom_encode::downscale_rgba(&img, 160);
     let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     Ok(PointerPicture {

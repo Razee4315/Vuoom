@@ -1,9 +1,11 @@
 import { createEffect, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
+import { friendlyError } from "./format";
+import { t } from "./i18n";
 import { Icon } from "./icons";
 import { stopKeys, zoomKeys } from "./hotkeys";
 import { layout, prefs } from "./prefs";
-import { Menu, toast } from "./ui";
+import { Menu, Rich, toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import {
   audioMenuItems,
@@ -40,13 +42,13 @@ interface Summary {
 type Preset = { id: string; label: string; hint: string; ratio: number | null | "full" };
 
 // ratio = width / height. null = free draw. "full" = whole screen, no draw.
-const PRESETS: Preset[] = [
-  { id: "full", label: "Full screen", hint: "Whole display", ratio: "full" },
+const PRESETS = (): Preset[] => [
+  { id: "full", label: t("Full screen"), hint: t("Whole display"), ratio: "full" },
   { id: "16:9", label: "16:9", hint: "YouTube · Reddit · X", ratio: 16 / 9 },
   { id: "9:16", label: "9:16", hint: "Reels · TikTok · Shorts", ratio: 9 / 16 },
   { id: "1:1", label: "1:1", hint: "Instagram · Facebook", ratio: 1 },
   { id: "4:5", label: "4:5", hint: "Instagram · Facebook", ratio: 4 / 5 },
-  { id: "free", label: "Custom", hint: "Any size", ratio: null },
+  { id: "free", label: t("Custom"), hint: t("Any size"), ratio: null },
 ];
 
 type Rect = { x: number; y: number; w: number; h: number };
@@ -85,7 +87,7 @@ export default function RecordOverlay(props: {
   // Custom is the default: the chip highlights "Custom" and Start stays disabled until the
   // user drags a region, so what's highlighted always matches what will actually record.
   const [preset, setPreset] = createSignal<Preset>(
-    PRESETS.find((p) => p.id === (props.initialMode === "full" ? "full" : "free")) ?? PRESETS[0],
+    PRESETS().find((p) => p.id === (props.initialMode === "full" ? "full" : "free")) ?? PRESETS()[0],
   );
   const [sel, setSel] = createSignal<Rect | null>(null);
   // The area the last region take recorded is offered again: most people record the same
@@ -101,7 +103,7 @@ export default function RecordOverlay(props: {
     if (Math.abs(window.innerWidth - last.vw) > 1 || Math.abs(window.innerHeight - last.vh) > 1) return;
     const fits = last.w >= 8 && last.h >= 8 && last.x >= 0 && last.y >= 0;
     if (!fits || last.x + last.w > last.vw + 1 || last.y + last.h > last.vh + 1) return;
-    const chip = PRESETS.find((p) => p.id === last.preset && p.ratio !== "full");
+    const chip = PRESETS().find((p) => p.id === last.preset && p.ratio !== "full");
     if (!chip) return;
     setPreset(chip);
     setSel({ x: last.x, y: last.y, w: last.w, h: last.h });
@@ -248,7 +250,7 @@ export default function RecordOverlay(props: {
       runCountdown();
     } catch (e) {
       setPhase("select");
-      toast(`Could not start recording: ${String(e)}`, "error");
+      toast(t("Could not start recording: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -357,7 +359,7 @@ export default function RecordOverlay(props: {
       setPhase("recording");
       startMs = Date.now() - elapsed() * 1000;
       elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
-      toast(`Stop failed, still recording: ${String(e)}`, "error");
+      toast(t("Stop failed, still recording: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -624,8 +626,8 @@ export default function RecordOverlay(props: {
   };
   const dims = () => {
     const r = sel();
-    if (preset().ratio === "full") return "Full screen";
-    if (!r) return "No area yet";
+    if (preset().ratio === "full") return t("Full screen");
+    if (!r) return t("No area yet");
     const { sx, sy } = toPhysical();
     return `${Math.round(r.w * sx)} × ${Math.round(r.h * sy)} px`;
   };
@@ -669,36 +671,36 @@ export default function RecordOverlay(props: {
                   when={phase() === "recording"}
                   fallback={
                     <span data-tauri-drag-region>
-                      {phase() === "finalizing" ? "Saving take…" : phase() === "preparing" ? "Preparing…" : "Get ready"}
+                      {phase() === "finalizing" ? t("Saving take…") : phase() === "preparing" ? t("Preparing…") : t("Get ready")}
                     </span>
                   }
                 >
                   <span class="live-dot" />
-                  <span data-tauri-drag-region>{paused() ? "Paused" : "Recording"}</span>
+                  <span data-tauri-drag-region>{paused() ? t("Paused") : t("Recording")}</span>
                 </Show>
               </span>
               <span class="rec-drag-end" data-tauri-drag-region>
                 <label
                   class="rec-live-toggle"
-                  data-tip={prefs.livePreview() ? "Hide the live preview to save processor time" : "Show what is being recorded"}
+                  data-tip={prefs.livePreview() ? t("Hide the live preview to save processor time") : t("Show what is being recorded")}
                 >
                   <input
                     type="checkbox"
                     checked={prefs.livePreview()}
                     onChange={(e) => setLivePreview(e.currentTarget.checked)}
                   />
-                  <span>Live preview</span>
+                  <span>{t("Live preview")}</span>
                 </label>
                 <button
                   type="button"
                   class="rec-size"
-                  aria-label={layout.panelLarge() ? "Make the panel smaller" : "Make the preview bigger"}
-                  data-tip={`${layout.panelLarge() ? "Smaller panel" : "Bigger preview"} (or double-click the preview)`}
+                  aria-label={layout.panelLarge() ? t("Make the panel smaller") : t("Make the preview bigger")}
+                  data-tip={layout.panelLarge() ? t("Smaller panel (or double-click the preview)") : t("Bigger preview (or double-click the preview)")}
                   onClick={togglePanelSize}
                 >
                   <Icon name={layout.panelLarge() ? "shrink" : "grow"} size={13} />
                 </button>
-                <span class="rec-grip" data-tauri-drag-region data-tip="Drag to move" aria-hidden="true">
+                <span class="rec-grip" data-tauri-drag-region data-tip={t("Drag to move")} aria-hidden="true">
                   <Icon name="grip" size={14} />
                 </span>
               </span>
@@ -708,35 +710,38 @@ export default function RecordOverlay(props: {
               <Show when={!prefs.livePreview() && phase() !== "countdown"}>
                 <div class="rec-preview-off">
                   <Icon name="eye" size={18} />
-                  <strong>Preview off</strong>
-                  <span>{phase() === "recording" ? "Still recording. Tick Live preview to watch." : "Tick Live preview to watch the take."}</span>
+                  <strong>{t("Preview off")}</strong>
+                  <span>{phase() === "recording" ? t("Still recording. Tick Live preview to watch.") : t("Tick Live preview to watch the take.")}</span>
                 </div>
               </Show>
               <Show when={phase() === "countdown"}>
                 <div class="rec-countdown">
                   <div class="rec-ring" style={{ "--total": String(Math.max(1, prefs.countdown())) }}>
-                    <span class="rec-num">{count() > 0 ? count() : "Go"}</span>
+                    <span class="rec-num">{count() > 0 ? count() : t("Go")}</span>
                   </div>
                   <span class="rec-sub">
-                    {preset().ratio === "full" ? "Vuoom hides from the recording" : "Recording starts…"}
+                    {preset().ratio === "full" ? t("Vuoom hides from the recording") : t("Recording starts…")}
                   </span>
                 </div>
               </Show>
               <Show when={phase() === "recording" && props.zoom > 1}>
                 <span class="rec-previewtag">
-                  <For each={zoomKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> zooms {props.zoom.toFixed(1)}×
+                  <Rich
+                    text={t("{keys} zooms {amount}×", { amount: props.zoom.toFixed(1) })}
+                    parts={{ keys: () => <For each={zoomKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> }}
+                  />
                 </span>
               </Show>
               <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
                 <div class="rec-audio">
                   <Show when={prefs.recordMic()}>
-                    <span class="rec-audio-row" data-tip="Microphone level">
+                    <span class="rec-audio-row" data-tip={t("Microphone level")}>
                       <Icon name="mic" size={11} />
                       <LevelMeter level={paused() ? 0 : levels.mic()} />
                     </span>
                   </Show>
                   <Show when={prefs.recordSystem()}>
-                    <span class="rec-audio-row" data-tip="System sound level">
+                    <span class="rec-audio-row" data-tip={t("System sound level")}>
                       <Icon name="volume" size={11} />
                       <LevelMeter level={paused() ? 0 : levels.system()} />
                     </span>
@@ -752,43 +757,46 @@ export default function RecordOverlay(props: {
                     when={phase() === "finalizing"}
                     fallback={
                       <button type="button" class="rec-cancel" disabled={phase() === "preparing"} onClick={cancel}>
-                        Cancel
+                        {t("Cancel")}
                       </button>
                     }
                   >
-                    <span class="rec-hint">Writing the take and opening the editor…</span>
+                    <span class="rec-hint">{t("Writing the take and opening the editor…")}</span>
                   </Show>
                 }
               >
                 <button
                   type="button"
                   class="rec-stop"
-                  aria-label="Stop recording"
-                  data-tip="Stop and open the editor"
+                  aria-label={t("Stop recording")}
+                  data-tip={t("Stop and open the editor")}
                   data-kbd={stopKeys()}
                   onClick={() => void stop()}
                 >
                   <span class="rec-stop-square" />
-                  Stop
+                  {t("Stop")}
                 </button>
                 <div class="rec-timebox">
                   <span class="rec-time" aria-live="off">
                     {fmt(elapsed())}
                   </span>
                   <span class="rec-hint">
-                    <For each={stopKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> stops
+                    <Rich
+                      text={t("{keys} stops")}
+                      parts={{ keys: () => <For each={stopKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> }}
+                    />
                   </span>
                 </div>
                 <button
                   type="button"
                   class="rec-pause"
                   classList={{ on: paused() }}
-                  aria-label={paused() ? "Resume recording" : "Pause recording"}
-                  data-tip={paused() ? "Carry on recording" : "Pause. The gap is cut from the take"}
+                  aria-label={paused() ? t("Resume recording") : t("Pause recording")}
+                  data-tip={paused() ? t("Carry on recording") : t("Pause. The gap is cut from the take")}
                   onClick={() => void togglePause()}
                 >
                   <Icon name={paused() ? "play" : "pause"} size={14} />
-                  {paused() ? "Resume" : "Pause"}
+                  {paused() ? t("Resume") : t("Pause")}
                 </button>
               </Show>
             </div>
@@ -851,23 +859,23 @@ export default function RecordOverlay(props: {
           <div class="sel-fullhint">
             <Icon name={windowMode() ? "window" : "fullscreen"} size={18} />
             {windowMode()
-              ? `Recording window: ${props.target?.kind === "window" ? props.target.label : ""}`
-              : "Recording the whole display"}
+              ? t("Recording window: {label}", { label: props.target?.kind === "window" ? props.target.label : "" })
+              : t("Recording the whole display")}
           </div>
         </Show>
         <Show when={!windowMode() && preset().ratio !== "full" && !sel()}>
           <div class="sel-drawhint">
             <Icon name="region" size={16} />
-            Drag to frame the area you want to record
+            {t("Drag to frame the area you want to record")}
           </div>
         </Show>
 
         <div class="hud" onPointerDown={(e) => e.stopPropagation()}>
           <Show when={!windowMode()}>
             <div class="hud-group">
-              <span class="hud-label">Area</span>
+              <span class="hud-label">{t("Area")}</span>
               <div class="hud-seg">
-                <For each={PRESETS}>
+                <For each={PRESETS()}>
                   {(p) => (
                     <button
                       type="button"
@@ -877,7 +885,7 @@ export default function RecordOverlay(props: {
                       data-tip={p.hint}
                       onClick={() => pickPreset(p)}
                     >
-                      {p.id === "full" ? "Full" : p.id === "free" ? "Free" : p.label}
+                      {p.id === "full" ? t("Full") : p.id === "free" ? t("Free") : p.label}
                     </button>
                   )}
                 </For>
@@ -894,7 +902,7 @@ export default function RecordOverlay(props: {
                 class="hud-options hud-audio"
                 classList={{ on: m.open, off: !prefs.recordMic() && !prefs.recordSystem() }}
                 ref={m.ref}
-                data-tip={prefs.recordMic() ? micName(audioDevices()) : "Record your voice or the computer's sound"}
+                data-tip={prefs.recordMic() ? micName(audioDevices()) : t("Record your voice or the computer's sound")}
                 onClick={m.toggle}
               >
                 <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />
@@ -915,12 +923,12 @@ export default function RecordOverlay(props: {
                 class="hud-options hud-audio hud-camera"
                 classList={{ on: m.open, off: !prefs.recordCamera() }}
                 ref={m.ref}
-                aria-label={prefs.recordCamera() ? `Camera: ${cameraName(cameras())}` : "Camera off"}
-                data-tip={prefs.recordCamera() ? cameraName(cameras()) : "Add your webcam as a bubble"}
+                aria-label={prefs.recordCamera() ? t("Camera: {name}", { name: cameraName(cameras()) }) : t("Camera off")}
+                data-tip={prefs.recordCamera() ? cameraName(cameras()) : t("Add your webcam as a bubble")}
                 onClick={m.toggle}
               >
                 <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
-                <span>{prefs.recordCamera() ? "Camera" : "No camera"}</span>
+                <span>{prefs.recordCamera() ? t("Camera") : t("No camera")}</span>
                 <Icon name="chevronUp" size={12} />
               </button>
             )}
@@ -928,22 +936,22 @@ export default function RecordOverlay(props: {
           <Menu
             class="hud-menu"
             items={() => [
-              { heading: "Zoom" },
+              { heading: t("Zoom") },
               {
-                label: "Auto zoom where I click",
+                label: t("Auto zoom where I click"),
                 checked: prefs.recordAutoZoom(),
                 onSelect: () => {
                   prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
                   pushTakeDefaults();
                 },
               },
-              ...ZOOM_CHOICES.map((z) => ({
-                label: z.value === 1 ? "No zoom" : `Zoom ${z.label}`,
+              ...ZOOM_CHOICES().map((z) => ({
+                label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
                 checked: Math.abs(props.zoom - z.value) < 0.001,
                 onSelect: () => props.onZoomChange(z.value),
               })),
-              { heading: "Frame rate" },
-              ...FPS_CHOICES.map((f) => ({
+              { heading: t("Frame rate") },
+              ...FPS_CHOICES().map((f) => ({
                 label: f.label,
                 checked: prefs.captureFps() === f.value,
                 onSelect: () => {
@@ -951,8 +959,8 @@ export default function RecordOverlay(props: {
                   void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
                 },
               })),
-              { heading: "Mouse pointer" },
-              ...CURSOR_MODES.map((c) => ({
+              { heading: t("Mouse pointer") },
+              ...CURSOR_MODES().map((c) => ({
                 label: c.menu,
                 checked: prefs.cursorMode() === c.value,
                 onSelect: () => {
@@ -960,15 +968,15 @@ export default function RecordOverlay(props: {
                   pushCursorMode(c.value);
                 },
               })),
-              { heading: "Recording panel" },
+              { heading: t("Recording panel") },
               {
-                label: "Show live preview",
+                label: t("Show live preview"),
                 checked: prefs.livePreview(),
                 onSelect: () => setLivePreview(!prefs.livePreview()),
               },
-              { heading: "Countdown" },
-              ...COUNTDOWN_CHOICES.map((c) => ({
-                label: c.value === 0 ? "Start immediately" : `${c.value} seconds`,
+              { heading: t("Countdown") },
+              ...COUNTDOWN_CHOICES().map((c) => ({
+                label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
                 checked: prefs.countdown() === c.value,
                 onSelect: () => prefs.countdown.set(c.value),
               })),
@@ -979,31 +987,36 @@ export default function RecordOverlay(props: {
                 class="hud-options"
                 classList={{ on: m.open }}
                 ref={m.ref}
-                data-tip={`${props.zoom > 1 ? `${zoomKeys()} zooms ${props.zoom}×` : "No zoom"} · ${prefs.captureFps()} fps · ${cursorSummary()} · ${prefs.countdown() === 0 ? "no countdown" : `${prefs.countdown()}s countdown`}`}
+                data-tip={[
+                  props.zoom > 1 ? t("{keys} zooms {amount}×", { keys: zoomKeys(), amount: props.zoom }) : t("No zoom"),
+                  `${prefs.captureFps()} fps`,
+                  cursorSummary(),
+                  prefs.countdown() === 0 ? t("no countdown") : t("{countdown}s countdown", { countdown: prefs.countdown() }),
+                ].join(" · ")}
                 onClick={m.toggle}
               >
                 <Icon name="sliders" size={14} />
-                <span>Options</span>
+                <span>{t("Options")}</span>
                 <Icon name="chevronUp" size={12} />
               </button>
             )}
           />
           <span class="hud-sep" />
           <div class="hud-actions">
-            <span class="hud-dims">{windowMode() ? "Window" : dims()}</span>
-            <button type="button" class="hud-cancel" disabled={phase() === "preparing"} onClick={cancel} data-tip="Cancel" data-kbd="Esc">
+            <span class="hud-dims">{windowMode() ? t("Window") : dims()}</span>
+            <button type="button" class="hud-cancel" disabled={phase() === "preparing"} onClick={cancel} data-tip={t("Cancel")} data-kbd="Esc">
               <Icon name="close" size={14} />
             </button>
             <button
               type="button"
               class="hud-record"
               disabled={phase() === "preparing" || !canStart()}
-              data-tip={canStart() ? "Start recording" : "Drag on the screen to frame an area first"}
+              data-tip={canStart() ? t("Start recording") : t("Drag on the screen to frame an area first")}
               data-kbd="Enter"
               onClick={() => void beginCountdown()}
             >
               <span class="hud-record-dot" />
-              {phase() === "preparing" ? "Preparing…" : "Record"}
+              {phase() === "preparing" ? t("Preparing…") : t("Record")}
             </button>
           </div>
         </div>

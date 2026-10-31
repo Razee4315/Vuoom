@@ -50,7 +50,7 @@ function save(opts?: SaveOptions): string {
 }
 function open(opts?: OpenOptions): string {
   // A file pick (with filters) gets a demo picture; a folder pick the demo project.
-  if (opts?.title?.includes("pointer")) return "C:\\Users\\demo\\Pictures\\Gold star.png";
+  if (/pointer|指针/.test(opts?.title ?? "")) return "C:\\Users\\demo\\Pictures\\Gold star.png";
   return opts?.filters ? "C:\\Users\\demo\\Pictures\\Mountains at dawn.jpg" : DEMO_DIR;
 }
 

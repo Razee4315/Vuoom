@@ -17,6 +17,7 @@ import { PRESET_COLORS, TEXT_FONTS } from "../editor/constants";
 import { fmt, hexRgb, rgbHex } from "../format";
 import { isMarker, PEN_LOOKS } from "../editor/strokes";
 import { outputDuration } from "../geometry";
+import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { layout, prefs, setInspectorW } from "../prefs";
 import ScrubField from "../ScrubField";
@@ -24,13 +25,13 @@ import { TOOLS } from "../shortcuts";
 import type { CameraCorner, ClickEffect, CropRect, PointerLook } from "../types";
 
 /** The webcam bubble's corners, in reading order for the 2×2 picker. */
-const CAMERA_CORNERS: { value: CameraCorner; label: string }[] = [
-  { value: "top-left", label: "Top left" },
-  { value: "top-right", label: "Top right" },
-  { value: "bottom-left", label: "Bottom left" },
-  { value: "bottom-right", label: "Bottom right" },
+const CAMERA_CORNERS = (): { value: CameraCorner; label: string }[] => [
+  { value: "top-left", label: t("Top left") },
+  { value: "top-right", label: t("Top right") },
+  { value: "bottom-left", label: t("Bottom left") },
+  { value: "bottom-right", label: t("Bottom right") },
 ];
-import { Field, IconButton, Section, Seg, sectionQuery, setSectionQuery, Slider, Switch } from "../ui";
+import { Field, IconButton, Rich, Section, Seg, sectionQuery, setSectionQuery, Slider, Switch } from "../ui";
 
 export default function Inspector() {
   const ed = useEditor();
@@ -55,7 +56,7 @@ export default function Inspector() {
   };
 
   return (
-    <aside class="inspector panel" style={{ width: `min(${layout.inspectorW()}px, 36vw)` }} aria-label="Inspector">
+    <aside class="inspector panel" style={{ width: `min(${layout.inspectorW()}px, 36vw)` }} aria-label={t("Inspector")}>
       <div
         class="resizer resizer-x"
         aria-hidden="true"
@@ -74,7 +75,7 @@ export default function Inspector() {
             aria-selected={tab() === "selection"}
             onClick={() => setTab("selection")}
           >
-            Selection
+            {t("Selection")}
             <Show when={ed.selCount() > 1}>
               <span class="badge">{ed.selCount()}</span>
             </Show>
@@ -87,12 +88,12 @@ export default function Inspector() {
             aria-selected={tab() === "clip"}
             onClick={() => setTab("clip")}
           >
-            Clip
+            {t("Clip")}
           </button>
         </div>
         <IconButton
           icon="panelRight"
-          tip="Hide inspector"
+          tip={t("Hide inspector")}
           kbd="Ctrl+2"
           class="sm"
           onClick={() => layout.inspectorOpen.set(false)}
@@ -131,17 +132,17 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
 /** Quick picks for the re-drawn pointer's color; the first is the classic white. */
 const POINTER_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
 /** The pointer's looks, in the order of their cards. */
-const POINTER_LOOKS: { value: PointerLook; label: string; tip: string }[] = [
-  { value: "classic", label: "Classic", tip: "Vuoom's pointer: an arrow, a hand over links, a beam over text" },
-  { value: "dot", label: "Dot", tip: "A round dot, like a presenter's laser" },
-  { value: "image", label: "Picture", tip: "Your own picture as the pointer" },
+const POINTER_LOOKS = (): { value: PointerLook; label: string; tip: string }[] => [
+  { value: "classic", label: t("Classic"), tip: t("Vuoom's pointer: an arrow, a hand over links, a beam over text") },
+  { value: "dot", label: t("Dot"), tip: t("A round dot, like a presenter's laser") },
+  { value: "image", label: t("Picture"), tip: t("Your own picture as the pointer") },
 ];
 /** The click effects, in the order of their cards. */
-const CLICK_EFFECTS: { value: ClickEffect; label: string; tip: string }[] = [
-  { value: "ripple", label: "Ripple", tip: "One ring that grows and fades" },
-  { value: "rings", label: "Rings", tip: "Two rings, one after the other" },
-  { value: "pulse", label: "Pulse", tip: "A soft disc that swells and fades" },
-  { value: "burst", label: "Burst", tip: "Dots that fly outward" },
+const CLICK_EFFECTS = (): { value: ClickEffect; label: string; tip: string }[] => [
+  { value: "ripple", label: t("Ripple"), tip: t("One ring that grows and fades") },
+  { value: "rings", label: t("Rings"), tip: t("Two rings, one after the other") },
+  { value: "pulse", label: t("Pulse"), tip: t("A soft disc that swells and fades") },
+  { value: "burst", label: t("Burst"), tip: t("Dots that fly outward") },
 ];
 /** Click colors: white (the default), then the pointer's palette without its black. */
 const CLICK_COLORS = ["#ffffff", "#ffd23f", "#e5484d", "#30a46c", "#6ea8ff", "#b48cff"];
@@ -213,12 +214,12 @@ function SelectionPanel() {
         <Show when={ed.selCount() > 1} fallback={<AnnotationProps />}>
           <PanelTitle
             icon="layers"
-            title={`${ed.selCount()} annotations`}
-            sub="Drag any one on the canvas to move them together"
+            title={t("{count} annotations", { count: ed.selCount() })}
+            sub={t("Drag any one on the canvas to move them together")}
           />
           <div class="insp-pad">
             <button type="button" class="btn danger block" onClick={() => void ed.deleteSelection()}>
-              <Icon name="trash" size={14} /> Delete {ed.selCount()} annotations
+              <Icon name="trash" size={14} /> {t("Delete {count} annotations", { count: ed.selCount() })}
             </button>
           </div>
         </Show>
@@ -243,20 +244,20 @@ function SelectionPanel() {
           <span class="insp-empty-icon">
             <Icon name="cursor" size={20} />
           </span>
-          <strong>Nothing selected</strong>
-          <p>Click something on the video or the timeline to edit it, or pick a tool to draw.</p>
+          <strong>{t("Nothing selected")}</strong>
+          <p>{t("Click something on the video or the timeline to edit it, or pick a tool to draw.")}</p>
           <div class="insp-empty-keys">
             <span>
-              <kbd>Z</kbd> Zoom
+              <kbd>Z</kbd> {t("Zoom")}
             </span>
             <span>
-              <kbd>C</kbd> Cut
+              <kbd>C</kbd> {t("Cut")}
             </span>
             <span>
-              <kbd>T</kbd> Text
+              <kbd>T</kbd> {t("Text")}
             </span>
             <span>
-              <kbd>A</kbd> Arrow
+              <kbd>A</kbd> {t("Arrow")}
             </span>
           </div>
         </div>
@@ -267,29 +268,31 @@ function SelectionPanel() {
 
 function ToolCard() {
   const ed = useEditor();
-  const t = () => TOOLS.find((x) => x.id === ed.tool());
+  const tool = () => TOOLS().find((x) => x.id === ed.tool());
   return (
     <Show when={ed.tool() !== "pen"} fallback={<PenCard />}>
-      <PanelTitle icon="wand" title={`${t()?.label} tool`} sub={t()?.hint} />
+      <PanelTitle icon="wand" title={t("{label} tool", { label: tool()?.label ?? "" })} sub={tool()?.hint} />
       <div class="insp-pad">
         <Show when={ed.tool() === "shape"}>
-          <Field label="Draw">
+          <Field label={t("Draw")}>
             <Seg
               value={ed.shapeEllipse() ? "ellipse" : "box"}
               onChange={(v) => ed.setShapeEllipse(v === "ellipse")}
               options={[
-                { value: "box", label: "Box" },
-                { value: "ellipse", label: "Ellipse" },
+                { value: "box", label: t("Box") },
+                { value: "ellipse", label: t("Ellipse") },
               ]}
             />
           </Field>
         </Show>
         <p class="note">
-          Options appear here once you place one. Hold <kbd>Shift</kbd> for clean angles and squares,{" "}
-          <kbd>Esc</kbd> returns to Select.
+          <Rich
+            text={t("Options appear here once you place one. Hold {shift} for clean angles and squares, {esc} returns to Select.")}
+            parts={{ shift: () => <kbd>Shift</kbd>, esc: () => <kbd>Esc</kbd> }}
+          />
         </p>
-        <Field label="Draw several" hint="Keep this tool after each one instead of returning to Select">
-          <Switch checked={ed.toolLock()} label="Draw several" onChange={(v) => ed.setToolLock(v)} />
+        <Field label={t("Draw several")} hint={t("Keep this tool after each one instead of returning to Select")}>
+          <Switch checked={ed.toolLock()} label={t("Draw several")} onChange={(v) => ed.setToolLock(v)} />
         </Field>
       </div>
     </Show>
@@ -303,19 +306,19 @@ function PenCard() {
   const pick = (marker: boolean) => ed.setPenLook({ marker, ...(marker ? PEN_LOOKS.marker : PEN_LOOKS.pen) });
   return (
     <>
-      <PanelTitle icon="pen" title="Pen" sub="Drag on the video to draw" />
+      <PanelTitle icon="pen" title={t("Pen")} sub={t("Drag on the video to draw")} />
       <div class="insp-pad">
-        <Field label="Draw with">
+        <Field label={t("Draw with")}>
           <Seg
             value={look().marker ? "marker" : "pen"}
             onChange={(v) => pick(v === "marker")}
             options={[
-              { value: "pen", label: "Pen", tip: "A fine solid line" },
-              { value: "marker", label: "Marker", tip: "A wide see-through stroke, for marking up text" },
+              { value: "pen", label: t("Pen"), tip: t("A fine solid line") },
+              { value: "marker", label: t("Marker"), tip: t("A wide see-through stroke, for marking up text") },
             ]}
           />
         </Field>
-        <Field label="Width">
+        <Field label={t("Width")}>
           <ScrubField
             value={look().width}
             min={0.002}
@@ -323,12 +326,12 @@ function PenCard() {
             step={0.001}
             displayScale={100}
             suffix="%"
-            title="Line width as a percent of height"
+            title={t("Line width as a percent of height")}
             onInput={(v) => ed.setPenLook({ ...look(), width: v })}
             onCommit={(v) => ed.setPenLook({ ...look(), width: v })}
           />
         </Field>
-        <Field label="Color" stack>
+        <Field label={t("Color")} stack>
           <div class="color-row">
           <For each={PRESET_COLORS}>
             {(c) => (
@@ -337,7 +340,7 @@ function PenCard() {
                 class="swatch"
                 classList={{ on: rgbHex(look().color) === c }}
                 style={{ background: c }}
-                aria-label={`Color ${c}`}
+                aria-label={t("Color {color}", { color: c })}
                 data-tip={c}
                 onClick={() => ed.setPenLook({ ...look(), color: { ...hexRgb(c), a: look().color.a } })}
               />
@@ -346,8 +349,10 @@ function PenCard() {
           </div>
         </Field>
         <p class="note">
-          Draw as many lines as you like. <kbd>Esc</kbd> puts the pen down, then click a line to move or
-          change it.
+          <Rich
+            text={t("Draw as many lines as you like. {esc} puts the pen down, then click a line to move or change it.")}
+            parts={{ esc: () => <kbd>Esc</kbd> }}
+          />
         </p>
       </div>
     </>
@@ -365,17 +370,17 @@ function ColorRow() {
             class="swatch"
             classList={{ on: rgbHex(ed.selectedColor()!) === c }}
             style={{ background: c }}
-            aria-label={`Color ${c}`}
+            aria-label={t("Color {color}", { color: c })}
             data-tip={c}
             onClick={() => ed.setColor(c)}
           />
         )}
       </For>
-      <label class="swatch swatch-custom" data-tip="Custom color">
+      <label class="swatch swatch-custom" data-tip={t("Custom color")}>
         <input
           type="color"
           value={rgbHex(ed.selectedColor()!)}
-          aria-label="Custom color"
+          aria-label={t("Custom color")}
           onInput={(e) => ed.setColor(e.currentTarget.value)}
         />
       </label>
@@ -387,71 +392,73 @@ function TimingSection(props: { id: string }) {
   const ed = useEditor();
   const r = () => ed.selectedRange()!;
   return (
-    <Section id={`${props.id}-timing`} title="Timing" icon="timer">
-      <Field label="Appears">
+    <Section id={`${props.id}-timing`} title={t("Timing")} icon="timer">
+      <Field label={t("Appears")}>
         <ScrubField
           value={Number(r().start.toFixed(2))}
           min={0}
           max={ed.duration()}
           step={0.05}
           suffix="s"
-          title="When this appears. Drag to scrub, click to type"
+          title={t("When this appears. Drag to scrub, click to type")}
           onCommit={(v) => ed.editRange(v, r().end)}
         />
       </Field>
-      <Field label="Disappears">
+      <Field label={t("Disappears")}>
         <ScrubField
           value={Number(r().end.toFixed(2))}
           min={0}
           max={ed.duration()}
           step={0.05}
           suffix="s"
-          title="When this disappears. Drag to scrub, click to type"
+          title={t("When this disappears. Drag to scrub, click to type")}
           onCommit={(v) => ed.editRange(r().start, v)}
         />
       </Field>
-      <Field label="On screen">
+      <Field label={t("On screen")}>
         <span class="readout">{(r().end - r().start).toFixed(2)}s</span>
       </Field>
-      <Field label="Fade in" hint="0 pops in instantly">
+      <Field label={t("Fade in")} hint={t("0 pops in instantly")}>
         <ScrubField
           value={Number(r().fade_in.toFixed(2))}
           min={0}
           max={2}
           step={0.05}
           suffix="s"
-          title="Fade-in length. Drag to scrub, click to type"
+          title={t("Fade-in length. Drag to scrub, click to type")}
           onInput={(v) => ed.editFades(v, r().fade_out)}
           onCommit={(v) => ed.editFades(v, r().fade_out)}
         />
       </Field>
-      <Field label="Fade out" hint="0 disappears instantly">
+      <Field label={t("Fade out")} hint={t("0 disappears instantly")}>
         <ScrubField
           value={Number(r().fade_out.toFixed(2))}
           min={0}
           max={2}
           step={0.05}
           suffix="s"
-          title="Fade-out length. Drag to scrub, click to type"
+          title={t("Fade-out length. Drag to scrub, click to type")}
           onInput={(v) => ed.editFades(r().fade_in, v)}
           onCommit={(v) => ed.editFades(r().fade_in, v)}
         />
       </Field>
       <div class="btn-row">
-        <button type="button" class="btn sm" data-tip="Start at the playhead" onClick={() => {
+        <button type="button" class="btn sm" data-tip={t("Start at the playhead")} onClick={() => {
           const len = r().end - r().start;
           ed.editRange(ed.playhead(), Math.min(ed.duration(), ed.playhead() + len));
         }}>
-          Move to playhead
+          {t("Move to playhead")}
         </button>
-        <button type="button" class="btn sm" data-tip="Show until the end of the clip" onClick={() => ed.editRange(r().start, ed.duration())}>
-          Until end
+        <button type="button" class="btn sm" data-tip={t("Show until the end of the clip")} onClick={() => ed.editRange(r().start, ed.duration())}>
+          {t("Until end")}
         </button>
       </div>
       <Show when={ed.isGhost(r(), true)}>
         <p class="note">
-          Hidden at the playhead (shown dimmed so you can edit it). It is on screen from {fmt(r().start)} to{" "}
-          {fmt(r().end)}.
+          {t("Hidden at the playhead (shown dimmed so you can edit it). It is on screen from {start} to {end}.", {
+            start: fmt(r().start),
+            end: fmt(r().end),
+          })}
         </p>
       </Show>
     </Section>
@@ -461,22 +468,22 @@ function TimingSection(props: { id: string }) {
 function ArrangeSection() {
   const ed = useEditor();
   return (
-    <Section id="ann-arrange" title="Arrange" icon="layers" defaultOpen={false}>
+    <Section id="ann-arrange" title={t("Arrange")} icon="layers" defaultOpen={false}>
       <div class="btn-grid">
-        <button type="button" class="btn sm" data-kbd="Ctrl+]" data-tip="Bring forward" onClick={() => void ed.reorderSelected("forward")}>
-          <Icon name="bringForward" size={14} /> Forward
+        <button type="button" class="btn sm" data-kbd="Ctrl+]" data-tip={t("Bring forward")} onClick={() => void ed.reorderSelected("forward")}>
+          <Icon name="bringForward" size={14} /> {t("Forward")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+[" data-tip="Send backward" onClick={() => void ed.reorderSelected("backward")}>
-          <Icon name="sendBackward" size={14} /> Backward
+        <button type="button" class="btn sm" data-kbd="Ctrl+[" data-tip={t("Send backward")} onClick={() => void ed.reorderSelected("backward")}>
+          <Icon name="sendBackward" size={14} /> {t("Backward")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+]" data-tip="Bring to front" onClick={() => void ed.reorderSelected("front")}>
-          To front
+        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+]" data-tip={t("Bring to front")} onClick={() => void ed.reorderSelected("front")}>
+          {t("To front")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+[" data-tip="Send to back" onClick={() => void ed.reorderSelected("back")}>
-          To back
+        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+[" data-tip={t("Send to back")} onClick={() => void ed.reorderSelected("back")}>
+          {t("To back")}
         </button>
       </div>
-      <p class="note">Stacking applies within a kind: boxes sit under pen lines, lines under arrows, arrows under text.</p>
+      <p class="note">{t("Stacking applies within a kind: boxes sit under pen lines, lines under arrows, arrows under text.")}</p>
     </Section>
   );
 }
@@ -486,9 +493,9 @@ function AnnotationProps() {
   const title = () => ed.inspTitle();
   const actions = (
     <>
-      <IconButton icon="duplicate" tip="Duplicate" kbd="Ctrl+D" class="sm" onClick={() => void ed.duplicateSelected()} />
-      <IconButton icon="copy" tip="Copy" kbd="Ctrl+C" class="sm" onClick={() => void ed.copySelected()} />
-      <IconButton icon="trash" tip="Delete" kbd="Del" class="sm danger" onClick={() => void ed.deleteSelection()} />
+      <IconButton icon="duplicate" tip={t("Duplicate")} kbd="Ctrl+D" class="sm" onClick={() => void ed.duplicateSelected()} />
+      <IconButton icon="copy" tip={t("Copy")} kbd="Ctrl+C" class="sm" onClick={() => void ed.copySelected()} />
+      <IconButton icon="trash" tip={t("Delete")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelection()} />
     </>
   );
   return (
@@ -496,21 +503,21 @@ function AnnotationProps() {
       <PanelTitle
         icon={KIND_ICON[title()] ?? "shape"}
         title={title()}
-        sub="Drag to move, handles to resize"
+        sub={t("Drag to move, handles to resize")}
         actions={actions}
       />
 
       <Show when={ed.selectedText()}>
-        {(t) => (
+        {(ann) => (
           <>
-            <Section id="ann-text" title="Text" icon="text">
+            <Section id="ann-text" title={t("Text")} icon="text">
               <textarea
                 class="input text-field"
-                rows={Math.min(4, Math.max(1, t().text.split("\n").length))}
+                rows={Math.min(4, Math.max(1, ann().text.split("\n").length))}
                 spellcheck={false}
-                placeholder="Label text"
-                aria-label="Label text"
-                data-tip="Shift+Enter starts a new line. Double-click the label to type on the video"
+                placeholder={t("Label text")}
+                aria-label={t("Label text")}
+                data-tip={t("Shift+Enter starts a new line. Double-click the label to type on the video")}
                 ref={ed.refs.contentInput}
                 onInput={(e) => ed.editText(e.currentTarget.value)}
                 onKeyDown={(e) => {
@@ -521,41 +528,41 @@ function AnnotationProps() {
                   }
                 }}
               />
-              <Field label="Size">
+              <Field label={t("Size")}>
                 <ScrubField
-                  value={t().font_size}
+                  value={ann().font_size}
                   min={0.02}
                   max={0.2}
                   step={0.005}
                   displayScale={100}
                   suffix="%"
-                  title="Font size (percent of height). Drag to scrub, click to type"
+                  title={t("Font size (percent of height). Drag to scrub, click to type")}
                   onInput={(v) => ed.editFontSize(v)}
                   onCommit={(v) => ed.editFontSize(v)}
                 />
               </Field>
-              <Field label="Style">
+              <Field label={t("Style")}>
                 <div class="toggle-group">
-                  <button type="button" class="tgl" classList={{ on: t().bold }} data-tip="Bold" aria-pressed={t().bold} onClick={() => ed.editTextStyle({ bold: !t().bold })}>
+                  <button type="button" class="tgl" classList={{ on: ann().bold }} data-tip={t("Bold")} aria-pressed={ann().bold} onClick={() => ed.editTextStyle({ bold: !ann().bold })}>
                     <b>B</b>
                   </button>
-                  <button type="button" class="tgl" classList={{ on: t().italic }} data-tip="Italic" aria-pressed={t().italic} onClick={() => ed.editTextStyle({ italic: !t().italic })}>
+                  <button type="button" class="tgl" classList={{ on: ann().italic }} data-tip={t("Italic")} aria-pressed={ann().italic} onClick={() => ed.editTextStyle({ italic: !ann().italic })}>
                     <i>I</i>
                   </button>
-                  <button type="button" class="tgl wide" classList={{ on: t().background }} data-tip="Legible plate behind the text" aria-pressed={t().background} onClick={() => ed.editTextStyle({ background: !t().background })}>
-                    Plate
+                  <button type="button" class="tgl wide" classList={{ on: ann().background }} data-tip={t("Legible plate behind the text")} aria-pressed={ann().background} onClick={() => ed.editTextStyle({ background: !ann().background })}>
+                    {t("Plate")}
                   </button>
                 </div>
               </Field>
             </Section>
-            <Section id="ann-font" title="Typeface" icon="text">
+            <Section id="ann-font" title={t("Typeface")} icon="text">
               <div class="font-grid">
-                <For each={TEXT_FONTS}>
+                <For each={TEXT_FONTS()}>
                   {(f) => (
                     <button
                       type="button"
                       class="font-card"
-                      classList={{ on: (t().font || "") === f.id }}
+                      classList={{ on: (ann().font || "") === f.id }}
                       style={{ "font-family": f.css }}
                       onClick={() => ed.editTextStyle({ font: f.id })}
                     >
@@ -571,49 +578,48 @@ function AnnotationProps() {
       </Show>
 
       <Show when={ed.isSpotlight()}>
-        <Section id="ann-spotlight" title="Spotlight" icon="spotlight">
-          <Field label="Corners" hint="Round the lit area's corners. All the way up, its short ends become half circles">
+        <Section id="ann-spotlight" title={t("Spotlight")} icon="spotlight">
+          <Field label={t("Corners")} hint={t("Round the lit area's corners. All the way up, its short ends become half circles")}>
             <Slider
               value={ed.selectedBox()?.radius ?? 0}
               min={0}
               max={SPOTLIGHT_MAX_RADIUS}
               step={0.005}
-              label="Corner radius"
-              format={(v) => (v === 0 ? "Square" : `${Math.round(v * 100)}%`)}
+              label={t("Corner radius")}
+              format={(v) => (v === 0 ? t("Square") : `${Math.round(v * 100)}%`)}
               onInput={(v) => ed.editStyle({ radius: v })}
             />
           </Field>
           <p class="note">
-            Everything around this area goes dark, so eyes go straight to it. Opacity sets how dark; drag
-            its handles to reframe it.
+            {t("Everything around this area goes dark, so eyes go straight to it. Opacity sets how dark; drag its handles to reframe it.")}
           </p>
         </Section>
       </Show>
 
       <Show when={ed.selectedBox() && !ed.isMask() && !ed.isSpotlight()}>
-        <Section id="ann-shape" title="Shape" icon="shape">
-          <Field label="Shape">
+        <Section id="ann-shape" title={t("Shape")} icon="shape">
+          <Field label={t("Shape")}>
             <Seg
               value={ed.selectedBox()!.shape === "Ellipse" ? "ellipse" : "rect"}
               onChange={(v) => ed.setShape(v === "ellipse")}
               options={[
-                { value: "rect", label: "Rectangle" },
-                { value: "ellipse", label: "Ellipse" },
+                { value: "rect", label: t("Rectangle") },
+                { value: "ellipse", label: t("Ellipse") },
               ]}
             />
           </Field>
-          <Field label="Fill">
+          <Field label={t("Fill")}>
             <Seg
               value={ed.selectedBox()!.filled ? "filled" : "outline"}
               onChange={(v) => ed.editStyle({ filled: v === "filled" })}
               options={[
-                { value: "outline", label: "Outline" },
-                { value: "filled", label: "Filled" },
+                { value: "outline", label: t("Outline") },
+                { value: "filled", label: t("Filled") },
               ]}
             />
           </Field>
           <Show when={!ed.selectedBox()!.filled}>
-            <Field label="Stroke">
+            <Field label={t("Stroke")}>
               <ScrubField
                 value={ed.selectedBox()!.thickness}
                 min={0.002}
@@ -621,7 +627,7 @@ function AnnotationProps() {
                 step={0.001}
                 displayScale={100}
                 suffix="%"
-                title="Outline thickness as a percent of height"
+                title={t("Outline thickness as a percent of height")}
                 onInput={(v) => ed.editStyle({ thickness: v })}
                 onCommit={(v) => ed.editStyle({ thickness: v })}
               />
@@ -631,39 +637,38 @@ function AnnotationProps() {
       </Show>
 
       <Show when={ed.isMask()}>
-        <Section id="ann-mask" title="Hide" icon="eyeOff">
-          <Field label="Cover">
+        <Section id="ann-mask" title={t("Hide")} icon="eyeOff">
+          <Field label={t("Cover")}>
             <Seg
               value={ed.selectedBox()!.pixelate ? "pixelate" : "black"}
               onChange={(v) => ed.setMaskPixelate(v === "pixelate")}
               options={[
-                { value: "black", label: "Black", tip: "Solid black. Nothing of what's under it remains" },
-                { value: "pixelate", label: "Pixelate", tip: "Large blocks. Softer on the eye; use Black for passwords" },
+                { value: "black", label: t("Black"), tip: t("Solid black. Nothing of what's under it remains") },
+                { value: "pixelate", label: t("Pixelate"), tip: t("Large blocks. Softer on the eye; use Black for passwords") },
               ]}
             />
           </Field>
           <p class="note">
-            Covers the same part of the recording through every zoom, and never fades. Drag its bar on the
-            timeline to choose when it covers the frame.
+            {t("Covers the same part of the recording through every zoom, and never fades. Drag its bar on the timeline to choose when it covers the frame.")}
           </p>
         </Section>
       </Show>
 
       <Show when={ed.selectedArrow()}>
         {(a) => (
-          <Section id="ann-arrow" title="Stroke" icon="arrow">
-            <Field label="Ends">
+          <Section id="ann-arrow" title={t("Stroke")} icon="arrow">
+            <Field label={t("Ends")}>
               <Seg
                 value={a().style === "Line" ? "line" : a().style === "DoubleArrow" ? "double" : "arrow"}
                 onChange={(v) => ed.setArrowStyle(v)}
                 options={[
-                  { value: "arrow", label: "Arrow" },
-                  { value: "double", label: "Double" },
-                  { value: "line", label: "Line" },
+                  { value: "arrow", label: t("Arrow") },
+                  { value: "double", label: t("Double") },
+                  { value: "line", label: t("Line") },
                 ]}
               />
             </Field>
-            <Field label="Weight">
+            <Field label={t("Weight")}>
               <ScrubField
                 value={a().thickness}
                 min={0.002}
@@ -671,12 +676,12 @@ function AnnotationProps() {
                 step={0.001}
                 displayScale={100}
                 suffix="%"
-                title="Stroke thickness as a percent of height"
+                title={t("Stroke thickness as a percent of height")}
                 onInput={(v) => ed.editStyle({ thickness: v })}
                 onCommit={(v) => ed.editStyle({ thickness: v })}
               />
             </Field>
-            <Field label="Curve" hint="Bow the arrow to either side, to swing around something">
+            <Field label={t("Curve")} hint={t("Bow the arrow to either side, to swing around something")}>
               <ScrubField
                 value={a().curve ?? 0}
                 min={-0.6}
@@ -684,7 +689,7 @@ function AnnotationProps() {
                 step={0.01}
                 displayScale={100}
                 suffix="%"
-                title="How far the middle bows off the straight line"
+                title={t("How far the middle bows off the straight line")}
                 onInput={(v) => ed.editStyle({ curve: v })}
                 onCommit={(v) => ed.editStyle({ curve: v })}
               />
@@ -695,18 +700,18 @@ function AnnotationProps() {
 
       <Show when={ed.selectedStroke()}>
         {(st) => (
-          <Section id="ann-stroke" title="Line" icon="pen">
-            <Field label="Look">
+          <Section id="ann-stroke" title={t("Line")} icon="pen">
+            <Field label={t("Look")}>
               <Seg
                 value={isMarker(st()) ? "marker" : "pen"}
                 onChange={(v) => ed.setStrokeLook(v === "marker")}
                 options={[
-                  { value: "pen", label: "Pen" },
-                  { value: "marker", label: "Marker" },
+                  { value: "pen", label: t("Pen") },
+                  { value: "marker", label: t("Marker") },
                 ]}
               />
             </Field>
-            <Field label="Width">
+            <Field label={t("Width")}>
               <ScrubField
                 value={st().thickness}
                 min={0.002}
@@ -714,7 +719,7 @@ function AnnotationProps() {
                 step={0.001}
                 displayScale={100}
                 suffix="%"
-                title="Line width as a percent of height"
+                title={t("Line width as a percent of height")}
                 onInput={(v) => ed.editStyle({ thickness: v })}
                 onCommit={(v) => ed.editStyle({ thickness: v })}
               />
@@ -724,15 +729,15 @@ function AnnotationProps() {
       </Show>
 
       <Show when={ed.selectedColor() && !ed.isMask()}>
-        <Section id="ann-color" title="Color" icon="palette">
+        <Section id="ann-color" title={t("Color")} icon="palette">
           <ColorRow />
-          <Field label="Opacity">
+          <Field label={t("Opacity")}>
             <Slider
               value={ed.selectedColor()!.a ?? 1}
               min={0.1}
               max={1}
               step={0.05}
-              label="Opacity"
+              label={t("Opacity")}
               format={(v) => `${Math.round(v * 100)}%`}
               onInput={(v) => ed.setOpacity(v)}
             />
@@ -756,73 +761,73 @@ function ZoomProps() {
     <>
       <PanelTitle
         icon="zoomIn"
-        title="Zoom"
-        sub={`${z().amount.toFixed(1)}× from ${z().start.toFixed(1)}s to ${z().end.toFixed(1)}s`}
-        actions={<IconButton icon="trash" tip="Delete zoom" kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedZoom()} />}
+        title={t("Zoom")}
+        sub={t("{amount}× from {start}s to {end}s", { amount: z().amount.toFixed(1), start: z().start.toFixed(1), end: z().end.toFixed(1) })}
+        actions={<IconButton icon="trash" tip={t("Delete zoom")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedZoom()} />}
       />
-      <Section id="zoom-aim" title="Strength and aim" icon="zoomIn">
-        <Field label="Strength" stack>
+      <Section id="zoom-aim" title={t("Strength and aim")} icon="zoomIn">
+        <Field label={t("Strength")} stack>
           <Slider
             value={z().amount}
             min={1.2}
             max={4}
             step={0.1}
-            label="Zoom strength"
+            label={t("Zoom strength")}
             format={(v) => `${v.toFixed(1)}×`}
             onInput={(v) => void ed.applyZoomEdit(i(), z().start, z().end, v)}
           />
         </Field>
-        <Field label="Aim" stack>
+        <Field label={t("Aim")} stack>
           <Seg
             full
             value={ed.selZoomFocus() ? "fixed" : "follow"}
             onChange={(v) => void ed.applyZoomFocus(v === "fixed" ? (ed.selZoomFocus() ?? { x: 0.5, y: 0.5 }) : null)}
             options={[
-              { value: "follow", label: "Follow pointer", tip: "The zoom follows your recorded mouse pointer" },
-              { value: "fixed", label: "Fixed point", tip: "Hold one spot. Drag the crosshair to aim" },
+              { value: "follow", label: t("Follow pointer"), tip: t("The zoom follows your recorded mouse pointer") },
+              { value: "fixed", label: t("Fixed point"), tip: t("Hold one spot. Drag the crosshair to aim") },
             ]}
           />
         </Field>
         <Show when={ed.selZoomFocus()}>
-          <p class="note">Drag the crosshair on the video to aim this zoom.</p>
+          <p class="note">{t("Drag the crosshair on the video to aim this zoom.")}</p>
         </Show>
-        <Field label="Motion" stack>
+        <Field label={t("Motion")} stack>
           <Seg
             full
             value={z().style}
             onChange={(v) => void ed.applyZoomStyle(v)}
             options={[
-              { value: "Smooth", label: "Smooth", tip: "Cinematic glide (default)" },
-              { value: "Snappy", label: "Snappy", tip: "Settles faster" },
-              { value: "Slow", label: "Slow", tip: "Gentle drift" },
+              { value: "Smooth", label: t("Smooth"), tip: t("Cinematic glide (default)") },
+              { value: "Snappy", label: t("Snappy"), tip: t("Settles faster") },
+              { value: "Slow", label: t("Slow"), tip: t("Gentle drift") },
             ]}
           />
         </Field>
       </Section>
-      <Section id="zoom-timing" title="Timing" icon="timer">
-        <Field label="Start">
+      <Section id="zoom-timing" title={t("Timing")} icon="timer">
+        <Field label={t("Start")}>
           <ScrubField
             value={Number(z().start.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this zoom starts"
+            title={t("When this zoom starts")}
             onCommit={(v) => void ed.applyZoomEdit(i(), v, z().end, z().amount)}
           />
         </Field>
-        <Field label="End">
+        <Field label={t("End")}>
           <ScrubField
             value={Number(z().end.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this zoom ends"
+            title={t("When this zoom ends")}
             onCommit={(v) => void ed.applyZoomEdit(i(), z().start, v, z().amount)}
           />
         </Field>
-        <Field label="Length">
+        <Field label={t("Length")}>
           <span class="readout">{(z().end - z().start).toFixed(2)}s</span>
         </Field>
       </Section>
@@ -840,18 +845,18 @@ function SpeedProps() {
     <>
       <PanelTitle
         icon="speed"
-        title="Speed up"
-        sub={`${(r().end - r().start).toFixed(1)}s plays in ${((r().end - r().start) / r().factor).toFixed(1)}s`}
-        actions={<IconButton icon="trash" tip="Delete speed region" kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedSpeed()} />}
+        title={t("Speed up")}
+        sub={t("{length}s plays in {played}s", { length: (r().end - r().start).toFixed(1), played: ((r().end - r().start) / r().factor).toFixed(1) })}
+        actions={<IconButton icon="trash" tip={t("Delete speed region")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedSpeed()} />}
       />
-      <Section id="speed-rate" title="Rate" icon="speed">
-        <Field label="Rate" stack>
+      <Section id="speed-rate" title={t("Rate")} icon="speed">
+        <Field label={t("Rate")} stack>
           <Slider
             value={r().factor}
             min={0.25}
             max={8}
             step={0.25}
-            label="Playback rate"
+            label={t("Playback rate")}
             format={(v) => `${v}×`}
             onInput={(v) => void ed.applySpeedEdit(i(), r().start, r().end, v)}
           />
@@ -871,26 +876,26 @@ function SpeedProps() {
           </For>
         </div>
       </Section>
-      <Section id="speed-timing" title="Timing" icon="timer">
-        <Field label="Start">
+      <Section id="speed-timing" title={t("Timing")} icon="timer">
+        <Field label={t("Start")}>
           <ScrubField
             value={Number(r().start.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this speed region starts"
+            title={t("When this speed region starts")}
             onCommit={(v) => void ed.applySpeedEdit(i(), v, r().end, r().factor)}
           />
         </Field>
-        <Field label="End">
+        <Field label={t("End")}>
           <ScrubField
             value={Number(r().end.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this speed region ends"
+            title={t("When this speed region ends")}
             onCommit={(v) => void ed.applySpeedEdit(i(), r().start, v, r().factor)}
           />
         </Field>
@@ -905,33 +910,33 @@ function CutProps() {
   const i = () => ed.selCut()!;
   return (
     <>
-      <PanelTitle icon="cut" title="Cut" sub={`${(c().end - c().start).toFixed(2)}s removed from the export`} />
-      <Section id="cut-timing" title="Removed span" icon="timer">
-        <Field label="From">
+      <PanelTitle icon="cut" title={t("Cut")} sub={t("{length}s removed from the export", { length: (c().end - c().start).toFixed(2) })} />
+      <Section id="cut-timing" title={t("Removed span")} icon="timer">
+        <Field label={t("From")}>
           <ScrubField
             value={Number(c().start.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="Where the removed section starts"
+            title={t("Where the removed section starts")}
             onCommit={(v) => void ed.applyCutEdit(i(), v, c().end)}
           />
         </Field>
-        <Field label="To">
+        <Field label={t("To")}>
           <ScrubField
             value={Number(c().end.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="Where the removed section ends"
+            title={t("Where the removed section ends")}
             onCommit={(v) => void ed.applyCutEdit(i(), c().start, v)}
           />
         </Field>
-        <p class="note">Playback and export jump straight over this span.</p>
+        <p class="note">{t("Playback and export jump straight over this span.")}</p>
         <button type="button" class="btn block" onClick={() => void ed.deleteSelectedCut()}>
-          <Icon name="reset" size={14} /> Restore this section
+          <Icon name="reset" size={14} /> {t("Restore this section")}
         </button>
       </Section>
     </>
@@ -947,50 +952,50 @@ function CaptionProps() {
     <>
       <PanelTitle
         icon="captions"
-        title="Caption"
-        sub={`On screen for ${(c().range.end - c().range.start).toFixed(1)}s`}
+        title={t("Caption")}
+        sub={t("On screen for {length}s", { length: (c().range.end - c().range.start).toFixed(1) })}
         actions={
           <IconButton
             icon="trash"
-            tip="Delete caption"
+            tip={t("Delete caption")}
             kbd="Del"
             class="sm danger"
             onClick={() => void ed.deleteSelectedCaption()}
           />
         }
       />
-      <Section id="caption-words" title="Words" icon="text">
+      <Section id="caption-words" title={t("Words")} icon="text">
         <textarea
           class="input cap-text"
           rows={3}
           spellcheck={true}
-          placeholder="Type what was said"
-          aria-label="Caption words"
+          placeholder={t("Type what was said")}
+          aria-label={t("Caption words")}
           value={c().text}
           onInput={(e) => ed.captions.setText(c().id, e.currentTarget.value)}
         />
-        <p class="note">Two short lines read best. Drag the ends of the bar on the timeline to retime it.</p>
+        <p class="note">{t("Two short lines read best. Drag the ends of the bar on the timeline to retime it.")}</p>
       </Section>
-      <Section id="caption-timing" title="Timing" icon="timer">
-        <Field label="Shows at">
+      <Section id="caption-timing" title={t("Timing")} icon="timer">
+        <Field label={t("Shows at")}>
           <ScrubField
             value={Number(c().range.start.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this caption appears"
+            title={t("When this caption appears")}
             onCommit={setStart}
           />
         </Field>
-        <Field label="Hides at">
+        <Field label={t("Hides at")}>
           <ScrubField
             value={Number(c().range.end.toFixed(2))}
             min={0}
             max={ed.duration()}
             step={0.05}
             suffix="s"
-            title="When this caption goes away"
+            title={t("When this caption goes away")}
             onCommit={setEnd}
           />
         </Field>
@@ -1001,10 +1006,10 @@ function CaptionProps() {
 
 // ── clip ─────────────────────────────────────────────────────────────────────
 
-const FRAMES: { id: string; label: string; tip: string }[] = [
-  { id: "none", label: "None", tip: "Edge to edge, exactly what you recorded" },
-  { id: "subtle", label: "Subtle", tip: "A little padding, soft corners and shadow" },
-  { id: "studio", label: "Studio", tip: "Generous padding on a backdrop, product-shot style" },
+const FRAMES = (): { id: string; label: string; tip: string }[] => [
+  { id: "none", label: t("None"), tip: t("Edge to edge, exactly what you recorded") },
+  { id: "subtle", label: t("Subtle"), tip: t("A little padding, soft corners and shadow") },
+  { id: "studio", label: t("Studio"), tip: t("Generous padding on a backdrop, product-shot style") },
 ];
 
 // Mirrors the values session::set_frame_preset writes for each preset.
@@ -1015,8 +1020,8 @@ const FRAME_VALUES: Record<string, { padding: number; radius: number; shadow: nu
 };
 const bgHex = (c: [number, number, number]) => rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 });
 
-const CROPS: { id: string; label: string; ratio: number | null }[] = [
-  { id: "full", label: "Full", ratio: null },
+const CROPS = (): { id: string; label: string; ratio: number | null }[] => [
+  { id: "full", label: t("Full"), ratio: null },
   { id: "16:9", label: "16:9", ratio: 16 / 9 },
   { id: "4:3", label: "4:3", ratio: 4 / 3 },
   { id: "1:1", label: "1:1", ratio: 1 },
@@ -1051,14 +1056,14 @@ function ClipPanel() {
   // The current backdrop as CSS, for the frame cards' little scenes.
   const backdropCss = () => {
     const fi = ed.frameInfo();
-    const sw = ed.BG_SWATCHES.find((s) => s.name === ed.bgPreset());
+    const sw = ed.BG_SWATCHES().find((s) => s.name === ed.bgPreset());
     if (sw) return sw.css;
     if (!fi || fi.bg_kind === "image") return "linear-gradient(135deg,#3b4a5c,#171c24)";
     if (fi.bg_kind === "solid") return bgHex(fi.bg_from);
     return `linear-gradient(${fi.bg_angle + 90}deg,${bgHex(fi.bg_from)},${bgHex(fi.bg_to)})`;
   };
-  const frameName = () => FRAMES.find((f) => f.id === framePresetExact())?.label ?? "Custom";
-  const cropName = () => CROPS.find((c) => cropMatches(ed.crop(), c.ratio))?.label ?? "Custom";
+  const frameName = () => FRAMES().find((f) => f.id === framePresetExact())?.label ?? t("Custom");
+  const cropName = () => CROPS().find((c) => cropMatches(ed.crop(), c.ratio))?.label ?? t("Custom");
   const pictureName = () => (ed.frameInfo()?.bg_image ?? "").split(/[\\/]/).pop() ?? "";
 
   // Settings search: filters the sections below as you type. Ctrl+F jumps here.
@@ -1097,8 +1102,8 @@ function ClipPanel() {
             ref={searchEl}
             class="input"
             type="search"
-            placeholder="Search settings"
-            aria-label="Search clip settings"
+            placeholder={t("Search settings")}
+            aria-label={t("Search clip settings")}
             spellcheck={false}
             value={query()}
             onInput={(e) => search(e.currentTarget.value)}
@@ -1111,7 +1116,7 @@ function ClipPanel() {
             }}
           />
           <Show when={query()}>
-            <button type="button" class="clip-search-x" aria-label="Clear search" onClick={() => search("")}>
+            <button type="button" class="clip-search-x" aria-label={t("Clear search")} onClick={() => search("")}>
               <Icon name="close" size={12} stroke={2.2} />
             </button>
           </Show>
@@ -1120,23 +1125,23 @@ function ClipPanel() {
       <Show when={noMatch()}>
         <div class="clip-search-empty">
           <Icon name="search" size={18} />
-          <span>Nothing matches "{query()}".</span>
+          <span>{t('Nothing matches "{query}".', { query: query() })}</span>
           <button type="button" class="btn sm ghost" onClick={() => search("")}>
-            Clear search
+            {t("Clear search")}
           </button>
         </div>
       </Show>
 
       <Section
         id="clip-frame"
-        title="Frame"
+        title={t("Frame")}
         icon="frame"
         defaultOpen={false}
-        keywords="padding corners rounded radius shadow backdrop background wallpaper picture image photo color gradient border"
-        aside={<span class="badge">{isCustomFrame() ? "Custom" : frameName()}</span>}
+        keywords={t("padding corners rounded radius shadow backdrop background wallpaper picture image photo color gradient border")}
+        aside={<span class="badge">{isCustomFrame() ? t("Custom") : frameName()}</span>}
       >
         <div class="frame-cards" style={{ "--bd": backdropCss() }}>
-          <For each={FRAMES}>
+          <For each={FRAMES()}>
             {(f) => (
               <button
                 type="button"
@@ -1159,35 +1164,35 @@ function ClipPanel() {
         <Show when={ed.frameInfo()}>
           {(fi) => (
             <>
-              <Field label="Padding">
+              <Field label={t("Padding")}>
                 <Slider
                   value={fi().padding}
                   min={0}
                   max={0.2}
                   step={0.005}
-                  label="Padding"
+                  label={t("Padding")}
                   format={(v) => `${Math.round(v * 100)}%`}
                   onInput={(v) => ed.applyFrameStyle({ padding: v })}
                 />
               </Field>
-              <Field label="Corners">
+              <Field label={t("Corners")}>
                 <Slider
                   value={fi().corner_radius}
                   min={0}
                   max={0.08}
                   step={0.002}
-                  label="Corner radius"
+                  label={t("Corner radius")}
                   format={(v) => `${(v * 100).toFixed(1)}%`}
                   onInput={(v) => ed.applyFrameStyle({ radius: v })}
                 />
               </Field>
-              <Field label="Shadow">
+              <Field label={t("Shadow")}>
                 <Slider
                   value={fi().shadow}
                   min={0}
                   max={1}
                   step={0.05}
-                  label="Shadow strength"
+                  label={t("Shadow strength")}
                   disabled={fi().padding <= 0}
                   format={(v) => `${Math.round(v * 100)}%`}
                   onInput={(v) => ed.applyFrameStyle({ shadow: v })}
@@ -1197,15 +1202,15 @@ function ClipPanel() {
           )}
         </Show>
         <Show when={ed.framePreset() !== "none"}>
-          <Field label="Backdrop" stack>
+          <Field label={t("Backdrop")} stack>
             <div class="swatches">
-              <For each={ed.BG_SWATCHES}>
+              <For each={ed.BG_SWATCHES()}>
                 {(sw) => (
                   <button
                     type="button"
                     class="swatch"
                     style={{ background: sw.css }}
-                    aria-label={`Backdrop: ${sw.label}`}
+                    aria-label={t("Backdrop: {label}", { label: sw.label })}
                     aria-pressed={ed.bgPreset() === sw.name}
                     data-tip={sw.label}
                     onClick={() => ed.applyBackground(sw.name)}
@@ -1215,9 +1220,9 @@ function ClipPanel() {
               <button
                 type="button"
                 class="swatch swatch-custom"
-                aria-label="Custom backdrop"
+                aria-label={t("Custom backdrop")}
                 aria-pressed={ed.bgPreset() === "" && !isPicture()}
-                data-tip="Your own colors"
+                data-tip={t("Your own colors")}
                 onClick={() => {
                   const fi = ed.frameInfo();
                   if (fi && (ed.bgPreset() !== "" || isPicture()))
@@ -1227,9 +1232,9 @@ function ClipPanel() {
               <button
                 type="button"
                 class="swatch swatch-picture"
-                aria-label="Picture backdrop"
+                aria-label={t("Picture backdrop")}
                 aria-pressed={isPicture()}
-                data-tip="Your own picture"
+                data-tip={t("Your own picture")}
                 onClick={() => void ed.chooseBackdropPicture()}
               >
                 <Icon name="image" size={14} />
@@ -1242,10 +1247,10 @@ function ClipPanel() {
                 <Icon name="image" size={16} />
               </span>
               <span class="bg-picture-name" data-tip={ed.frameInfo()?.bg_image ?? ""}>
-                {pictureName() || "Picture"}
+                {pictureName() || t("Picture")}
               </span>
               <button type="button" class="btn sm" onClick={() => void ed.chooseBackdropPicture()}>
-                Change
+                {t("Change")}
               </button>
             </div>
           </Show>
@@ -1259,17 +1264,17 @@ function ClipPanel() {
                     ed.applyBackgroundCustom(bgHex(fi().bg_from), k === "gradient" ? bgHex(fi().bg_to) : null, fi().bg_angle)
                   }
                   options={[
-                    { value: "solid", label: "Solid" },
-                    { value: "gradient", label: "Gradient" },
+                    { value: "solid", label: t("Solid") },
+                    { value: "gradient", label: t("Gradient") },
                   ]}
                 />
                 <div class="bg-colors">
-                  <label class="color-well" data-tip={fi().bg_kind === "gradient" ? "Start color" : "Color"}>
+                  <label class="color-well" data-tip={fi().bg_kind === "gradient" ? t("Start color") : t("Color")}>
                     <span style={{ background: bgHex(fi().bg_from) }} />
                     <input
                       type="color"
                       value={bgHex(fi().bg_from)}
-                      aria-label="Backdrop color"
+                      aria-label={t("Backdrop color")}
                       onInput={(e) =>
                         ed.applyBackgroundCustom(
                           e.currentTarget.value,
@@ -1280,12 +1285,12 @@ function ClipPanel() {
                     />
                   </label>
                   <Show when={fi().bg_kind === "gradient"}>
-                    <label class="color-well" data-tip="End color">
+                    <label class="color-well" data-tip={t("End color")}>
                       <span style={{ background: bgHex(fi().bg_to) }} />
                       <input
                         type="color"
                         value={bgHex(fi().bg_to)}
-                        aria-label="Backdrop end color"
+                        aria-label={t("Backdrop end color")}
                         onInput={(e) => ed.applyBackgroundCustom(bgHex(fi().bg_from), e.currentTarget.value, fi().bg_angle)}
                       />
                     </label>
@@ -1294,7 +1299,7 @@ function ClipPanel() {
                       min={0}
                       max={360}
                       step={5}
-                      label="Gradient angle"
+                      label={t("Gradient angle")}
                       format={(v) => `${Math.round(v)}°`}
                       onInput={(v) => ed.applyBackgroundCustom(bgHex(fi().bg_from), bgHex(fi().bg_to), v)}
                     />
@@ -1308,14 +1313,14 @@ function ClipPanel() {
 
       <Section
         id="clip-crop"
-        title="Crop"
+        title={t("Crop")}
         icon="crop"
         defaultOpen={false}
-        keywords="aspect ratio 16:9 square vertical portrait 9:16 reel shorts tiktok edges"
+        keywords={t("aspect ratio 16:9 square vertical portrait 9:16 reel shorts tiktok edges")}
         aside={<span class="badge">{cropName()}</span>}
       >
         <div class="crop-grid">
-          <For each={CROPS}>
+          <For each={CROPS()}>
             {(c) => (
               <button
                 type="button"
@@ -1331,33 +1336,36 @@ function ClipPanel() {
         <button
           type="button"
           class="btn sm block"
-          data-tip="Drag a crop rectangle on the video"
+          data-tip={t("Drag a crop rectangle on the video")}
           onClick={() => void ed.beginCropEdit()}
         >
-          <Icon name="crop" size={14} /> Adjust on canvas…
+          <Icon name="crop" size={14} /> {t("Adjust on canvas…")}
         </button>
-        <Show when={ed.crop()} fallback={<p class="note">Centered crops re-frame the whole clip. Annotations keep their on-screen spot.</p>}>
+        <Show when={ed.crop()} fallback={<p class="note">{t("Centered crops re-frame the whole clip. Annotations keep their on-screen spot.")}</p>}>
           <p class="note">
-            Showing {Math.round(ed.crop()!.w * 100)}% × {Math.round(ed.crop()!.h * 100)}% of the recording.
+            {t("Showing {w}% × {h}% of the recording.", {
+              w: Math.round(ed.crop()!.w * 100),
+              h: Math.round(ed.crop()!.h * 100),
+            })}
           </p>
         </Show>
       </Section>
 
       <Section
         id="clip-zoom"
-        title="Zooms"
+        title={t("Zooms")}
         icon="zoomIn"
         defaultOpen={false}
-        keywords="zoom auto camera motion blur strength close magnify"
-        aside={<span class="badge">{ed.zooms().length} zoom{ed.zooms().length === 1 ? "" : "s"}</span>}
+        keywords={t("zoom auto camera motion blur strength close magnify")}
+        aside={<span class="badge">{ed.zooms().length === 1 ? t("1 zoom") : t("{n} zooms", { n: ed.zooms().length })}</span>}
       >
-        <Field label="Auto zoom strength" stack>
+        <Field label={t("Auto zoom strength")} stack>
           <Slider
             value={ed.zoomStrength()}
             min={1.2}
             max={3}
             step={0.1}
-            label="Auto zoom strength"
+            label={t("Auto zoom strength")}
             format={(v) => `${v.toFixed(1)}×`}
             onInput={(v) => ed.setZoomStrength(v)}
           />
@@ -1366,32 +1374,32 @@ function ClipPanel() {
           <button
             type="button"
             class="btn sm grow"
-            data-tip="Rebuild zooms from your recorded clicks. Ctrl+Z restores your own"
+            data-tip={t("Rebuild zooms from your recorded clicks. Ctrl+Z restores your own")}
             onClick={() => void ed.planZoomAuto()}
           >
-            <Icon name="sparkle" size={14} /> Auto zooms
+            <Icon name="sparkle" size={14} /> {t("Auto zooms")}
           </button>
-          <button type="button" class="btn sm grow" data-tip="Add a zoom at the playhead. To aim it, use the Zoom tool (Z)" onClick={() => void ed.addZoomAt()}>
-            <Icon name="plus" size={14} /> Zoom here
+          <button type="button" class="btn sm grow" data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")} onClick={() => void ed.addZoomAt()}>
+            <Icon name="plus" size={14} /> {t("Zoom here")}
           </button>
         </div>
-        <Field label="Motion blur" hint="Softens fast zooms and pans the way a camera's shutter does">
-          <Switch checked={ed.motionBlur()} label="Motion blur" onChange={() => ed.toggleMotionBlur()} />
+        <Field label={t("Motion blur")} hint={t("Softens fast zooms and pans the way a camera's shutter does")}>
+          <Switch checked={ed.motionBlur()} label={t("Motion blur")} onChange={() => ed.toggleMotionBlur()} />
         </Field>
       </Section>
 
       <Section
         id="clip-pacing"
-        title="Pacing"
+        title={t("Pacing")}
         icon="speed"
         defaultOpen={false}
-        keywords="speed skim idle fast faster silence cut length duration"
+        keywords={t("speed skim idle fast faster silence cut length duration")}
         aside={<span class="badge">{outDur().toFixed(1)}s</span>}
       >
-        <Field label="Skim idle stretches" hint="Plays the moments where nothing happens faster">
-          <Switch checked={ed.speed().length > 0} label="Skim idle stretches" onChange={() => ed.toggleSkim()} />
+        <Field label={t("Skim idle stretches")} hint={t("Plays the moments where nothing happens faster")}>
+          <Switch checked={ed.speed().length > 0} label={t("Skim idle stretches")} onChange={() => ed.toggleSkim()} />
         </Field>
-        <Field label="Skim speed" stack>
+        <Field label={t("Skim speed")} stack>
           <Seg
             full
             value={ed.skimFactor()}
@@ -1400,18 +1408,18 @@ function ClipPanel() {
           />
         </Field>
         <div class="btn-row">
-          <button type="button" class="btn sm grow" data-kbd="X" data-tip="Speed up 2s at the playhead" onClick={() => void ed.addSpeedAtPlayhead()}>
-            <Icon name="speed" size={14} /> Speed up
+          <button type="button" class="btn sm grow" data-kbd="X" data-tip={t("Speed up 2s at the playhead")} onClick={() => void ed.addSpeedAtPlayhead()}>
+            <Icon name="speed" size={14} /> {t("Speed up")}
           </button>
-          <button type="button" class="btn sm grow" data-kbd="C" data-tip="Remove 1s at the playhead" onClick={() => void ed.addCutAtPlayhead()}>
-            <Icon name="cut" size={14} /> Cut
+          <button type="button" class="btn sm grow" data-kbd="C" data-tip={t("Remove 1s at the playhead")} onClick={() => void ed.addCutAtPlayhead()}>
+            <Icon name="cut" size={14} /> {t("Cut")}
           </button>
         </div>
-        <Field label="Final length">
+        <Field label={t("Final length")}>
           <span class="readout">
             {outDur().toFixed(1)}s
             <Show when={Math.abs(outDur() - ed.duration()) > 0.05}>
-              <span class="readout-sub"> of {ed.duration().toFixed(1)}s</span>
+              <span class="readout-sub"> {t("of {total}s", { total: ed.duration().toFixed(1) })}</span>
             </Show>
           </span>
         </Field>
@@ -1419,68 +1427,68 @@ function ClipPanel() {
 
       <Section
         id="clip-audio"
-        title="Audio"
+        title={t("Audio")}
         icon="waves"
         defaultOpen={false}
-        keywords="sound microphone mic system volume mute noise voice narration"
-        aside={<span class="badge">{ed.audio.hasAudio() ? `${ed.audio.tracks().length} track${ed.audio.tracks().length === 1 ? "" : "s"}` : "Silent"}</span>}
+        keywords={t("sound microphone mic system volume mute noise voice narration")}
+        aside={<span class="badge">{ed.audio.hasAudio() ? ed.audio.tracks().length === 1 ? t("1 track") : t("{n} tracks", { n: ed.audio.tracks().length }) : t("Silent")}</span>}
       >
         <Show
           when={ed.audio.hasAudio()}
           fallback={
             <p class="note">
-              This take is silent. Turn on the microphone or system sound before recording to add narration.
+              {t("This take is silent. Turn on the microphone or system sound before recording to add narration.")}
             </p>
           }
         >
           <Index each={ed.audio.tracks()}>
-            {(t) => (
-              <div class="audio-row" classList={{ muted: t().muted }}>
+            {(track) => (
+              <div class="audio-row" classList={{ muted: track().muted }}>
                 <div class="audio-row-head">
-                  <Icon name={t().kind === "mic" ? "mic" : "volume"} size={14} />
-                  <span>{trackLabel(t().kind)}</span>
+                  <Icon name={track().kind === "mic" ? "mic" : "volume"} size={14} />
+                  <span>{trackLabel(track().kind)}</span>
                   <IconButton
-                    icon={t().muted ? "volumeOff" : "volume"}
-                    tip={t().muted ? "Unmute" : "Mute"}
-                    active={t().muted}
-                    onClick={() => ed.audio.toggleMute(t().kind)}
+                    icon={track().muted ? "volumeOff" : "volume"}
+                    tip={track().muted ? t("Unmute") : t("Mute")}
+                    active={track().muted}
+                    onClick={() => ed.audio.toggleMute(track().kind)}
                   />
                 </div>
                 <Slider
-                  value={t().gain}
+                  value={track().gain}
                   min={0}
                   max={2}
                   step={0.05}
-                  disabled={t().muted}
-                  label={`${trackLabel(t().kind)} volume`}
+                  disabled={track().muted}
+                  label={t("{track} volume", { track: trackLabel(track().kind) })}
                   format={(v) => `${Math.round(v * 100)}%`}
-                  onInput={(v) => void ed.audio.setGain(t().kind, v)}
+                  onInput={(v) => void ed.audio.setGain(track().kind, v)}
                 />
-                <Show when={t().kind === "mic"}>
-                  <Field label="Remove noise" hint="Filters out fans, hum and hiss while keeping your voice">
+                <Show when={track().kind === "mic"}>
+                  <Field label={t("Remove noise")} hint={t("Filters out fans, hum and hiss while keeping your voice")}>
                     <Switch
-                      checked={!!t().denoise}
-                      label="Remove noise"
-                      onChange={(v) => void ed.audio.setDenoise(t().kind, v)}
+                      checked={!!track().denoise}
+                      label={t("Remove noise")}
+                      onChange={(v) => void ed.audio.setDenoise(track().kind, v)}
                     />
                   </Field>
-                  <Field label="Even out volume" hint="Brings quiet and loud passages to one steady level">
+                  <Field label={t("Even out volume")} hint={t("Brings quiet and loud passages to one steady level")}>
                     <Switch
-                      checked={!!t().level}
-                      label="Even out volume"
-                      onChange={(v) => void ed.audio.setLevel(t().kind, v)}
+                      checked={!!track().level}
+                      label={t("Even out volume")}
+                      onChange={(v) => void ed.audio.setLevel(track().kind, v)}
                     />
                   </Field>
-                  <Show when={ed.audio.cleaning()[t().kind]}>
+                  <Show when={ed.audio.cleaning()[track().kind]}>
                     <p class="note audio-cleaning" role="status">
-                      Cleaning up the voice…
+                      {t("Cleaning up the voice…")}
                     </p>
                   </Show>
                 </Show>
               </div>
             )}
           </Index>
-          <p class="note">Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIFs are always silent.</p>
+          <p class="note">{t("Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIFs are always silent.")}</p>
         </Show>
       </Section>
 
@@ -1488,21 +1496,21 @@ function ClipPanel() {
 
       <Section
         id="clip-pointer"
-        title="Pointer"
+        title={t("Pointer")}
         icon="cursor"
         defaultOpen={false}
-        keywords="cursor mouse arrow size smooth hide still color colour custom highlight halo picture image upload dot opacity transparent shadow"
-        aside={<span class="badge">{ed.cursorStyle() ? "Smooth" : ed.pointerCaptured() ? "Recorded" : "Hidden"}</span>}
+        keywords={t("cursor mouse arrow size smooth hide still color colour custom highlight halo picture image upload dot opacity transparent shadow")}
+        aside={<span class="badge">{ed.cursorStyle() ? t("Smooth") : ed.pointerCaptured() ? t("Recorded") : t("Hidden")}</span>}
       >
-        <Field label="Smooth pointer" hint="A clean pointer that glides, drawn from your movements">
-          <Switch checked={!!ed.cursorStyle()} label="Smooth pointer" onChange={() => ed.toggleCursor()} />
+        <Field label={t("Smooth pointer")} hint={t("A clean pointer that glides, drawn from your movements")}>
+          <Switch checked={!!ed.cursorStyle()} label={t("Smooth pointer")} onChange={() => ed.toggleCursor()} />
         </Field>
         <Show when={ed.cursorStyle()}>
           {(c) => (
             <>
-              <Field label="Look" stack>
+              <Field label={t("Look")} stack>
                 <div class="look-cards">
-                  <For each={POINTER_LOOKS}>
+                  <For each={POINTER_LOOKS()}>
                     {(l) => (
                       <button
                         type="button"
@@ -1546,8 +1554,8 @@ function ClipPanel() {
                         <button
                           type="button"
                           class="ptr-hotspot"
-                          aria-label="Set where the picture points"
-                          data-tip="Click where it should point"
+                          aria-label={t("Set where the picture points")}
+                          data-tip={t("Click where it should point")}
                           onClick={(e) => {
                             // A keyboard "click" has no position: the buttons beside it serve that.
                             if (e.detail === 0) return;
@@ -1565,83 +1573,83 @@ function ClipPanel() {
                     </Show>
                     <div class="ptr-picture-side">
                       <span class="ptr-picture-name" data-tip={img().path}>
-                        {img().path.split(/[\\/]/).pop() || "Picture"}
+                        {img().path.split(/[\\/]/).pop() || t("Picture")}
                       </span>
                       <span class="ptr-picture-hint">
-                        {ed.pointerPicture() ? "Click the picture where it should point" : "This picture can't be found"}
+                        {ed.pointerPicture() ? t("Click the picture where it should point") : t("This picture can't be found")}
                       </span>
                       <div class="ptr-picture-actions">
                         <button
                           type="button"
                           class="btn sm"
-                          data-tip="Points with its top-left corner, like an arrow"
+                          data-tip={t("Points with its top-left corner, like an arrow")}
                           aria-pressed={img().hotspot[0] === 0 && img().hotspot[1] === 0}
                           onClick={() => ed.setCursorHotspot(0, 0)}
                         >
-                          Corner
+                          {t("Corner")}
                         </button>
                         <button
                           type="button"
                           class="btn sm"
-                          data-tip="Points with its middle, like a dot or a ring"
+                          data-tip={t("Points with its middle, like a dot or a ring")}
                           aria-pressed={img().hotspot[0] === 0.5 && img().hotspot[1] === 0.5}
                           onClick={() => ed.setCursorHotspot(0.5, 0.5)}
                         >
-                          Center
+                          {t("Center")}
                         </button>
                         <button type="button" class="btn sm" onClick={() => void ed.chooseCursorPicture()}>
-                          Change
+                          {t("Change")}
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
               </Show>
-              <Field label="Size" stack>
+              <Field label={t("Size")} stack>
                 <Slider
                   value={c().size}
                   min={0.5}
                   max={3}
                   step={0.05}
-                  label="Pointer size"
+                  label={t("Pointer size")}
                   format={(v) => `${v.toFixed(1)}×`}
                   onInput={ed.setCursorSize}
                 />
               </Field>
-              <Field label="Smoothing" stack>
+              <Field label={t("Smoothing")} stack>
                 <Slider
                   value={c().smoothing}
                   min={0}
                   max={0.2}
                   step={0.01}
-                  label="Pointer smoothing"
-                  format={(v) => (v === 0 ? "Off" : v < 0.04 ? "Light" : v < 0.1 ? "Medium" : "Heavy")}
+                  label={t("Pointer smoothing")}
+                  format={(v) => (v === 0 ? t("Off") : v < 0.04 ? t("Light") : v < 0.1 ? t("Medium") : t("Heavy"))}
                   onInput={ed.setCursorSmoothing}
                 />
               </Field>
-              <Field label="Hide when still" hint="Fades out while the mouse rests and is back before it moves">
+              <Field label={t("Hide when still")} hint={t("Fades out while the mouse rests and is back before it moves")}>
                 <Switch
                   checked={!!c().hide_idle}
-                  label="Hide pointer when still"
+                  label={t("Hide pointer when still")}
                   onChange={(v) => ed.setCursorHideIdle(v)}
                 />
               </Field>
-              <Field label="Opacity" stack>
+              <Field label={t("Opacity")} stack>
                 <Slider
                   value={c().opacity ?? 1}
                   min={0}
                   max={1}
                   step={0.05}
-                  label="Pointer opacity"
+                  label={t("Pointer opacity")}
                   format={(v) => `${Math.round(v * 100)}%`}
                   onInput={ed.setCursorOpacity}
                 />
               </Field>
-              <Field label="Shadow" hint="A soft shadow under the pointer">
-                <Switch checked={c().shadow ?? true} label="Pointer shadow" onChange={(v) => ed.setCursorShadow(v)} />
+              <Field label={t("Shadow")} hint={t("A soft shadow under the pointer")}>
+                <Switch checked={c().shadow ?? true} label={t("Pointer shadow")} onChange={(v) => ed.setCursorShadow(v)} />
               </Field>
               <Show when={pointerLook(c()) !== "image"}>
-                <Field label="Color" stack>
+                <Field label={t("Color")} stack>
                   <div class="color-row">
                     <For each={POINTER_COLORS}>
                       {(hex) => (
@@ -1650,38 +1658,37 @@ function ClipPanel() {
                           class="swatch"
                           classList={{ on: pointerHex(c().color) === hex }}
                           style={{ background: hex }}
-                          aria-label={`Pointer color ${hex}`}
+                          aria-label={t("Pointer color {hex}", { hex })}
                           aria-pressed={pointerHex(c().color) === hex}
-                          data-tip={hex === POINTER_COLORS[0] ? "White, the classic pointer" : hex}
+                          data-tip={hex === POINTER_COLORS[0] ? t("White, the classic pointer") : hex}
                           onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
                         />
                       )}
                     </For>
-                    <label class="swatch swatch-custom" data-tip="Custom color">
+                    <label class="swatch swatch-custom" data-tip={t("Custom color")}>
                       <input
                         type="color"
                         value={pointerHex(c().color)}
-                        aria-label="Custom pointer color"
+                        aria-label={t("Custom pointer color")}
                         onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
                       />
                     </label>
                   </div>
                 </Field>
               </Show>
-              <Field label="Highlight" hint="A soft yellow disc under the pointer, so viewers never lose it">
-                <Switch checked={!!c().halo} label="Highlight the pointer" onChange={(v) => ed.setCursorHalo(v)} />
+              <Field label={t("Highlight")} hint={t("A soft yellow disc under the pointer, so viewers never lose it")}>
+                <Switch checked={!!c().halo} label={t("Highlight the pointer")} onChange={(v) => ed.setCursorHalo(v)} />
               </Field>
             </>
           )}
         </Show>
         <Show when={ed.cursorStyle() && ed.pointerCaptured()}>
           <p class="note">
-            The real pointer is also in this take, so two show. Set the pointer to Smooth before recording for a
-            clean result.
+            {t("The real pointer is also in this take, so two show. Set the pointer to Smooth before recording for a clean result.")}
           </p>
         </Show>
         <Show when={!ed.cursorStyle() && !ed.pointerCaptured()}>
-          <p class="note">This take has no visible pointer. Turn on the smooth pointer to show one.</p>
+          <p class="note">{t("This take has no visible pointer. Turn on the smooth pointer to show one.")}</p>
         </Show>
       </Section>
 
@@ -1689,18 +1696,18 @@ function ClipPanel() {
         {(c) => (
           <Section
             id="clip-camera"
-            title="Camera"
+            title={t("Camera")}
             icon="camera"
             defaultOpen={false}
-            keywords="webcam face bubble corner mirror circle"
-            aside={<span class="badge">{c().visible ? "On" : "Hidden"}</span>}
+            keywords={t("webcam face bubble corner mirror circle")}
+            aside={<span class="badge">{c().visible ? t("On") : t("Hidden")}</span>}
           >
-            <Field label="Show camera" hint="Hide the bubble without losing the recording">
-              <Switch checked={c().visible} label="Show camera" onChange={(v) => ed.updateCamera({ visible: v })} />
+            <Field label={t("Show camera")} hint={t("Hide the bubble without losing the recording")}>
+              <Switch checked={c().visible} label={t("Show camera")} onChange={(v) => ed.updateCamera({ visible: v })} />
             </Field>
-            <Field label="Corner">
+            <Field label={t("Corner")}>
               <div class="corner-pick">
-                <For each={CAMERA_CORNERS}>
+                <For each={CAMERA_CORNERS()}>
                   {(k) => (
                     <button
                       type="button"
@@ -1718,37 +1725,37 @@ function ClipPanel() {
                 </For>
               </div>
             </Field>
-            <Field label="Size" stack>
+            <Field label={t("Size")} stack>
               <Slider
                 value={c().size}
                 min={0.12}
                 max={0.6}
                 step={0.01}
                 disabled={!c().visible}
-                label="Camera size"
+                label={t("Camera size")}
                 format={(v) => `${Math.round(v * 100)}%`}
                 onInput={(v) => ed.updateCamera({ size: v })}
               />
             </Field>
-            <Field label="Shape" stack>
+            <Field label={t("Shape")} stack>
               <Seg
                 full
                 value={c().shape}
                 disabled={!c().visible}
-                label="Camera shape"
+                label={t("Camera shape")}
                 onChange={(v) => ed.updateCamera({ shape: v })}
                 options={[
-                  { value: "circle", label: "Circle" },
-                  { value: "square", label: "Square" },
-                  { value: "wide", label: "Wide", tip: "A 16:9 frame" },
+                  { value: "circle", label: t("Circle") },
+                  { value: "square", label: t("Square") },
+                  { value: "wide", label: t("Wide"), tip: t("A 16:9 frame") },
                 ]}
               />
             </Field>
-            <Field label="Mirror" hint="Flip the camera the way you see yourself">
+            <Field label={t("Mirror")} hint={t("Flip the camera the way you see yourself")}>
               <Switch
                 checked={c().mirror}
                 disabled={!c().visible}
-                label="Mirror camera"
+                label={t("Mirror camera")}
                 onChange={(v) => ed.updateCamera({ mirror: v })}
               />
             </Field>
@@ -1758,23 +1765,23 @@ function ClipPanel() {
 
       <Section
         id="clip-overlays"
-        title="Overlays"
+        title={t("Overlays")}
         icon="clicks"
         defaultOpen={false}
-        keywords="clicks ripples keystrokes keys shortcuts keyboard click effect animation rings pulse burst color size speed"
+        keywords={t("clicks ripples keystrokes keys shortcuts keyboard click effect animation rings pulse burst color size speed")}
         aside={
           <Show when={ed.showClicks() || ed.showKeys()}>
-            <span class="badge">{[ed.showClicks() && "Clicks", ed.showKeys() && "Keys"].filter(Boolean).join(" · ")}</span>
+            <span class="badge">{[ed.showClicks() && t("Clicks"), ed.showKeys() && t("Keys")].filter(Boolean).join(" · ")}</span>
           </Show>
         }
       >
-        <Field label="Click effect" hint="An animation at every recorded click">
-          <Switch checked={ed.showClicks()} label="Click effect" onChange={() => ed.toggleClicks()} />
+        <Field label={t("Click effect")} hint={t("An animation at every recorded click")}>
+          <Switch checked={ed.showClicks()} label={t("Click effect")} onChange={() => ed.toggleClicks()} />
         </Field>
         <Show when={ed.showClicks()}>
-          <Field label="Animation" stack>
+          <Field label={t("Animation")} stack>
             <div class="look-cards four">
-              <For each={CLICK_EFFECTS}>
+              <For each={CLICK_EFFECTS()}>
                 {(fx) => (
                   <button
                     type="button"
@@ -1793,7 +1800,7 @@ function ClipPanel() {
               </For>
             </div>
           </Field>
-          <Field label="Click color" stack>
+          <Field label={t("Click color")} stack>
             <div class="color-row">
               <For each={CLICK_COLORS}>
                 {(hex) => (
@@ -1802,77 +1809,77 @@ function ClipPanel() {
                     class="swatch"
                     classList={{ on: pointerHex(ed.clickStyle().color) === hex }}
                     style={{ background: hex }}
-                    aria-label={`Click color ${hex}`}
+                    aria-label={t("Click color {hex}", { hex })}
                     aria-pressed={pointerHex(ed.clickStyle().color) === hex}
-                    data-tip={hex === CLICK_COLORS[0] ? "White" : hex}
+                    data-tip={hex === CLICK_COLORS[0] ? t("White") : hex}
                     onClick={() => ed.setClickColor(hex === CLICK_COLORS[0] ? null : hex)}
                   />
                 )}
               </For>
-              <label class="swatch swatch-custom" data-tip="Custom color">
+              <label class="swatch swatch-custom" data-tip={t("Custom color")}>
                 <input
                   type="color"
                   value={pointerHex(ed.clickStyle().color)}
-                  aria-label="Custom click color"
+                  aria-label={t("Custom click color")}
                   onInput={(e) => ed.setClickColor(e.currentTarget.value)}
                 />
               </label>
             </div>
           </Field>
-          <Field label="Click size" stack>
+          <Field label={t("Click size")} stack>
             <Slider
               value={ed.clickStyle().size}
               min={0.5}
               max={3}
               step={0.05}
-              label="Click effect size"
+              label={t("Click effect size")}
               format={(v) => `${v.toFixed(1)}×`}
               onInput={(v) => ed.updateClickStyle({ size: v })}
             />
           </Field>
-          <Field label="Click length" stack>
+          <Field label={t("Click length")} stack>
             <Slider
               value={ed.clickStyle().duration}
               min={0.2}
               max={1.5}
               step={0.05}
-              label="Click effect length"
+              label={t("Click effect length")}
               format={(v) => `${Math.round(v * 1000)} ms`}
               onInput={(v) => ed.updateClickStyle({ duration: v })}
             />
           </Field>
-          <Field label="Click opacity" stack>
+          <Field label={t("Click opacity")} stack>
             <Slider
               value={ed.clickStyle().opacity}
               min={0.1}
               max={1}
               step={0.05}
-              label="Click effect opacity"
+              label={t("Click effect opacity")}
               format={(v) => `${Math.round(v * 100)}%`}
               onInput={(v) => ed.updateClickStyle({ opacity: v })}
             />
           </Field>
         </Show>
-        <Field label="Keystrokes" hint="Shortcuts you pressed appear as chips. Plain typing never shows">
-          <Switch checked={ed.showKeys()} label="Keystrokes" onChange={() => ed.toggleKeys()} />
+        <Field label={t("Keystrokes")} hint={t("Shortcuts you pressed appear as chips. Plain typing never shows")}>
+          <Switch checked={ed.showKeys()} label={t("Keystrokes")} onChange={() => ed.toggleKeys()} />
         </Field>
       </Section>
 
-      <Section id="clip-info" title="Clip" icon="info" defaultOpen={false} keywords="facts details duration length aspect">
+      <Section id="clip-info" title={t("Clip")} icon="info" defaultOpen={false} keywords={t("facts details duration length aspect")}>
         <dl class="facts">
-          <dt>Recorded</dt>
+          <dt>{t("Recorded")}</dt>
           <dd>{ed.duration().toFixed(2)}s</dd>
-          <dt>Exports as</dt>
+          <dt>{t("Exports as")}</dt>
           <dd>{outDur().toFixed(2)}s</dd>
-          <dt>Aspect</dt>
+          <dt>{t("Aspect")}</dt>
           <dd>{ed.frameAspect().toFixed(3)}</dd>
-          <dt>Zooms</dt>
+          <dt>{t("Zooms")}</dt>
           <dd>{ed.zooms().length}</dd>
-          <dt>Annotations</dt>
+          <dt>{t("Annotations")}</dt>
           <dd>
             {ed.anns().texts.length + ed.anns().arrows.length + ed.anns().highlights.length + ed.anns().strokes.length}
           </dd>
-          <dt>Cuts</dt>
+          <dt>{t("Cuts")}</dt>
           <dd>{ed.cuts().length}</dd>
         </dl>
       </Section>
@@ -1892,10 +1899,10 @@ function CaptionsSection() {
   return (
     <Section
       id="clip-captions"
-      title="Captions"
+      title={t("Captions")}
       icon="captions"
       defaultOpen={false}
-      keywords="subtitles srt words speech transcribe text language"
+      keywords={t("subtitles srt words speech transcribe text language")}
       aside={
         <Show when={count() > 0}>
           <span class="badge">{count()}</span>
@@ -1908,37 +1915,36 @@ function CaptionsSection() {
           <>
             <Show when={!supported()}>
               <p class="note">
-                Making captions needs a newer processor (most PCs from 2015 on). You can still type them in with
-                Add caption.
+                {t("Making captions needs a newer processor (most PCs from 2015 on). You can still type them in with Add caption.")}
               </p>
             </Show>
             <Show when={supported() && !ed.audio.hasAudio()}>
               <p class="note">
-                This take has no sound to make captions from. You can still type them in with Add caption.
+                {t("This take has no sound to make captions from. You can still type them in with Add caption.")}
               </p>
             </Show>
             <Show when={canGenerate()}>
-              <Field label="Spoken language" stack>
+              <Field label={t("Spoken language")} stack>
                 <select
                   class="input"
-                  aria-label="Spoken language"
+                  aria-label={t("Spoken language")}
                   value={prefs.captionLanguage()}
                   onChange={(e) => prefs.captionLanguage.set(e.currentTarget.value)}
                 >
-                  <For each={CAPTION_LANGUAGES}>{(l) => <option value={l.value}>{l.label}</option>}</For>
+                  <For each={CAPTION_LANGUAGES()}>{(l) => <option value={l.value}>{l.label}</option>}</For>
                 </select>
               </Field>
               <button type="button" class="btn primary block" onClick={() => void c.generate()}>
-                <Icon name="captions" size={14} /> {count() > 0 ? "Make captions again" : "Make captions"}
+                <Icon name="captions" size={14} /> {count() > 0 ? t("Make captions again") : t("Make captions")}
               </button>
               <p class="note">
                 <Show
                   when={needsDownload()}
-                  fallback="Vuoom listens to your narration on this computer. Nothing is uploaded."
+                  fallback={t("Vuoom listens to your narration on this computer. Nothing is uploaded.")}
                 >
-                  The first time, Vuoom downloads its speech model (
-                  {Math.round((c.status()?.model_bytes ?? 0) / 1_000_000)} MB). After that, captions are made on
-                  this computer. Nothing is uploaded.
+                  {t("The first time, Vuoom downloads its speech model ({mb} MB). After that, captions are made on this computer. Nothing is uploaded.", {
+                    mb: Math.round((c.status()?.model_bytes ?? 0) / 1_000_000),
+                  })}
                 </Show>
               </p>
             </Show>
@@ -1952,38 +1958,38 @@ function CaptionsSection() {
             </div>
             <p class="note">{jobLabel(j())}</p>
             <button type="button" class="btn block" onClick={c.cancel}>
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         )}
       </Show>
 
       <Show when={count() > 0}>
-        <Field label="Show captions" hint="Hide them in the video but keep them, and the .srt file">
-          <Switch checked={style().visible} label="Show captions" onChange={(v) => c.updateStyle({ visible: v })} />
+        <Field label={t("Show captions")} hint={t("Hide them in the video but keep them, and the .srt file")}>
+          <Switch checked={style().visible} label={t("Show captions")} onChange={(v) => c.updateStyle({ visible: v })} />
         </Field>
-        <Field label="Size" stack>
+        <Field label={t("Size")} stack>
           <Slider
             value={style().size}
             min={CAPTION_MIN_SIZE}
             max={CAPTION_MAX_SIZE}
             step={0.0025}
             disabled={!style().visible}
-            label="Caption size"
-            format={(v) => (v < 0.037 ? "Small" : v < 0.055 ? "Medium" : "Large")}
+            label={t("Caption size")}
+            format={(v) => (v < 0.037 ? t("Small") : v < 0.055 ? t("Medium") : t("Large"))}
             onInput={(v) => c.updateStyle({ size: v })}
           />
         </Field>
-        <Field label="Position" stack>
+        <Field label={t("Position")} stack>
           <Seg
             full
             value={style().position}
             disabled={!style().visible}
-            label="Caption position"
+            label={t("Caption position")}
             onChange={(v) => c.updateStyle({ position: v })}
             options={[
-              { value: "bottom", label: "Bottom" },
-              { value: "top", label: "Top", tip: "Out of the way of subtitles a player adds" },
+              { value: "bottom", label: t("Bottom") },
+              { value: "top", label: t("Top"), tip: t("Out of the way of subtitles a player adds") },
             ]}
           />
         </Field>
@@ -1993,24 +1999,24 @@ function CaptionsSection() {
           type="button"
           class="btn"
           disabled={!!c.job()}
-          data-tip="Add a caption at the playhead and type it in"
+          data-tip={t("Add a caption at the playhead and type it in")}
           onClick={() => void ed.addCaptionAtPlayhead()}
         >
-          <Icon name="plus" size={14} /> Add caption
+          <Icon name="plus" size={14} /> {t("Add caption")}
         </button>
         <button
           type="button"
           class="btn"
           disabled={count() === 0}
-          data-tip="A subtitle file for YouTube and video players, timed to your export"
+          data-tip={t("A subtitle file for YouTube and video players, timed to your export")}
           onClick={() => void c.saveSrt()}
         >
-          <Icon name="download" size={14} /> Save .srt
+          <Icon name="download" size={14} /> {t("Save .srt")}
         </button>
       </div>
       <Show when={count() > 0 && !c.job()}>
         <button type="button" class="btn ghost block" onClick={() => void c.clear()}>
-          <Icon name="trash" size={14} /> Remove all captions
+          <Icon name="trash" size={14} /> {t("Remove all captions")}
         </button>
       </Show>
     </Section>

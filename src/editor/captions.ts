@@ -5,6 +5,7 @@
 import { createSignal } from "solid-js";
 import { invoke, listen, save } from "../bridge";
 import { friendlyError } from "../format";
+import { locale, t } from "../i18n";
 import { prefs } from "../prefs";
 import { createSyncSlot } from "../sync";
 import type { Caption, CaptionStyle, CaptionsProgress, CaptionsStatus } from "../types";
@@ -14,29 +15,16 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = { visible: true, size: 0.045,
 export const CAPTION_MIN_SIZE = 0.025;
 export const CAPTION_MAX_SIZE = 0.09;
 
-/** Languages offered for new captions (the speech model knows many more). */
-export const CAPTION_LANGUAGES: { value: string; label: string }[] = [
-  { value: "auto", label: "Detect automatically" },
-  { value: "en", label: "English" },
-  { value: "es", label: "Spanish" },
-  { value: "fr", label: "French" },
-  { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "pt", label: "Portuguese" },
-  { value: "nl", label: "Dutch" },
-  { value: "pl", label: "Polish" },
-  { value: "tr", label: "Turkish" },
-  { value: "ru", label: "Russian" },
-  { value: "uk", label: "Ukrainian" },
-  { value: "ar", label: "Arabic" },
-  { value: "hi", label: "Hindi" },
-  { value: "ur", label: "Urdu" },
-  { value: "id", label: "Indonesian" },
-  { value: "vi", label: "Vietnamese" },
-  { value: "zh", label: "Chinese" },
-  { value: "ja", label: "Japanese" },
-  { value: "ko", label: "Korean" },
-];
+/** Languages offered for new captions (the speech model knows many more). Named by the
+ *  platform, in the interface language. */
+const LANGUAGE_CODES = ["en", "es", "fr", "de", "it", "pt", "nl", "pl", "tr", "ru", "uk", "ar", "hi", "ur", "id", "vi", "zh", "ja", "ko"];
+export const CAPTION_LANGUAGES = (): { value: string; label: string }[] => {
+  const names = new Intl.DisplayNames([locale()], { type: "language" });
+  return [
+    { value: "auto", label: t("Detect automatically") },
+    ...LANGUAGE_CODES.map((value) => ({ value, label: names.of(value) ?? value })),
+  ];
+};
 
 /** A captions job in progress: starting up, fetching the speech model, or listening. */
 export interface CaptionsJob {
@@ -49,10 +37,10 @@ export interface CaptionsJob {
 export function jobLabel(j: CaptionsJob): string {
   if (j.step === "download") {
     const mb = (b: number) => Math.round(b / 1_000_000);
-    return `Downloading the speech model… ${mb(j.done)} of ${mb(j.total)} MB`;
+    return t("Downloading the speech model… {done} of {total} MB", { done: mb(j.done), total: mb(j.total) });
   }
-  if (j.step === "listen") return `Listening to your recording… ${Math.round(j.done)}%`;
-  return "Getting ready…";
+  if (j.step === "listen") return t("Listening to your recording… {done}%", { done: Math.round(j.done) });
+  return t("Getting ready…");
 }
 
 /** 0..1 progress of a job (0 while starting). */
@@ -97,10 +85,9 @@ export function createCaptions(opts: {
       const made = await invoke<Caption[]>("generate_captions", { language: prefs.captionLanguage() });
       setList(made);
       await edited();
-      toast(`${made.length} captions added. Click one on the timeline to fix a word.`, "success");
+      toast(t("{count} captions added. Click one on the timeline to fix a word.", { count: made.length }), "success");
     } catch (e) {
-      const msg = friendlyError(e);
-      if (!msg.includes("cancelled")) toast(msg, "error", 6000);
+      if (!String(e).includes("cancelled")) toast(friendlyError(e), "error", 6000);
     } finally {
       unlisten();
       setJob(null);
@@ -116,7 +103,7 @@ export function createCaptions(opts: {
     try {
       await fn();
     } catch (e) {
-      toast(`${what} failed: ${friendlyError(e)}`, "error");
+      toast(t("{what}: {why}", { what, why: friendlyError(e) }), "error");
     }
     await edited();
   };
@@ -125,7 +112,7 @@ export function createCaptions(opts: {
   const textSync = createSyncSlot<{ id: number; text: string }>();
   const setText = (id: number, text: string) => {
     setList(list().map((c) => (c.id === id ? { ...c, text } : c)));
-    textSync.push({ id, text }, (v) => run("Caption edit", () => invoke("set_caption_text", v)));
+    textSync.push({ id, text }, (v) => run(t("Caption edit failed"), () => invoke("set_caption_text", v)));
   };
 
   const setRange = async (id: number, start: number, end: number) => {
@@ -136,29 +123,29 @@ export function createCaptions(opts: {
         .map((c) => (c.id === id ? { ...c, range: { ...c.range, start: lo, end: hi } } : c))
         .sort((a, b) => a.range.start - b.range.start),
     );
-    await run("Caption timing", () => invoke("set_caption_range", { id, start: lo, end: hi }));
+    await run(t("Caption timing failed"), () => invoke("set_caption_range", { id, start: lo, end: hi }));
   };
 
   const remove = async (id: number) => {
     setList(list().filter((c) => c.id !== id));
-    await run("Delete caption", () => invoke("delete_caption", { id }));
+    await run(t("Delete caption failed"), () => invoke("delete_caption", { id }));
   };
 
   const clear = async () => {
     setList([]);
-    await run("Remove captions", () => invoke("clear_captions"));
+    await run(t("Remove captions failed"), () => invoke("clear_captions"));
   };
 
   /** Add an empty caption at `t` and return its id (null if it failed). */
-  const add = async (t: number, text: string): Promise<number | null> => {
+  const add = async (time: number, text: string): Promise<number | null> => {
     try {
-      const id = await invoke<number>("add_caption", { t, text });
+      const id = await invoke<number>("add_caption", { t: time, text });
       const cs = await invoke<{ captions?: Caption[] }>("clip_state");
       setList(cs.captions ?? []);
       await edited();
       return id;
     } catch (e) {
-      toast(`Could not add a caption: ${friendlyError(e)}`, "error");
+      toast(t("Could not add a caption: {why}", { why: friendlyError(e) }), "error");
       return null;
     }
   };
@@ -168,19 +155,19 @@ export function createCaptions(opts: {
   const updateStyle = (patch: Partial<CaptionStyle>) => {
     const next = { ...style(), ...patch };
     setStyle(next);
-    styleSync.push(next, (v) => run("Caption style", () => invoke("set_caption_style", { style: v })));
+    styleSync.push(next, (v) => run(t("Caption style failed"), () => invoke("set_caption_style", { style: v })));
   };
 
   /** Save the captions as an .srt subtitle file, timed to the exported video. */
   const saveSrt = async () => {
     const path = await save({
       defaultPath: "captions.srt",
-      filters: [{ name: "Subtitles", extensions: ["srt"] }],
+      filters: [{ name: t("Subtitles"), extensions: ["srt"] }],
     });
     if (!path) return;
     try {
       await invoke("export_srt", { path });
-      toast("Captions saved. Upload the .srt next to your video.", "success");
+      toast(t("Captions saved. Upload the .srt next to your video."), "success");
     } catch (e) {
       toast(friendlyError(e), "error");
     }

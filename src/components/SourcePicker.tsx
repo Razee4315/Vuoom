@@ -3,6 +3,7 @@
 import { For, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { Seg } from "../ui";
 
@@ -13,15 +14,15 @@ export default function SourcePicker() {
     <div class="modal-backdrop" onClick={close}>
       <div
         class="modal source-modal"
-        ref={(el) => dialogA11y(el, "Choose what to record", close)}
+        ref={(el) => dialogA11y(el, t("Choose what to record"), close)}
         onClick={(e) => e.stopPropagation()}
       >
         <header class="modal-head">
           <div>
-            <h2>What should Vuoom record?</h2>
-            <p class="muted small">Pick a display to frame a region on it, or one app window.</p>
+            <h2>{t("What should Vuoom record?")}</h2>
+            <p class="muted small">{t("Pick a display to frame a region on it, or one app window.")}</p>
           </div>
-          <button type="button" class="ibtn" aria-label="Close" onClick={close}>
+          <button type="button" class="ibtn" aria-label={t("Close")} onClick={close}>
             <Icon name="close" size={14} />
           </button>
         </header>
@@ -35,7 +36,7 @@ export default function SourcePicker() {
                 value: "display",
                 label: (
                   <>
-                    <Icon name="monitor" size={14} /> Displays
+                    <Icon name="monitor" size={14} /> {t("Displays")}
                   </>
                 ),
               },
@@ -43,7 +44,7 @@ export default function SourcePicker() {
                 value: "window",
                 label: (
                   <>
-                    <Icon name="window" size={14} /> Windows
+                    <Icon name="window" size={14} /> {t("Windows")}
                   </>
                 ),
               },
@@ -56,7 +57,7 @@ export default function SourcePicker() {
             fallback={
               <For
                 each={ed.sources().windows}
-                fallback={<p class="note">No windows available to capture.</p>}
+                fallback={<p class="note">{t("No windows available to capture.")}</p>}
               >
                 {(w) => (
                   <button
@@ -70,7 +71,7 @@ export default function SourcePicker() {
                       <Icon name="window" size={18} />
                     </span>
                     <span class="source-meta">
-                      <strong>{w.title || "Untitled window"}</strong>
+                      <strong>{w.title || t("Untitled window")}</strong>
                       <small>
                         {w.w} × {w.h}
                       </small>
@@ -87,7 +88,7 @@ export default function SourcePicker() {
                   type="button"
                   class="source-item"
                   onClick={() =>
-                    void ed.beginRecordWith({ kind: "display", name: d.name, label: `Display ${d.index}` })
+                    void ed.beginRecordWith({ kind: "display", name: d.name, label: t("Display {index}", { index: d.index }) })
                   }
                 >
                   <span class="source-icon">
@@ -95,9 +96,9 @@ export default function SourcePicker() {
                   </span>
                   <span class="source-meta">
                     <strong>
-                      Display {d.index}
+                      {t("Display {index}", { index: d.index })}
                       <Show when={d.primary}>
-                        <span class="badge">Primary</span>
+                        <span class="badge">{t("Primary")}</span>
                       </Show>
                     </strong>
                     <small>

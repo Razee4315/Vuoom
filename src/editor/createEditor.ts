@@ -6,6 +6,7 @@
 // DOM refs are now registered through the `refs` setters at the bottom.
 import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "solid-js";
 import { invoke, isMock, open, openUrl, ask, check, markCleanExit, relaunch, type Update } from "../bridge";
+import { locale, t } from "../i18n";
 import { pickSavePath } from "../saveDir";
 import { applyTheme, initialTheme } from "../themes";
 import { createPreviewClient } from "../preview";
@@ -59,11 +60,11 @@ import type {
 
 /** A box's name, after the tool that makes it: Hide, Highlight (a see-through fill) or Shape. */
 function boxLabel(b: BoxAnn): string {
-  if (b.shape === "Mask") return "Hidden area";
-  if (b.shape === "Spotlight") return "Spotlight";
-  if (b.shape === "Ellipse") return "Ellipse";
-  if (b.filled && (b.color.a ?? 1) < 0.6) return "Highlight";
-  return "Box";
+  if (b.shape === "Mask") return t("Hidden area");
+  if (b.shape === "Spotlight") return t("Spotlight");
+  if (b.shape === "Ellipse") return t("Ellipse");
+  if (b.filled && (b.color.a ?? 1) < 0.6) return t("Highlight");
+  return t("Box");
 }
 
 /** Any one annotation. */
@@ -103,15 +104,15 @@ export function createEditor() {
     setTool(t);
     setToolLock(true);
   };
-  const [status, setStatus] = createSignal("Ready");
+  const [status, setStatus] = createSignal(t("Ready"));
   /** Report a failed action where the user will see it: a toast, and the status line for
    *  as long as nothing replaces it. `what` says what failed ("Save failed"). */
   const fail = (what: string, e: unknown, ttl?: number) => {
-    const text = `${what}: ${friendlyError(e)}`;
+    const text = t("{what}: {why}", { what, why: friendlyError(e) });
     setStatus(text);
     toast(text, "error", ttl);
   };
-  const [projectName, setProjectName] = createSignal("Untitled");
+  const [projectName, setProjectName] = createSignal(t("Untitled"));
   // The .vuoom folder the loaded clip was opened from or last saved to: where Save writes.
   // `null` for a take that has never been saved.
   const [projectDir, setProjectDir] = createSignal<string | null>(null);
@@ -138,7 +139,7 @@ export function createEditor() {
    *  Resolves true when there is nothing to lose or the user chose to go on. */
   const confirmDiscard = async (message: string, okLabel: string): Promise<boolean> => {
     if (!hasClip() || !dirty() || editVersion === exportedVersion) return true;
-    return ask(message, { title: "Discard edits?", kind: "warning", okLabel, cancelLabel: "Cancel" });
+    return ask(message, { title: t("Discard edits?"), kind: "warning", okLabel, cancelLabel: t("Cancel") });
   };
   const [duration, setDuration] = createSignal(0);
   const [playhead, setPlayhead] = createSignal(0);
@@ -370,46 +371,46 @@ export function createEditor() {
   // Open a project folder. A failed open leaves the current clip as it was; a folder that
   // is gone (moved or deleted) can be dropped from the recents grid.
   const openProjectAt = async (dir: string) => {
-    setStatus("Opening project…");
-    setBusy("Opening project…");
+    setStatus(t("Opening project…"));
+    setBusy(t("Opening project…"));
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
-      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || t("Untitled"));
       await loadFinishedClip(summary);
       setProjectDir(dir);
       rememberRecent(dir);
       if (summary.warning) {
-        setStatus(`Project opened. ${summary.warning}`);
-        toast(`Project opened. ${summary.warning}`, "error", 9000);
+        setStatus(t("Project opened. {warning}", { warning: friendlyError(summary.warning) }));
+        toast(t("Project opened. {warning}", { warning: friendlyError(summary.warning) }), "error", 9000);
       } else {
-        setStatus("Project opened");
-        toast("Project opened", "success");
+        setStatus(t("Project opened"));
+        toast(t("Project opened"), "success");
       }
     } catch (e) {
       setBusy(null);
-      fail("Could not open project", e, 9000);
+      fail(t("Could not open project"), e, 9000);
       if (!String(e).includes("no longer exists") || !recents().some((r) => r.dir === dir)) return;
       const remove = await ask(
-        "This project folder is gone. It may have been moved or deleted. Remove it from the recents list?",
-        { title: "Project unavailable", kind: "warning", okLabel: "Remove", cancelLabel: "Keep" },
+        t("This project folder is gone. It may have been moved or deleted. Remove it from the recents list?"),
+        { title: t("Project unavailable"), kind: "warning", okLabel: t("Remove"), cancelLabel: t("Keep") },
       );
       if (remove) removeRecent(dir);
     } finally {
       setBusy(null);
     }
   };
-  const OPEN_DISCARD = "Open another project? Unsaved edits to the current clip will be discarded.";
+  const openDiscard = () => t("Open another project? Unsaved edits to the current clip will be discarded.");
   const openRecent = async (dir: string) => {
-    if (await confirmDiscard(OPEN_DISCARD, "Discard & open")) await openProjectAt(dir);
+    if (await confirmDiscard(openDiscard(), t("Discard & open"))) await openProjectAt(dir);
   };
   const fmtAgo = (ts: number) => {
     const mins = Math.round((Date.now() - ts) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
+    if (mins < 1) return t("just now");
+    if (mins < 60) return t("{mins} min ago", { mins });
     const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs} hr ago`;
+    if (hrs < 24) return t("{hrs} hr ago", { hrs });
     const days = Math.round(hrs / 24);
-    return days === 1 ? "yesterday" : `${days} days ago`;
+    return days === 1 ? "yesterday" : t("{days} days ago", { days });
   };
 
   // ── timeline hover affordances ───────────────────────────────────────────────
@@ -607,7 +608,7 @@ export function createEditor() {
       try {
         const conn = await invoke<{ port: number; token: string }>("preview_port");
         preview.connect(conn.port, conn.token);
-        setStatus("Ready. Press Record to start.");
+        setStatus(t("Ready. Press Record to start."));
         hideSplash();
         void maybeShowWelcome();
         // One-shot health probe: a failed GPU compositor still "boots", but preview and
@@ -623,8 +624,8 @@ export function createEditor() {
         invoke<boolean>("last_run_cut_short")
           .then((cut) => {
             if (!cut) return;
-            toast("Vuoom didn't close normally last time. A report helps get it fixed.", "error", 15000, {
-              label: "Copy report",
+            toast(t("Vuoom didn't close normally last time. A report helps get it fixed."), "error", 15000, {
+              label: t("Copy report"),
               run: () => void copyDiagnostics(),
             });
           })
@@ -633,14 +634,14 @@ export function createEditor() {
       } catch (e) {
         const msg = String(e);
         if (!msg.includes("engine-starting")) {
-          setStatus(`Engine error: ${msg}`);
+          setStatus(t("Engine error: {why}", { why: friendlyError(msg) }));
           hideSplash();
           return;
         }
         await new Promise((r) => setTimeout(r, 150));
       }
     }
-    setStatus("The engine did not start. Try restarting Vuoom.");
+    setStatus(t("The engine did not start. Try restarting Vuoom."));
     hideSplash();
   };
 
@@ -652,19 +653,19 @@ export function createEditor() {
     try {
       const text = await invoke<string>("diagnostics");
       await navigator.clipboard.writeText(text);
-      toast("Report copied. Paste it into a bug report.", "success", 8000, {
-        label: "New bug report",
+      toast(t("Report copied. Paste it into a bug report."), "success", 8000, {
+        label: t("New bug report"),
         run: () => void openUrl(BUG_REPORT_URL),
       });
     } catch (e) {
-      toast(`Couldn't make the report: ${friendlyError(e)}`, "error");
+      toast(t("Couldn't make the report: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const openLogsFolder = async () => {
     try {
       await invoke("open_folder", { dir: await invoke<string>("log_folder") });
     } catch (e) {
-      toast(`Couldn't open the logs folder: ${friendlyError(e)}`, "error");
+      toast(t("Couldn't open the logs folder: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -680,13 +681,13 @@ export function createEditor() {
       const u = await check();
       if (u) {
         setUpdate(u);
-        if (manual) setUpdateNote({ text: `Version ${u.version} is ready to install.` });
+        if (manual) setUpdateNote({ text: t("Version {version} is ready to install.", { version: u.version }) });
       } else if (manual) {
-        setUpdateNote({ text: "You have the latest version." });
+        setUpdateNote({ text: t("You have the latest version.") });
       }
     } catch (e) {
       // Offline, GitHub unreachable, or the updater isn't configured (dev builds).
-      if (manual) setUpdateNote({ text: `Could not check for updates: ${friendlyError(e)}`, error: true });
+      if (manual) setUpdateNote({ text: t("Could not check for updates: {why}", { why: friendlyError(e) }), error: true });
     } finally {
       setCheckingUpdate(false);
     }
@@ -695,7 +696,7 @@ export function createEditor() {
     const u = update();
     if (!u || updating()) return;
     setUpdating(true);
-    setStatus(`Downloading update v${u.version}…`);
+    setStatus(t("Downloading update v{version}…", { version: u.version }));
     try {
       let total = 0;
       let got = 0;
@@ -706,11 +707,11 @@ export function createEditor() {
           got += ev.data.chunkLength;
           setStatus(
             total > 0
-              ? `Downloading update… ${Math.round((got / total) * 100)}%`
-              : "Downloading update…",
+              ? t("Downloading update… {percent}%", { percent: Math.round((got / total) * 100) })
+              : t("Downloading update…"),
           );
         } else if (ev.event === "Finished") {
-          setStatus("Update downloaded. Restarting…");
+          setStatus(t("Update downloaded. Restarting…"));
           // On Windows the installer ends this process itself, before relaunch() below
           // gets its turn: mark the exit as intended now.
           void markCleanExit();
@@ -719,7 +720,7 @@ export function createEditor() {
       await relaunch();
     } catch (e) {
       setUpdating(false);
-      fail("Update failed", e);
+      fail(t("Update failed"), e);
     }
   };
 
@@ -986,7 +987,7 @@ export function createEditor() {
       await pushSeek(playhead());
     } catch (e) {
       await refresh();
-      toast(`Move failed: ${friendlyError(e)}`, "error");
+      toast(t("Move failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -1177,7 +1178,7 @@ export function createEditor() {
             await cmd();
           } catch (e) {
             await refresh(); // engine truth undoes the optimistic patch
-            toast(`Edit failed: ${friendlyError(e)}`, "error");
+            toast(t("Edit failed: {why}", { why: friendlyError(e) }), "error");
           }
         }
         await pushSeek(playhead());
@@ -1380,9 +1381,9 @@ export function createEditor() {
     const presses = pressCount(e);
     try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic/inactive pointer: drag still tracks via bubbling */ }
     const p = norm(e);
-    const t = tool();
+    const activeTool = tool();
 
-    if (t === "text") {
+    if (activeTool === "text") {
       // Optimistic creation: the label appears, is selected, and its inline editor opens
       // THIS frame under a negative temp id. The engine call runs in the background and
       // the temp id is remapped to the real one when it resolves. Any action that needs
@@ -1392,7 +1393,7 @@ export function createEditor() {
       const cur = anns();
       const temp: TextAnn = {
         id: tempId,
-        text: "Text",
+        text: t("Text"),
         pos: [p.x, p.y],
         font_size: 0.05,
         color: { r: 255, g: 255, b: 255, a: 1 },
@@ -1434,8 +1435,8 @@ export function createEditor() {
         const realId = await invoke<number>("add_text", { text: "Text", x: p.x, y: p.y, t: t0 });
         resolvedId = realId;
         const cs = anns();
-        const t = cs.texts.find((x) => x.id === tempId);
-        if (t) t.id = realId;
+        const activeTool = cs.texts.find((x) => x.id === tempId);
+        if (activeTool) activeTool.id = realId;
         // One update, so the open inline editor never sees its label missing and closes.
         batch(() => {
           setAnns({ ...cs, texts: [...cs.texts] });
@@ -1458,15 +1459,15 @@ export function createEditor() {
           setAnns({ ...cs, texts: cs.texts.filter((x) => x.id !== tempId) });
           if (selected()?.id === tempId) setSelected(null);
           if (editingText() === tempId) setEditingText(null);
-          toast(`Could not add text: ${friendlyError(e)}`, "error");
+          toast(t("Could not add text: {why}", { why: friendlyError(e) }), "error");
         });
       return;
     }
-    if (t === "arrow") {
+    if (activeTool === "arrow") {
       setDrag({ mode: "create-arrow", start: p, cur: p });
       return;
     }
-    if (t === "step") {
+    if (activeTool === "step") {
       void (async () => {
         try {
           const id = await invoke<number>("add_step", { x: p.x, y: p.y, t: playhead() });
@@ -1475,32 +1476,32 @@ export function createEditor() {
           setSelected({ kind: "text", id });
           if (!toolLock()) setTool("select");
         } catch (err) {
-          fail("Could not add the step", err);
+          fail(t("Could not add the step"), err);
         }
       })();
       return;
     }
-    if (t === "pen") {
+    if (activeTool === "pen") {
       setDrag({ mode: "create-stroke", pts: [p], marker: penLook().marker });
       return;
     }
-    if (t === "zoom") {
+    if (activeTool === "zoom") {
       setDrag({ mode: "create-zoom", start: p, cur: p });
       return;
     }
-    if (t === "shape") {
+    if (activeTool === "shape") {
       setDrag({ mode: shapeEllipse() ? "create-ellipse" : "create-box", start: p, cur: p });
       return;
     }
-    if (t === "highlight") {
+    if (activeTool === "highlight") {
       setDrag({ mode: "create-highlight", start: p, cur: p });
       return;
     }
-    if (t === "mask") {
+    if (activeTool === "mask") {
       setDrag({ mode: "create-mask", start: p, cur: p });
       return;
     }
-    if (t === "spotlight") {
+    if (activeTool === "spotlight") {
       setDrag({ mode: "create-spotlight", start: p, cur: p });
       return;
     }
@@ -1727,7 +1728,7 @@ export function createEditor() {
           setSelected({ kind: "arrow", id });
           if (!toolLock()) setTool("select");
         } catch (err) {
-          fail("Could not add the arrow", err);
+          fail(t("Could not add the arrow"), err);
         }
       }
     } else if (
@@ -1761,7 +1762,7 @@ export function createEditor() {
           setSelected({ kind: "box", id });
           if (!toolLock()) setTool("select");
         } catch (err) {
-          fail("Could not add the shape", err);
+          fail(t("Could not add the shape"), err);
         }
       }
     } else if (d.mode === "create-stroke") {
@@ -1786,7 +1787,7 @@ export function createEditor() {
         if (tool() === "pen") setSelected(null);
         else setSelected({ kind: "stroke", id });
       } catch (err) {
-        fail("Could not draw", err);
+        fail(t("Could not draw"), err);
       }
     } else if (d.mode === "scale-text") {
       const f = d.cur;
@@ -1794,7 +1795,7 @@ export function createEditor() {
       try {
         await invoke("update_text", { id: d.id, fontSize: f });
       } catch (err) {
-        fail("Resize failed", err);
+        fail(t("Resize failed"), err);
       }
       await refresh();
       await pushSeek(playhead());
@@ -1809,7 +1810,7 @@ export function createEditor() {
           for (const m of d.group) await applyGeom(m.kind, m.id, m.geom);
         }
       } catch (err) {
-        fail(d.mode === "move" ? "Move failed" : "Resize failed", err);
+        fail(d.mode === "move" ? t("Move failed") : t("Resize failed"), err);
       }
       await refresh();
       setDrag(null);
@@ -1852,7 +1853,7 @@ export function createEditor() {
         await refresh();
       } catch (e) {
         await refresh();
-        toast(`Could not restyle: ${friendlyError(e)}`, "error");
+        toast(t("Could not restyle: {why}", { why: friendlyError(e) }), "error");
       }
     })();
   };
@@ -1903,7 +1904,7 @@ export function createEditor() {
         await pushSeek(playhead());
       } catch (e) {
         await refresh();
-        toast(`Shape failed: ${friendlyError(e)}`, "error");
+        toast(t("Shape failed: {why}", { why: friendlyError(e) }), "error");
       }
     })();
   };
@@ -1922,7 +1923,7 @@ export function createEditor() {
         await pushSeek(playhead());
       } catch (e) {
         await refresh();
-        toast(`Could not change it: ${friendlyError(e)}`, "error");
+        toast(t("Could not change it: {why}", { why: friendlyError(e) }), "error");
       }
     })();
   };
@@ -1940,7 +1941,7 @@ export function createEditor() {
         await pushSeek(playhead());
       } catch (e) {
         await refresh();
-        toast(`Style failed: ${friendlyError(e)}`, "error");
+        toast(t("Style failed: {why}", { why: friendlyError(e) }), "error");
       }
     })();
   };
@@ -1967,14 +1968,14 @@ export function createEditor() {
     const s = selected()!;
     if (s.kind === "box") {
       const b = selectedBox();
-      return b ? boxLabel(b) : "Box";
+      return b ? boxLabel(b) : t("Box");
     }
-    if (s.kind === "arrow") return selectedArrow()?.style === "Line" ? "Line" : "Arrow";
+    if (s.kind === "arrow") return selectedArrow()?.style === "Line" ? t("Line") : t("Arrow");
     if (s.kind === "stroke") {
       const st = selectedStroke();
-      return st && isMarker(st) ? "Marker" : "Pen";
+      return st && isMarker(st) ? t("Marker") : t("Pen");
     }
-    return s.kind[0].toUpperCase() + s.kind.slice(1);
+    return t("Text");
   };
   const selectedColor = (): Color | undefined => {
     const s = selected();
@@ -2106,7 +2107,7 @@ export function createEditor() {
         for (const it of resolved) await invoke("delete_annotation", { id: it.id, tag });
       }
     } catch (e) {
-      fail("Delete failed", e);
+      fail(t("Delete failed"), e);
     }
     setSelected(null);
     await refresh();
@@ -2128,26 +2129,26 @@ export function createEditor() {
     if (!hasClip()) return;
     try {
       if (!(await invoke<boolean>("undo"))) {
-        setStatus("Nothing to undo");
+        setStatus(t("Nothing to undo"));
         return;
       }
       await refreshAll();
-      setStatus("Undone");
+      setStatus(t("Undone"));
     } catch (e) {
-      fail("Undo failed", e);
+      fail(t("Undo failed"), e);
     }
   };
   const doRedo = async () => {
     if (!hasClip()) return;
     try {
       if (!(await invoke<boolean>("redo"))) {
-        setStatus("Nothing to redo");
+        setStatus(t("Nothing to redo"));
         return;
       }
       await refreshAll();
-      setStatus("Redone");
+      setStatus(t("Redone"));
     } catch (e) {
-      fail("Redo failed", e);
+      fail(t("Redo failed"), e);
     }
   };
 
@@ -2162,9 +2163,9 @@ export function createEditor() {
       await pushSeek(playhead());
       clearExtra();
       setSelected({ kind: s.kind, id });
-      setStatus("Duplicated. Drag the copy into place.");
+      setStatus(t("Duplicated. Drag the copy into place."));
     } catch (e) {
-      fail("Duplicate failed", e);
+      fail(t("Duplicate failed"), e);
     }
   };
 
@@ -2180,14 +2181,14 @@ export function createEditor() {
       await pushSeek(playhead());
       setStatus(
         {
-          forward: "Brought forward",
-          backward: "Sent backward",
-          front: "Brought to front",
-          back: "Sent to back",
+          forward: t("Brought forward"),
+          backward: t("Sent backward"),
+          front: t("Brought to front"),
+          back: t("Sent to back"),
         }[dir],
       );
     } catch (e) {
-      fail("Reorder failed", e);
+      fail(t("Reorder failed"), e);
     }
   };
 
@@ -2224,7 +2225,7 @@ export function createEditor() {
     }
     if (items.length === 0) return false;
     setClipboard(items);
-    setStatus(`Copied ${items.length} annotation${items.length > 1 ? "s" : ""}`);
+    setStatus(items.length > 1 ? t("Copied {n} annotations", { n: items.length }) : t("Copied 1 annotation"));
     return true;
   };
   // Paste the clipboard at the playhead. The backend re-anchors the set so its earliest item
@@ -2250,9 +2251,9 @@ export function createEditor() {
         for (let i = 1; i < refs.length; i++) extras.add(selKey(refs[i].kind, refs[i].id));
         setSelExtra(extras);
       }
-      setStatus(`Pasted ${refs.length} annotation${refs.length > 1 ? "s" : ""}`);
+      setStatus(refs.length > 1 ? t("Pasted {n} annotations", { n: refs.length }) : t("Pasted 1 annotation"));
     } catch (e) {
-      fail("Paste failed", e);
+      fail(t("Paste failed"), e);
     }
   };
 
@@ -2342,8 +2343,8 @@ export function createEditor() {
     const ok =
       add ||
       (await confirmDiscard(
-        "Start new recording? Unsaved edits to the current clip will be discarded.",
-        "Discard & record",
+        t("Start new recording? Unsaved edits to the current clip will be discarded."),
+        t("Discard & record"),
       ));
     if (!ok) return;
     // Recording keeps the take before this one; the one before that loses its video now.
@@ -2351,12 +2352,12 @@ export function createEditor() {
     const atRisk = add ? null : await invoke<number | null>("take_at_risk").catch(() => null);
     if (typeof atRisk === "number") {
       const go = await ask(
-        `An earlier take (${fmt(atRisk)} long) was never saved or exported. Starting a new recording deletes its video for good.`,
-        { title: "Delete the earlier take?", kind: "warning", okLabel: "Record anyway", cancelLabel: "Keep it" },
+        t("An earlier take ({length} long) was never saved or exported. Starting a new recording deletes its video for good.", { length: fmt(atRisk) }),
+        { title: t("Delete the earlier take?"), kind: "warning", okLabel: t("Record anyway"), cancelLabel: t("Keep it") },
       );
       if (!go) {
         void refreshRecoverable();
-        toast("Bring it back with File > Recover last session, then save or export it.", "info", 9000);
+        toast(t("Bring it back with File > Recover last session, then save or export it."), "info", 9000);
         return;
       }
     }
@@ -2368,7 +2369,7 @@ export function createEditor() {
       displays = await invoke<DisplayInfo[]>("list_displays");
     } catch (e) {
       // No display enumeration (older backend): fall straight through to the editor's monitor.
-      setStatus(`Falling back to the editor's display: ${String(e)}`);
+      setStatus(t("Falling back to the editor's display: {why}", { why: friendlyError(e) }));
     }
     let windows: WindowInfo[] = [];
     if (mode === "window" || displays.length > 1) {
@@ -2396,12 +2397,12 @@ export function createEditor() {
         : [];
       if (home && onHome.length > 0) {
         setWindowPick({ windows: onHome, origin: { x: home.x, y: home.y } });
-        await beginRecordWith({ kind: "display", name: home.name, label: `Display ${home.index}` });
+        await beginRecordWith({ kind: "display", name: home.name, label: t("Display {index}", { index: home.index }) });
         return;
       }
     }
     if (mode !== "window" && displays.length <= 1) {
-      await beginRecordWith({ kind: "display", name: displays[0]?.name ?? "", label: "Display 1" });
+      await beginRecordWith({ kind: "display", name: displays[0]?.name ?? "", label: t("Display 1") });
       return;
     }
     setSourceTab(mode === "window" && windows.length > 0 ? "window" : "display");
@@ -2429,7 +2430,7 @@ export function createEditor() {
   };
   const cancelWindowPick = async () => {
     await leaveWindowPick();
-    setStatus("Recording cancelled");
+    setStatus(t("Recording cancelled"));
   };
 
   const beginRecordWith = async (target: RecordTarget) => {
@@ -2445,7 +2446,7 @@ export function createEditor() {
     pushCameraChoice();
     pushTakeDefaults();
     try {
-      setStatus("Choose the area to record…");
+      setStatus(t("Choose the area to record…"));
       setBackdrop(null);
       setRecordPhase("active"); // overlay shows immediately (dark + presets)
       // enter_overlay hides the editor, grabs the target as the selector backdrop, then
@@ -2459,7 +2460,7 @@ export function createEditor() {
     } catch (e) {
       setRecordPhase("idle");
       setWindowPick(null);
-      fail("Could not start", e);
+      fail(t("Could not start"), e);
     }
   };
 
@@ -2484,12 +2485,13 @@ export function createEditor() {
     const n = summary.zooms;
     if (summary.auto_zooms && n > 0) {
       // Auto zoom planned these from the clicks: say so, and make them one click to drop.
-      toast(`Added ${n} zoom${n === 1 ? "" : "s"} where you clicked`, "success", 8000, {
-        label: "Remove",
+      toast(n === 1 ? t("Added 1 zoom where you clicked") : t("Added {n} zooms where you clicked", { n }), "success", 8000, {
+        label: t("Remove"),
         run: () => void clearZooms(),
       });
     } else {
-      toast(`Recording loaded: ${summary.duration.toFixed(1)}s, ${n} zoom${n === 1 ? "" : "s"}`, "success");
+      const seconds = summary.duration.toFixed(1);
+      toast(n === 1 ? t("Recording loaded: {seconds}s, 1 zoom", { seconds }) : t("Recording loaded: {seconds}s, {n} zooms", { seconds, n }), "success");
     }
   };
   /** Record another take onto the end of this clip, at the same size. */
@@ -2499,14 +2501,14 @@ export function createEditor() {
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
-    setStatus("Recording cancelled");
+    setStatus(t("Recording cancelled"));
   };
   const onRecordFailed = (message: string) => {
     void invoke("set_append_take", { on: false }).catch(() => undefined);
     setRecordPhase("idle");
     setBackdrop(null);
     setRecordTarget(null);
-    fail("Recording failed", message, 9000);
+    fail(t("Recording failed"), message, 9000);
   };
 
   // ── timeline filmstrip ────────────────────────────────────────────────────────────
@@ -2542,7 +2544,7 @@ export function createEditor() {
     setSelCut(null);
     setStatus(
       summary.warning ??
-        `Recorded ${summary.duration.toFixed(1)}s · ${summary.zooms} zooms`,
+        t("Recorded {duration}s · {zooms} zooms", { duration: summary.duration.toFixed(1), zooms: summary.zooms }),
     );
     await refresh();
     await refreshClip();
@@ -2559,11 +2561,11 @@ export function createEditor() {
     const i = selZoom();
     return i === null ? undefined : zooms()[i];
   };
-  const addZoomAt = async (t: number = playhead()) => {
+  const addZoomAt = async (time: number = playhead()) => {
     if (!hasClip()) return;
     // Optimistic: the block appears and is selected THIS frame; the engine call follows
     // and its result replaces the local insert. On failure the insert is rolled back.
-    const start = Math.max(0, Math.min(t, duration() - 0.5));
+    const start = Math.max(0, Math.min(time, duration() - 0.5));
     const end = Math.min(duration(), start + 1.6);
     const inserted: ZoomSeg = { start, end, amount: zoomAmount(), mode: "Auto", style: "Smooth" };
     const local = [...zooms(), inserted].sort((a, b) => a.start - b.start);
@@ -2574,45 +2576,45 @@ export function createEditor() {
     setSelSpeed(null);
     setSelCut(null);
     setSelZoom(localIdx >= 0 ? localIdx : null);
-    setStatus("Zoom added. Drag its edges to retime.");
+    setStatus(t("Zoom added. Drag its edges to retime."));
     try {
       if (!localStorage.getItem("vuoom-hint-zoom-undo")) {
         localStorage.setItem("vuoom-hint-zoom-undo", "1");
-        toast("Zoom added. Ctrl+Z undoes it.", "info");
+        toast(t("Zoom added. Ctrl+Z undoes it."), "info");
       }
     } catch {
       /* hint is best-effort */
     }
     try {
-      const list = await invoke<ZoomSeg[]>("add_zoom", { t });
+      const list = await invoke<ZoomSeg[]>("add_zoom", { t: time });
       setZooms(list);
-      const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
+      const idx = list.findIndex((z) => time >= z.start - 1e-6 && time <= z.end + 1e-6);
       setSelZoom(idx >= 0 ? idx : null);
       await pushSeek(playhead());
     } catch (e) {
       setZooms(zooms().filter((z) => z !== inserted));
       setSelZoom(null);
-      toast(`Could not add zoom: ${friendlyError(e)}`, "error");
+      toast(t("Could not add zoom: {why}", { why: friendlyError(e) }), "error");
     }
   };
   /** The zoom tool: a zoom at the playhead, aimed and sized by what the user framed. One
    *  undo step. */
   const addZoomAimed = async (f: { x: number; y: number; amount: number }) => {
     if (!hasClip()) return;
-    const t = playhead();
+    const time = playhead();
     try {
-      const list = await invoke<ZoomSeg[]>("add_zoom_aimed", { t, x: f.x, y: f.y, amount: f.amount });
+      const list = await invoke<ZoomSeg[]>("add_zoom_aimed", { t: time, x: f.x, y: f.y, amount: f.amount });
       setZooms(list);
       setDirty(true);
       setSelected(null);
       setSelSpeed(null);
       setSelCut(null);
-      const idx = list.findIndex((z) => t >= z.start - 1e-6 && t <= z.end + 1e-6);
+      const idx = list.findIndex((z) => time >= z.start - 1e-6 && time <= z.end + 1e-6);
       setSelZoom(idx >= 0 ? idx : null);
-      setStatus(`Zoom ${f.amount.toFixed(1)}× added. Drag its ends on the timeline to retime it.`);
-      await pushSeek(t);
+      setStatus(t("Zoom {amount}× added. Drag its ends on the timeline to retime it.", { amount: f.amount.toFixed(1) }));
+      await pushSeek(time);
     } catch (e) {
-      toast(`Could not add zoom: ${friendlyError(e)}`, "error");
+      toast(t("Could not add zoom: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const applyZoomEdit = async (index: number, start: number, end: number, amount: number) => {
@@ -2626,7 +2628,7 @@ export function createEditor() {
       await pushSeek(playhead());
     } catch (e) {
       await refreshClip(); // the drag already moved the local block; restore engine truth
-      toast(`Zoom edit failed: ${friendlyError(e)}`, "error");
+      toast(t("Zoom edit failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const deleteSelectedZoom = async () => {
@@ -2638,7 +2640,7 @@ export function createEditor() {
       setSelZoom(null);
       await pushSeek(playhead());
     } catch (e) {
-      fail("Zoom delete failed", e);
+      fail(t("Zoom delete failed"), e);
     }
   };
 
@@ -2656,9 +2658,9 @@ export function createEditor() {
       setZooms(await invoke<ZoomSeg[]>("set_zoom_focus", args));
       setDirty(true);
       await pushSeek(playhead());
-      setStatus(focus ? "Zoom aimed at the crosshair" : "Zoom follows the pointer");
+      setStatus(focus ? t("Zoom aimed at the crosshair") : t("Zoom follows the pointer"));
     } catch (e) {
-      fail("Zoom focus failed", e);
+      fail(t("Zoom focus failed"), e);
     }
   };
   // ── zoom easing/feel preset ──────────────────────────────────────────────────────
@@ -2670,7 +2672,7 @@ export function createEditor() {
       setDirty(true);
       await pushSeek(playhead());
     } catch (e) {
-      fail("Zoom feel failed", e);
+      fail(t("Zoom feel failed"), e);
     }
   };
   // Crosshair dragging on the canvas.
@@ -2705,22 +2707,24 @@ export function createEditor() {
       try {
         if (val.clear) {
           await invoke("clear_speed");
-          if (!superseded()) setStatus("Idle stretches back to normal speed");
+          if (!superseded()) setStatus(t("Idle stretches back to normal speed"));
         } else {
           const regions = await invoke<SpeedRegion[]>("auto_speed", { factor: val.factor });
           setSpeed(regions);
           if (!superseded()) {
             setStatus(
               regions.length > 0
-                ? `${regions.length} idle ${regions.length === 1 ? "stretch" : "stretches"} will play at ${val.factor}×`
-                : "No idle stretches longer than ~2.5s found",
+                ? regions.length === 1
+                  ? t("1 idle stretch will play at {factor}×", { factor: val.factor })
+                  : t("{n} idle stretches will play at {factor}×", { n: regions.length, factor: val.factor })
+                : t("No idle stretches longer than ~2.5s found"),
             );
           }
         }
       } catch (e) {
         if (!superseded()) {
           setSpeed(val.prev);
-          toast(`Skim idle failed: ${friendlyError(e)}`, "error");
+          toast(t("Skim idle failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -2737,9 +2741,9 @@ export function createEditor() {
       setCrop(cs.crop);
       setDirty(true);
       await pushSeek(playhead());
-      setStatus(c ? "Crop applied. Annotations kept their on-screen placement." : "Crop reset to full frame.");
+      setStatus(c ? t("Crop applied. Annotations kept their on-screen placement.") : t("Crop reset to full frame."));
     } catch (e) {
-      fail("Crop failed", e);
+      fail(t("Crop failed"), e);
     }
   };
 
@@ -2800,13 +2804,15 @@ export function createEditor() {
       setSelZoom(null);
       setStatus(
         list.length > 0
-          ? `Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"} at ${zoomStrength()}×. Ctrl+Z restores your manual zooms.`
-          : "No click activity found to plan zooms from",
+          ? list.length === 1
+            ? t("Auto-planned 1 zoom at {strength}×. Ctrl+Z restores your manual zooms.", { strength: zoomStrength() })
+            : t("Auto-planned {n} zooms at {strength}×. Ctrl+Z restores your manual zooms.", { n: list.length, strength: zoomStrength() })
+          : t("No click activity found to plan zooms from"),
       );
-      toast(`Auto-planned ${list.length} zoom${list.length === 1 ? "" : "s"}`, "success");
+      toast(list.length === 1 ? t("Auto-planned 1 zoom") : t("Auto-planned {n} zooms", { n: list.length }), "success");
       await pushSeek(playhead());
     } catch (e) {
-      fail("Auto zoom failed", e);
+      fail(t("Auto zoom failed"), e);
     }
   };
 
@@ -2817,10 +2823,10 @@ export function createEditor() {
       setZooms(await invoke<ZoomSeg[]>("clear_zooms"));
       setDirty(true);
       setSelZoom(null);
-      setStatus("Zooms removed. Ctrl+Z brings them back.");
+      setStatus(t("Zooms removed. Ctrl+Z brings them back."));
       await pushSeek(playhead());
     } catch (e) {
-      toast(`Couldn't remove the zooms: ${friendlyError(e)}`, "error");
+      toast(t("Couldn't remove the zooms: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -2847,9 +2853,9 @@ export function createEditor() {
       setSelZoom(null);
       setSelCut(null);
       setSelSpeed(idx >= 0 ? idx : null);
-      setStatus("Speed region added. Drag it to retime.");
+      setStatus(t("Speed region added. Drag it to retime."));
     } catch (e) {
-      fail("Could not add speed region", e);
+      fail(t("Could not add speed region"), e);
     }
   };
   const applySpeedEdit = async (index: number, start: number, end: number, factor: number) => {
@@ -2862,7 +2868,7 @@ export function createEditor() {
       if (idx >= 0) setSelSpeed(idx);
     } catch (e) {
       await refreshClip(); // the drag already moved the local band; restore engine truth
-      toast(`Speed edit failed: ${friendlyError(e)}`, "error");
+      toast(t("Speed edit failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const deleteSelectedSpeed = async () => {
@@ -2873,7 +2879,7 @@ export function createEditor() {
       setDirty(true);
       setSelSpeed(null);
     } catch (e) {
-      fail("Speed delete failed", e);
+      fail(t("Speed delete failed"), e);
     }
   };
 
@@ -2894,9 +2900,9 @@ export function createEditor() {
       setSelected(null);
       setSelZoom(null);
       setSelCut(idx >= 0 ? idx : null);
-      setStatus("Section cut. Drag the band to adjust.");
+      setStatus(t("Section cut. Drag the band to adjust."));
     } catch (e) {
-      fail("Could not cut", e);
+      fail(t("Could not cut"), e);
     }
   };
   const applyCutEdit = async (index: number, start: number, end: number) => {
@@ -2909,7 +2915,7 @@ export function createEditor() {
       if (idx >= 0) setSelCut(idx);
     } catch (e) {
       await refreshClip(); // the drag already moved the local band; restore engine truth
-      toast(`Cut edit failed: ${friendlyError(e)}`, "error");
+      toast(t("Cut edit failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const deleteSelectedCut = async () => {
@@ -2919,9 +2925,9 @@ export function createEditor() {
       setCuts(await invoke<Trim[]>("delete_cut", { index: i }));
       setDirty(true);
       setSelCut(null);
-      setStatus("Section restored");
+      setStatus(t("Section restored"));
     } catch (e) {
-      fail("Restore failed", e);
+      fail(t("Restore failed"), e);
     }
   };
 
@@ -2944,13 +2950,17 @@ export function createEditor() {
         await refreshFrame();
         await pushSeek(playhead());
         setStatus(
-          val.preset === "none" ? "Frame removed. Edge to edge export." : `Frame: ${val.preset}`,
+          val.preset === "none"
+            ? t("Frame removed. Edge to edge export.")
+            : val.preset === "studio"
+              ? t("Frame: studio")
+              : t("Frame: subtle"),
         );
       } catch (e) {
         if (!superseded()) {
           setFramePreset(prev);
           setBgPreset(val.prevBg);
-          toast(`Frame failed: ${friendlyError(e)}`, "error");
+          toast(t("Frame failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -2958,26 +2968,26 @@ export function createEditor() {
 
   // ── background backdrop (gradient/solid behind a framed recording) ───────────────
   // Swatch CSS mirrors the Rust presets in vuoom-project/frame.rs (135 = top-left light).
-  const BG_SWATCHES: { name: string; label: string; css: string }[] = [
-    { name: "graphite", label: "Graphite", css: "linear-gradient(135deg,#29292b,#0a0a0d)" },
-    { name: "slate", label: "Slate", css: "linear-gradient(135deg,#333d4d,#12171f)" },
-    { name: "teal", label: "Teal", css: "linear-gradient(135deg,#0f3335,#051417)" },
-    { name: "dusk", label: "Dusk", css: "linear-gradient(135deg,#2b3043,#0f0f1a)" },
-    { name: "paper", label: "Paper", css: "linear-gradient(135deg,#f5f2eb,#d9d4c7)" },
-    { name: "midnight", label: "Midnight", css: "linear-gradient(135deg,#0f121a,#030305)" },
-    { name: "ocean", label: "Ocean", css: "linear-gradient(135deg,#216bb8,#081a3d)" },
-    { name: "forest", label: "Forest", css: "linear-gradient(135deg,#29704d,#082117)" },
-    { name: "sunset", label: "Sunset", css: "linear-gradient(135deg,#fa9952,#a82933)" },
-    { name: "sand", label: "Sand", css: "linear-gradient(135deg,#f2e0c2,#c7a37a)" },
-    { name: "solid", label: "Solid", css: "#17171a" },
+  const BG_SWATCHES = (): { name: string; label: string; css: string }[] => [
+    { name: "graphite", label: t("Graphite"), css: "linear-gradient(135deg,#29292b,#0a0a0d)" },
+    { name: "slate", label: t("Slate"), css: "linear-gradient(135deg,#333d4d,#12171f)" },
+    { name: "teal", label: t("Teal"), css: "linear-gradient(135deg,#0f3335,#051417)" },
+    { name: "dusk", label: t("Dusk"), css: "linear-gradient(135deg,#2b3043,#0f0f1a)" },
+    { name: "paper", label: t("Paper"), css: "linear-gradient(135deg,#f5f2eb,#d9d4c7)" },
+    { name: "midnight", label: t("Midnight"), css: "linear-gradient(135deg,#0f121a,#030305)" },
+    { name: "ocean", label: t("Ocean"), css: "linear-gradient(135deg,#216bb8,#081a3d)" },
+    { name: "forest", label: t("Forest"), css: "linear-gradient(135deg,#29704d,#082117)" },
+    { name: "sunset", label: t("Sunset"), css: "linear-gradient(135deg,#fa9952,#a82933)" },
+    { name: "sand", label: t("Sand"), css: "linear-gradient(135deg,#f2e0c2,#c7a37a)" },
+    { name: "solid", label: t("Solid"), css: "#17171a" },
   ];
   // Pick a picture file for the backdrop. The engine reads it first, so a file that isn't a
   // picture is refused with a clear message.
   const chooseBackdropPicture = async () => {
     if (!hasClip()) return;
     const path = await open({
-      title: "Choose a backdrop picture",
-      filters: [{ name: "Pictures", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] }],
+      title: t("Choose a backdrop picture"),
+      filters: [{ name: t("Pictures"), extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] }],
     });
     if (!path) return;
     try {
@@ -2985,9 +2995,9 @@ export function createEditor() {
       setDirty(true);
       await refreshFrame();
       await pushSeek(playhead());
-      setStatus("Backdrop: your picture");
+      setStatus(t("Backdrop: your picture"));
     } catch (e) {
-      toast(`Couldn't use that picture: ${friendlyError(e)}`, "error");
+      toast(t("Couldn't use that picture: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const bgSync = createSyncSlot<string>();
@@ -3001,11 +3011,11 @@ export function createEditor() {
         await invoke("set_background_preset", { name: val });
         await refreshFrame();
         await pushSeek(playhead());
-        setStatus(`Backdrop: ${val}`);
+        setStatus(t("Backdrop: {label}", { label: BG_SWATCHES().find((s) => s.name === val)?.label ?? val }));
       } catch (e) {
         if (!superseded()) {
           setBgPreset(prev);
-          toast(`Backdrop failed: ${friendlyError(e)}`, "error");
+          toast(t("Backdrop failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3042,7 +3052,7 @@ export function createEditor() {
       } catch (e) {
         if (!superseded()) {
           await refreshFrame();
-          toast(`Frame change failed: ${friendlyError(e)}`, "error");
+          toast(t("Frame change failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3057,18 +3067,18 @@ export function createEditor() {
       return [c.r, c.g, c.b] as [number, number, number];
     };
     const f = rgb(from);
-    const t = to ? rgb(to) : null;
-    setFrameInfo({ ...cur, bg_kind: t ? "gradient" : "solid", bg_from: f, bg_to: t ?? f, bg_angle: angle });
+    const toRgb = to ? rgb(to) : null;
+    setFrameInfo({ ...cur, bg_kind: toRgb ? "gradient" : "solid", bg_from: f, bg_to: toRgb ?? f, bg_angle: angle });
     setBgPreset("");
     setDirty(true);
-    bgCustomSync.push({ from: f, to: t, angle }, async (val, superseded) => {
+    bgCustomSync.push({ from: f, to: toRgb, angle }, async (val, superseded) => {
       try {
         await invoke("set_background_custom", val.to ? { from: val.from, to: val.to, angle: val.angle } : { from: val.from, angle: val.angle });
         await pushSeek(playhead());
       } catch (e) {
         if (!superseded()) {
           await refreshFrame();
-          toast(`Backdrop failed: ${friendlyError(e)}`, "error");
+          toast(t("Backdrop failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3087,7 +3097,7 @@ export function createEditor() {
       } catch (e) {
         if (!superseded()) {
           setMotionBlur(!val);
-          toast(`Motion blur change failed: ${friendlyError(e)}`, "error");
+          toast(t("Motion blur change failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3103,11 +3113,11 @@ export function createEditor() {
       try {
         await invoke("set_show_clicks", { on: val });
         await pushSeek(playhead());
-        setStatus(val ? "Mouse clicks will ripple in the GIF" : "Click ripples off");
+        setStatus(val ? t("Mouse clicks will ripple in the GIF") : t("Click ripples off"));
       } catch (e) {
         if (!superseded()) {
           setShowClicks(!val);
-          toast(`Click ripples failed: ${friendlyError(e)}`, "error");
+          toast(t("Click ripples failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3129,7 +3139,7 @@ export function createEditor() {
         await invoke("set_click_style", { style: val });
         await pushSeek(playhead());
       } catch (e) {
-        if (!superseded()) toast(`Click style change failed: ${friendlyError(e)}`, "error");
+        if (!superseded()) toast(t("Click style change failed: {why}", { why: friendlyError(e) }), "error");
       }
     });
   };
@@ -3161,7 +3171,7 @@ export function createEditor() {
         await invoke("set_camera_overlay", { overlay: val });
         await pushSeek(playhead());
       } catch (e) {
-        if (!superseded()) toast(`Camera change failed: ${friendlyError(e)}`, "error");
+        if (!superseded()) toast(t("Camera change failed: {why}", { why: friendlyError(e) }), "error");
       }
     });
   };
@@ -3181,7 +3191,7 @@ export function createEditor() {
         await invoke("set_cursor_style", { style: val.style });
         await pushSeek(playhead());
       } catch (e) {
-        if (!superseded()) toast(`Pointer change failed: ${friendlyError(e)}`, "error");
+        if (!superseded()) toast(t("Pointer change failed: {why}", { why: friendlyError(e) }), "error");
       }
     });
   };
@@ -3224,8 +3234,8 @@ export function createEditor() {
   const chooseCursorPicture = async () => {
     if (!hasClip()) return;
     const path = await open({
-      title: "Choose a pointer picture",
-      filters: [{ name: "Pictures", extensions: ["png", "webp", "gif", "ico", "bmp", "jpg", "jpeg"] }],
+      title: t("Choose a pointer picture"),
+      filters: [{ name: t("Pictures"), extensions: ["png", "webp", "gif", "ico", "bmp", "jpg", "jpeg"] }],
     });
     if (!path) return;
     try {
@@ -3234,9 +3244,9 @@ export function createEditor() {
       shownPicturePath = path;
       setPointerPicture(pic);
       applyCursor({ ...(cursorStyle() ?? lastCursor), look: "image", image: { path, hotspot: [0, 0] } });
-      setStatus("Pointer: your picture. Click it in the Pointer panel to set where it points.");
+      setStatus(t("Pointer: your picture. Click it in the Pointer panel to set where it points."));
     } catch (e) {
-      toast(`Couldn't use that picture: ${friendlyError(e)}`, "error");
+      toast(t("Couldn't use that picture: {why}", { why: friendlyError(e) }), "error");
     }
   };
   /** Vuoom's pointer, a dot, or your picture (asked for when there is none yet). */
@@ -3268,13 +3278,13 @@ export function createEditor() {
         await pushSeek(playhead());
         setStatus(
           val
-            ? "Shortcuts you pressed will show as chips (plain typing never does)"
-            : "Keystroke overlay off",
+            ? t("Shortcuts you pressed will show as chips (plain typing never does)")
+            : t("Keystroke overlay off"),
         );
       } catch (e) {
         if (!superseded()) {
           setShowKeys(!val);
-          toast(`Keystroke overlay failed: ${friendlyError(e)}`, "error");
+          toast(t("Keystroke overlay failed: {why}", { why: friendlyError(e) }), "error");
         }
       }
     });
@@ -3343,15 +3353,15 @@ export function createEditor() {
     trimDrag = null;
     setSnapLine(null);
     endSnapGesture();
-    const t = trim();
-    if (!t) return;
+    const span = trim();
+    if (!span) return;
     try {
-      await invoke("set_trim", { start: t.start, end: t.end });
+      await invoke("set_trim", { start: span.start, end: span.end });
       await refreshClip(); // backend may normalize a full-range trim to null
       if (playhead() < tStart() || playhead() > tEnd()) scrub(tStart());
     } catch (e) {
       await refreshClip(); // the handle already moved locally; restore engine truth
-      toast(`Trim failed: ${friendlyError(e)}`, "error");
+      toast(t("Trim failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -3368,7 +3378,7 @@ export function createEditor() {
       if (playhead() < tStart() || playhead() > tEnd()) scrub(tStart());
     } catch (e) {
       await refreshClip();
-      toast(`Trim failed: ${friendlyError(e)}`, "error");
+      toast(t("Trim failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
 
@@ -3914,7 +3924,7 @@ export function createEditor() {
         await pushSeek(playhead());
       } catch (e) {
         await refresh(); // rejected: engine truth restores the old span
-        toast(`Retime failed: ${friendlyError(e)}`, "error");
+        toast(t("Retime failed: {why}", { why: friendlyError(e) }), "error");
       }
     } else {
       scrub(d.orig.start);
@@ -3925,22 +3935,24 @@ export function createEditor() {
   // reference AND reusing bar objects per kind:id, so Solid's <For> keeps DOM rows across
   // refreshes (new objects every call would recreate every lane on every edit).
   let barsCacheSrc: AnnotationSet | null = null;
+  let barsCacheLang = locale();
   let barsCache: { kind: Kind; id: number; start: number; end: number; label: string }[] = [];
   const annBars = () => {
 
     const a = anns();
-    if (a !== barsCacheSrc) {
+    // The labels are in the interface language, so a language change rebuilds them too.
+    if (a !== barsCacheSrc || locale() !== barsCacheLang) {
       const prev = new Map(barsCache.map((b) => [`${b.kind}:${b.id}`, b]));
       const next: typeof barsCache = [];
-      for (const t of a.texts)
-        next.push({ kind: "text", id: t.id, start: t.range.start, end: t.range.end, label: t.text || "Text" });
+      for (const tx of a.texts)
+        next.push({ kind: "text", id: tx.id, start: tx.range.start, end: tx.range.end, label: tx.text || t("Text") });
       for (const ar of a.arrows)
         next.push({
           kind: "arrow",
           id: ar.id,
           start: ar.range.start,
           end: ar.range.end,
-          label: ar.style === "Line" ? "Line" : "Arrow",
+          label: ar.style === "Line" ? t("Line") : t("Arrow"),
         });
       for (const b of a.highlights)
         next.push({
@@ -3956,7 +3968,7 @@ export function createEditor() {
           id: st.id,
           start: st.range.start,
           end: st.range.end,
-          label: isMarker(st) ? "Marker" : "Pen",
+          label: isMarker(st) ? t("Marker") : t("Pen"),
         });
       // Reuse the previous object for an unchanged id+span so row identity survives.
       for (let i = 0; i < next.length; i++) {
@@ -3968,6 +3980,7 @@ export function createEditor() {
       }
       barsCache = next.sort((x, y) => x.start - y.start);
       barsCacheSrc = a;
+      barsCacheLang = locale();
     }
     return barsCache;
   };
@@ -4015,7 +4028,7 @@ export function createEditor() {
     if (id === null) return;
     setSelCaption(null);
     await captions.remove(id);
-    setStatus("Caption deleted");
+    setStatus(t("Caption deleted"));
   };
   /** Add a caption at the playhead and select it, ready to type into. */
   const addCaptionAtPlayhead = async () => {
@@ -4080,17 +4093,17 @@ export function createEditor() {
   const saveProjectTo = async (dir: string) => {
     if (saving()) return;
     setSaving(true);
-    setStatus("Saving project…");
+    setStatus(t("Saving project…"));
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
       setProjectDir(dir);
-      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || "Untitled");
+      setProjectName(baseName(dir).replace(/\.vuoom$/i, "") || t("Untitled"));
       rememberRecent(dir, captureThumb());
-      setStatus(`Saved ${dir}`);
-      toast("Project saved", "success");
+      setStatus(t("Saved {dir}", { dir }));
+      toast(t("Project saved"), "success");
     } catch (e) {
-      fail("Save failed", e);
+      fail(t("Save failed"), e);
     } finally {
       setSaving(false);
     }
@@ -4098,7 +4111,7 @@ export function createEditor() {
   /** Save as: a new project is always named by hand, in the save folder. */
   const onSaveProjectAs = async () => {
     if (!hasClip() || saving()) return;
-    const dir = await pickSavePath(safeName(), "vuoom", { name: "Vuoom project", extensions: ["vuoom"] }, true);
+    const dir = await pickSavePath(safeName(), "vuoom", { name: t("Vuoom project"), extensions: ["vuoom"] }, true);
     if (dir) await saveProjectTo(dir);
   };
   /** Save: straight back into the project's folder; a take never saved asks where first. */
@@ -4111,20 +4124,20 @@ export function createEditor() {
 
   const onRecover = async () => {
     const ok = await confirmDiscard(
-      "Recover your last take? Unsaved edits to the current clip will be discarded.",
-      "Discard & recover",
+      t("Recover your last take? Unsaved edits to the current clip will be discarded."),
+      t("Discard & recover"),
     );
     if (!ok) return;
-    setStatus("Recovering your last session…");
+    setStatus(t("Recovering your last session…"));
     try {
       const summary = await invoke<RecordingSummary>("recover_session");
       setRecoverable(null);
       await loadFinishedClip(summary);
-      setStatus(`Recovered ${summary.duration.toFixed(1)}s. Don't forget to export.`);
-      toast("Last session recovered", "success");
+      setStatus(t("Recovered {duration}s. Don't forget to export.", { duration: summary.duration.toFixed(1) }));
+      toast(t("Last session recovered"), "success");
     } catch (e) {
       setRecoverable(null);
-      fail("Recovery failed", e);
+      fail(t("Recovery failed"), e);
     }
   };
 
@@ -4146,25 +4159,25 @@ export function createEditor() {
   // currently-loaded clip's store is always kept by the backend.
   const clearStorage = async () => {
     const ok = await ask(
-      "Delete saved recovery data? Unsaved takes from previous sessions can no longer be recovered.",
-      { title: "Clear recovery storage?", kind: "warning", okLabel: "Delete", cancelLabel: "Cancel" },
+      t("Delete saved recovery data? Unsaved takes from previous sessions can no longer be recovered."),
+      { title: t("Clear recovery storage?"), kind: "warning", okLabel: "Delete", cancelLabel: t("Cancel") },
     );
     if (!ok) return;
     setClearingStorage(true);
     try {
       const freed = await invoke<number>("clear_recovery_storage");
       await refreshStorage();
-      setStatus(`Cleared ${fmtBytes(freed)} of recovery data`);
+      setStatus(t("Cleared {freed} of recovery data", { freed: fmtBytes(freed) }));
     } catch (e) {
-      fail("Couldn't clear storage", e);
+      fail(t("Couldn't clear storage"), e);
     } finally {
       setClearingStorage(false);
     }
   };
 
   const onOpenProject = async () => {
-    if (!(await confirmDiscard(OPEN_DISCARD, "Discard & open"))) return;
-    const dir = await open({ directory: true, title: "Open a .vuoom project folder" });
+    if (!(await confirmDiscard(openDiscard(), t("Discard & open")))) return;
+    const dir = await open({ directory: true, title: t("Open a .vuoom project folder") });
     if (!dir || Array.isArray(dir)) return;
     await openProjectAt(dir);
   };

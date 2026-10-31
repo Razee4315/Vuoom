@@ -3,11 +3,12 @@
 import { createSignal, For } from "solid-js";
 import { useEditor } from "../editor/context";
 import type { Editor } from "../editor/createEditor";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import type { CropRect } from "../types";
 
-const LOCKS: { id: string; label: string; ratio: number | null }[] = [
-  { id: "free", label: "Free", ratio: null },
+const LOCKS = (): { id: string; label: string; ratio: number | null }[] => [
+  { id: "free", label: t("Free"), ratio: null },
   { id: "16:9", label: "16:9", ratio: 16 / 9 },
   { id: "4:3", label: "4:3", ratio: 4 / 3 },
   { id: "1:1", label: "1:1", ratio: 1 },
@@ -145,7 +146,7 @@ export function CropBar() {
     <div class="crop-bar">
       <Icon name="crop" size={15} />
       <div class="crop-locks">
-        <For each={LOCKS}>
+        <For each={LOCKS()}>
           {(l) => (
             <button
               type="button"
@@ -165,19 +166,19 @@ export function CropBar() {
       <button
         type="button"
         class="btn sm ghost"
-        data-tip="Back to the full frame"
+        data-tip={t("Back to the full frame")}
         onClick={() => {
           setLock(null);
           ed.setCropDraft({ x: 0, y: 0, w: 1, h: 1 });
         }}
       >
-        Reset
+        {t("Reset")}
       </button>
       <button type="button" class="btn sm" data-kbd="Esc" onClick={() => void ed.finishCropEdit(false)}>
-        Cancel
+        {t("Cancel")}
       </button>
       <button type="button" class="btn sm primary" data-kbd="Enter" onClick={() => void ed.finishCropEdit(true)}>
-        <Icon name="check" size={13} /> Apply crop
+        <Icon name="check" size={13} /> {t("Apply crop")}
       </button>
     </div>
   );

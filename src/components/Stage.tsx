@@ -9,6 +9,7 @@ import { CORNER_CURSORS, fontCss } from "../editor/constants";
 import { ArrowLine, Handles } from "../EditorPrimitives";
 import { cssColor } from "../format";
 import { arrowHeads, roundedRectPath, v2, zoomFrame } from "../geometry";
+import { t } from "../i18n";
 import { Icon } from "../icons";
 import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
@@ -24,7 +25,7 @@ function badgeInk(c: Color): string {
 
 export default function Stage() {
   const ed = useEditor();
-  const hint = () => TOOLS.find((t) => t.id === ed.tool())?.hint;
+  const hint = () => TOOLS().find((t) => t.id === ed.tool())?.hint;
   const moveFramed = ed.frameCanvas(ed.onPointerMove);
   // The line being drawn with the Pen, in pixels.
   const draft = () => {
@@ -38,7 +39,7 @@ export default function Stage() {
           <Icon name="info" size={13} />
           <span>{hint()}</span>
           <span class="stage-hint-esc">
-            <kbd>Esc</kbd> done
+            <kbd>Esc</kbd> {t("done")}
           </span>
         </div>
       </Show>
@@ -531,7 +532,7 @@ function InlineTextEditor() {
       rows={1}
       wrap="off"
       spellcheck={false}
-      aria-label="Text label"
+      aria-label={t("Text label")}
       ref={(el) =>
         queueMicrotask(() => {
           el.focus();

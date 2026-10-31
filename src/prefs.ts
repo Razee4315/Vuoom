@@ -115,6 +115,8 @@ export const prefs = {
   clickStyle: persisted<ClickStyle | null>("click-style", null),
   /** Magnetic snapping of timeline edges (Alt still bypasses it per drag). */
   snapping: persisted<boolean>("snapping", true),
+  /** The interface language; `null` until chosen, which follows the system language. */
+  language: persisted<string | null>("language", null),
   /** Hover hints, coachmarks and lane hints for newcomers. */
   hints: persisted<boolean>("hints", true),
   /** Tone down interface animation. */

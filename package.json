@@ -9,6 +9,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "serve": "vite preview",
     "tauri": "tauri"
   },

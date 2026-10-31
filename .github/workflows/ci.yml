@@ -48,7 +48,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Type-check, lint, build
-        run: pnpm run typecheck && pnpm run lint && pnpm run build
+        run: pnpm run typecheck && pnpm run lint && node scripts/check-i18n.mjs && pnpm run build
 
   ci:
     runs-on: windows-latest # Vuoom is Windows-only (WGC capture, wgpu DX12)

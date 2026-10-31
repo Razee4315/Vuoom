@@ -4,6 +4,7 @@
 // Inspector card). Compact mode drops the labels for a slimmer rail.
 import { For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
+import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { layout } from "../prefs";
 import { CROP_KEY, TOOLS } from "../shortcuts";
@@ -28,18 +29,16 @@ const GLYPH: Record<RailItem, IconName> = {
 
 const GROUPS: RailItem[][] = [["select"], ["zoom", "crop"], ["text", "arrow", "step", "pen", "shape", "highlight", "spotlight", "mask"]];
 
-const CROP = { label: "Crop", key: CROP_KEY.key, tip: "Crop the recording" };
-
 export default function ToolRail() {
   const ed = useEditor();
-  const meta = (id: RailItem) => (id === "crop" ? null : TOOLS.find((t) => t.id === id));
-  const label = (id: RailItem) => meta(id)?.label ?? CROP.label;
+  const meta = (id: RailItem) => (id === "crop" ? null : TOOLS().find((t) => t.id === id));
+  const label = (id: RailItem) => meta(id)?.label ?? t("Crop");
   const on = (id: RailItem) => (id === "crop" ? !!ed.cropEdit() : ed.tool() === id && !ed.cropEdit());
   const locked = (id: RailItem) => id !== "crop" && id !== "select" && ed.toolLock() && ed.tool() === id;
   const tip = (id: RailItem) => {
-    if (id === "crop") return CROP.tip;
-    if (id === "select") return "Select, move and resize";
-    return `${meta(id)?.hint.replace(/ \(.\)$/, "") ?? ""} Double click to keep it armed.`;
+    if (id === "crop") return t("Crop the recording");
+    if (id === "select") return t("Select, move and resize");
+    return t("{hint} Double click to keep it armed.", { hint: meta(id)?.hint.replace(/\s*[(（].[)）]$/, "") ?? "" });
   };
   const pick = (id: RailItem) => {
     if (id === "crop") {
@@ -49,7 +48,7 @@ export default function ToolRail() {
     ed.pickTool(id);
   };
   return (
-    <nav class="rail" classList={{ compact: layout.railCompact() }} aria-label="Tools">
+    <nav class="rail" classList={{ compact: layout.railCompact() }} aria-label={t("Tools")}>
       <For each={GROUPS}>
         {(group, gi) => (
           <>
@@ -65,7 +64,7 @@ export default function ToolRail() {
                   aria-pressed={on(id)}
                   aria-label={label(id)}
                   data-tip={tip(id)}
-                  data-kbd={meta(id)?.key ?? CROP.key}
+                  data-kbd={meta(id)?.key ?? CROP_KEY.key}
                   disabled={!ed.hasClip()}
                   onClick={() => pick(id)}
                   onDblClick={() => id !== "select" && id !== "crop" && ed.lockTool(id)}
@@ -85,8 +84,8 @@ export default function ToolRail() {
       <button
         type="button"
         class="rail-tool rail-collapse"
-        aria-label={layout.railCompact() ? "Show labels" : "Hide labels"}
-        data-tip={layout.railCompact() ? "Show labels" : "Compact rail"}
+        aria-label={layout.railCompact() ? t("Show labels") : t("Hide labels")}
+        data-tip={layout.railCompact() ? t("Show labels") : t("Compact rail")}
         onClick={() => layout.railCompact.set(!layout.railCompact())}
       >
         <Icon name={layout.railCompact() ? "chevronRight" : "chevronLeft"} size={14} />

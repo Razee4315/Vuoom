@@ -1,4 +1,5 @@
 // Editor constants and pure helpers shared by the editor store and its components.
+import { locale, t } from "../i18n";
 import type { Trim } from "../types";
 
 /// Quick-pick annotation colors (white, ink, record red, box yellow, green, text blue).
@@ -8,18 +9,23 @@ export const PRESET_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a4
 /// top-left, top-right, bottom-left, bottom-right. Opposite corners share a diagonal.
 export const CORNER_CURSORS = ["nwse-resize", "nesw-resize", "nesw-resize", "nwse-resize"];
 
+/// The default label face. Inter has no Chinese, so a Chinese interface asks for the system's
+/// Chinese face first, as the export's system fallback does.
+const defaultFontCss = () =>
+  locale() === "zh-CN" ? '"Microsoft YaHei UI", "Microsoft YaHei", Inter, sans-serif' : "Inter, sans-serif";
+
 /// Bundled text fonts. `id` is the family name sent to the renderer (empty = default sans);
 /// `css` styles the on-canvas preview + the in-typeface picker. Mirrors the @font-face set
 /// in styles/base.css and the fonts loaded into glyphon for export.
-export const TEXT_FONTS: { id: string; label: string; css: string }[] = [
-  { id: "", label: "Default", css: "Inter, sans-serif" },
+export const TEXT_FONTS = (): { id: string; label: string; css: string }[] => [
+  { id: "", label: t("Default"), css: defaultFontCss() },
   { id: "Anton", label: "Anton", css: "Anton, sans-serif" },
   { id: "Bebas Neue", label: "Bebas", css: "'Bebas Neue', sans-serif" },
   { id: "Poppins", label: "Poppins", css: "Poppins, sans-serif" },
   { id: "Permanent Marker", label: "Marker", css: "'Permanent Marker', cursive" },
   { id: "Shrikhand", label: "Shrikhand", css: "Shrikhand, serif" },
 ];
-export const fontCss = (name: string) => TEXT_FONTS.find((f) => f.id === name)?.css ?? "Inter, sans-serif";
+export const fontCss = (name: string) => TEXT_FONTS().find((f) => f.id === name)?.css ?? defaultFontCss();
 
 /// True when a timeline segment [start,end] never survives to the export because its visible
 /// (trimmed) span is entirely swallowed, either it falls fully outside the trim window, or the

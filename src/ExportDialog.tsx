@@ -1,5 +1,6 @@
 import { batch, createEffect, createSignal, on, onCleanup, Show, untrack, type JSX } from "solid-js";
 import { invoke, listen, revealItemInDir } from "./bridge";
+import { t } from "./i18n";
 import { pickSavePath } from "./saveDir";
 import { Icon } from "./icons";
 import { prefs } from "./prefs";
@@ -217,12 +218,12 @@ export function ExportDialog(props: {
             setQuality(q);
             setPreset("custom");
             setFitting(false);
-            toast(`Fitted to about ${fmtBytes(est)} at ${w}px`, "success");
+            toast(t("Fitted to about {est} at {w}px", { est: fmtBytes(est), w }), "success");
             return;
           }
         }
       }
-      toast("Could not reach that size. Try a lower frame rate.", "error");
+      toast(t("Could not reach that size. Try a lower frame rate."), "error");
     } finally {
       setFitting(false);
     }
@@ -238,7 +239,7 @@ export function ExportDialog(props: {
       const path = await pickSavePath(
         safe,
         f,
-        f === "gif" ? { name: "GIF", extensions: ["gif"] } : { name: "MP4 video", extensions: ["mp4"] },
+        f === "gif" ? { name: "GIF", extensions: ["gif"] } : { name: t("MP4 video"), extensions: ["mp4"] },
       );
       if (!path) {
         setPhase("configure");
@@ -249,7 +250,7 @@ export function ExportDialog(props: {
       setNow(Date.now());
       setPhase("exporting");
       setProgress(0);
-      props.onStatus(`Exporting ${f.toUpperCase()}...`);
+      props.onStatus(t("Exporting {format}...", { format: f.toUpperCase() }));
       // The listener is registered INSIDE the guarded flow and always cleaned up.
       const unlisten = await listen<{ done: number; total: number }>("export-progress", (p) => {
         setProgress(p.total > 0 ? p.done / p.total : 0);
@@ -265,19 +266,19 @@ export function ExportDialog(props: {
         setOutPath(path);
         setPhase("done");
         props.onExported();
-        props.onStatus(`Exported ${path}`);
-        toast(`${f.toUpperCase()} exported`, "success");
+        props.onStatus(t("Exported {path}", { path }));
+        toast(t("{format} exported", { format: f.toUpperCase() }), "success");
       } catch (e) {
         const msg = String(e);
         props.onStatus(
-          msg.includes("export cancelled") ? "Export cancelled" : `Export failed: ${friendlyError(e)}`,
+          msg.includes("export cancelled") ? t("Export cancelled") : t("Export failed: {why}", { why: friendlyError(e) }),
         );
         if (msg.includes("export cancelled")) {
           setPhase("configure");
         } else {
           setErrMsg(friendlyError(e));
           setPhase("error"); // inline failure state with Retry, never a silent reset
-          toast(`Export failed: ${friendlyError(e)}`, "error");
+          toast(t("Export failed: {why}", { why: friendlyError(e) }), "error");
         }
       } finally {
         unlisten();
@@ -301,21 +302,21 @@ export function ExportDialog(props: {
       // copied as a *file*, which many chat apps won't accept from the clipboard.
       setCopied(
         format() === "gif"
-          ? "Copied! Paste it into Slack, Discord, or a GitHub comment."
-          : "Copied as a file. If pasting doesn't work, drag it in from Show in folder.",
+          ? t("Copied! Paste it into Slack, Discord, or a GitHub comment.")
+          : t("Copied as a file. If pasting doesn't work, drag it in from Show in folder."),
       );
-      toast("Copied to clipboard", "success");
+      toast(t("Copied to clipboard"), "success");
     } catch (e) {
-      setCopied(`Copy failed: ${String(e)}`);
-      toast(`Copy failed: ${String(e)}`, "error");
+      setCopied(t("Copy failed: {why}", { why: friendlyError(e) }));
+      toast(t("Copy failed: {why}", { why: friendlyError(e) }), "error");
     }
   };
   const copyPath = async () => {
     try {
       await navigator.clipboard.writeText(outPath());
-      setCopied("Path copied.");
+      setCopied(t("Path copied."));
     } catch {
-      setCopied("Could not copy the path.");
+      setCopied(t("Could not copy the path."));
     }
   };
   const reveal = () => void revealItemInDir(outPath()).catch(() => undefined);
@@ -343,7 +344,7 @@ export function ExportDialog(props: {
     }
   };
   const sizeText = () =>
-    estimate() === null ? "Estimating…" : estimate()! < 0 ? "Unavailable" : `≈ ${fmtBytes(estimate()!)}`;
+    estimate() === null ? t("Estimating…") : estimate()! < 0 ? t("Unavailable") : `≈ ${fmtBytes(estimate()!)}`;
   const height = () => Math.round(outWidth() / Math.max(props.aspect || 16 / 9, 0.2));
 
   return (
@@ -352,7 +353,7 @@ export function ExportDialog(props: {
         class="modal export"
         ref={(el) => {
           dialogEl = el;
-          dialogA11y(el, "Export", () =>
+          dialogA11y(el, t("Export"), () =>
             // Esc closes when idle, cancels an in-flight export, and is ignored mid-save.
             phase() === "exporting" ? cancelExport() : busy() ? undefined : props.onClose(),
           );
@@ -363,11 +364,11 @@ export function ExportDialog(props: {
           <header class="modal-head">
             <div>
               <h2 data-phase-title tabindex="-1">
-                Export
+                {t("Export")}
               </h2>
-              <p class="muted small">Zooms, annotations, speed-ups and cuts are baked into the file.</p>
+              <p class="muted small">{t("Zooms, annotations, speed-ups and cuts are baked into the file.")}</p>
             </div>
-            <button type="button" class="ibtn" aria-label="Close" onClick={props.onClose}>
+            <button type="button" class="ibtn" aria-label={t("Close")} onClick={props.onClose}>
               <Icon name="close" size={14} />
             </button>
           </header>
@@ -385,7 +386,7 @@ export function ExportDialog(props: {
               </span>
               <span>
                 <strong>GIF</strong>
-                <small>Loops anywhere: READMEs, docs, chat</small>
+                <small>{t("Loops anywhere: READMEs, docs, chat")}</small>
               </span>
             </button>
             <button
@@ -399,8 +400,8 @@ export function ExportDialog(props: {
                 <Icon name="film" size={20} />
               </span>
               <span>
-                <strong>MP4 video</strong>
-                <small>Smaller and smoother: Slack, X, YouTube</small>
+                <strong>{t("MP4 video")}</strong>
+                <small>{t("Smaller and smoother: Slack, X, YouTube")}</small>
               </span>
             </button>
           </div>
@@ -413,7 +414,7 @@ export function ExportDialog(props: {
               aria-pressed={preset() === "readme"}
               onClick={() => applyPreset("readme")}
             >
-              Balanced
+              {t("Balanced")}
               <small>
                 {presetValues("readme").fps} fps · {presetValues("readme").width}px
               </small>
@@ -425,7 +426,7 @@ export function ExportDialog(props: {
               aria-pressed={preset() === "hq"}
               onClick={() => applyPreset("hq")}
             >
-              High quality
+              {t("High quality")}
               <small>
                 {presetValues("hq").fps} fps · {presetValues("hq").width}px
               </small>
@@ -437,19 +438,19 @@ export function ExportDialog(props: {
               aria-pressed={preset() === "custom"}
               onClick={() => applyPreset("custom")}
             >
-              Custom
-              <small>Tune every setting</small>
+              {t("Custom")}
+              <small>{t("Tune every setting")}</small>
             </button>
           </div>
 
           <div class="export-controls">
-            <Field label="Frame rate">
+            <Field label={t("Frame rate")}>
               <Slider
                 value={fps()}
                 min={8}
                 max={format() === "mp4" ? 60 : 30}
                 step={1}
-                label="Frame rate"
+                label={t("Frame rate")}
                 format={(v) => `${v} fps`}
                 onInput={(v) => {
                   setFps(v);
@@ -457,27 +458,27 @@ export function ExportDialog(props: {
                 }}
               />
             </Field>
-            <Field label="Width">
+            <Field label={t("Width")}>
               <Slider
                 value={width() >= widest() ? sliderMax() : width()}
                 min={400}
                 max={sliderMax()}
                 step={WIDTH_STEP}
-                label="Max width"
-                format={(v) => (v >= widest() ? `${widest()}px (full size)` : `${v}px`)}
+                label={t("Max width")}
+                format={(v) => (v >= widest() ? t("{width}px (full size)", { width: widest() }) : `${v}px`)}
                 onInput={(v) => {
                   setWidth(v);
                   setPreset("custom");
                 }}
               />
             </Field>
-            <Field label="Quality">
+            <Field label={t("Quality")}>
               <Slider
                 value={quality()}
                 min={40}
                 max={100}
                 step={1}
-                label="Quality"
+                label={t("Quality")}
                 format={(v) => `${v}`}
                 onInput={(v) => {
                   setQuality(v);
@@ -490,36 +491,36 @@ export function ExportDialog(props: {
                 when={format() === "mp4"}
                 fallback={
                   <p class="note export-audio-note">
-                    <Icon name="volumeOff" size={13} /> GIFs are silent. Pick MP4 to keep the sound.
+                    <Icon name="volumeOff" size={13} /> {t("GIFs are silent. Pick MP4 to keep the sound.")}
                   </p>
                 }
               >
-                <Field label="Include audio" hint="Narration and system sound, mixed as set in the Audio panel">
-                  <Switch checked={withAudio()} label="Include audio" onChange={setWithAudio} />
+                <Field label={t("Include audio")} hint={t("Narration and system sound, mixed as set in the Audio panel")}>
+                  <Switch checked={withAudio()} label={t("Include audio")} onChange={setWithAudio} />
                 </Field>
               </Show>
             </Show>
             <Show when={format() === "gif"}>
               <Field
-                label="Smooth gradients"
-                hint="Dithers backdrops, shadows and the webcam so they don't show bands. Off makes a slightly smaller file"
+                label={t("Smooth gradients")}
+                hint={t("Dithers backdrops, shadows and the webcam so they don't show bands. Off makes a slightly smaller file")}
               >
                 <Switch
                   checked={prefs.gifDither()}
-                  label="Smooth gradients"
+                  label={t("Smooth gradients")}
                   onChange={(v) => prefs.gifDither.set(v)}
                 />
               </Field>
               <div class="export-fit">
                 <Icon name="target" size={14} />
-                <span>Fit under</span>
+                <span>{t("Fit under")}</span>
                 <input
                   class="input"
                   type="number"
                   min="0.2"
                   step="0.5"
                   placeholder="MB"
-                  aria-label="Size budget in MB"
+                  aria-label={t("Size budget in MB")}
                   value={budgetMb()}
                   onInput={(e) => setBudgetMb(e.currentTarget.value)}
                 />
@@ -528,10 +529,10 @@ export function ExportDialog(props: {
                   type="button"
                   class="btn sm"
                   disabled={!Number(budgetMb()) || fitting()}
-                  data-tip="Find the largest width and quality that stay under the budget"
+                  data-tip={t("Find the largest width and quality that stay under the budget")}
                   onClick={() => void fitToBudget()}
                 >
-                  {fitting() ? "Fitting…" : "Fit"}
+                  {fitting() ? t("Fitting…") : t("Fit")}
                 </button>
               </div>
             </Show>
@@ -539,11 +540,11 @@ export function ExportDialog(props: {
 
           <div class="export-summary">
             <div>
-              <small>Estimated size</small>
+              <small>{t("Estimated size")}</small>
               <span class="export-size">{sizeText()}</span>
             </div>
             <div>
-              <small>Output</small>
+              <small>{t("Output")}</small>
               <span>
                 {outWidth()} × {height()} · {outDur().toFixed(1)}s
               </span>
@@ -552,10 +553,10 @@ export function ExportDialog(props: {
 
           <div class="modal-actions">
             <button type="button" class="btn ghost" onClick={props.onClose}>
-              Cancel
+              {t("Cancel")}
             </button>
             <button type="button" class="btn primary" onClick={() => void doExport()}>
-              <Icon name="export" size={14} /> Export {format().toUpperCase()}
+              <Icon name="export" size={14} /> {t("Export {format}", { format: format().toUpperCase() })}
             </button>
           </div>
         </Show>
@@ -563,9 +564,9 @@ export function ExportDialog(props: {
         <Show when={phase() === "starting"}>
           <div class="export-progress">
             <h2 data-phase-title tabindex="-1">
-              Choose where to save
+              {t("Choose where to save")}
             </h2>
-            <p class="muted small">Pick a folder and a name for the {format().toUpperCase()}.</p>
+            <p class="muted small">{t("Pick a folder and a name for the {format}.", { format: format().toUpperCase() })}</p>
           </div>
         </Show>
 
@@ -575,7 +576,7 @@ export function ExportDialog(props: {
               class="ring"
               style={{ "--p": pct() }}
               role="progressbar"
-              aria-label="Export progress"
+              aria-label={t("Export progress")}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={pct()}
@@ -583,28 +584,28 @@ export function ExportDialog(props: {
               <span>{pct()}%</span>
             </div>
             <h2 data-phase-title tabindex="-1">
-              Exporting {format().toUpperCase()}
+              {t("Exporting {format}", { format: format().toUpperCase() })}
             </h2>
             <p class="muted small">
-              {timeLeft(progress(), startedAt(), now()) || "Rendering every frame with your zooms and annotations."}
+              {timeLeft(progress(), startedAt(), now()) || t("Rendering every frame with your zooms and annotations.")}
             </p>
             <button type="button" class="btn ghost" onClick={cancelExport}>
-              Cancel export
+              {t("Cancel export")}
             </button>
           </div>
         </Show>
 
         <Show when={phase() === "error"}>
           <h2 data-phase-title tabindex="-1">
-            Export failed
+            {t("Export failed")}
           </h2>
           <p class="export-error">{errMsg()}</p>
           <div class="modal-actions">
             <button type="button" class="btn ghost" onClick={() => setPhase("configure")}>
-              Back to settings
+              {t("Back to settings")}
             </button>
             <button type="button" class="btn primary" onClick={() => void doExport()}>
-              Try again
+              {t("Try again")}
             </button>
           </div>
         </Show>
@@ -617,38 +618,39 @@ export function ExportDialog(props: {
               </span>
             </div>
             <h2 data-phase-title tabindex="-1">
-              {format().toUpperCase()} ready
+              {t("{format} ready", { format: format().toUpperCase() })}
             </h2>
             <p class="export-path" data-tip={outPath()}>
               {outPath()}
             </p>
             <div class="done-actions">
               <button type="button" class="btn primary" onClick={() => void copyFile()}>
-                <Icon name="copy" size={14} /> Copy file
+                <Icon name="copy" size={14} /> {t("Copy file")}
               </button>
               <button type="button" class="btn" onClick={() => void copyPath()}>
-                Copy path
+                {t("Copy path")}
               </button>
               <button type="button" class="btn" onClick={reveal}>
-                <Icon name="folder" size={14} /> Show
+                <Icon name="folder" size={14} /> {t("Show")}
               </button>
             </div>
             <Show when={props.hasCaptions}>
               <button type="button" class="btn ghost" disabled={!!srtSaved()} onClick={() => void saveSrt()}>
                 <Icon name={srtSaved() ? "check" : "captions"} size={14} />
-                {srtSaved() ? ` Saved ${srtSaved()}` : " Save captions next to it (.srt)"}
+                {" "}
+                {srtSaved() ? t("Saved {path}", { path: srtSaved() }) : t("Save captions next to it (.srt)")}
               </button>
             </Show>
             <p class="muted small">
               {copied() ||
                 (format() === "gif"
-                  ? "Copy, then paste the GIF into Slack, Discord or a GitHub comment."
-                  : "Copy puts the MP4 on the clipboard as a file. If an app refuses to paste it, drag it in from the folder.")}
+                  ? t("Copy, then paste the GIF into Slack, Discord or a GitHub comment.")
+                  : t("Copy puts the MP4 on the clipboard as a file. If an app refuses to paste it, drag it in from the folder."))}
             </p>
           </div>
           <div class="modal-actions">
             <button type="button" class="btn" onClick={props.onClose}>
-              Done
+              {t("Done")}
             </button>
           </div>
         </Show>

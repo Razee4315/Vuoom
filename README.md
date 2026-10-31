@@ -210,7 +210,7 @@ pnpm dev            # then open the printed localhost URL with ?mock=1
 
 Useful mock URL flags: `?mock=1` (force the mock), `&demo=1` (load a sample
 take), `&export=1` (open export), `&record=1` (jump to the region selector),
-`&theme=graphite` (force a theme). The mock is dev-only; the packaged app never
+`&theme=graphite` (force a theme), `&lang=zh-CN` (force the language). The mock is dev-only; the packaged app never
 uses it.
 
 Releases are built and published by [GitHub Actions](.github/workflows/release.yml)

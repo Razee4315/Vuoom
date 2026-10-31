@@ -2,6 +2,7 @@
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
+import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { layout, prefs, resetLayout } from "../prefs";
 import { FPS_CHOICES } from "../recordOptions";
@@ -44,29 +45,29 @@ export default function CommandPalette() {
   const clip = () => ed.hasClip();
 
   const all: Command[] = [
-    { id: "rec", label: "New recording", group: "Record", icon: "region", kbd: "Ctrl+Shift+R", run: () => void ed.startRecord() },
-    { id: "rec-full", label: "Record full screen", group: "Record", icon: "fullscreen", run: () => void ed.startRecord("full") },
-    { id: "rec-region", label: "Record a region", group: "Record", icon: "region", run: () => void ed.startRecord("region") },
-    { id: "rec-win", label: "Record a window", group: "Record", icon: "window", run: () => void ed.startRecord("window") },
-    { id: "rec-add", label: "Add a take to this clip", group: "Record", icon: "plus", run: () => void ed.addTake(), when: clip },
-    ...FPS_CHOICES.map((c) => ({
+    { id: "rec", label: t("New recording"), group: t("Record"), icon: "region", kbd: "Ctrl+Shift+R", run: () => void ed.startRecord() },
+    { id: "rec-full", label: t("Record full screen"), group: t("Record"), icon: "fullscreen", run: () => void ed.startRecord("full") },
+    { id: "rec-region", label: t("Record a region"), group: t("Record"), icon: "region", run: () => void ed.startRecord("region") },
+    { id: "rec-win", label: t("Record a window"), group: t("Record"), icon: "window", run: () => void ed.startRecord("window") },
+    { id: "rec-add", label: t("Add a take to this clip"), group: t("Record"), icon: "plus", run: () => void ed.addTake(), when: clip },
+    ...FPS_CHOICES().map((c) => ({
       id: `fps${c.value}`,
-      label: `Record at ${c.label}`,
-      group: "Record",
+      label: t("Record at {label}", { label: c.label }),
+      group: t("Record"),
       icon: "monitor" as const,
       run: () => prefs.captureFps.set(c.value),
     })),
-    { id: "open", label: "Open project…", group: "Project", icon: "folder", kbd: "Ctrl+O", run: () => void ed.onOpenProject() },
-    { id: "save", label: "Save project", group: "Project", icon: "save", kbd: "Ctrl+S", run: () => void ed.onSaveProject(), when: clip },
-    { id: "save-as", label: "Save project as…", group: "Project", icon: "save", kbd: "Ctrl+Shift+S", run: () => void ed.onSaveProjectAs(), when: clip },
-    { id: "export", label: "Export GIF or MP4…", group: "Project", icon: "export", kbd: "Ctrl+E", run: () => ed.setShowExport(true), when: clip },
-    { id: "recover", label: "Recover last session", group: "Project", icon: "history", run: () => void ed.onRecover(), when: () => ed.recoverable() !== null },
-    { id: "play", label: "Play / pause", group: "Playback", icon: "play", kbd: "Space", run: ed.togglePlay, when: clip },
-    { id: "start", label: "Go to start", group: "Playback", icon: "toStart", kbd: "Home", run: ed.restart, when: clip },
+    { id: "open", label: t("Open project…"), group: t("Project"), icon: "folder", kbd: "Ctrl+O", run: () => void ed.onOpenProject() },
+    { id: "save", label: t("Save project"), group: t("Project"), icon: "save", kbd: "Ctrl+S", run: () => void ed.onSaveProject(), when: clip },
+    { id: "save-as", label: t("Save project as…"), group: t("Project"), icon: "save", kbd: "Ctrl+Shift+S", run: () => void ed.onSaveProjectAs(), when: clip },
+    { id: "export", label: t("Export GIF or MP4…"), group: t("Project"), icon: "export", kbd: "Ctrl+E", run: () => ed.setShowExport(true), when: clip },
+    { id: "recover", label: t("Recover last session"), group: t("Project"), icon: "history", run: () => void ed.onRecover(), when: () => ed.recoverable() !== null },
+    { id: "play", label: t("Play / pause"), group: t("Playback"), icon: "play", kbd: "Space", run: ed.togglePlay, when: clip },
+    { id: "start", label: t("Go to start"), group: t("Playback"), icon: "toStart", kbd: "Home", run: ed.restart, when: clip },
     {
       id: "loop",
-      label: "Toggle loop",
-      group: "Playback",
+      label: t("Toggle loop"),
+      group: t("Playback"),
       icon: "loop",
       run: () => {
         ed.setLooping(!ed.looping());
@@ -74,65 +75,65 @@ export default function CommandPalette() {
       },
       when: clip,
     },
-    { id: "zoom", label: "Add zoom at playhead", group: "Edit", icon: "zoomIn", run: () => void ed.addZoomAt(), when: clip },
-    { id: "speed", label: "Add speed-up at playhead", group: "Edit", icon: "speed", kbd: "X", run: () => void ed.addSpeedAtPlayhead(), when: clip },
-    { id: "cut", label: "Cut at playhead", group: "Edit", icon: "cut", kbd: "C", run: () => void ed.addCutAtPlayhead(), when: clip },
-    { id: "auto", label: "Auto zooms from clicks", group: "Edit", icon: "sparkle", run: () => void ed.planZoomAuto(), when: clip },
-    { id: "skim", label: "Toggle skim idle", group: "Edit", icon: "speed", run: () => ed.toggleSkim(), when: clip },
-    { id: "captions", label: "Make captions from the narration", group: "Captions", icon: "captions", run: () => void ed.captions.generate(), when: () => clip() && ed.audio.hasAudio() },
-    { id: "caption-add", label: "Add caption at playhead", group: "Captions", icon: "plus", run: () => void ed.addCaptionAtPlayhead(), when: clip },
-    { id: "caption-srt", label: "Save captions as .srt…", group: "Captions", icon: "download", run: () => void ed.captions.saveSrt(), when: () => ed.captions.list().length > 0 },
-    { id: "clicks", label: "Toggle click ripples", group: "Edit", icon: "clicks", run: () => ed.toggleClicks(), when: clip },
-    { id: "keys", label: "Toggle keystroke overlay", group: "Edit", icon: "keys", run: () => ed.toggleKeys(), when: clip },
-    { id: "undo", label: "Undo", group: "Edit", icon: "undo", kbd: "Ctrl+Z", run: () => void ed.doUndo(), when: clip },
-    { id: "redo", label: "Redo", group: "Edit", icon: "redo", kbd: "Ctrl+Y", run: () => void ed.doRedo(), when: clip },
-    ...TOOLS.map(
-      (t): Command => ({
-        id: `tool-${t.id}`,
-        label: `${t.label} tool`,
-        group: "Tools",
+    { id: "zoom", label: t("Add zoom at playhead"), group: t("Edit"), icon: "zoomIn", run: () => void ed.addZoomAt(), when: clip },
+    { id: "speed", label: t("Add speed-up at playhead"), group: t("Edit"), icon: "speed", kbd: "X", run: () => void ed.addSpeedAtPlayhead(), when: clip },
+    { id: "cut", label: t("Cut at playhead"), group: t("Edit"), icon: "cut", kbd: "C", run: () => void ed.addCutAtPlayhead(), when: clip },
+    { id: "auto", label: t("Auto zooms from clicks"), group: t("Edit"), icon: "sparkle", run: () => void ed.planZoomAuto(), when: clip },
+    { id: "skim", label: t("Toggle skim idle"), group: t("Edit"), icon: "speed", run: () => ed.toggleSkim(), when: clip },
+    { id: "captions", label: t("Make captions from the narration"), group: t("Captions"), icon: "captions", run: () => void ed.captions.generate(), when: () => clip() && ed.audio.hasAudio() },
+    { id: "caption-add", label: t("Add caption at playhead"), group: t("Captions"), icon: "plus", run: () => void ed.addCaptionAtPlayhead(), when: clip },
+    { id: "caption-srt", label: t("Save captions as .srt…"), group: t("Captions"), icon: "download", run: () => void ed.captions.saveSrt(), when: () => ed.captions.list().length > 0 },
+    { id: "clicks", label: t("Toggle click ripples"), group: t("Edit"), icon: "clicks", run: () => ed.toggleClicks(), when: clip },
+    { id: "keys", label: t("Toggle keystroke overlay"), group: t("Edit"), icon: "keys", run: () => ed.toggleKeys(), when: clip },
+    { id: "undo", label: t("Undo"), group: t("Edit"), icon: "undo", kbd: "Ctrl+Z", run: () => void ed.doUndo(), when: clip },
+    { id: "redo", label: t("Redo"), group: t("Edit"), icon: "redo", kbd: "Ctrl+Y", run: () => void ed.doRedo(), when: clip },
+    ...TOOLS().map(
+      (tool): Command => ({
+        id: `tool-${tool.id}`,
+        label: t("{label} tool", { label: tool.label }),
+        group: t("Tools"),
         icon: "cursor",
-        kbd: t.key,
-        run: () => ed.setTool(t.id),
+        kbd: tool.key,
+        run: () => ed.setTool(tool.id),
         when: clip,
       }),
     ),
-    { id: "frame-none", label: "Frame: none", group: "Clip", icon: "frame", run: () => ed.applyFramePreset("none"), when: clip },
-    { id: "frame-subtle", label: "Frame: subtle", group: "Clip", icon: "frame", run: () => ed.applyFramePreset("subtle"), when: clip },
-    { id: "frame-studio", label: "Frame: studio", group: "Clip", icon: "frame", run: () => ed.applyFramePreset("studio"), when: clip },
-    { id: "crop-full", label: "Crop: full frame", group: "Clip", icon: "crop", run: () => void ed.applyCrop(null), when: clip },
-    { id: "crop-169", label: "Crop: 16:9", group: "Clip", icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(16 / 9)), when: clip },
-    { id: "crop-11", label: "Crop: 1:1", group: "Clip", icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(1)), when: clip },
-    { id: "crop-916", label: "Crop: 9:16", group: "Clip", icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(9 / 16)), when: clip },
-    { id: "v-rail", label: "Toggle tools panel", group: "View", icon: "panelLeft", kbd: "Ctrl+1", run: () => layout.railOpen.set(!layout.railOpen()) },
-    { id: "v-insp", label: "Toggle inspector", group: "View", icon: "panelRight", kbd: "Ctrl+2", run: () => layout.inspectorOpen.set(!layout.inspectorOpen()) },
-    { id: "v-tl", label: "Toggle timeline", group: "View", icon: "panelBottom", kbd: "Ctrl+3", run: () => layout.timelineOpen.set(!layout.timelineOpen()) },
-    { id: "v-reset", label: "Reset layout", group: "View", icon: "reset", kbd: "Ctrl+0", run: resetLayout },
-    { id: "v-guides", label: "Toggle composition guides", group: "View", icon: "grid", kbd: "G", run: () => layout.guides.set(!layout.guides()) },
+    { id: "frame-none", label: t("Frame: none"), group: t("Clip"), icon: "frame", run: () => ed.applyFramePreset("none"), when: clip },
+    { id: "frame-subtle", label: t("Frame: subtle"), group: t("Clip"), icon: "frame", run: () => ed.applyFramePreset("subtle"), when: clip },
+    { id: "frame-studio", label: t("Frame: studio"), group: t("Clip"), icon: "frame", run: () => ed.applyFramePreset("studio"), when: clip },
+    { id: "crop-full", label: t("Crop: full frame"), group: t("Clip"), icon: "crop", run: () => void ed.applyCrop(null), when: clip },
+    { id: "crop-169", label: t("Crop: 16:9"), group: t("Clip"), icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(16 / 9)), when: clip },
+    { id: "crop-11", label: t("Crop: 1:1"), group: t("Clip"), icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(1)), when: clip },
+    { id: "crop-916", label: t("Crop: 9:16"), group: t("Clip"), icon: "crop", run: () => void ed.applyCrop(ed.centeredCrop(9 / 16)), when: clip },
+    { id: "v-rail", label: t("Toggle tools panel"), group: t("View"), icon: "panelLeft", kbd: "Ctrl+1", run: () => layout.railOpen.set(!layout.railOpen()) },
+    { id: "v-insp", label: t("Toggle inspector"), group: t("View"), icon: "panelRight", kbd: "Ctrl+2", run: () => layout.inspectorOpen.set(!layout.inspectorOpen()) },
+    { id: "v-tl", label: t("Toggle timeline"), group: t("View"), icon: "panelBottom", kbd: "Ctrl+3", run: () => layout.timelineOpen.set(!layout.timelineOpen()) },
+    { id: "v-reset", label: t("Reset layout"), group: t("View"), icon: "reset", kbd: "Ctrl+0", run: resetLayout },
+    { id: "v-guides", label: t("Toggle composition guides"), group: t("View"), icon: "grid", kbd: "G", run: () => layout.guides.set(!layout.guides()) },
     ...[0.5, 1, 2].map(
       (r): Command => ({
         id: `rate-${r}`,
-        label: `Preview at ${r === 1 ? "normal speed" : `${r}×`}`,
-        group: "Playback",
+        label: r === 1 ? t("Preview at normal speed") : t("Preview at {rate}×", { rate: r }),
+        group: t("Playback"),
         icon: "play",
         run: () => prefs.previewRate.set(r),
       }),
     ),
-    { id: "v-snap", label: "Toggle timeline snapping", group: "View", icon: "magnet", run: () => prefs.snapping.set(!prefs.snapping()) },
-    ...THEMES.map(
-      (t): Command => ({
-        id: `theme-${t.id}`,
-        label: `Theme: ${t.name}`,
-        group: "View",
+    { id: "v-snap", label: t("Toggle timeline snapping"), group: t("View"), icon: "magnet", run: () => prefs.snapping.set(!prefs.snapping()) },
+    ...THEMES().map(
+      (theme): Command => ({
+        id: `theme-${theme.id}`,
+        label: t("Theme: {name}", { name: theme.name }),
+        group: t("View"),
         icon: "palette",
         run: () => {
-          applyTheme(t.id);
-          ed.setTheme(t.id);
+          applyTheme(theme.id);
+          ed.setTheme(theme.id);
         },
       }),
     ),
-    { id: "settings", label: "Settings", group: "App", icon: "settings", kbd: "Ctrl+,", run: () => ed.setSettingsTab("general") },
-    { id: "shortcuts", label: "Keyboard shortcuts", group: "App", icon: "keyboard", kbd: "?", run: () => ed.setSettingsTab("shortcuts") },
+    { id: "settings", label: t("Settings"), group: t("App"), icon: "settings", kbd: "Ctrl+,", run: () => ed.setSettingsTab("general") },
+    { id: "shortcuts", label: t("Keyboard shortcuts"), group: t("App"), icon: "keyboard", kbd: "?", run: () => ed.setSettingsTab("shortcuts") },
   ];
 
   const results = createMemo(() => {
@@ -164,13 +165,13 @@ export default function CommandPalette() {
 
   return (
     <div class="modal-backdrop palette-backdrop" onClick={close}>
-      <div class="palette" ref={(el) => dialogA11y(el, "Command palette", close)} onClick={(e) => e.stopPropagation()}>
+      <div class="palette" ref={(el) => dialogA11y(el, t("Command palette"), close)} onClick={(e) => e.stopPropagation()}>
         <div class="pal-search">
           <Icon name="search" size={16} />
           <input
             ref={inputEl}
-            placeholder="Type a command…"
-            aria-label="Search commands"
+            placeholder={t("Type a command…")}
+            aria-label={t("Search commands")}
             value={q()}
             onInput={(e) => {
               setQ(e.currentTarget.value);
@@ -192,7 +193,7 @@ export default function CommandPalette() {
           <kbd>Esc</kbd>
         </div>
         <div class="pal-list" ref={listEl} role="listbox">
-          <For each={results()} fallback={<div class="pal-empty">No matching command</div>}>
+          <For each={results()} fallback={<div class="pal-empty">{t("No matching command")}</div>}>
             {(c, i) => (
               <button
                 type="button"

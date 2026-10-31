@@ -196,6 +196,14 @@
   color: var(--text);
 }
 
+/* Inter has no Chinese: lead with the system's Chinese UI face. On :root, not every element
+   :lang() matches, so kbd and monospace rules keep their own stacks. */
+:root:lang(zh-CN),
+:lang(zh-CN) .sel-root,
+:lang(zh-CN) .rec-panel-root {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
 :root[data-motion="reduced"] {
   --dur-1: 0s;
   --dur-2: 0s;

@@ -49,9 +49,10 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
   a switch in the export card. Flat interface colors are left as they are.
 
 ### Changed
-- 4K is a different experience: unchanged parts of the screen now cost nothing to store or
-  read back, and an export reads, draws and encodes side by side, so playback and exports run
-  several times faster. A playing preview uses a lighter frame and sharpens when it stops.
+- 4K is much lighter: unchanged parts of the screen cost nothing to store or read back, and
+  an export reads, draws and encodes side by side. Measured on a 4-core machine with no GPU,
+  frames store at 96 fps with a video playing on a 4K screen, and 300 to 580 fps while typing.
+  A playing preview uses a lighter frame and sharpens when it stops.
 - MP4 exports get the bitrate 4K at 60 fps calls for, where they used to stop at 50 Mbps.
 - Text labels fade in and out in exports as they do in the editor.
 - A frame (Subtle, Studio) is now added around the recording instead of squeezing the

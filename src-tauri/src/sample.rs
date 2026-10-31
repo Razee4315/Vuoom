@@ -24,9 +24,7 @@ fn rect(px: &mut [u8], (x, y, w, h): (u32, u32, u32, u32), c: [u8; 3]) {
     for row in y as usize..(y + h).min(HEIGHT) as usize {
         let at = row * stride + x as usize * 4;
         let end = (at + w as usize * 4).min((row + 1) * stride);
-        for p in px[at..end].chunks_exact_mut(4) {
-            p.copy_from_slice(&color);
-        }
+        px[at..end].as_chunks_mut::<4>().0.fill(color);
     }
 }
 
@@ -126,7 +124,7 @@ mod tests {
     fn a_frame_is_the_size_it_says_and_opaque() {
         let px = frame(1.0);
         assert_eq!(px.len(), WIDTH as usize * HEIGHT as usize * 4);
-        assert!(px.chunks_exact(4).all(|p| p[3] == 255));
+        assert!(px.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
     }
 
     #[test]

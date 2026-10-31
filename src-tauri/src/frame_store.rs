@@ -853,6 +853,8 @@ pub struct StoredFrame {
     pub height: u32,
     /// BGRA pixels, shared between frames that are identical.
     pub bgra: Arc<Vec<u8>>,
+    /// Only the tests look at this: callers find frames by the index.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub qpc: i64,
     /// The same for two frames only when their pixels are the same, in any store of this
     /// run: lets the compositor skip uploading pixels it already has.
@@ -1546,11 +1548,11 @@ mod tests {
         let mut px = vec![0u8; w * h * 4];
         for (y, row) in px.chunks_exact_mut(w * 4).enumerate() {
             let panel = 236 - ((y / 240) % 3) as u8 * 18;
-            for (x, p) in row.chunks_exact_mut(4).enumerate() {
+            for (x, p) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let line = y % 26 < 15 && x > 120 && x % 3840 < 3000;
                 let ink = line && (x * 7 + (y / 26) * 31) % 11 < 4;
                 let v = if ink { 40 } else { panel };
-                p.copy_from_slice(&[v, v, v, 255]);
+                *p = [v, v, v, 255];
             }
         }
         px
@@ -1561,7 +1563,7 @@ mod tests {
         let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
         for y in y0..y0 + rh {
             let row = &mut px[(y * w + x0) * 4..(y * w + x0 + rw) * 4];
-            for p in row.chunks_exact_mut(4) {
+            for p in row.as_chunks_mut::<4>().0 {
                 s ^= s << 13;
                 s ^= s >> 7;
                 s ^= s << 17;

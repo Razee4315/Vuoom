@@ -604,7 +604,7 @@ mod tests {
         let (w, h) = project.output_dims();
         let (w, h) = fit_h264(w + w % 2, h + h % 2);
         let mut source = vec![255u8; (sw * sh * 4) as usize];
-        for (i, p) in source.chunks_exact_mut(4).enumerate() {
+        for (i, p) in source.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             p[0] = (i % 251) as u8;
             p[1] = (i / 3840 % 256) as u8;
         }

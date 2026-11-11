@@ -455,4 +455,24 @@ function mockUpdateText(m: typeof mockEngine, a: Record<string, unknown>) {
   return null;
 }
 
-export const mockBackend: MockBackend = { handle: handleMock, listen, save, open };
+// Test hooks, for automated runs and agents driving the mock:
+//  - `&slow=cmd:ms,cmd2:ms` delays those commands, to reproduce races with a slow engine
+//    (e.g. `&slow=set_region:800` holds the record overlay in "Preparing…").
+//  - `window.__vuoomMockLog` lists every command called, in order, for a run to assert on.
+const SLOW = new Map(
+  (params.get("slow") ?? "")
+    .split(",")
+    .map((pair) => pair.split(":"))
+    .filter(([cmd, ms]) => cmd && Number(ms) > 0)
+    .map(([cmd, ms]) => [cmd, Number(ms)] as const),
+);
+const LOG: string[] = [];
+(window as unknown as { __vuoomMockLog: string[] }).__vuoomMockLog = LOG;
+function handleLogged(cmd: string, a: Record<string, unknown>): unknown {
+  LOG.push(cmd);
+  const ms = SLOW.get(cmd);
+  if (!ms) return handleMock(cmd, a);
+  return new Promise((done) => setTimeout(done, ms)).then(() => handleMock(cmd, a));
+}
+
+export const mockBackend: MockBackend = { handle: handleLogged, listen, save, open };

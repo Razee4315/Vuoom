@@ -21,6 +21,14 @@ const mp4Width = (w: number, h: number): number =>
 /** The width slider's step. */
 const WIDTH_STEP = 20;
 
+/**
+ * The dialog's steps. `starting` holds while the OS save dialog is open.
+ *
+ *   configure ─Export─▶ starting ─path chosen─▶ exporting ─▶ done
+ *   starting ─no path─▶ configure          exporting ─cancelled─▶ configure
+ *   starting / exporting ─failed─▶ error ─Try again─▶ starting
+ *   error ─Back to settings─▶ configure
+ */
 type Phase = "configure" | "starting" | "exporting" | "done" | "error";
 
 export function ExportDialog(props: {
@@ -84,7 +92,6 @@ export function ExportDialog(props: {
   const outWidth = () => Math.min(width(), widest());
 
   let dialogEl: HTMLDivElement | undefined;
-  let exportStarted = false;
 
   const outDur = () => outputDuration(props.duration, props.trim, props.speed, props.cuts);
 
@@ -230,8 +237,9 @@ export function ExportDialog(props: {
   };
 
   const doExport = async () => {
-    if (exportStarted) return;
-    exportStarted = true;
+    // Starts from the settings or from a failure's Try again; a second click finds the
+    // phase already moved on to "starting".
+    if (phase() !== "configure" && phase() !== "error") return;
     const f = format();
     const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
     setPhase("starting"); // dialog locks while the OS save dialog is open
@@ -243,7 +251,6 @@ export function ExportDialog(props: {
       );
       if (!path) {
         setPhase("configure");
-        exportStarted = false;
         return;
       }
       setStartedAt(Date.now());
@@ -286,8 +293,6 @@ export function ExportDialog(props: {
     } catch (e) {
       setErrMsg(friendlyError(e));
       setPhase("error");
-    } finally {
-      exportStarted = false;
     }
   };
 

@@ -48,6 +48,8 @@ your machine, while CI verifies compilation, lints, and the pure-logic test suit
    (`fix(zoom): …`, `feat(editor): …`, `docs: …`).
 3. Pure logic (planner, camera, timing, encoding math) needs unit tests,
    that's what makes this codebase safe to change.
+   Flows that move through steps (recording, export, updates) are modelled as one
+   explicit state each, see [`docs/State-Machines.md`](./docs/State-Machines.md).
 4. Open a PR; CI must be green. Note anything that needs a manual runtime check
    (capture, GPU, input) so it can be verified on a real machine.
 

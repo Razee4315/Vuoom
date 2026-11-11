@@ -79,7 +79,22 @@ export function ask(
 }
 export function check(): Promise<Update | null> {
   if (!isMock) return tauriCheck();
-  return Promise.resolve(null);
+  // `&update=1` offers a fake release (its install "succeeds" and the mock relaunch does
+  // nothing); `&update=fail` offers one whose download fails. Without it: up to date.
+  const want = new URLSearchParams(window.location.search).get("update");
+  if (want === null) return Promise.resolve(null);
+  const fake = {
+    version: "9.9.9",
+    body: "A mock release.",
+    downloadAndInstall: async (cb?: (ev: { event: string; data: Record<string, number> }) => void) => {
+      cb?.({ event: "Started", data: { contentLength: 100 } });
+      await new Promise((r) => setTimeout(r, 300));
+      if (want === "fail") throw new Error("mock: download failed");
+      cb?.({ event: "Progress", data: { chunkLength: 100 } });
+      cb?.({ event: "Finished", data: {} });
+    },
+  };
+  return Promise.resolve(fake as unknown as Update);
 }
 /** Say this run is ending on purpose. An update's installer and a relaunch both end the
  *  process without the normal exit, and the next launch would take that for a crash. */

@@ -20,6 +20,7 @@ import { pushTakeDefaults } from "../takeDefaults";
 import { pushCursorMode } from "../cursorMode";
 import { pushHotkeys } from "../hotkeys";
 import type { PickableWindow } from "../components/WindowPicker";
+import { IDLE, PENDING, ownsScreen, type RecordFlow, type RecordTarget, type WindowPick } from "./recordFlow";
 import { toast } from "../ui";
 import { createSyncSlot, createPointerFrame } from "../sync";
 import { clamp01, distToSeg, v2 } from "../geometry";
@@ -258,17 +259,33 @@ export function createEditor() {
   const [snapX, setSnapX] = createSignal<number | null>(null);
   const [snapY, setSnapY] = createSignal<number | null>(null);
   const [showExport, setShowExport] = createSignal(false);
-  const [recordPhase, setRecordPhase] = createSignal<"idle" | "active">("idle");
-  const [backdrop, setBackdrop] = createSignal<string | null>(null);
+  // The record flow, one step at a time (see recordFlow.ts): which of the source picker,
+  // the point-at-a-window overlay and the record overlay is up, with what it needs.
+  const [recordFlow, setRecordFlow] = createSignal<RecordFlow>(IDLE);
+  const recordStep = () => recordFlow().step;
+  /** The source picker dialog is open. */
+  const showSource = () => recordStep() === "choosing";
   // Zoom strength used by Ctrl+Shift+Z while recording, and for new zoom blocks.
   const zoomAmount = prefs.recordZoom;
   const setZoomAmount = (v: number) => prefs.recordZoom.set(v);
-  // Auto-update: a pending update (if any) and whether we're mid-download.
-  const [update, setUpdate] = createSignal<Update | null>(null);
-  const [updating, setUpdating] = createSignal(false);
+  // Auto-update, one step at a time: nothing found (yet), checking, a release ready to
+  // install, or installing it (the app restarts at the end; a failed install is ready again).
+  //   idle ⇄ checking ──found──▶ ready ⇄ installing ──▶ restart
+  type UpdateFlow =
+    | { step: "idle" }
+    | { step: "checking" }
+    | { step: "ready"; update: Update }
+    | { step: "installing"; update: Update };
+  const [updateFlow, setUpdateFlow] = createSignal<UpdateFlow>({ step: "idle" });
+  /** The release ready to install, if one was found. */
+  const update = (): Update | null => {
+    const f = updateFlow();
+    return f.step === "ready" || f.step === "installing" ? f.update : null;
+  };
+  const updating = () => updateFlow().step === "installing";
+  const checkingUpdate = () => updateFlow().step === "checking";
   // The outcome of the last manual "Check for updates", shown under the button.
   const [updateNote, setUpdateNote] = createSignal<{ text: string; error?: boolean } | null>(null);
-  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   // The GPU compositor failed at boot: preview and export are dead (recording to disk
   // still works). Drives a persistent, dismissible warning strip under the top bar.
   const [gpuLost, setGpuLost] = createSignal(false);
@@ -674,28 +691,32 @@ export function createEditor() {
   /** Look for a newer release. The launch check stays quiet; a check the user asked for
    *  (`manual`) always answers: the update found, "up to date", or why it failed. */
   const checkForUpdate = async (manual = false) => {
-    if (checkingUpdate()) return;
-    setCheckingUpdate(true);
+    // Checking already, or a release is in hand: nothing more to ask GitHub.
+    if (updateFlow().step !== "idle") return;
+    setUpdateFlow({ step: "checking" });
     if (manual) setUpdateNote(null);
+    let found: Update | null = null;
     try {
-      const u = await check();
-      if (u) {
-        setUpdate(u);
-        if (manual) setUpdateNote({ text: t("Version {version} is ready to install.", { version: u.version }) });
-      } else if (manual) {
-        setUpdateNote({ text: t("You have the latest version.") });
+      found = (await check()) ?? null;
+      if (manual) {
+        setUpdateNote({
+          text: found
+            ? t("Version {version} is ready to install.", { version: found.version })
+            : t("You have the latest version."),
+        });
       }
     } catch (e) {
       // Offline, GitHub unreachable, or the updater isn't configured (dev builds).
       if (manual) setUpdateNote({ text: t("Could not check for updates: {why}", { why: friendlyError(e) }), error: true });
     } finally {
-      setCheckingUpdate(false);
+      setUpdateFlow(found ? { step: "ready", update: found } : { step: "idle" });
     }
   };
   const runUpdate = async () => {
-    const u = update();
-    if (!u || updating()) return;
-    setUpdating(true);
+    const f = updateFlow();
+    if (f.step !== "ready") return;
+    const u = f.update;
+    setUpdateFlow({ step: "installing", update: u });
     setStatus(t("Downloading update v{version}…", { version: u.version }));
     try {
       let total = 0;
@@ -719,7 +740,7 @@ export function createEditor() {
       });
       await relaunch();
     } catch (e) {
-      setUpdating(false);
+      setUpdateFlow({ step: "ready", update: u });
       fail(t("Update failed"), e);
     }
   };
@@ -1010,7 +1031,7 @@ export function createEditor() {
       }
       return;
     }
-    if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordPhase() === "idle") {
+    if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordStep() === "idle") {
       e.preventDefault();
       void startRecord();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selZoom() !== null) {
@@ -2310,20 +2331,14 @@ export function createEditor() {
   // ── record source: display picker + window capture ──────────────────────────────
   // A single display records directly (the old behavior); with several attached, a
   // chooser offers displays AND app windows before the region overlay appears.
-  type RecordTarget =
-    | { kind: "display"; name: string; label: string }
-    | { kind: "window"; hwnd: number; label: string };
-  const [showSource, setShowSource] = createSignal(false);
   const [sources, setSources] = createSignal<{
     displays: DisplayInfo[];
     windows: WindowInfo[];
   }>({ displays: [], windows: [] });
-  // Picking a window by pointing at it: the windows on the display the overlay covers
-  // (front to back) and that display's origin. `null` outside that step.
-  const [windowPick, setWindowPick] = createSignal<{
-    windows: PickableWindow[];
-    origin: { x: number; y: number };
-  } | null>(null);
+  /** Close the source picker without recording. */
+  const closeSourcePicker = () => {
+    if (recordStep() === "choosing") setRecordFlow(IDLE);
+  };
 
   // How the next take is framed: the whole display, a region the user draws, or one app
   // window. Home's source cards and the File menu pick it; Ctrl+Shift+R reuses the last.
@@ -2338,6 +2353,19 @@ export function createEditor() {
   const [sourceTab, setSourceTab] = createSignal<"display" | "window">("display");
 
   const startRecord = async (mode: RecordMode = recordMode(), add = false) => {
+    // One flow at a time: a double click, a held shortcut or a second menu pick is ignored.
+    if (recordStep() !== "idle") return;
+    setRecordFlow(PENDING);
+    try {
+      await chooseSource(mode, add);
+    } catch (e) {
+      setRecordFlow(IDLE);
+      fail(t("Could not start"), e);
+    }
+  };
+  /** startRecord's steps, run in `pending`: confirm, list the sources, then hand over to
+   *  the picker, the point-at-a-window overlay or the record overlay (or back to idle). */
+  const chooseSource = async (mode: RecordMode, add: boolean) => {
     // A new recording replaces the loaded clip, so warn before throwing away unsaved edits.
     // Soft copy: the previous session's recovery dir survives one more recording.
     const ok =
@@ -2346,7 +2374,10 @@ export function createEditor() {
         t("Start new recording? Unsaved edits to the current clip will be discarded."),
         t("Discard & record"),
       ));
-    if (!ok) return;
+    if (!ok) {
+      setRecordFlow(IDLE);
+      return;
+    }
     // Recording keeps the take before this one; the one before that loses its video now.
     // If that take never reached a project or an export, say so before it goes.
     const atRisk = add ? null : await invoke<number | null>("take_at_risk").catch(() => null);
@@ -2356,6 +2387,7 @@ export function createEditor() {
         { title: t("Delete the earlier take?"), kind: "warning", okLabel: t("Record anyway"), cancelLabel: t("Keep it") },
       );
       if (!go) {
+        setRecordFlow(IDLE);
         void refreshRecoverable();
         toast(t("Bring it back with File > Recover last session, then save or export it."), "info", 9000);
         return;
@@ -2396,8 +2428,10 @@ export function createEditor() {
           )
         : [];
       if (home && onHome.length > 0) {
-        setWindowPick({ windows: onHome, origin: { x: home.x, y: home.y } });
-        await beginRecordWith({ kind: "display", name: home.name, label: t("Display {index}", { index: home.index }) });
+        await beginRecordWith(
+          { kind: "display", name: home.name, label: t("Display {index}", { index: home.index }) },
+          { windows: onHome, origin: { x: home.x, y: home.y } },
+        );
         return;
       }
     }
@@ -2406,49 +2440,58 @@ export function createEditor() {
       return;
     }
     setSourceTab(mode === "window" && windows.length > 0 ? "window" : "display");
-    setShowSource(true);
+    setRecordFlow({ step: "choosing" });
   };
 
-  /** Leave the point-at-a-window overlay, restoring the editor window. */
-  const leaveWindowPick = async () => {
-    setWindowPick(null);
-    setRecordPhase("idle");
-    setBackdrop(null);
-    setRecordTarget(null);
+  /** Leave the point-at-a-window overlay (`pending` while the editor window is restored).
+   *  False when that overlay isn't up, e.g. a second click already left it. */
+  const leaveWindowPick = async (): Promise<boolean> => {
+    if (recordStep() !== "pointing") return false;
+    setRecordFlow(PENDING);
     await invoke("cancel_record_flow").catch(() => undefined);
+    return true;
   };
   /** The window the user pointed at: record it. */
   const pickWindow = async (w: PickableWindow) => {
-    await leaveWindowPick();
-    await beginRecordWith({ kind: "window", hwnd: w.hwnd, label: w.title });
+    if (await leaveWindowPick()) await beginRecordWith({ kind: "window", hwnd: w.hwnd, label: w.title });
   };
   /** The plain list instead of the overlay. */
   const listWindowsInstead = async () => {
-    await leaveWindowPick();
+    if (!(await leaveWindowPick())) return;
     setSourceTab("window");
-    setShowSource(true);
+    setRecordFlow({ step: "choosing" });
   };
   const cancelWindowPick = async () => {
-    await leaveWindowPick();
+    if (!(await leaveWindowPick())) return;
+    setRecordFlow(IDLE);
     setStatus(t("Recording cancelled"));
   };
 
-  const beginRecordWith = async (target: RecordTarget) => {
-    setShowSource(false);
-    setCoachRecord(false);
-    setRecordTarget(target);
-    // The capture rate is a preference; older engines without the command just keep theirs.
-    void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
-    void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
-    pushCursorMode();
-    pushHotkeys();
-    pushAudioChoice();
-    pushCameraChoice();
-    pushTakeDefaults();
+  /** Bring up the overlay for `target`: the record overlay, or with `pick` the
+   *  point-at-a-window overlay over that display. Runs from `pending` or `choosing`. */
+  const beginRecordWith = async (target: RecordTarget, pick?: WindowPick) => {
+    // A second click on a source, after the first one already moved the flow on.
+    if (recordStep() !== "pending" && recordStep() !== "choosing") return;
+    // The overlay shows immediately (dark + presets); the backdrop lands when it arrives.
+    const entered: RecordFlow = pick
+      ? { step: "pointing", pick, target, backdrop: null }
+      : { step: "framing", target, backdrop: null };
+    // The step this call owns: the one it started from, then `entered`. A failure resets the
+    // flow only while it is still there, so nothing can leave it stuck in `pending`.
+    let owned = recordFlow();
     try {
+      setCoachRecord(false);
+      // The capture rate is a preference; older engines without the command just keep theirs.
+      void invoke("set_capture_fps", { fps: prefs.captureFps() }).catch(() => undefined);
+      void invoke("set_live_preview", { on: prefs.livePreview() }).catch(() => undefined);
+      pushCursorMode();
+      pushHotkeys();
+      pushAudioChoice();
+      pushCameraChoice();
+      pushTakeDefaults();
       setStatus(t("Choose the area to record…"));
-      setBackdrop(null);
-      setRecordPhase("active"); // overlay shows immediately (dark + presets)
+      owned = entered;
+      setRecordFlow(entered);
       // enter_overlay hides the editor, grabs the target as the selector backdrop, then
       // brings the window back fullscreen + excluded from capture. It returns the frozen
       // frame as a data-URL (empty string if the grab failed → dark canvas fallback).
@@ -2456,15 +2499,15 @@ export function createEditor() {
         target.kind === "display"
           ? await invoke<string>("enter_overlay", { monitorName: target.name || null })
           : await invoke<string>("enter_overlay", { windowHwnd: target.hwnd });
-      setBackdrop(shot || null);
+      // Only for the step that asked: the user may have cancelled, or picked a window,
+      // while the screenshot was on its way.
+      if (recordFlow() === entered) setRecordFlow({ ...entered, backdrop: shot || null });
     } catch (e) {
-      setRecordPhase("idle");
-      setWindowPick(null);
+      if (recordFlow() !== owned) return; // already left that step: nothing to undo
+      setRecordFlow(IDLE);
       fail(t("Could not start"), e);
     }
   };
-
-  const [recordTarget, setRecordTarget] = createSignal<RecordTarget | null>(null);
 
   /** Ask the engine whether an earlier take can be recovered (it leaves out the loaded one). */
   const refreshRecoverable = async () => {
@@ -2496,9 +2539,7 @@ export function createEditor() {
     toast(t("Your take is ready. Press Space to watch it, Z to add a zoom, and Ctrl+E to export."), "info", 10000);
   };
   const onRecordFinished = async (summary: RecordingSummary) => {
-    setRecordPhase("idle");
-    setBackdrop(null);
-    setRecordTarget(null);
+    setRecordFlow(IDLE);
     await loadFinishedClip(summary);
     firstTakeTip();
     // The take before this one is still on disk: keep Recover last session on offer.
@@ -2519,17 +2560,28 @@ export function createEditor() {
   const addTake = () => startRecord(recordMode(), true);
   const onRecordCancel = () => {
     void invoke("set_append_take", { on: false }).catch(() => undefined);
-    setRecordPhase("idle");
-    setBackdrop(null);
-    setRecordTarget(null);
+    setRecordFlow(IDLE);
     setStatus(t("Recording cancelled"));
   };
-  const onRecordFailed = (message: string) => {
+  const onRecordFailed = async (message: string) => {
     void invoke("set_append_take", { on: false }).catch(() => undefined);
-    setRecordPhase("idle");
-    setBackdrop(null);
-    setRecordTarget(null);
+    setRecordFlow(IDLE);
     fail(t("Recording failed"), message, 9000);
+    // A new take replaces the loaded clip when it starts, so if it failed at stop the engine
+    // may have no clip left. Don't keep showing one it can't play or edit: go back to Home.
+    // (An added take puts the clip back, and a take that never started keeps it.)
+    if (!hasClip()) return;
+    const kept = await invoke("clip_state").then(
+      () => true,
+      () => false,
+    );
+    if (!kept) {
+      setPlaying(false);
+      setHasClip(false);
+      setProjectDir(null);
+      setProjectName(t("Untitled"));
+      setDirtyRaw(false);
+    }
   };
 
   // ── timeline filmstrip ────────────────────────────────────────────────────────────
@@ -4253,7 +4305,7 @@ export function createEditor() {
   // recording. Cheap (a JSON write) and skipped while recording.
   const AUTOSAVE_MS = 8000;
   const autosave = window.setInterval(() => {
-    if (!hasClip() || recordPhase() !== "idle" || editVersion === persistedVersion) return;
+    if (!hasClip() || ownsScreen(recordFlow()) || editVersion === persistedVersion) return;
     const v = editVersion;
     invoke("persist_edits")
       .then(() => {
@@ -4432,8 +4484,7 @@ export function createEditor() {
     setSnapY,
     showExport,
     setShowExport,
-    recordPhase,
-    backdrop,
+    recordFlow,
     zoomAmount,
     setZoomAmount,
     update,
@@ -4523,13 +4574,11 @@ export function createEditor() {
     editTextLive,
     finishTextEdit,
     showSource,
-    setShowSource,
+    closeSourcePicker,
     sources,
     startRecord,
     beginRecordWith,
-    recordTarget,
     onRecordFinished,
-    windowPick,
     pickWindow,
     listWindowsInstead,
     cancelWindowPick,

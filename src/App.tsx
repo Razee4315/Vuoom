@@ -32,6 +32,7 @@ import "./styles/inspector.css";
 import "./styles/timeline.css";
 import "./styles/dialogs.css";
 import "./styles/motion.css";
+import { mod } from "./platform";
 
 function Workspace() {
   return (
@@ -69,7 +70,7 @@ export default function App() {
 
   // Workspace-level shortcuts: the palette, settings, and panel toggles.
   const onKey = (e: KeyboardEvent) => {
-    if (!e.ctrlKey || e.altKey) return;
+    if (!mod(e) || e.altKey) return;
     if (e.code === "KeyK" && !e.shiftKey) {
       e.preventDefault();
       ed.setShowPalette(!ed.showPalette());

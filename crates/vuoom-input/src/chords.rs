@@ -21,6 +21,8 @@ pub struct Chord {
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
+    /// Command on macOS (the Windows key on Windows, which no default chord uses).
+    pub meta: bool,
     /// The key's virtual-key code (a letter, a digit or F1 to F12).
     pub vk: u16,
 }
@@ -28,21 +30,24 @@ pub struct Chord {
 const CTRL_BIT: u32 = 1 << 16;
 const SHIFT_BIT: u32 = 1 << 17;
 const ALT_BIT: u32 = 1 << 18;
+const META_BIT: u32 = 1 << 19;
 const VK_F1: u16 = 0x70;
 
 impl Chord {
-    /// Ctrl+Shift+Z.
+    /// Ctrl+Shift+Z (Cmd+Shift+Z on macOS).
     pub const ZOOM_DEFAULT: Self = Self {
-        ctrl: true,
+        ctrl: !cfg!(target_os = "macos"),
         shift: true,
         alt: false,
+        meta: cfg!(target_os = "macos"),
         vk: 0x5A,
     };
-    /// Ctrl+Shift+X.
+    /// Ctrl+Shift+X (Cmd+Shift+X on macOS).
     pub const STOP_DEFAULT: Self = Self {
-        ctrl: true,
+        ctrl: !cfg!(target_os = "macos"),
         shift: true,
         alt: false,
+        meta: cfg!(target_os = "macos"),
         vk: 0x58,
     };
 
@@ -57,6 +62,9 @@ impl Chord {
         if self.alt {
             v |= ALT_BIT;
         }
+        if self.meta {
+            v |= META_BIT;
+        }
         v
     }
 
@@ -65,6 +73,7 @@ impl Chord {
             ctrl: v & CTRL_BIT != 0,
             shift: v & SHIFT_BIT != 0,
             alt: v & ALT_BIT != 0,
+            meta: v & META_BIT != 0,
             vk: (v & 0xFFFF) as u16,
         }
     }
@@ -72,7 +81,16 @@ impl Chord {
     /// Whether pressing `vk` with exactly these modifiers held is this chord.
     #[must_use]
     pub fn matches(self, ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
-        vk == self.vk && ctrl == self.ctrl && shift == self.shift && alt == self.alt
+        self.matches_with(ctrl, shift, alt, false, vk)
+    }
+
+    /// [`Chord::matches`] with Command (macOS) / the Windows key held as well. A chord
+    /// without it ignores the Windows key on Windows, as it always has; on macOS Command is
+    /// matched exactly, since it is the main modifier there.
+    #[must_use]
+    pub fn matches_with(self, ctrl: bool, shift: bool, alt: bool, meta: bool, vk: u16) -> bool {
+        let meta_ok = meta == self.meta || (!self.meta && cfg!(windows));
+        vk == self.vk && ctrl == self.ctrl && shift == self.shift && alt == self.alt && meta_ok
     }
 
     /// Parse a chord written like `"Ctrl+Shift+Z"`, `"Alt+Shift+2"` or `"F9"`.
@@ -88,13 +106,15 @@ impl Chord {
             ctrl: false,
             shift: false,
             alt: false,
+            meta: false,
             vk: 0,
         };
         for part in text.split('+').map(str::trim) {
             match part.to_ascii_lowercase().as_str() {
                 "ctrl" | "control" => chord.ctrl = true,
                 "shift" => chord.shift = true,
-                "alt" => chord.alt = true,
+                "alt" | "opt" | "option" => chord.alt = true,
+                "cmd" | "command" | "meta" | "win" => chord.meta = true,
                 key => {
                     if chord.vk != 0 {
                         return Err(format!("\"{text}\" has more than one key"));
@@ -111,10 +131,14 @@ impl Chord {
         if chord.vk == 0 {
             return Err(format!("\"{text}\" has no key"));
         }
-        let modifiers = [chord.ctrl, chord.shift, chord.alt];
+        let modifiers = [chord.ctrl, chord.shift, chord.alt, chord.meta];
         let held = modifiers.iter().filter(|m| **m).count();
         if chord.vk < VK_F1 && held < 2 {
-            return Err("Hold two of Ctrl, Shift and Alt with a letter or digit".into());
+            return Err(if cfg!(target_os = "macos") {
+                "Hold two of Cmd, Ctrl, Shift and Option with a letter or digit".into()
+            } else {
+                "Hold two of Ctrl, Shift and Alt with a letter or digit".into()
+            });
         }
         Ok(chord)
     }
@@ -184,20 +208,24 @@ impl Hotkey {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub use os::ChordWatch;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(crate) use os::{hook_key, hook_reset};
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod os {
     use super::{Chord, Hotkey};
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
     use std::time::{Duration, Instant};
+    #[cfg(windows)]
     use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
+    #[cfg(windows)]
     const VK_SHIFT: i32 = 0x10;
+    #[cfg(windows)]
     const VK_CONTROL: i32 = 0x11;
+    #[cfg(windows)]
     const VK_MENU: i32 = 0x12;
 
     /// Presses the keyboard hook counted (and swallowed), per hotkey.
@@ -207,6 +235,7 @@ mod os {
     /// auto-repeats and their release are swallowed too, so the app never sees half a key.
     static HELD: AtomicU32 = AtomicU32::new(0);
 
+    #[cfg(windows)]
     fn key_down(vk: i32) -> bool {
         // SAFETY: a plain key-state query. The high-order bit is set while the key is down.
         (unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000) != 0
@@ -214,16 +243,28 @@ mod os {
 
     impl Chord {
         /// Whether exactly this chord's modifiers are held right now.
+        #[cfg(windows)]
         fn modifiers_down(self) -> bool {
             key_down(VK_CONTROL) == self.ctrl
                 && key_down(VK_SHIFT) == self.shift
                 && key_down(VK_MENU) == self.alt
         }
 
+        /// Whether exactly this chord's modifiers are held right now.
+        #[cfg(target_os = "macos")]
+        fn modifiers_down(self) -> bool {
+            let m = crate::mac::modifiers_down();
+            m.ctrl == self.ctrl && m.shift == self.shift && m.alt == self.alt && m.cmd == self.meta
+        }
+
         /// Whether the whole chord is held right now, going by the system's key state.
         #[must_use]
         pub fn is_down(self) -> bool {
-            key_down(i32::from(self.vk)) && self.modifiers_down()
+            #[cfg(windows)]
+            let key = key_down(i32::from(self.vk));
+            #[cfg(target_os = "macos")]
+            let key = crate::mac::vk_down(self.vk);
+            key && self.modifiers_down()
         }
     }
 
@@ -322,8 +363,15 @@ mod tests {
 
     #[test]
     fn chords_parse_from_how_they_are_written() {
-        assert_eq!(Chord::parse("Ctrl+Shift+Z"), Ok(Chord::ZOOM_DEFAULT));
-        assert_eq!(Chord::parse(" ctrl + shift + x "), Ok(Chord::STOP_DEFAULT));
+        let (zoom, stop) = if cfg!(target_os = "macos") {
+            ("Cmd+Shift+Z", " cmd + shift + x ")
+        } else {
+            ("Ctrl+Shift+Z", " ctrl + shift + x ")
+        };
+        assert_eq!(Chord::parse(zoom), Ok(Chord::ZOOM_DEFAULT));
+        assert_eq!(Chord::parse(stop), Ok(Chord::STOP_DEFAULT));
+        let cmd = Chord::parse("Cmd+Option+5").unwrap();
+        assert!(cmd.meta && cmd.alt && !cmd.ctrl && cmd.vk == 0x35);
         let alt2 = Chord::parse("Alt+Shift+2").unwrap();
         assert!(alt2.matches(false, true, true, 0x32));
         // A function key stands on its own, or with modifiers.
@@ -347,12 +395,17 @@ mod tests {
 
     #[test]
     fn a_chord_matches_only_its_exact_modifiers() {
-        let z = Chord::ZOOM_DEFAULT;
+        let z = Chord::parse("Ctrl+Shift+Z").unwrap();
         assert!(z.matches(true, true, false, 0x5A));
         // Ctrl+Z is undo, not zoom.
         assert!(!z.matches(true, false, false, 0x5A));
         assert!(!z.matches(true, true, true, 0x5A));
         assert!(!z.matches(true, true, false, 0x58));
+        // A Command chord needs Command, and Command alone doesn't stand in for Ctrl.
+        let cmd = Chord::parse("Cmd+Shift+Z").unwrap();
+        assert!(cmd.matches_with(false, true, false, true, 0x5A));
+        assert!(!cmd.matches_with(true, true, false, false, 0x5A));
+        assert!(!z.matches_with(false, true, false, true, 0x5A));
     }
 
     #[test]

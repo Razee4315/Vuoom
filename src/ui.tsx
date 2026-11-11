@@ -2,6 +2,7 @@
 // Buttons, segmented controls, switches, sliders, collapsible sections, menus, keyboard
 // chips, a global tooltip layer, and the toast stack for action feedback.
 
+import { keyCaps, keyText } from "./platform";
 import {
   createEffect,
   createSignal,
@@ -251,7 +252,7 @@ export function Rich(props: { text: string; parts: Record<string, () => JSX.Elem
 export function Kbd(props: { keys: string }): JSX.Element {
   return (
     <span class="kbds">
-      <For each={props.keys.split("+")}>{(k) => <kbd>{k}</kbd>}</For>
+      <For each={keyCaps(props.keys)}>{(k) => <kbd>{k}</kbd>}</For>
     </span>
   );
 }
@@ -381,7 +382,7 @@ function MenuPopup(props: {
                 </span>
                 <span class="menu-label">{it.label}</span>
                 <Show when={it.kbd}>
-                  <span class="menu-kbd">{it.kbd}</span>
+                  <span class="menu-kbd">{keyText(it.kbd ?? "")}</span>
                 </Show>
               </button>
             );
@@ -528,7 +529,7 @@ export function TooltipLayer(): JSX.Element {
         >
           <span>{t().text}</span>
           <Show when={t().kbd}>
-            <span class="tooltip-kbd">{t().kbd}</span>
+            <span class="tooltip-kbd">{keyText(t().kbd ?? "")}</span>
           </Show>
         </div>
       )}

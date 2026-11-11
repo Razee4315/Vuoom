@@ -416,6 +416,13 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "enter_overlay":
       return m.enterOverlay();
+    case "permissions": {
+      // `?noscreen` / `?noax` show the macOS permissions card in the mock.
+      const q = new URLSearchParams(window.location.search);
+      return { screen: !q.has("noscreen"), accessibility: !q.has("noax"), input: true };
+    }
+    case "request_permission":
+      return null;
     case "set_region":
       return null;
     case "show_region_border":

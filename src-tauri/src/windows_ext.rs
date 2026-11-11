@@ -153,8 +153,32 @@ pub fn copy_file_to_clipboard(path: &str) -> Result<(), String> {
     raw::set_file_list_with(&[path], options::DoClear).map_err(|e| e.to_string())
 }
 
-/// Non-Windows stub.
-#[cfg(not(windows))]
+/// Put a file on the macOS pasteboard as a file URL: pasting into Slack, Discord, Mail or
+/// Finder then hands over the actual (animated) file, as on Windows.
+#[cfg(target_os = "macos")]
+pub fn copy_file_to_clipboard(path: &str) -> Result<(), String> {
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardWriting};
+    use objc2_foundation::{NSArray, NSString, NSURL};
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("{path} doesn't exist"));
+    }
+    let path = path.to_string();
+    dispatch2::run_on_main(move |_| {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(&path));
+        let board = NSPasteboard::generalPasteboard();
+        board.clearContents();
+        let item: &ProtocolObject<dyn NSPasteboardWriting> = ProtocolObject::from_ref(&*url);
+        if board.writeObjects(&NSArray::from_slice(&[item])) {
+            Ok(())
+        } else {
+            Err("the clipboard refused the file".to_string())
+        }
+    })
+}
+
+/// Stub for other targets.
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn copy_file_to_clipboard(_path: &str) -> Result<(), String> {
-    Err("clipboard file copy is Windows-only".into())
+    Err("clipboard file copy is not available here".into())
 }

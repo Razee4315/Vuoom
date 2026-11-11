@@ -22,3 +22,12 @@ windows = { version = "0.62", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Quartz event tap, display geometry and the host clock (macOS).
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["CFRunLoop", "CFMachPort", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", features = ["CGDirectDisplay", "CGEvent", "CGEventTypes", "CGEventSource", "CGRemoteOperation", "CGError"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSCursor", "NSImage", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }

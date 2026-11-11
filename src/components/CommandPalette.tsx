@@ -8,6 +8,7 @@ import { layout, prefs, resetLayout } from "../prefs";
 import { FPS_CHOICES } from "../recordOptions";
 import { TOOLS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
+import { keyText } from "../platform";
 
 interface Command {
   id: string;
@@ -209,7 +210,7 @@ export default function CommandPalette() {
                 <span class="pal-label">{c.label}</span>
                 <span class="pal-group">{c.group}</span>
                 <Show when={c.kbd}>
-                  <span class="pal-kbd">{c.kbd}</span>
+                  <span class="pal-kbd">{keyText(c.kbd ?? "")}</span>
                 </Show>
               </button>
             )}

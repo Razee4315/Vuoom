@@ -621,7 +621,11 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[path = "mac.rs"]
+mod imp;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     use super::{Camera, Shared};
     use std::sync::mpsc::Sender;

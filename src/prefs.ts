@@ -4,6 +4,7 @@
 // the app then simply starts from defaults next time.
 import { createSignal, type Accessor } from "solid-js";
 import type { ClickStyle, CursorMode, CursorStyle } from "./types";
+import { isMac } from "./platform";
 
 const PREFIX = "vuoom-pref:";
 
@@ -96,8 +97,8 @@ export const prefs = {
   /** The area the last region take recorded, offered again by the region picker. */
   lastRegion: persisted<LastRegion | null>("last-region", null),
   /** The hotkeys that zoom and stop while another app has the keyboard (see hotkeys.ts). */
-  hotkeyZoom: persisted<string>("hotkey-zoom", "Ctrl+Shift+Z"),
-  hotkeyStop: persisted<string>("hotkey-stop", "Ctrl+Shift+X"),
+  hotkeyZoom: persisted<string>("hotkey-zoom", isMac ? "Cmd+Shift+Z" : "Ctrl+Shift+Z"),
+  hotkeyStop: persisted<string>("hotkey-stop", isMac ? "Cmd+Shift+X" : "Ctrl+Shift+X"),
   /** Countdown before capture starts, in seconds (0 = start immediately). */
   countdown: persisted<number>("countdown", 3),
   /** Zoom strength applied by Ctrl+Shift+Z while recording (1 = zoom off). */

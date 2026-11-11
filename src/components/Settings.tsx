@@ -26,6 +26,7 @@ import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
 import { CURSOR_MODES } from "../cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "../recordOptions";
+import { isMac, keyCaps } from "../platform";
 
 type Tab = "general" | "recording" | "editing" | "storage" | "shortcuts" | "about";
 const TABS = (): { id: Tab; label: string; icon: IconName }[] => [
@@ -421,7 +422,7 @@ export default function Settings() {
                         <div class="shortcut-row">
                           <span>{s.label}</span>
                           <span class="kbds">
-                            <For each={s.keys}>{(k) => <kbd>{k}</kbd>}</For>
+                            <For each={keyCaps(s.keys.join("+"))}>{(k) => <kbd>{k}</kbd>}</For>
                           </span>
                         </div>
                       )}
@@ -472,7 +473,9 @@ export default function Settings() {
               <div class="about-report">
                 <h4>{t("Something went wrong?")}</h4>
                 <p class="note">
-                  {t("Copy a report with your Vuoom and Windows versions, GPU, displays and the last lines of the log, then paste it into a bug report. Nothing is sent from here.")}
+                  {isMac
+                    ? t("Copy a report with your Vuoom and macOS versions, GPU, displays and the last lines of the log, then paste it into a bug report. Nothing is sent from here.")
+                    : t("Copy a report with your Vuoom and Windows versions, GPU, displays and the last lines of the log, then paste it into a bug report. Nothing is sent from here.")}
                 </p>
                 <div class="about-report-actions">
                   <button type="button" class="btn sm" onClick={() => void ed.copyDiagnostics()}>

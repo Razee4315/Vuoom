@@ -23,3 +23,20 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tempfile = "3"
+vuoom-input.workspace = true
+
+# Elsewhere than Windows: JPEG in pure Rust (MIT/Apache/Zlib), webcam through AVFoundation.
+[target.'cfg(not(windows))'.dependencies]
+jpeg-encoder = "0.7"
+zune-jpeg = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+vuoom-input.workspace = true
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSString", "NSDictionary", "NSValue"] }
+objc2-av-foundation = { version = "0.3", features = ["objc2-core-media", "objc2-core-video"] }
+objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "CMTime", "CMFormatDescription", "CMBase", "objc2-core-video"] }
+objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn", "CVBase"] }
+objc2-core-foundation = "0.3"

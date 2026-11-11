@@ -99,6 +99,10 @@ pub(crate) fn fit_h264(w: u32, h: u32) -> (u32, u32) {
     (even(fw), even(fh))
 }
 
+/// How far ahead of the video the export writes the soundtrack. AVAssetWriter (macOS) holds
+/// video back until it has about a second more audio; Media Foundation needs no lead.
+pub(crate) const AUDIO_LEAD_SECS: f64 = if cfg!(target_os = "macos") { 1.5 } else { 0.0 };
+
 /// The most bits per second we ask of an encoder: 4K at 60 fps at the top of the slider.
 const MAX_BITRATE: u32 = 120_000_000;
 
@@ -476,6 +480,9 @@ mod imp {
             Ok(())
         }
 
+        /// The whole soundtrack has been written (nothing to do for Media Foundation).
+        pub fn end_audio(&self) {}
+
         /// Flush the encoder and finalize the MP4 container.
         pub fn finish(self) -> Result<(), String> {
             // SAFETY: finalizing a writer we began writing on.
@@ -487,11 +494,17 @@ mod imp {
 #[cfg(windows)]
 pub use imp::Mp4Encoder;
 
-/// Non-Windows stub (the app is Windows-only, but keeps `cargo check` portable).
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[path = "macos/mp4.rs"]
+mod mac;
+#[cfg(target_os = "macos")]
+pub use mac::Mp4Encoder;
+
+/// Stub for other targets (keeps `cargo check` portable).
+#[cfg(not(any(windows, target_os = "macos")))]
 pub struct Mp4Encoder;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl Mp4Encoder {
     pub fn new(
         _path: &std::path::Path,
@@ -506,6 +519,7 @@ impl Mp4Encoder {
     pub fn has_audio(&self) -> bool {
         false
     }
+    pub fn end_audio(&self) {}
     pub fn write_audio(&self, _samples: &[i16], _start: u64) -> Result<(), String> {
         Err("MP4 export is Windows-only".into())
     }
@@ -577,7 +591,7 @@ mod tests {
 
     /// One 4K export through the real compositor and encoder, printing what each stage costs.
     /// Writes the file to `VUOOM_PERF_OUT` for the workflow to inspect.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn bench_export(name: &str, padding: f64, out: &std::path::Path) -> (u32, u32) {
         use std::time::{Duration, Instant};
         use vuoom_project::{Project, SourceInfo};
@@ -638,7 +652,7 @@ mod tests {
         (w, h)
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     #[ignore = "a 4K benchmark, run by the engine-4k workflow"]
     fn perf_4k_export() {
@@ -672,5 +686,57 @@ mod tests {
         assert!(h <= 4096 && w % 2 == 0, "{w}x{h}");
         let (w, h) = fit_h264(7680, 4320);
         assert!(w <= 4096 && h <= 4096, "{w}x{h}");
+    }
+
+    /// A real encode through VideoToolbox: two seconds of moving 720p frames with a
+    /// soundtrack, then the container is checked for its boxes and both tracks.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_encodes_an_mp4_with_sound() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("t.mp4");
+        let (w, h, fps) = (1280u32, 720u32, 30u32);
+        let enc = Mp4Encoder::new(&out, w, h, fps, 85, true).expect("encoder");
+        assert!(enc.has_audio());
+        // The soundtrack as the export feeds it: AUDIO_LEAD_SECS ahead of the video.
+        let total = u64::from(fps * 2) * (48_000 / u64::from(fps));
+        let mut audio_done = 0u64;
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let per_frame = 48_000 / fps as usize;
+        for i in 0..(fps * 2) {
+            for (k, p) in frame.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                let x = (k as u32 % w + i * 8) as u8;
+                *p = [x, (k as u32 / w) as u8, 128, 255];
+            }
+            enc.write_rgba(&frame, i)
+                .unwrap_or_else(|e| panic!("frame {i}: {e}"));
+            let start = u64::from(i) * per_frame as u64;
+            let lead = (AUDIO_LEAD_SECS * 48_000.0) as u64;
+            let until = (start + per_frame as u64 + lead).min(total);
+            if until > audio_done {
+                let tone: Vec<i16> = (audio_done..until)
+                    .flat_map(|n| {
+                        let v = ((n as f64 / 48_000.0 * 440.0 * std::f64::consts::TAU).sin()
+                            * 8000.0) as i16;
+                        [v, v]
+                    })
+                    .collect();
+                enc.write_audio(&tone, audio_done).expect("audio");
+                audio_done = until;
+                if audio_done == total {
+                    enc.end_audio();
+                }
+            }
+        }
+        enc.finish().expect("finish");
+        if let Some(keep) = std::env::var_os("VUOOM_MP4_OUT") {
+            std::fs::copy(&out, keep).unwrap();
+        }
+        let bytes = std::fs::read(&out).unwrap();
+        assert!(bytes.len() > 20_000, "{} bytes", bytes.len());
+        let has = |tag: &[u8]| bytes.windows(4).any(|w| w == tag);
+        assert!(has(b"ftyp") && has(b"moov") && has(b"mdat"));
+        assert!(has(b"avc1"), "no H.264 track");
+        assert!(has(b"mp4a"), "no AAC track");
     }
 }

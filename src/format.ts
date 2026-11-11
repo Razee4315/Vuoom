@@ -2,6 +2,7 @@
 import { clamp01 } from "./geometry";
 import { t } from "./i18n";
 import type { Color } from "./types";
+import { isMac } from "./platform";
 
 export const cssColor = (c: Color) =>
   `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${c.a})`;
@@ -35,10 +36,22 @@ export const gpuFailedMsg = () =>
   t("Graphics initialization failed, preview and export won't work (recording still saves to disk). Update your GPU drivers and restart Vuoom.");
 
 const diskFull = () => t("The disk is full. Free up some space and try again.");
-const accessDenied = () => t("Windows wouldn't allow writing there. Try a different folder.");
+const accessDenied = () =>
+  isMac
+    ? t("macOS wouldn't allow writing there. Try a different folder.")
+    : t("Windows wouldn't allow writing there. Try a different folder.");
 
 /// Terse engine errors and what to tell the user instead. Matched on the engine's English.
 const FRIENDLY: [string, () => string][] = [
+  [
+    "screen-recording-permission",
+    () =>
+      t("Vuoom needs the Screen Recording permission. Turn on Vuoom in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen Vuoom."),
+  ],
+  [
+    "camera-permission",
+    () => t("Vuoom needs the Camera permission. Turn on Vuoom in System Settings > Privacy & Security > Camera."),
+  ],
   ["no GPU compositor", gpuFailedMsg],
   ["no recording", () => t("Record something or open a project first.")],
   ["it sent no frames", () => t("The camera was not recorded (it sent no frames).")],

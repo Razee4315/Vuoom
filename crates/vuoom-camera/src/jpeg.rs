@@ -1,5 +1,6 @@
-//! JPEG through the Windows Imaging Component: built into every Windows, nothing to
-//! bundle, and quick at webcam sizes. Pixels are BGRA with opaque alpha on both sides.
+//! JPEG through the Windows Imaging Component on Windows (built in, nothing to bundle,
+//! quick at webcam sizes) and in pure Rust elsewhere. Pixels are BGRA with opaque alpha on
+//! both sides.
 
 #[cfg(windows)]
 mod imp {
@@ -116,14 +117,41 @@ mod imp {
     }
 }
 
+/// Pure Rust elsewhere: `jpeg-encoder` to write, `zune-jpeg` to read.
 #[cfg(not(windows))]
 mod imp {
-    pub fn encode(_bgra: &[u8], _w: u32, _h: u32) -> Result<Vec<u8>, String> {
-        Err("JPEG encoding is Windows-only".into())
+    pub fn encode(bgra: &[u8], w: u32, h: u32) -> Result<Vec<u8>, String> {
+        let (Ok(w16), Ok(h16)) = (u16::try_from(w), u16::try_from(h)) else {
+            return Err("camera frame too large for JPEG".into());
+        };
+        let mut out = Vec::with_capacity(bgra.len() / 10);
+        let encoder = jpeg_encoder::Encoder::new(&mut out, 85);
+        encoder
+            .encode(
+                &bgra[..w as usize * h as usize * 4],
+                w16,
+                h16,
+                jpeg_encoder::ColorType::Bgra,
+            )
+            .map_err(|e| format!("jpeg encode: {e}"))?;
+        Ok(out)
     }
 
-    pub fn decode(_jpeg: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
-        Err("JPEG decoding is Windows-only".into())
+    pub fn decode(jpeg: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+        use zune_jpeg::zune_core::colorspace::ColorSpace;
+        use zune_jpeg::zune_core::options::DecoderOptions;
+        let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::BGRA);
+        let mut decoder = zune_jpeg::JpegDecoder::new_with_options(jpeg, options);
+        let px = decoder
+            .decode()
+            .map_err(|e| format!("jpeg decode: {e:?}"))?;
+        let (w, h) = decoder
+            .dimensions()
+            .ok_or_else(|| "jpeg decode: no size".to_string())?;
+        if px.len() != w * h * 4 {
+            return Err("jpeg decode: unexpected pixel layout".into());
+        }
+        Ok((w as u32, h as u32, px))
     }
 }
 
@@ -146,7 +174,7 @@ pub fn decode_bgra(jpeg: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     imp::decode(jpeg)
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

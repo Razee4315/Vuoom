@@ -6,7 +6,7 @@
 
 **Screen recordings that zoom where it matters.**
 
-A **free, open-source screen recorder for Windows** with cinematic **auto-zoom**.
+A **free, open-source screen recorder for Windows and macOS** with cinematic **auto-zoom**.
 Record your screen, the camera glides into the action, and you export a small,
 crisp **demo GIF or MP4** ready for your GitHub README, changelog, Slack, or
 product post. No account, no watermark, no subscription.
@@ -17,7 +17,7 @@ product post. No account, no watermark, no subscription.
 [![Downloads](https://img.shields.io/github/downloads/Razee4315/Vuoom/total?color=2ea44f)](https://github.com/Razee4315/Vuoom/releases)
 [![CI](https://img.shields.io/badge/CI-Windows%20checks-0078d4)](https://github.com/Razee4315/Vuoom/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+![Platform: Windows 10/11 and macOS 14+](https://img.shields.io/badge/platform-Windows%2010%2F11%20%7C%20macOS%2014%2B-0078d4)
 
 <img src=".github/assets/screenshot-editor.png" alt="The Vuoom editor: zoom blocks, annotation lanes, speed regions and cuts on one timeline" width="820" />
 
@@ -191,13 +191,29 @@ a SolidJS app whose state lives in one editor store (`src/editor/`) that the
 components in `src/components/` render. Design docs live in
 [`docs/`](./docs), including the [redesign blueprint](docs/AUDIT-AND-REDESIGN.md).
 
+## macOS
+
+Vuoom runs natively on Macs with Apple Silicon and macOS 14 or later: ScreenCaptureKit
+capture at full Retina resolution, a Quartz event tap for clicks and hotkeys, AVFoundation
+for the webcam and MP4 export (hardware H.264), Metal for the compositor and for offline
+captions. Shortcuts use Command (`⌘K`, `⌘E`, `⇧⌘Z` to zoom while recording, `⇧⌘X` to stop).
+
+The first time, macOS asks for **Screen Recording** (needed for every take; quit and reopen
+Vuoom after allowing it) and **Accessibility** (lets auto zoom see your clicks and keeps the
+hotkeys from reaching the app you record). The Home screen shows what is still missing,
+with a button for each. Builds that aren't notarized need a right-click > Open the first
+time. Porting notes: [`docs/19-macOS-Port-Plan.md`](docs/19-macOS-Port-Plan.md).
+
 ## Building from source
 
 ```sh
 pnpm install
 pnpm tauri dev      # run locally
-pnpm tauri build    # produce installers
+pnpm tauri build    # produce installers (.msi/.exe on Windows, .app/.dmg on a Mac)
 ```
+
+On a Mac you need the Xcode command line tools, CMake (`brew install cmake`, for
+whisper.cpp), Rust and pnpm.
 
 ### Working on the UI without building Rust
 

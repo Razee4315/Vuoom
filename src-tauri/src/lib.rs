@@ -10,19 +10,28 @@ mod camera;
 mod captions;
 mod commands;
 mod diagnostics;
+#[cfg_attr(target_os = "macos", path = "macos/displays.rs")]
 mod displays;
 mod drag_wall;
 mod frame_store;
 mod hotkey;
 mod live_preview;
+#[cfg(target_os = "macos")]
+#[path = "macos/window.rs"]
+mod mac_window;
 mod mp4;
 mod prefs;
 mod region_border;
 mod sample;
 mod session;
 mod windows_ext;
+#[cfg_attr(target_os = "macos", path = "macos/windows_list.rs")]
 mod windows_list;
 mod zoom_chord;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "macos/e2e.rs"]
+mod macos_e2e;
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -333,6 +342,8 @@ pub fn run() {
             commands::recover_session,
             commands::recovery_storage,
             commands::clear_recovery_storage,
+            commands::permissions,
+            commands::request_permission,
             prefs::get_pref,
             prefs::set_pref,
         ])

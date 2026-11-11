@@ -2,6 +2,7 @@
 // the sentence up in the active dictionary, fills its placeholders, and falls back to the
 // English when a key is missing. t reads the locale signal, so a call inside JSX follows a
 // language change on its own. Only a call that runs once (a module-level constant) can't.
+import { platformText } from "./platform";
 import { createSignal } from "solid-js";
 import { prefs } from "./prefs";
 
@@ -42,5 +43,7 @@ export function initLocale(): Promise<void> {
 
 export function t(text: string, vars?: Record<string, string | number>): string {
   const s = locale() === "en" ? text : (dict[text] ?? text);
-  return vars ? s.replace(/\{(\w+)\}/g, (hole, name) => String(vars[name] ?? hole)) : s;
+  const filled = vars ? s.replace(/\{(\w+)\}/g, (hole, name) => String(vars[name] ?? hole)) : s;
+  // Shortcuts named in a sentence ("Ctrl+Z undoes it") read ⌘Z on a Mac.
+  return platformText(filled);
 }

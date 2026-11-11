@@ -23,3 +23,16 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
 ] }
+
+# ScreenCaptureKit (macOS 12.3+). The objc2 framework crates match the objc2 0.6 stack Tauri
+# already pulls in, so no second Objective-C binding layer is compiled.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSString", "NSDictionary", "NSValue", "NSProcessInfo"] }
+objc2-core-foundation = { version = "0.3", features = ["CFArray", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
+objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "CMTime", "CMFormatDescription", "CMBase", "CMBlockBuffer", "objc2-core-video", "objc2-core-audio-types"] }
+objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn", "CVBase"] }
+objc2-core-graphics = { version = "0.3", features = ["CGDirectDisplay", "CGWindow", "CGGeometry", "CGError"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "libc", "SCShareableContent", "SCStream", "SCError", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation"] }

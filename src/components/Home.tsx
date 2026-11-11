@@ -11,6 +11,7 @@ import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES, type Choice } from "../re
 import { Kbd, Rich, Seg } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
+import PermissionsCard from "./Permissions";
 
 const SOURCES = (): { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] => [
   { mode: "region", icon: "region", title: t("Region"), sub: t("Any area you drag out") },
@@ -57,6 +58,8 @@ export default function Home() {
               />
             </Show>
           </p>
+
+          <PermissionsCard />
 
           <div class="source-cards">
             <For each={SOURCES()}>

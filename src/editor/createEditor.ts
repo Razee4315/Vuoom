@@ -58,6 +58,7 @@ import type {
   ZoomSeg,
   ZoomStyle,
 } from "../types";
+import { mod } from "../platform";
 
 /** A box's name, after the tool that makes it: Hide, Highlight (a see-through fill) or Shape. */
 function boxLabel(b: BoxAnn): string {
@@ -492,22 +493,22 @@ export function createEditor() {
     // they can't mutate the clip behind it, but still swallow browser chords further down.
     const modalOpen = isModal();
     // Undo / redo (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), inputs keep their native undo.
-    if (!modalOpen && e.ctrlKey && !e.altKey && !inField && e.code === "KeyZ") {
+    if (!modalOpen && mod(e) && !e.altKey && !inField && e.code === "KeyZ") {
       e.preventDefault();
       void (e.shiftKey ? doRedo() : doUndo());
       return;
     }
-    if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
+    if (!modalOpen && mod(e) && !e.shiftKey && !e.altKey && !inField && e.code === "KeyY") {
       e.preventDefault();
       void doRedo();
       return;
     }
-    if (!modalOpen && e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyS") {
+    if (!modalOpen && mod(e) && e.shiftKey && !e.altKey && e.code === "KeyS") {
       e.preventDefault();
       void onSaveProjectAs();
       return;
     }
-    if (!modalOpen && e.ctrlKey && !e.shiftKey && !e.altKey) {
+    if (!modalOpen && mod(e) && !e.shiftKey && !e.altKey) {
       if (e.code === "KeyS") {
         e.preventDefault();
         if (hasClip()) void onSaveProject();
@@ -549,7 +550,7 @@ export function createEditor() {
     // Z-order for the primary selected annotation: Ctrl+] / Ctrl+[ nudge one step,
     // Ctrl+Shift+] / Ctrl+Shift+[ jump to front / back. Guarded like the other editor
     // accelerators (no modal, not in a field, an annotation selected).
-    if (!modalOpen && e.ctrlKey && !e.altKey && !inField && hasClip() && selected()) {
+    if (!modalOpen && mod(e) && !e.altKey && !inField && hasClip() && selected()) {
       if (e.code === "BracketRight") {
         e.preventDefault();
         void reorderSelected(e.shiftKey ? "front" : "forward");
@@ -562,9 +563,9 @@ export function createEditor() {
       }
     }
     const browserChord =
-      (e.ctrlKey && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
-      (e.ctrlKey && !e.shiftKey && e.code === "KeyR") ||
-      (e.ctrlKey && e.shiftKey && (e.code === "KeyI" || e.code === "KeyJ" || e.code === "KeyC") && !inField) ||
+      (mod(e) && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
+      (mod(e) && !e.shiftKey && e.code === "KeyR") ||
+      (mod(e) && e.shiftKey && (e.code === "KeyI" || e.code === "KeyJ" || e.code === "KeyC") && !inField) ||
       (e.altKey && (e.code === "ArrowLeft" || e.code === "ArrowRight") && !inField) ||
       e.code === "F3" || e.code === "F5" || e.code === "F7" || e.code === "F11";
     if (browserChord) {
@@ -574,7 +575,7 @@ export function createEditor() {
   };
   const onWheelGuard = (e: WheelEvent) => {
     // Ctrl+wheel is browser page-zoom, meaningless in a desktop editor.
-    if (e.ctrlKey) e.preventDefault();
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
   };
 
   onMount(async () => {
@@ -1031,7 +1032,7 @@ export function createEditor() {
       }
       return;
     }
-    if (e.ctrlKey && e.shiftKey && e.code === "KeyR" && recordStep() === "idle") {
+    if (mod(e) && e.shiftKey && e.code === "KeyR" && recordStep() === "idle") {
       e.preventDefault();
       void startRecord();
     } else if ((e.key === "Delete" || e.key === "Backspace") && selZoom() !== null) {
@@ -1077,7 +1078,7 @@ export function createEditor() {
     } else if (e.code === "Space" && hasClip()) {
       e.preventDefault();
       togglePlay();
-    } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && hasClip() && !e.ctrlKey) {
+    } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && hasClip() && !mod(e)) {
       e.preventDefault();
       const dir = e.key === "ArrowRight" ? 1 : -1;
       if (selected() && !playing()) {
@@ -1086,11 +1087,11 @@ export function createEditor() {
         const step = e.shiftKey ? 1 : 0.05;
         scrub(Math.min(Math.max(playhead() + dir * step, tStart()), tEnd()));
       }
-    } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && hasClip() && !e.ctrlKey && selected() && !playing()) {
+    } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && hasClip() && !mod(e) && selected() && !playing()) {
       e.preventDefault();
       const dir = e.key === "ArrowDown" ? 1 : -1;
       void nudgeSelected(0, dir * (e.shiftKey ? 0.02 : 0.005));
-    } else if ((e.code === "Comma" || e.code === "Period") && hasClip() && !e.ctrlKey && !e.altKey) {
+    } else if ((e.code === "Comma" || e.code === "Period") && hasClip() && !mod(e) && !e.altKey) {
       // Frame step (1/30 s; Shift = 10 frames), pausing playback like any precise seek.
       e.preventDefault();
       if (playing()) togglePlay();
@@ -1102,13 +1103,13 @@ export function createEditor() {
     } else if (e.key === "End" && hasClip()) {
       e.preventDefault();
       scrub(tEnd());
-    } else if (hasClip() && !e.ctrlKey && !e.altKey && !e.metaKey && e.code === "KeyG" && editingText() === null) {
+    } else if (hasClip() && !mod(e) && !e.altKey && !e.metaKey && e.code === "KeyG" && editingText() === null) {
       // G toggles the composition guides over the stage.
       e.preventDefault();
       layout.guides.set(!layout.guides());
     } else if (
       hasClip() &&
-      !e.ctrlKey &&
+      !mod(e) &&
       !e.altKey &&
       !e.metaKey &&
       editingText() === null &&
@@ -1120,7 +1121,7 @@ export function createEditor() {
       else void commitTrim(tStart(), e.shiftKey ? duration() : playhead());
     } else if (
       hasClip() &&
-      !e.ctrlKey &&
+      !mod(e) &&
       !e.altKey &&
       !e.metaKey &&
       !e.shiftKey &&
@@ -1133,7 +1134,7 @@ export function createEditor() {
       else void addCutAtPlayhead();
     } else if (
       hasClip() &&
-      !e.ctrlKey &&
+      !mod(e) &&
       !e.altKey &&
       !e.metaKey &&
       !e.shiftKey &&
@@ -1144,7 +1145,7 @@ export function createEditor() {
       void beginCropEdit();
     } else if (
       hasClip() &&
-      !e.ctrlKey &&
+      !mod(e) &&
       !e.altKey &&
       !e.metaKey &&
       !e.shiftKey &&
@@ -2506,6 +2507,10 @@ export function createEditor() {
       if (recordFlow() !== owned) return; // already left that step: nothing to undo
       setRecordFlow(IDLE);
       fail(t("Could not start"), e);
+      // macOS: take the user straight to the switch that fixes it.
+      if (String(e).includes("screen-recording-permission")) {
+        void invoke("request_permission", { kind: "screen" }).catch(() => undefined);
+      }
     }
   };
 
@@ -3860,10 +3865,11 @@ export function createEditor() {
     const centerX = (tlScrollEl?.scrollLeft ?? 0) + w / 2;
     applyScaleAnchored(cur * (dir > 0 ? 1.6 : 1 / 1.6), centerX / cur, w / 2);
   };
-  // Ctrl+wheel zooms around the cursor; plain wheel scrolls horizontally when zoomed.
+  // Ctrl+wheel zooms around the cursor; plain wheel scrolls horizontally when zoomed. On a
+  // Mac, Command+wheel and a trackpad pinch (which arrives as Ctrl+wheel) zoom too.
   const onTlWheel = (e: WheelEvent) => {
     if (!hasClip() || duration() <= 0) return;
-    if (e.ctrlKey) {
+    if (mod(e) || e.ctrlKey) {
       e.preventDefault();
       const cur = tlScale() ?? fitPps();
       if (cur <= 0) return;

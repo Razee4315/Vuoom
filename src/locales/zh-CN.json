@@ -1073,5 +1073,16 @@
   "Try a sample clip": "试用示例片段",
   "Recording this much at 60 fps can lose frames on this PC": "在这台电脑上以 60 fps 录制这么大的区域可能会丢帧",
   "Use 30 fps": "改用 30 fps",
-  "Recorded {duration}s · 1 zoom": "已录制 {duration} 秒 · 1 处缩放"
+  "Recorded {duration}s · 1 zoom": "已录制 {duration} 秒 · 1 处缩放",
+  "macOS wouldn't allow writing there. Try a different folder.": "macOS 不允许写入该位置。请尝试其他文件夹。",
+  "Copy a report with your Vuoom and macOS versions, GPU, displays and the last lines of the log, then paste it into a bug report. Nothing is sent from here.": "复制一份报告，其中包含 Vuoom 和 macOS 版本、GPU、显示器信息以及最后几行日志，然后粘贴到错误报告中。这里不会发送任何内容。",
+  "Hold two of Command, Control, Option and Shift with it": "请同时按住 Command、Control、Option、Shift 中的两个键",
+  "Screen Recording": "屏幕录制",
+  "Accessibility": "辅助功能",
+  "Permissions": "权限",
+  "Allow": "允许",
+  "Needed for every recording and for the Mac's own sound. After you turn it on, quit and reopen Vuoom.": "每次录制以及录制 Mac 自身的声音都需要此权限。开启后，请退出并重新打开 Vuoom。",
+  "Lets auto zoom see your clicks, and keeps the zoom and stop hotkeys from reaching the app you record.": "让自动缩放能识别你的点击，并防止缩放和停止快捷键传到正在录制的应用。",
+  "Vuoom needs the Screen Recording permission. Turn on Vuoom in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen Vuoom.": "Vuoom 需要屏幕录制权限。请在“系统设置 > 隐私与安全性 > 录屏与系统录音”中开启 Vuoom，然后退出并重新打开 Vuoom。",
+  "Vuoom needs the Camera permission. Turn on Vuoom in System Settings > Privacy & Security > Camera.": "Vuoom 需要摄像头权限。请在“系统设置 > 隐私与安全性 > 摄像头”中开启 Vuoom。"
 }

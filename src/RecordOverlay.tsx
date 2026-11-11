@@ -30,6 +30,7 @@ import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
 import { pushTakeDefaults } from "./takeDefaults";
 import "./RecordOverlay.css";
+import { keyCaps } from "./platform";
 
 /** Mirrors src-tauri session::RecordingSummary. */
 interface Summary {
@@ -769,7 +770,7 @@ export default function RecordOverlay(props: {
                 <span class="rec-previewtag">
                   <Rich
                     text={t("{keys} zooms {amount}×", { amount: props.zoom.toFixed(1) })}
-                    parts={{ keys: () => <For each={zoomKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> }}
+                    parts={{ keys: () => <For each={keyCaps(zoomKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
                   />
                 </span>
               </Show>
@@ -824,7 +825,7 @@ export default function RecordOverlay(props: {
                   <span class="rec-hint">
                     <Rich
                       text={t("{keys} stops")}
-                      parts={{ keys: () => <For each={stopKeys().split("+")}>{(k) => <kbd>{k}</kbd>}</For> }}
+                      parts={{ keys: () => <For each={keyCaps(stopKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
                     />
                   </span>
                 </div>

@@ -94,7 +94,18 @@ jobs:
   release:
     needs: check-and-bump
     if: needs.check-and-bump.outputs.should_release == 'true'
-    runs-on: windows-latest
+    # Windows (.msi + NSIS .exe) and macOS on Apple Silicon (.dmg + the .app.tar.gz the
+    # updater installs). tauri-action merges both platforms into one draft release and one
+    # latest.json.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ''
+          - platform: macos-14
+            args: '--target aarch64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository (with bumped version)
         uses: actions/checkout@v7
@@ -103,6 +114,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-14' && 'aarch64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -131,19 +144,31 @@ jobs:
           # whisper.cpp (captions) must target a portable AVX2 baseline, never the build
           # machine's own CPU, or it could crash on users' processors.
           GGML_NATIVE: "OFF"
+          # macOS code signing + notarization (Developer ID). Without these the .app is
+          # only ad-hoc signed: Gatekeeper asks users to approve it in System Settings, and
+          # macOS forgets the Screen Recording permission after every update. To enable,
+          # add the secrets and uncomment (see docs/19-macOS-Port-Plan.md, section 7):
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tauriScript: pnpm tauri
+          args: ${{ matrix.args }}
           tagName: v__VERSION__
           releaseName: 'Vuoom v__VERSION__'
           releaseBody: |
             ## Vuoom v__VERSION__
 
-            Screen recordings that zoom where it matters, a free, native Windows
-            cinematic screen recorder that exports polished demo GIFs.
+            Screen recordings that zoom where it matters, a free, native cinematic
+            screen recorder for Windows and macOS that exports polished demo GIFs.
 
             ### Installation
             - **`.msi`**, Windows installer (recommended)
             - **`.exe`**, NSIS installer
+            - **`.dmg`**, macOS 14 or later on Apple Silicon
           # DRAFT gate: the release (with all artifacts + signed latest.json) is
           # created but stays hidden from `releases/latest`, and thus from the
           # auto-updater, until a maintainer clicks "Publish release" in the

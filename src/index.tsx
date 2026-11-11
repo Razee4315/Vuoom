@@ -4,11 +4,14 @@ import { render } from "solid-js/web";
 import App from "./App";
 import { isMock } from "./bridge";
 import { initLocale } from "./i18n";
+import { isMac } from "./platform";
 import { snapRecordPrefs } from "./recordOptions";
 
 // Single window, single surface. The record flow (region selector → countdown → stop bar)
 // runs as an in-window overlay inside App, no separate webview windows to route.
 snapRecordPrefs();
+// Platform-specific layout (the Mac title bar leaves room for the traffic lights).
+document.documentElement.dataset.platform = isMac ? "mac" : "windows";
 const root = document.getElementById("root") as HTMLElement;
 
 // Surface a hard mount failure instead of dying behind the splash (also covers the

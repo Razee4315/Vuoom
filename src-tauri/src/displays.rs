@@ -50,6 +50,12 @@ pub fn find_by_name(name: &str) -> Option<DisplayInfo> {
     enumerate().into_iter().find(|d| d.name == name)
 }
 
+/// The capture key of a Tauri monitor: its GDI device name.
+#[must_use]
+pub fn monitor_key(m: &tauri::Monitor) -> Option<String> {
+    m.name().cloned()
+}
+
 /// windows 0.62 callback shape: `(HMONITOR, HDC, *mut RECT, LPARAM)`.
 unsafe extern "system" fn monitor_callback(
     hmonitor: HMONITOR,

@@ -157,7 +157,7 @@ pub fn enter_overlay(
     match &target {
         Target::Window { hwnd, client, mon } => {
             if let Ok(session) = engine.session() {
-                let _ = session.set_capture_window(
+                session.set_capture_window(
                     *hwnd as isize,
                     client.0,
                     client.1,
@@ -173,7 +173,7 @@ pub fn enter_overlay(
                         w: mon.w,
                         h: mon.h,
                     },
-                );
+                )?;
             }
         }
         other => {

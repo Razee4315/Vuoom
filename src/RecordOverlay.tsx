@@ -7,6 +7,7 @@ import { stopKeys, zoomKeys } from "./hotkeys";
 import { layout, prefs } from "./prefs";
 import { Menu, Rich, toast } from "./ui";
 import { createPreviewClient } from "./preview";
+import type { RecordTarget } from "./editor/recordFlow";
 import {
   audioMenuItems,
   audioSummary,
@@ -58,19 +59,24 @@ const fmt = (t: number) => {
   return `${m}:${String(s).padStart(2, "0")}`;
 };
 
-/**
- * The full recording flow as a single in-window overlay: pick a region (fullscreen) →
- * 3-2-1 countdown (small bar) → record + Stop. The host window is excluded from the
- * capture, so none of this UI appears in the recording.
- */
-export type RecordTarget =
-  | { kind: "display"; name: string; label: string }
-  | { kind: "window"; hwnd: number; label: string }
-  | null;
-
 /** From this many pixels (a 3K screen) a take at 60 fps gets the offer of a lighter rate. */
 const HEAVY_PIXELS = 6_000_000;
 
+/**
+ * The full recording flow as a single in-window overlay: pick a region (fullscreen) →
+ * 3-2-1 countdown (small bar) → record + Stop. The host window is excluded from the
+ * capture, so none of this UI appears in the recording. The editor mounts it for the
+ * record flow's `framing` step (editor/recordFlow.ts); its own phases are below.
+ *
+ *   select ─Record─▶ preparing ─▶ countdown ─0─▶ recording ─Stop─▶ finalizing ─▶ onFinished
+ *   preparing ─engine setup error─▶ select
+ *   countdown ─capture failed to start─▶ onFailed
+ *   finalizing ─save error─▶ onFailed (final: the engine already ended the take)
+ *   Cancel / Esc in select, preparing or countdown, until capture starts ─▶ onCancel
+ *
+ * Alongside the phase, `control` (below) tracks whether control has been handed back, so an
+ * engine call still in flight never carries a cancelled flow on.
+ */
 export default function RecordOverlay(props: {
   backdrop: string | null;
   zoom: number;
@@ -135,6 +141,16 @@ export default function RecordOverlay(props: {
   let drag:
     | { mode: "new" | "move" | "resize"; hx: number; hy: number; px0: number; py0: number; rect0: Rect }
     | null = null;
+  // Apart from what it shows (`phase`), where the overlay stands with the engine:
+  //   "open"      before capture: Cancel / Esc hand control back to the editor
+  //   "committed" capture is starting or running: too late to cancel, Stop ends the take
+  //   "closed"    control was handed back. An engine call still in flight must not carry
+  //               the flow on after this: shrink the window to the bar, raise the region
+  //               border, count down, or start a capture nobody can see.
+  //   open ─Cancel/Esc─▶ closed     open ─capture starts─▶ committed ─start/stop failed─▶ closed
+  // Every await in the start chain checks it before going on. A signal, so Cancel can
+  // show it no longer applies while capture is starting.
+  const [control, setControl] = createSignal<"open" | "committed" | "closed">("open");
   let elapsedTimer: number | undefined;
   let countTimer: number | undefined;
   let startMs = 0;
@@ -166,13 +182,21 @@ export default function RecordOverlay(props: {
     elapsedTimer = undefined;
   };
 
-  const cancel = () => {
+  /** Hand control back to the editor: the backend flow is undone, then `then` reports why. */
+  const close = (then: () => void) => {
+    setControl("closed");
     clearCountdown();
     stopTimer();
-    void invoke("cancel_record_flow").finally(() => props.onCancel());
+    void invoke("cancel_record_flow").finally(then);
+  };
+
+  const cancel = () => {
+    if (control() !== "open") return;
+    close(() => props.onCancel());
   };
 
   const beginCountdown = async () => {
+    if (control() !== "open") return; // cancelled, waiting for the editor to take over
     const p = preset();
     const r = sel();
     const windowMode = props.target?.kind === "window";
@@ -194,6 +218,7 @@ export default function RecordOverlay(props: {
           h: Math.round(window.innerHeight * sy),
         };
         await invoke("set_region", {}); // no fields → full screen
+        if (control() !== "open") return;
       } else {
         // Resolved to backdrop pixels NOW, while the overlay is still fullscreen and
         // `toPhysical` maps the viewport 1:1 onto the shot — after `enter_stopbar` shrinks
@@ -223,10 +248,15 @@ export default function RecordOverlay(props: {
           w: stillRegion.w,
           h: stillRegion.h,
         });
+        if (control() !== "open") return;
       }
       await invoke("enter_stopbar"); // shrink the host window to the bar
+      // Cancelled while the engine set up: the cancel's restore ran after the shrink (the
+      // commands run in order), so stop here and leave the editor window as it now is.
+      if (control() !== "open") return;
       // The panel remembers its size between takes.
       if (layout.panelLarge()) await invoke("set_panel_size", { large: true }).catch(() => undefined);
+      if (control() !== "open") return;
       // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
       // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
       // Best-effort: the command may not exist on older backends, the frame still appears
@@ -236,6 +266,7 @@ export default function RecordOverlay(props: {
       } catch {
         /* backend without show_region_border, border still shows at record start */
       }
+      if (control() !== "open") return;
       setPhase("countdown");
       if (count() <= 0) {
         // No countdown: capture starts right away (the preview still hooks up below).
@@ -252,6 +283,7 @@ export default function RecordOverlay(props: {
       hookPreview();
       runCountdown();
     } catch (e) {
+      if (control() !== "open") return; // cancelled meanwhile: the editor already has control
       setPhase("select");
       toast(t("Could not start recording: {why}", { why: friendlyError(e) }), "error");
     }
@@ -261,7 +293,7 @@ export default function RecordOverlay(props: {
     const tick = () => {
       countTimer = undefined;
       // Cancelled (Cancel/Esc) during the 3-2-1: stop here, never start the recording.
-      if (phase() !== "countdown") return;
+      if (phase() !== "countdown" || control() !== "open") return;
       const c = count() - 1;
       if (c <= 0) {
         setCount(0);
@@ -321,6 +353,8 @@ export default function RecordOverlay(props: {
   };
 
   const beginRecording = async () => {
+    if (control() !== "open") return;
+    setControl("committed");
     try {
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording");
@@ -339,16 +373,13 @@ export default function RecordOverlay(props: {
     } catch (e) {
       // Capture never started, clean up the backend flow, then surface the real reason
       // (e.g. "No frames were captured…") instead of a bland "cancelled".
-      clearCountdown();
-      stopTimer();
-      void invoke("cancel_record_flow").finally(() => props.onFailed(String(e)));
+      close(() => props.onFailed(String(e)));
     }
   };
 
-  let stopping = false; // the Stop button and the global hotkey can race, stop once
   const stop = async () => {
-    if (stopping) return;
-    stopping = true;
+    // The Stop button and the global hotkey can race: the first one moves the phase on.
+    if (phase() !== "recording") return;
     stopTimer();
     setPhase("finalizing"); // synchronous "Finishing recording..." so the panel never
     // looks like it is still capturing while the take is being written.
@@ -356,13 +387,11 @@ export default function RecordOverlay(props: {
       const summary = await invoke<Summary>("finish_recording");
       props.onFinished(summary);
     } catch (e) {
-      // Stop failed: the take is still live, so return to the recording state with the
-      // real error surfaced instead of pretending the user cancelled.
-      stopping = false;
-      setPhase("recording");
-      startMs = Date.now() - elapsed() * 1000;
-      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
-      toast(t("Stop failed, still recording: {why}", { why: friendlyError(e) }), "error");
+      // A failed stop is final: the engine takes the take out before anything can fail, and
+      // finish_recording restores the editor window either way. So hand back with the real
+      // reason (e.g. "No frames were captured…"); there is no live take to go back to.
+      setControl("closed");
+      props.onFailed(String(e));
     }
   };
 
@@ -768,7 +797,7 @@ export default function RecordOverlay(props: {
                   <Show
                     when={phase() === "finalizing"}
                     fallback={
-                      <button type="button" class="rec-cancel" disabled={phase() === "preparing"} onClick={cancel}>
+                      <button type="button" class="rec-cancel" disabled={phase() === "preparing" || control() !== "open"} onClick={cancel}>
                         {t("Cancel")}
                       </button>
                     }
@@ -1029,7 +1058,7 @@ export default function RecordOverlay(props: {
               </button>
             </Show>
             <span class="hud-dims">{windowMode() ? t("Window") : dims()}</span>
-            <button type="button" class="hud-cancel" disabled={phase() === "preparing"} onClick={cancel} data-tip={t("Cancel")} data-kbd="Esc">
+            <button type="button" class="hud-cancel" disabled={phase() === "preparing" || control() !== "open"} onClick={cancel} data-tip={t("Cancel")} data-kbd="Esc">
               <Icon name="close" size={14} />
             </button>
             <button

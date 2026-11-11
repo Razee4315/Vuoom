@@ -9,7 +9,7 @@ import { Seg } from "../ui";
 
 export default function SourcePicker() {
   const ed = useEditor();
-  const close = () => ed.setShowSource(false);
+  const close = () => ed.closeSourcePicker();
   return (
     <div class="modal-backdrop" onClick={close}>
       <div

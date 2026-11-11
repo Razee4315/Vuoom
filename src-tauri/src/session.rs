@@ -997,14 +997,22 @@ impl Session {
         // session's store survives until a later recording ages it out. `new_session_dir`
         // prunes older sessions first, keeping disk use bounded.
         let recovery_dir = frame_store::new_session_dir();
-        // Drop the previous clip BEFORE creating the new store: its open handles may point at
-        // a store we might otherwise touch.
+        // Take the previous clip out before creating the new store. If the store can't be
+        // created the take never starts, so the clip goes back, still loaded, and an added
+        // take stays armed for the next try.
         let previous = std::mem::take(&mut *self.edited.lock().unwrap_or_else(|e| e.into_inner()));
+        let writer = match FrameWriter::create(recovery_dir.clone()) {
+            Ok(writer) => writer,
+            Err(e) => {
+                tracing::error!("could not open frame store for recording: {e}");
+                *self.edited.lock().unwrap_or_else(|e| e.into_inner()) = previous;
+                if base_dir.is_some() {
+                    self.append_next.store(true, Ordering::Relaxed);
+                }
+                return Err(e);
+            }
+        };
         let base = base_dir.map(|dir| (previous, dir));
-        let writer = FrameWriter::create(recovery_dir.clone()).map_err(|e| {
-            tracing::error!("could not open frame store for recording: {e}");
-            e
-        })?;
         *self
             .current_recovery
             .lock()
@@ -1248,15 +1256,26 @@ impl Session {
         // write that failed mid-recording comes back as a warning (not an error): the frames
         // written before the failure are kept and the take truncates gracefully. The trailing
         // flag is set when capture disconnected before we asked it to (monitor unplugged etc.).
-        let (store, write_warning, capture_ended_early) = session
+        let drained = session
             .drain
             .take()
-            .ok_or("recording already stopped")?
-            .join()
-            .map_err(|_| {
-                tracing::error!("frame drain thread panicked");
-                "frame drain thread panicked"
-            })??;
+            .ok_or_else(|| "recording already stopped".to_string())
+            .and_then(|drain| {
+                drain.join().map_err(|_| {
+                    tracing::error!("frame drain thread panicked");
+                    "frame drain thread panicked".to_string()
+                })?
+            });
+        let (store, write_warning, capture_ended_early) = match drained {
+            Ok(drained) => drained,
+            Err(e) => {
+                // Adding a take must never cost the clip it was being added to.
+                if let Some((base, dir)) = session.base.take() {
+                    self.restore_base(base, dir);
+                }
+                return Err(e);
+            }
+        };
         // Capture has wound down by now (its sender is dropped and the drain has joined), so the
         // shared drop counter is settled. A non-zero count means the bounded channel overflowed,
         // frames the drain couldn't keep up with, which we may surface as a warning below.
@@ -2562,6 +2581,17 @@ impl Session {
         let captions = to_captions(&vuoom_captions::group(&heard.words), track.offset);
         if captions.is_empty() {
             return Err("Vuoom didn't hear any speech in this take.".into());
+        }
+        // Listening takes minutes: if another clip was loaded or recorded meanwhile, these
+        // captions belong to a clip that is gone, so don't put them on the new one.
+        let still_loaded = self
+            .current_recovery
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|now| *now == dir);
+        if !still_loaded {
+            return Err(CAPTIONS_CLIP_CHANGED.into());
         }
         self.with_project("", |p| {
             p.captions.clone_from(&captions);
@@ -4599,6 +4629,9 @@ fn shrink_bgra(w: u32, h: u32, px: &[u8], k: u32) -> Option<(u32, u32, Vec<u8>)>
 const CAPTIONS_CPU: &str = "Captions need a newer processor (most PCs from 2015 on).";
 /// Why a clip can't be captioned.
 const NO_SPEECH_TRACK: &str = "This take has no recorded sound to make captions from.";
+/// Why captions made for one clip were not put on another.
+const CAPTIONS_CLIP_CHANGED: &str =
+    "Another clip was opened while the captions were being made. Make them again for this one.";
 
 /// The track captions listen to: the microphone, or else the computer's sound (a take
 /// that recorded a video or a call).

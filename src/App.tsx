@@ -1,7 +1,7 @@
 // Vuoom's root: creates the editor store, lays out the workspace, and mounts the dialogs.
 // All state and behavior lives in editor/createEditor.ts; every piece of UI lives in
 // components/ and reads the store through EditorContext.
-import { createEffect, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import CommandPalette from "./components/CommandPalette";
 import Home from "./components/Home";
 import Inspector from "./components/Inspector";
@@ -54,6 +54,14 @@ function Workspace() {
 
 export default function App() {
   const ed = createEditor();
+  const pointingStep = () => {
+    const f = ed.recordFlow();
+    return f.step === "pointing" ? f : undefined;
+  };
+  const framingStep = () => {
+    const f = ed.recordFlow();
+    return f.step === "framing" ? f : undefined;
+  };
 
   createEffect(() => {
     document.documentElement.dataset.motion = prefs.reduceMotion() ? "reduced" : "";
@@ -90,7 +98,8 @@ export default function App() {
 
   return (
     <EditorContext.Provider value={ed}>
-      <div class="app">
+      {/* data-record-step names the record flow's step, for tests and agents driving the UI. */}
+      <div class="app" data-record-step={ed.recordFlow().step}>
         <Titlebar />
         <Show when={ed.gpuLost()}>
           <div class="banner" role="alert">
@@ -123,34 +132,36 @@ export default function App() {
         />
       </Show>
 
-      <Show when={ed.recordPhase() === "active"}>
-        <Show
-          when={ed.windowPick()}
-          fallback={
+      {/* The record flow's overlays (editor/recordFlow.ts). Not keyed: the backdrop
+          landing updates the mounted overlay instead of remounting it. */}
+      <Switch>
+        <Match when={pointingStep()}>
+          {(flow) => (
+            <WindowPicker
+              backdrop={flow().backdrop}
+              windows={flow().pick.windows}
+              origin={flow().pick.origin}
+              onPick={(w) => void ed.pickWindow(w)}
+              onList={() => void ed.listWindowsInstead()}
+              onCancel={() => void ed.cancelWindowPick()}
+            />
+          )}
+        </Match>
+        <Match when={framingStep()}>
+          {(flow) => (
             <RecordOverlay
-              backdrop={ed.backdrop()}
+              backdrop={flow().backdrop}
               zoom={ed.zoomAmount()}
-              target={ed.recordTarget()}
+              target={flow().target}
               initialMode={ed.recordMode() === "full" ? "full" : "region"}
               onZoomChange={ed.setZoomAmount}
               onFinished={(s) => void ed.onRecordFinished(s)}
               onCancel={ed.onRecordCancel}
               onFailed={ed.onRecordFailed}
             />
-          }
-        >
-          {(pick) => (
-            <WindowPicker
-              backdrop={ed.backdrop()}
-              windows={pick().windows}
-              origin={pick().origin}
-              onPick={(w) => void ed.pickWindow(w)}
-              onList={() => void ed.listWindowsInstead()}
-              onCancel={() => void ed.cancelWindowPick()}
-            />
           )}
-        </Show>
-      </Show>
+        </Match>
+      </Switch>
 
       <Show when={ed.busy()}>
         {(message) => (

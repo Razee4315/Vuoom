@@ -155,6 +155,7 @@ const ENGINE_SENTENCES = new Set([
   tk("camera unavailable"),
   tk("Vuoom didn't hear any speech in this take."),
   tk("This take has no recorded sound to make captions from."),
+  tk("Another clip was opened while the captions were being made. Make them again for this one."),
   tk("Captions need a newer processor (most PCs from 2015 on)."),
   tk("Captions need a newer processor (with AVX2, most PCs from 2015 on)"),
   tk("Couldn't download the speech model. Check your internet connection and try again."),

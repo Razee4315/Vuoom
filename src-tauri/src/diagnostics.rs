@@ -43,7 +43,7 @@ pub fn end_run(dir: &Path) {
 /// The plain-text report. `gpu` describes the adapter in use (or why there is none);
 /// `log_dir` holds the daily log files.
 pub fn report(version: &str, gpu: &str, log_dir: &Path) -> String {
-    let windows = windows_version();
+    let windows = os_version();
     let arch = std::env::consts::ARCH;
     let mut out = format!("Vuoom {version}\n{windows}, {arch}\nGPU: {gpu}\n");
     for d in crate::displays::enumerate() {
@@ -67,6 +67,20 @@ pub fn report(version: &str, gpu: &str, log_dir: &Path) -> String {
         }
         None => out.push_str("\nNo log file found.\n"),
     }
+    without_home(out)
+}
+
+/// The report without the user's name in paths: `/Users/<name>/...` becomes `~/...`.
+#[cfg(target_os = "macos")]
+fn without_home(out: String) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => out.replace(&home, "~"),
+        _ => out,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn without_home(out: String) -> String {
     match std::env::var("USERPROFILE") {
         Ok(home) if !home.is_empty() => hide_home(&out, &home),
         _ => out,
@@ -74,6 +88,7 @@ pub fn report(version: &str, gpu: &str, log_dir: &Path) -> String {
 }
 
 /// The report without the user's profile folder (and so their Windows user name) in paths.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn hide_home(text: &str, home: &str) -> String {
     text.replace(home, "%USERPROFILE%")
 }
@@ -101,7 +116,32 @@ fn newest_log(dir: &Path) -> Option<PathBuf> {
     newest.map(|(_, path)| path)
 }
 
+/// The OS and its version, for the report.
+#[cfg(not(target_os = "macos"))]
+fn os_version() -> String {
+    windows_version()
+}
+
+/// "macOS 15.4 (24E248)", from `sw_vers`.
+#[cfg(target_os = "macos")]
+fn os_version() -> String {
+    let read = |flag: &str| {
+        std::process::Command::new("sw_vers")
+            .arg(flag)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default()
+    };
+    let (version, build) = (read("-productVersion"), read("-buildVersion"));
+    if version.is_empty() {
+        "macOS (version unknown)".into()
+    } else {
+        format!("macOS {version} ({build})")
+    }
+}
+
 /// "Windows 11 (10.0.26100.4061)", from `ver`, run without a console window.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn windows_version() -> String {
     let mut cmd = std::process::Command::new("cmd");
     cmd.args(["/C", "ver"]);
@@ -120,6 +160,7 @@ fn windows_version() -> String {
 
 /// Turn `ver` output ("Microsoft Windows [Version 10.0.26100.4061]") into a readable line.
 /// Windows 11 still reports 10.0, so the build number (22000 and up) tells them apart.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 fn describe_windows(ver: &str) -> String {
     let Some(version) = ver.split("Version ").nth(1) else {
         return "Windows (version unknown)".into();

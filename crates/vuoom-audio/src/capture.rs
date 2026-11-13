@@ -542,7 +542,11 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+#[path = "mac.rs"]
+mod imp;
+
+#[cfg(not(any(windows, target_os = "macos")))]
 mod imp {
     use super::{Anchor, Device, Source};
     use std::path::PathBuf;

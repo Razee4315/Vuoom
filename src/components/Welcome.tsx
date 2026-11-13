@@ -2,11 +2,11 @@
 import { For, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
-import { zoomKeys } from "../hotkeys";
+import { RECORD_KEYS, zoomKeys } from "../hotkeys";
 import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
 import { LogoMark } from "../Logo";
-import { Rich } from "../ui";
+import { Kbd, Rich } from "../ui";
 
 const STEPS = (): { icon: IconName; title: string; text: () => string }[] => [
   {
@@ -93,11 +93,7 @@ export default function Welcome() {
             <Rich
               text={t("Record any time from here, or press {keys}.")}
               parts={{
-                keys: () => (
-                  <>
-                    <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>R</kbd>
-                  </>
-                ),
+                keys: () => <Kbd keys={RECORD_KEYS} />,
               }}
             />
           </p>

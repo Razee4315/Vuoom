@@ -938,6 +938,11 @@ impl Session {
 
     /// Begin capturing the primary display + global input.
     pub fn start_recording(&self) -> Result<(), String> {
+        // macOS: without Screen Recording access the stream would deliver nothing at all.
+        #[cfg(target_os = "macos")]
+        if !vuoom_capture::screen_access() {
+            return Err(vuoom_capture::PERMISSION_ERROR.into());
+        }
         let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
         if active.is_some() {
             return Err("already recording".into());
@@ -1968,13 +1973,19 @@ impl Session {
                     encoder.write_rgba(&rgba, i as u32)?;
                     compositor.recycle(rgba);
                     // Keep the soundtrack level with the video: audio up to this frame's end.
+                    // (a little ahead of it where the container needs that, see AUDIO_LEAD_SECS)
                     if let Some(mix) = &mix {
-                        let until = ((i + 1) as f64 / f64::from(fps) * audio_rate).round() as u64;
+                        let lead = crate::mp4::AUDIO_LEAD_SECS;
+                        let end = (i + 1) as f64 / f64::from(fps) + lead;
+                        let until = (end * audio_rate).round() as u64;
                         let until = until.min(mix.frames());
                         if until > audio_done {
                             let chunk = mix.render(audio_done, (until - audio_done) as usize);
                             encoder.write_audio(&chunk, audio_done)?;
                             audio_done = until;
+                            if audio_done == mix.frames() {
+                                encoder.end_audio();
+                            }
                         }
                     }
                 }
@@ -4252,8 +4263,8 @@ fn nearest_idx(recs: &[FrameRec], clock: Clock, start_qpc: i64, t: f64) -> Optio
 /// Matched on the chord's exact modifiers, like the triggers themselves
 /// (`vuoom_input::Chord`). Suppressing the whole chord leaves no stray `Ctrl+Shift` chip
 /// because bare modifiers never emit a tap on their own (they only set flags below).
-fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, vk: u16) -> bool {
-    let is = |chord: vuoom_input::Chord| chord.matches(ctrl, shift, alt, vk);
+fn is_app_control_chord(ctrl: bool, shift: bool, alt: bool, meta: bool, vk: u16) -> bool {
+    let is = |chord: vuoom_input::Chord| chord.matches_with(ctrl, shift, alt, meta, vk);
     is(vuoom_input::zoom_chord()) || is(vuoom_input::stop_chord())
 }
 
@@ -4330,22 +4341,28 @@ fn extract_key_taps(raw: &[RawEvent], clock: Clock, start_qpc: i64, duration: f6
             continue;
         }
         let Some(name) = key_name(vk) else { continue };
-        if is_app_control_chord(ctrl, shift, alt, vk) {
+        if is_app_control_chord(ctrl, shift, alt, win, vk) {
             continue; // Vuoom's own stop / zoom chord, not demo content
         }
         let chord = ctrl || alt || win;
         if !chord && !is_standalone(vk) {
             continue; // plain typing, never labeled
         }
+        // Named the way the platform's keyboards print them: Command and Option on a Mac.
+        let (meta_name, alt_name) = if cfg!(target_os = "macos") {
+            ("Cmd+", "Opt+")
+        } else {
+            ("Win+", "Alt+")
+        };
         let mut label = String::new();
         if win {
-            label.push_str("Win+");
+            label.push_str(meta_name);
         }
         if ctrl {
             label.push_str("Ctrl+");
         }
         if alt {
-            label.push_str("Alt+");
+            label.push_str(alt_name);
         }
         if shift && chord {
             label.push_str("Shift+");
@@ -4821,9 +4838,32 @@ fn check_free_space(free_bytes: u64, w: u32, h: u32) -> Result<Option<String>, S
     Ok(None)
 }
 
+/// Grab a window via one ScreenCaptureKit frame (macOS), as a `data:image/png;base64,…` URL:
+/// the very path the take itself records through, so the backdrop shows exactly what will
+/// record.
+#[cfg(target_os = "macos")]
+pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
+    let (rx, handle) = spawn_capture(
+        None,
+        &CaptureSource::Window { hwnd },
+        CaptureOptions {
+            max_fps: 0,
+            cursor: false,
+        },
+    );
+    let frame = rx.recv_timeout(std::time::Duration::from_secs(3));
+    handle.stop();
+    let frame = frame.map_err(|e| format!("window screenshot failed: {e}"))?;
+    let img = RgbaImage::new(frame.width, frame.height, swizzle_rb(&frame.bgra));
+    let png = encode_png_fast_to_vec(&img).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
 /// Grab a window's client area via `PrintWindow` (with the render-full-content flag so
 /// GPU-composited apps like Chrome render), returning a `data:image/png;base64,…` URL.
 /// Falls back to a display grab only if the caller decides; failures are loud here.
+#[cfg(windows)]
 pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
@@ -5285,30 +5325,41 @@ mod tests {
         let clock = Clock::new();
         let f = clock.freq();
         let q = |t: f64| (t * f as f64) as i64;
+        // The hotkeys' main modifier: Ctrl on Windows, Command on a Mac.
+        let m: u16 = if cfg!(target_os = "macos") {
+            0x5B
+        } else {
+            0x11
+        };
 
         let raw = [
             // Ctrl+Shift+X, the stop hotkey, must not appear.
-            rawk(q(1.0), KeyDown(0x11)),
+            rawk(q(1.0), KeyDown(m)),
             rawk(q(1.01), KeyDown(0x10)),
             rawk(q(1.02), KeyDown(0x58)), // X
             rawk(q(1.03), KeyUp(0x58)),
             rawk(q(1.04), KeyUp(0x10)),
-            rawk(q(1.05), KeyUp(0x11)),
+            rawk(q(1.05), KeyUp(m)),
             // Ctrl+Shift+Z, the zoom chord, must not appear either.
-            rawk(q(2.0), KeyDown(0x11)),
+            rawk(q(2.0), KeyDown(m)),
             rawk(q(2.01), KeyDown(0x10)),
             rawk(q(2.02), KeyDown(0x5A)), // Z
             rawk(q(2.03), KeyUp(0x5A)),
             rawk(q(2.04), KeyUp(0x10)),
-            rawk(q(2.05), KeyUp(0x11)),
+            rawk(q(2.05), KeyUp(m)),
             // A real user chord (Ctrl+Shift+C) still renders.
-            rawk(q(3.0), KeyDown(0x11)),
+            rawk(q(3.0), KeyDown(m)),
             rawk(q(3.01), KeyDown(0x10)),
             rawk(q(3.02), KeyDown(0x43)), // C
         ];
         let taps = extract_key_taps(&raw, clock, 0, 10.0);
         let labels: Vec<&str> = taps.iter().map(|t| t.label.as_str()).collect();
-        assert_eq!(labels, vec!["Ctrl+Shift+C"]);
+        let want = if cfg!(target_os = "macos") {
+            "Cmd+Shift+C"
+        } else {
+            "Ctrl+Shift+C"
+        };
+        assert_eq!(labels, vec![want]);
     }
 
     // --- disk free-space guard ---

@@ -12,17 +12,41 @@ mod cursor_watch;
 mod dpi;
 mod event;
 mod keys;
+#[cfg(target_os = "macos")]
+pub mod mac;
 mod normalize;
 #[cfg(windows)]
 mod recorder;
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub use chords::ChordWatch;
 pub use chords::{set_chords, stop_chord, zoom_chord, Chord, Hotkey};
 pub use clock::Clock;
 pub use dpi::set_per_monitor_aware_v2;
 pub use event::{CursorKind, MouseButton, RawEvent, RawEventKind};
 pub use keys::{is_standalone, key_name, modifier, Modifier};
+#[cfg(target_os = "macos")]
+pub use mac::InputRecorder;
 pub use normalize::{normalize, zoom_marks, CaptureRegion};
 #[cfg(windows)]
 pub use recorder::InputRecorder;
+
+/// The pointer's position now, in the pixel space input events use (physical virtual-desktop
+/// pixels on Windows; see [`mac`] for macOS).
+#[cfg(windows)]
+#[must_use]
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut p = POINT::default();
+    // SAFETY: `p` is a valid, writable POINT for the call.
+    unsafe { GetCursorPos(&mut p) }.ok()?;
+    Some((p.x, p.y))
+}
+
+/// The pointer's position now, in the pixel space input events use.
+#[cfg(target_os = "macos")]
+#[must_use]
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    mac::cursor_pos()
+}

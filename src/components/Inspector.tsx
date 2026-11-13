@@ -32,6 +32,7 @@ const CAMERA_CORNERS = (): { value: CameraCorner; label: string }[] => [
   { value: "bottom-right", label: t("Bottom right") },
 ];
 import { Field, IconButton, Rich, Section, Seg, sectionQuery, setSectionQuery, Slider, Switch } from "../ui";
+import { mod } from "../platform";
 
 export default function Inspector() {
   const ed = useEditor();
@@ -1081,7 +1082,7 @@ function ClipPanel() {
     });
   };
   const onFind = (e: KeyboardEvent) => {
-    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl && !ed.isModal()) {
+    if (mod(e) && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl && !ed.isModal()) {
       e.preventDefault();
       searchEl.focus();
       searchEl.select();

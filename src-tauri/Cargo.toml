@@ -93,3 +93,19 @@ clipboard-win = "5"
 
 [dev-dependencies]
 tempfile = "3"
+
+# macOS: the pasteboard (copy an export as a file), window levels for the record flow,
+# and statvfs / thread QoS.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSURL", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSWindow", "NSResponder", "NSScreen", "NSView", "NSColor", "NSGraphics", "NSRunningApplication", "NSWorkspace", "NSPanel", "NSButton", "NSControl", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+# MP4 export through AVAssetWriter + VideoToolbox (hardware H.264 on Apple Silicon).
+objc2-av-foundation = { version = "0.3", features = ["objc2-core-media", "objc2-core-video"] }
+objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "CMTime", "CMFormatDescription", "CMBlockBuffer", "CMBase", "objc2-core-video", "objc2-core-audio-types"] }
+objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVPixelBufferPool", "CVImageBuffer", "CVBuffer", "CVReturn", "CVBase"] }
+objc2-core-audio-types = "0.3"
+block2 = "0.6"
+dispatch2 = { version = "0.3", features = ["objc2"] }

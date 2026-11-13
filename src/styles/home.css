@@ -445,3 +445,30 @@
     transform: translateY(8px);
   }
 }
+
+/* macOS permissions still to grant (components/Permissions.tsx). */
+.home-perms {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  margin-top: 26px;
+}
+.home-perm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  text-align: left;
+}
+.home-perm-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.home-perm-text small {
+  color: var(--text-2);
+}

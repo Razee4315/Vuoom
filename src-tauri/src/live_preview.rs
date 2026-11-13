@@ -29,9 +29,6 @@ use vuoom_input::{ChordWatch, Clock, Hotkey};
 use vuoom_preview::{pack_frame, FrameMeta, FrameSink};
 use vuoom_zoom::{CameraFilter, CameraState, CameraTarget, ZoomConfig};
 
-use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
-
 /// Downscaled preview width (px): sharp in the large panel, still cheap to make.
 const PREVIEW_WIDTH: u32 = 640;
 /// Fastest the preview repaints (30 fps). It repaints only when the picture changed.
@@ -337,10 +334,9 @@ fn mark(img: &mut RgbaImage, x: f64, y: f64) {
 /// The primary monitor's origin is (0,0) in virtual-desktop coords, and per-monitor DPI
 /// awareness is enabled, so screen px map directly onto the captured frame.
 fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32) -> DVec2 {
-    let mut p = POINT::default();
-    if unsafe { GetCursorPos(&mut p) }.is_err() {
+    let Some((px, py)) = vuoom_input::cursor_pos() else {
         return DVec2::splat(0.5);
-    }
+    };
     // The cursor is in virtual-desktop coords; the crop is monitor-relative.
     let (mx, my) = (f64::from(origin.0), f64::from(origin.1));
     let (ox, oy, w, h) = match region {
@@ -354,8 +350,8 @@ fn cursor_norm(region: Option<CropRegion>, origin: (i32, i32), fw: u32, fh: u32)
         None => (mx, my, f64::from(fw), f64::from(fh)),
     };
     DVec2::new(
-        ((f64::from(p.x) - ox) / w.max(1.0)).clamp(0.0, 1.0),
-        ((f64::from(p.y) - oy) / h.max(1.0)).clamp(0.0, 1.0),
+        ((f64::from(px) - ox) / w.max(1.0)).clamp(0.0, 1.0),
+        ((f64::from(py) - oy) / h.max(1.0)).clamp(0.0, 1.0),
     )
 }
 

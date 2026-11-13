@@ -13,3 +13,8 @@ vuoom-audio.workspace = true
 # it with GGML_NATIVE=OFF so the code targets any AVX2 processor, not the runner's own CPU
 # (see `cpu_supported`). `tracing_backend` routes whisper.cpp's log lines into our log.
 whisper-rs = { version = "0.16", features = ["tracing_backend"] }
+
+# Apple Silicon: whisper.cpp runs on the GPU through Metal (its shaders are embedded and
+# compiled at run time, so no Metal toolchain is needed to build).
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["tracing_backend", "metal"] }

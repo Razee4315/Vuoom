@@ -9,6 +9,7 @@ import { LogoMark } from "../Logo";
 import { layout, resetLayout } from "../prefs";
 import { IconButton, Menu, type MenuItem } from "../ui";
 import WindowControls from "../WindowControls";
+import { isMac, keyText } from "../platform";
 
 export default function Titlebar() {
   const ed = useEditor();
@@ -181,7 +182,7 @@ export default function Titlebar() {
       >
         <Icon name="search" size={14} />
         <span>{t("Search actions")}</span>
-        <kbd>Ctrl K</kbd>
+        <kbd>{isMac ? keyText("Ctrl+K") : "Ctrl K"}</kbd>
       </button>
 
       <div class="tb-group">
@@ -242,7 +243,9 @@ export default function Titlebar() {
         {t("Export")}
       </button>
 
-      <WindowControls />
+      <Show when={!isMac}>
+        <WindowControls />
+      </Show>
     </header>
   );
 }

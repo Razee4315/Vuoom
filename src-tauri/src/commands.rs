@@ -60,6 +60,8 @@ fn restore_editor(app: &AppHandle) {
         // panel phase shrank the window to 384x300 and dropped the min constraint to match;
         // without resetting them here, double-clicking the title bar to un-maximize would
         // restore the editor to that unusable 384x300 panel size (see enter_stopbar).
+        #[cfg(target_os = "macos")]
+        crate::mac_window::editor(&main);
         let _ = main.set_min_size(Some(LogicalSize::new(EDITOR_MIN_W, EDITOR_MIN_H)));
         let _ = main.set_size(LogicalSize::new(EDITOR_W, EDITOR_H));
         let _ = main.maximize();
@@ -91,6 +93,13 @@ pub fn enter_overlay(
     window_hwnd: Option<f64>,
 ) -> Result<String, String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
+    // macOS: nothing can be recorded (nor a backdrop grabbed) without Screen Recording
+    // access. Asking shows the system prompt the first time; the UI explains the rest.
+    #[cfg(target_os = "macos")]
+    if !vuoom_capture::screen_access() {
+        vuoom_capture::request_screen_access();
+        return Err(vuoom_capture::PERMISSION_ERROR.into());
+    }
     // What the overlay targets this time: a whole window (its client rect + display), a
     // named display from the picker, or the editor's own monitor when nothing was given.
     enum Target {
@@ -166,7 +175,7 @@ pub fn enter_overlay(
                     crate::session::MonitorInfo {
                         name: monitor
                             .as_ref()
-                            .and_then(|m| m.name().cloned())
+                            .and_then(crate::displays::monitor_key)
                             .unwrap_or_default(),
                         x: mon.x,
                         y: mon.y,
@@ -181,8 +190,8 @@ pub fn enter_overlay(
                 let _ = session.set_monitor(match other {
                     Target::Display(info) => Some(info.clone()),
                     _ => monitor.as_ref().and_then(|m| {
-                        m.name().map(|n| crate::session::MonitorInfo {
-                            name: n.clone(),
+                        crate::displays::monitor_key(m).map(|n| crate::session::MonitorInfo {
+                            name: n,
                             x: m.position().x,
                             y: m.position().y,
                             w: m.size().width,
@@ -215,8 +224,8 @@ pub fn enter_overlay(
     if !matches!(target, Target::Window { .. }) {
         if let Ok(session) = engine.session() {
             let info = monitor.as_ref().and_then(|m| {
-                m.name().map(|n| crate::session::MonitorInfo {
-                    name: n.clone(),
+                crate::displays::monitor_key(m).map(|n| crate::session::MonitorInfo {
+                    name: n,
                     x: m.position().x,
                     y: m.position().y,
                     w: m.size().width,
@@ -256,6 +265,11 @@ pub fn enter_overlay(
         let _ = main.set_size(PhysicalSize::new(m.size().width, m.size().height));
     }
     let _ = main.set_always_on_top(true);
+    // macOS: no fullscreen Space; the window is laid over the display instead (see
+    // `macos/window.rs`).
+    #[cfg(target_os = "macos")]
+    crate::mac_window::cover_display(&main, monitor.as_ref());
+    #[cfg(not(target_os = "macos"))]
     let _ = main.set_fullscreen(true);
     let _ = main.show();
     let _ = main.set_focus();
@@ -354,6 +368,8 @@ pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> R
     main.set_size(LogicalSize::new(PANEL_W, PANEL_H))
         .map_err(|e| e.to_string())?;
     main.set_always_on_top(true).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    crate::mac_window::panel(&main);
     if let Ok(Some(mon)) = main.current_monitor() {
         let scale = mon.scale_factor();
         let mp = mon.position();
@@ -964,6 +980,89 @@ pub async fn start_recording(
     if let Ok(mut slot) = hotkey.0.lock() {
         *slot = Some(StopHotkey::watch(app));
     }
+    Ok(())
+}
+
+/// What the OS lets Vuoom do, for the permissions card. Windows asks for nothing.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Permissions {
+    /// Screen Recording (macOS): needed for any take, and for system sound.
+    pub screen: bool,
+    /// Accessibility (macOS): lets the hotkeys stop at Vuoom instead of reaching the
+    /// recorded app.
+    pub accessibility: bool,
+    /// Input Monitoring (macOS): clicks and keys for auto zoom and the keystroke overlay
+    /// (Accessibility covers it too).
+    pub input: bool,
+}
+
+/// Which permissions Vuoom has now.
+#[tauri::command]
+pub fn permissions() -> Permissions {
+    os_permissions()
+}
+
+#[cfg(target_os = "macos")]
+fn os_permissions() -> Permissions {
+    let accessibility = vuoom_input::mac::accessibility_trusted(false);
+    Permissions {
+        screen: vuoom_capture::screen_access(),
+        accessibility,
+        input: accessibility || vuoom_input::mac::input_monitoring_granted(false),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn os_permissions() -> Permissions {
+    Permissions {
+        screen: true,
+        accessibility: true,
+        input: true,
+    }
+}
+
+/// Ask for a permission (`screen`, `accessibility`, `input`, `microphone`, `camera`): the
+/// system prompt where macOS still shows one, and the matching System Settings pane.
+#[tauri::command]
+pub fn request_permission(kind: String) -> Result<(), String> {
+    os_request_permission(&kind)
+}
+
+#[cfg(target_os = "macos")]
+fn os_request_permission(kind: &str) -> Result<(), String> {
+    let pane = match kind {
+        "screen" => {
+            if vuoom_capture::request_screen_access() {
+                return Ok(());
+            }
+            "Privacy_ScreenCapture"
+        }
+        "accessibility" => {
+            if vuoom_input::mac::accessibility_trusted(true) {
+                return Ok(());
+            }
+            "Privacy_Accessibility"
+        }
+        "input" => {
+            if vuoom_input::mac::input_monitoring_granted(true) {
+                return Ok(());
+            }
+            "Privacy_ListenEvent"
+        }
+        "microphone" => "Privacy_Microphone",
+        "camera" => "Privacy_Camera",
+        other => return Err(format!("unknown permission {other}")),
+    };
+    let url = format!("x-apple.systempreferences:com.apple.preference.security?{pane}");
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn os_request_permission(_kind: &str) -> Result<(), String> {
     Ok(())
 }
 

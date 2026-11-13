@@ -81,7 +81,7 @@ pub fn zoom_marks(
     let w = f64::from(region.w.max(1));
     let h = f64::from(region.h.max(1));
 
-    let (mut ctrl, mut shift, mut alt) = (false, false, false);
+    let (mut ctrl, mut shift, mut alt, mut meta) = (false, false, false, false);
     let mut key_held = false;
     // Default to the region center until we see a real cursor position.
     let mut cx = region.x + region.w / 2;
@@ -104,11 +104,12 @@ pub fn zoom_marks(
                     Some(Modifier::Ctrl) => ctrl = down,
                     Some(Modifier::Shift) => shift = down,
                     Some(Modifier::Alt) => alt = down,
-                    Some(Modifier::Win) | None => {}
+                    Some(Modifier::Win) => meta = down,
+                    None => {}
                 }
             }
             RawEventKind::KeyDown(vk) if vk == chord.vk => {
-                if chord.matches(ctrl, shift, alt, vk) && !key_held {
+                if chord.matches_with(ctrl, shift, alt, meta, vk) && !key_held {
                     let t = (e.qpc - start_qpc) as f64 / freq as f64;
                     let pos = DVec2::new(
                         (f64::from(cx - region.x) / w).clamp(0.0, 1.0),
@@ -181,6 +182,12 @@ mod tests {
         assert!(normalize(&up, &region(), 0, 1000).is_none());
     }
 
+    /// The Windows default zoom chord, spelled out: these tests are about Ctrl+Shift+Z
+    /// whatever the platform's default is.
+    fn ctrl_shift_z() -> Chord {
+        Chord::parse("Ctrl+Shift+Z").unwrap()
+    }
+
     fn key(qpc: i64, kind: RawEventKind) -> RawEvent {
         RawEvent {
             qpc,
@@ -204,7 +211,7 @@ mod tests {
             key(1010, RawEventKind::KeyDown(0x10)), // Shift
             key(1020, RawEventKind::KeyDown(0x5A)), // Z
         ];
-        let marks = zoom_marks(&raw, &region(), 0, 1000, Chord::ZOOM_DEFAULT);
+        let marks = zoom_marks(&raw, &region(), 0, 1000, ctrl_shift_z());
         assert_eq!(marks.len(), 1);
         match marks[0] {
             vuoom_zoom::InputEvent::ZoomMark { t, pos } => {
@@ -222,7 +229,7 @@ mod tests {
             key(20, RawEventKind::KeyDown(0x11)), // Ctrl only
             key(30, RawEventKind::KeyDown(0x5A)), // Z with Ctrl only
         ];
-        assert_eq!(count(&raw, Chord::ZOOM_DEFAULT), 0);
+        assert_eq!(count(&raw, ctrl_shift_z()), 0);
     }
 
     #[test]
@@ -234,7 +241,7 @@ mod tests {
             key(40, RawEventKind::KeyDown(0x5A)), // auto-repeat
             key(50, RawEventKind::KeyDown(0x5A)), // auto-repeat
         ];
-        assert_eq!(count(&raw, Chord::ZOOM_DEFAULT), 1);
+        assert_eq!(count(&raw, ctrl_shift_z()), 1);
     }
 
     /// How many zoom marks `chord` leaves in `raw`.
@@ -257,6 +264,6 @@ mod tests {
             key(90, RawEventKind::KeyDown(0x5A)), // Ctrl+Shift+Z: the old chord
         ];
         assert_eq!(count(&raw, f9), 1);
-        assert_eq!(count(&raw, Chord::ZOOM_DEFAULT), 1);
+        assert_eq!(count(&raw, ctrl_shift_z()), 1);
     }
 }

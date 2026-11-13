@@ -152,11 +152,14 @@ mod imp {
 #[cfg(windows)]
 pub use imp::RegionBorder;
 
-/// Non-Windows stub (keeps `cargo check` portable; the app is Windows-only).
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub use crate::mac_window::RegionBorder;
+
+/// Stub for other targets (keeps `cargo check` portable).
+#[cfg(not(any(windows, target_os = "macos")))]
 pub struct RegionBorder;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 impl RegionBorder {
     pub fn show(_x: i32, _y: i32, _w: i32, _h: i32) -> Option<Self> {
         None

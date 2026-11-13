@@ -68,13 +68,26 @@ fn query_counter() -> i64 {
     c
 }
 
-// Non-Windows fallbacks keep the crate building on CI doc/check for other targets.
-#[cfg(not(windows))]
+// macOS: the host clock (`mach_absolute_time`) in nanoseconds. ScreenCaptureKit, Core Audio
+// and AVFoundation stamp their samples on the same clock, so frames, audio and input share
+// one axis exactly as QPC gives them on Windows.
+#[cfg(target_os = "macos")]
 fn query_freq() -> i64 {
     1_000_000_000
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn query_counter() -> i64 {
+    crate::mac::host_time_ns()
+}
+
+// Other targets keep the crate building on CI doc/check.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn query_freq() -> i64 {
+    1_000_000_000
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn query_counter() -> i64 {
     0
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Vuoom records your narration when you turn on the microphone for a take.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Vuoom shows your webcam in a bubble on the recording when you turn the camera on.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Vuoom records the area of the screen you choose.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Vuoom records the Mac's sound when you turn on system audio for a take.</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.video</string>
+</dict>
+</plist>

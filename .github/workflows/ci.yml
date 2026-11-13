@@ -51,7 +51,7 @@ jobs:
         run: pnpm run typecheck && pnpm run lint && node scripts/check-i18n.mjs && pnpm run build
 
   ci:
-    runs-on: windows-latest # Vuoom is Windows-only (WGC capture, wgpu DX12)
+    runs-on: windows-latest # Windows build: WGC/DXGI capture, Media Foundation, wgpu DX12
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -85,6 +85,49 @@ jobs:
 
       # Build the frontend FIRST: Tauri's generate_context! needs dist/ to exist
       # before cargo can check/compile the app crate.
+      - name: Build frontend (vite -> dist/)
+        run: pnpm run build
+
+      - name: Rust format check
+        run: cargo fmt --all --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+  # ─── macOS build (Apple Silicon): ScreenCaptureKit, AVFoundation, wgpu Metal ─
+  # The same checks as the Windows job, so neither platform's code can rot unseen. The
+  # tests that need a screen or the GPU are #[ignore]d (run them by hand on a Mac, see
+  # src-tauri/src/macos/e2e.rs).
+  macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust (stable + rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build frontend (vite -> dist/)
         run: pnpm run build
 

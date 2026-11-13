@@ -459,3 +459,8 @@ body.resizing-y * {
     display: none;
   }
 }
+
+/* macOS: the native traffic lights sit over the left end of the title bar. */
+:root[data-platform="mac"] .titlebar {
+  padding-left: 84px;
+}

@@ -149,8 +149,16 @@ pub fn lower_thread_priority() {
     let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL) };
 }
 
-/// Non-Windows stub (the app is Windows-only; keeps the crate portable for `cargo check`).
-#[cfg(not(windows))]
+/// macOS: run the calling thread at the utility quality of service (below the UI, above
+/// background), the counterpart of `THREAD_PRIORITY_BELOW_NORMAL`.
+#[cfg(target_os = "macos")]
+pub fn lower_thread_priority() {
+    // SAFETY: sets the calling thread's own QoS class.
+    let _ = unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0) };
+}
+
+/// Stub for other targets.
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn lower_thread_priority() {}
 
 /// Compress `cur` (optionally as an XOR delta against `prev`, same dimensions) into the
@@ -261,6 +269,12 @@ fn decode_frame(payload: &[u8], w: u32, h: u32, out: &mut [u8], xor: bool) -> Re
 /// Root holding the per-session recovery subdirs. Each subdir is a full frame store
 /// (gigabytes), so we retain only a couple (see [`new_session_dir`]) and prune the rest.
 pub fn recovery_root() -> PathBuf {
+    // macOS clears `$TMPDIR` of files untouched for a few days, which would quietly eat an
+    // unrecovered take; the user's Caches folder is left alone.
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home).join("Library/Caches/dev.vuoom.desktop/vuoom-recovery");
+    }
     std::env::temp_dir().join("vuoom-recovery")
 }
 
@@ -293,8 +307,26 @@ pub fn free_space_bytes(path: &Path) -> Option<u64> {
     Some(free)
 }
 
-/// Non-Windows stub (the app is Windows-only; keeps the crate portable for `cargo check`).
-#[cfg(not(windows))]
+/// Free bytes on the volume backing `path` (macOS and other Unix), via `statvfs`.
+#[cfg(unix)]
+pub fn free_space_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut dir = path;
+    while !dir.exists() {
+        dir = dir.parent()?;
+    }
+    let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c` is a NUL-terminated path and `st` a live out-struct.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)] // the field widths differ between platforms
+    Some(st.f_bavail as u64 * st.f_frsize as u64)
+}
+
+/// Stub for other targets.
+#[cfg(not(any(windows, unix)))]
 pub fn free_space_bytes(_path: &Path) -> Option<u64> {
     None
 }

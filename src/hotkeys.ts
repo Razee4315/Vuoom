@@ -4,9 +4,10 @@
 import { invoke } from "./bridge";
 import { t } from "./i18n";
 import { prefs } from "./prefs";
+import { isMac } from "./platform";
 
-export const ZOOM_DEFAULT = "Ctrl+Shift+Z";
-export const STOP_DEFAULT = "Ctrl+Shift+X";
+export const ZOOM_DEFAULT = isMac ? "Cmd+Shift+Z" : "Ctrl+Shift+Z";
+export const STOP_DEFAULT = isMac ? "Cmd+Shift+X" : "Ctrl+Shift+X";
 /** Start recording: handled inside the app's own window, so it isn't rebindable here. */
 export const RECORD_KEYS = "Ctrl+Shift+R";
 
@@ -42,11 +43,20 @@ export function chordFromEvent(e: KeyboardEvent): ChordAttempt {
   if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return { pending: true };
   const key = keyName(e.code);
   if (!key) return { error: t("Use a letter, a digit or F1 to F12") };
-  const mods = [e.ctrlKey && "Ctrl", e.shiftKey && "Shift", e.altKey && "Alt"].filter(
-    (m): m is string => !!m,
-  );
+  // On a Mac, Command is the main modifier and real Control is written out as "Control".
+  const mods = (
+    isMac
+      ? [e.ctrlKey && "Control", e.altKey && "Opt", e.shiftKey && "Shift", e.metaKey && "Cmd"]
+      : [e.ctrlKey && "Ctrl", e.shiftKey && "Shift", e.altKey && "Alt"]
+  ).filter((m): m is string => !!m);
   if (!key.startsWith("F") || key.length === 1) {
-    if (mods.length < 2) return { error: t("Hold two of Ctrl, Shift and Alt with it") };
+    if (mods.length < 2) {
+      return {
+        error: isMac
+          ? t("Hold two of Command, Control, Option and Shift with it")
+          : t("Hold two of Ctrl, Shift and Alt with it"),
+      };
+    }
   }
   return { chord: [...mods, key].join("+") };
 }

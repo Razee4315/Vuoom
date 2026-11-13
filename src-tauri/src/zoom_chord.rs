@@ -13,8 +13,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use vuoom_input::Clock;
-use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 /// One polled chord press: QPC timestamp + physical cursor position.
 #[derive(Debug, Clone, Copy)]
@@ -45,13 +43,12 @@ impl ZoomChordPoller {
                 // (it is in the hook's own log), so the two can't count one press twice.
                 let down = vuoom_input::zoom_chord().is_down();
                 if down && !prev {
-                    let mut p = POINT::default();
-                    if unsafe { GetCursorPos(&mut p) }.is_ok() {
+                    if let Some((x, y)) = vuoom_input::cursor_pos() {
                         if let Ok(mut v) = marks_w.lock() {
                             v.push(ChordMark {
                                 qpc: clock.now(),
-                                x: p.x,
-                                y: p.y,
+                                x,
+                                y,
                             });
                         }
                     }

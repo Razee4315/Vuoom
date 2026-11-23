@@ -102,7 +102,7 @@ jobs:
   # tests that need a screen or the GPU are #[ignore]d (run them by hand on a Mac, see
   # src-tauri/src/macos/e2e.rs).
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

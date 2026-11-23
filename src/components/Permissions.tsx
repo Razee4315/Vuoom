@@ -2,7 +2,7 @@
 // system prompt where macOS still shows one, else the right System Settings pane).
 // Re-checked whenever the window comes back to the front, since the user grants access in
 // System Settings, outside the app. Shows nothing on Windows, or once everything is allowed.
-import { createResource, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createResource, For, onCleanup, onMount, Show } from "solid-js";
 import { invoke } from "../bridge";
 import { t } from "../i18n";
 import { Icon } from "../icons";
@@ -15,21 +15,14 @@ interface Permissions {
 }
 
 export default function PermissionsCard() {
+  if (!isMac) return null;
+
   const [perms, { refetch }] = createResource(() =>
     invoke<Permissions>("permissions").catch(() => ({ screen: true, accessibility: true, input: true })),
   );
-  onMount(() => {
-    const again = () => void refetch();
-    window.addEventListener("focus", again);
-    const timer = window.setInterval(again, 4000);
-    onCleanup(() => {
-      window.removeEventListener("focus", again);
-      window.clearInterval(timer);
-    });
-  });
   const missing = () => {
     const p = perms();
-    if (!isMac || !p) return [];
+    if (!p) return [];
     const out: { kind: string; title: string; why: string }[] = [];
     if (!p.screen) {
       out.push({
@@ -47,6 +40,21 @@ export default function PermissionsCard() {
     }
     return out;
   };
+  onMount(() => {
+    const again = () => {
+      if (!document.hidden) void refetch();
+    };
+    window.addEventListener("focus", again);
+    onCleanup(() => window.removeEventListener("focus", again));
+  });
+  createEffect(() => {
+    // Only poll while permissions are missing; stop as soon as all required access is granted.
+    if (missing().length === 0) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refetch();
+    }, 4000);
+    onCleanup(() => window.clearInterval(timer));
+  });
   const ask = async (kind: string) => {
     await invoke("request_permission", { kind }).catch(() => undefined);
     void refetch();

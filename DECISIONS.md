@@ -54,3 +54,9 @@ All autonomous technical and workflow decisions made during the Vuoom optimizati
 - **Context**: `dist/assets/install-*.js` (`41.4 KB` raw / `14.0 KB` gz) is bundled into `dist/` even for Tauri desktop builds.
 - **Decision**: Gate `import("./mock/install")` behind build-time `!__TAURI_BUILD__` (`Boolean(process.env.TAURI_ENV_PLATFORM)`) in `vite.config.ts` / `src/index.tsx` rather than removing mock mode.
 - **Rationale**: Packaged Windows/macOS `.exe`/`.app` builds shed the dead mock chunk, while `pnpm build`, `pnpm dev`, and `pnpm serve ?mock=1` remain 100% intact for development and automated headless Edge screenshots/profiling.
+
+### D-009 — Disk Hygiene on C: Build Partition (`15.73 GB` Reclaimed)
+- **Date**: 2026-11-23
+- **Context**: Accumulation across clean debug/test/perf/release Cargo profiles filled `C:` down to `0.01 GB`, causing `rust-lld` to fail linking with `no space on device`.
+- **Decision**: Keep `D:` untouched unless needed, and periodically clean stale `target/debug`, `target/perf`, dead `vuoom_lib.{dll,lib,exp}` release artifacts left from `E1`, and temporary perf/Edge directories in `%LOCALAPPDATA%\Temp` (preserving `target/release` compiled `whisper-rs-sys`), reclaiming `15.73 GB` free on `C:`. After Windows cleaned `%LOCALAPPDATA%\Temp\vuoom-lc` mid-build, moved portable `libclang.dll` into the gitignored `.ci-lc` short folder (to be deleted cleanly before final release completion).
+- **Rationale**: `line-tables-only` + dep `debug = false` rebuilds `target/debug` significantly smaller, keeping all build artifacts cleanly inside the workspace while maintaining ample disk headroom.

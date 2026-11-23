@@ -8,16 +8,20 @@
 # was derived from the full resolved dependency graph (`cargo metadata`).
 
 [graph]
-# Resolve the default feature set only — matches what we actually ship.
+# Resolve default features across the two shipped desktop targets only.
 all-features = false
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+]
 
 [advisories]
 # Warn (don't hard-fail CI) on yanked crates; error on known vulnerabilities.
 yanked = "warn"
 # Only flag unmaintained crates we depend on DIRECTLY. The transitive tree pulls a pile of
-# unmaintained-but-harmless crates we cannot swap (gtk3 bindings via tauri's Linux target,
-# unic-* and ttf-parser via glyphon, paste/proc-macro-error via macros) — those are their
-# parents' problem, and erroring on them would make every CI run red for nothing actionable.
+# unmaintained-but-harmless crates we cannot swap (e.g. unic-* and ttf-parser via glyphon,
+# paste/proc-macro-error via macros) — those are their parents' problem, and erroring on them
+# would make every CI run red for nothing actionable.
 unmaintained = "workspace"
 ignore = [
     # quick-xml 0.39.x DoS advisories (quadratic duplicate-attribute check, unbounded
@@ -26,12 +30,15 @@ ignore = [
     # doesn't accept yet; Dependabot will pick it up when it does.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
-    # zip 4.x archive extraction on Unix (setuid bits, symlink targets). Pulled by
-    # tauri-plugin-updater, which holds it below the fixed 9.x. Vuoom is Windows-only, where
-    # neither applies, and an update archive is only opened after its signature is verified.
+    # zip 4.x advisories (setuid/symlink extract, AES early-EOF, local-header mismatch). Pulled
+    # by tauri-plugin-updater, which pins zip ^4. Vuoom ships NSIS/MSI on Windows and .tar.gz
+    # bundles on macOS (not zip updates), and update payloads are minisign-verified before extraction.
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0429",
+    "RUSTSEC-2026-0545",
+    "RUSTSEC-2026-0548",
 ]
 
 [licenses]
@@ -54,6 +61,11 @@ allow = [
     "0BSD",
 ]
 confidence-threshold = 0.8
+
+[[licenses.exceptions]]
+# Mac camera JPEG encoder (`vuoom-camera` on non-Windows); IJG is permissive (FSF Free/Libre).
+name = "jpeg-encoder"
+allow = ["IJG"]
 
 [bans]
 # Duplicate dependency versions bloat the binary but don't block the build.

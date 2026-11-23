@@ -8,14 +8,13 @@ description = "GIF export: frame planning, size estimation, and a pure-Rust (Apa
 
 [dependencies]
 thiserror.workspace = true
-tracing.workspace = true
 serde.workspace = true
 png = "0.18"
 # Pure-Rust animated-GIF encoder (MIT/Apache), linked — this is the shipping GIF encoder.
-# See docs/06-Export.md.
-gif = "0.13"
-# NeuQuant quantizer (MIT/Apache, already a transitive dep of `gif`) — used directly to
-# build ONE global palette for the whole clip so frames can be delta-encoded.
+# See docs/06-Export.md. Default features are disabled to omit duplicate `color_quant 1.x`.
+gif = { version = "0.13", default-features = false, features = ["std", "raii_no_panic"] }
+# NeuQuant quantizer (MIT/Apache) — used directly to build ONE global palette for the whole
+# clip so frames can be delta-encoded.
 color_quant = "2.0"
 
 [dev-dependencies]

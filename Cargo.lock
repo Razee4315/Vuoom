@@ -591,9 +591,9 @@ dependencies = [
 
 [[package]]
 name = "clipboard-win"
-version = "5.4.1"
+version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
+checksum = "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a"
 dependencies = [
  "error-code",
 ]
@@ -617,12 +617,6 @@ dependencies = [
  "termcolor",
  "unicode-width",
 ]
-
-[[package]]
-name = "color_quant"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
 name = "color_quant"
@@ -651,9 +645,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.1"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "time",
  "version_check",
@@ -1017,7 +1011,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1231,7 +1225,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1261,11 +1255,10 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.4.1"
+version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
 dependencies = [
- "concurrent-queue",
  "parking",
  "pin-project-lite",
 ]
@@ -1410,9 +1403,9 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1668,7 +1661,6 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ae047235e33e2829703574b54fdec96bfbad892062d97fed2f76022287de61b"
 dependencies = [
- "color_quant 1.1.0",
  "weezl",
 ]
 
@@ -2658,9 +2650,9 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 
 [[package]]
 name = "memmap2"
-version = "0.9.10"
+version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
+checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
 ]
@@ -2746,7 +2738,7 @@ dependencies = [
  "png 0.18.1",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2845,7 +2837,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3999,15 +3991,15 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.4"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.0",
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4063,7 +4055,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4522,7 +4514,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4666,9 +4658,9 @@ checksum = "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb"
 
 [[package]]
 name = "swash"
-version = "0.2.8"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1804632b66a35ca2b1d277eb0a138e10f46cb365b9a6d297e876b69ef79de43"
+checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
  "skrifa",
  "yazi",
@@ -5184,7 +5176,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5640,7 +5632,7 @@ dependencies = [
  "png 0.18.1",
  "serde",
  "thiserror 2.0.18",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5697,7 +5689,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5809,9 +5801,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
@@ -5896,7 +5888,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -5945,7 +5937,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-audio"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "block2",
  "cpal",
@@ -5966,14 +5958,13 @@ dependencies = [
 
 [[package]]
 name = "vuoom-camera"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "block2",
  "dispatch2",
  "jpeg-encoder",
  "objc2",
  "objc2-av-foundation",
- "objc2-core-foundation",
  "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation",
@@ -5986,16 +5977,15 @@ dependencies = [
 
 [[package]]
 name = "vuoom-captions"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
- "tracing",
  "vuoom-audio",
  "whisper-rs",
 ]
 
 [[package]]
 name = "vuoom-capture"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "block2",
  "dispatch2",
@@ -6015,20 +6005,19 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
- "color_quant 2.0.0",
+ "color_quant",
  "gif",
  "png 0.18.1",
  "serde",
  "tempfile",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
 name = "vuoom-input"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "glam",
  "libc",
@@ -6037,7 +6026,6 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation",
- "thiserror 2.0.18",
  "tracing",
  "vuoom-zoom",
  "windows 0.62.2",
@@ -6045,11 +6033,10 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
- "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "tracing",
@@ -6057,7 +6044,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "glam",
  "serde",
@@ -6067,14 +6054,12 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "bytemuck",
  "glam",
  "glyphon",
  "pollster",
- "thiserror 2.0.18",
- "tracing",
  "vuoom-project",
  "vuoom-zoom",
  "wgpu",
@@ -6082,7 +6067,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "glam",
  "serde",
@@ -6542,7 +6527,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

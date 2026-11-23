@@ -7,11 +7,13 @@ authors.workspace = true
 description = "Live-preview bridge: offscreen RGBA readback → localhost binary WebSocket → webview (WebGPU canvas)."
 
 [dependencies]
-thiserror.workspace = true
 tracing.workspace = true
-tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync"] }
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
 # Per-session preview auth token — 0.2 is already in the tree (via ring / other transitive
 # deps; tokio-tungstenite 0.29 now pulls rand 0.9 → getrandom 0.3, so it no longer supplies it).
 getrandom = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros"] }

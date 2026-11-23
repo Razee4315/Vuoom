@@ -39,4 +39,3 @@ objc2-foundation = { version = "0.3", features = ["NSArray", "NSError", "NSStrin
 objc2-av-foundation = { version = "0.3", features = ["objc2-core-media", "objc2-core-video"] }
 objc2-core-media = { version = "0.3", features = ["CMSampleBuffer", "CMTime", "CMFormatDescription", "CMBase", "objc2-core-video"] }
 objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn", "CVBase"] }
-objc2-core-foundation = "0.3"

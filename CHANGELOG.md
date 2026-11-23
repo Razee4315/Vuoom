@@ -9,6 +9,27 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-23
+
+### Performance & Efficiency
+- Cut Rust host idle CPU by **58.8%** when focused (`0.456% -> 0.188%` single-core) and to **0.00%** when minimized (`0.094% -> 0.000%`), reducing total app + WebView2 idle CPU by **19.6%** focused and **22.9%** minimized (`Permissions.tsx` now skips macOS permission IPC/focus/4s polling on Windows and pauses/stops macOS polling when granted or hidden).
+- Stripped the browser mock backend (`install-*.js`, `41.4 KB` raw / `14.0 KB` gzip) from packaged desktop builds via build-time `!__TAURI_BUILD__` tree-shaking and disabled `modulePreload` polyfill (`dist/` `-41.6 KB` raw / `-14.0 KB` gzip, Vite internal build `-31.9%` faster).
+
+### Security & Dependencies
+- Lockstep upgrade to Tauri `2.12.7` (`tauri-plugin-updater 2.14.1`, `@tauri-apps/api 2.12.5`, `@tauri-apps/cli 2.12.6`, and updated plugins), pulling `zip 9.8.2` to eliminate all 6 `zip 4.x` advisories (`RUSTSEC-2026-0367/0368/0369/0429/0545/0548`).
+- Patched Rust transitive dependencies (`url 2.5.9`, `cookie 0.18.3`, `clipboard-win 5.4.3`, `swash 0.2.10`, `event-listener 5.4.2`, `memmap2 0.9.12`, `rustix 1.1.6`), cutting `cargo-audit` vulnerabilities from `9 -> 2` (and warnings `23 -> 13`), deduplicating `color_quant 1.1.0`, trimming unused crate dependencies (`cargo-machete` `0`), and making `cargo-deny check` green (`advisories`, `bans`, `licenses`, `sources`).
+- Updated frontend tooling to Vite `8.3.8`, `vite-plugin-solid 2.11.17`, Biome `2.6.8`, TypeScript `5.9.3` (`ES2023`), and `@fontsource-variable/inter 5.3.0`, cutting `pnpm audit` advisories from `19 -> 9` (`0` advisories shipped in `dist/`).
+
+### Build & Tooling
+- Dropped unused mobile `staticlib`/`cdylib` crate types, enabled `rust-lld` linker on Windows x64 MSVC, and tuned dev debuginfo to `line-tables-only` (`debug = false` on dependencies): **-31.1%** `cargo clippy`, **-32.5%** `cargo test --workspace`, and **-15.4%** isolated incremental release build.
+- Updated workspace MSRV to `1.90` and resolved Rust `1.100` Clippy/Cargo lints (`session.rs` duplicate `#[allow]`, macOS-gated `vuoom-input` `tracing`).
+
+### Platform & Reliability (since v2.1.0)
+- Native macOS support on Apple Silicon (macOS 14+) (#102).
+- Explicit state machines for the record, update, and export flows (#101).
+
+## [2.1.0] - 2026-10-31
+
 ### Added
 - Try a sample clip, on Home, in the File menu and on the welcome card: the whole editor to play
   with before recording anything.
@@ -130,5 +151,7 @@ A new studio: sound, a webcam, captions made on your PC, and tools to mark up yo
 
 Versions 0.1.x are listed on [GitHub Releases](https://github.com/Razee4315/Vuoom/releases).
 
-[Unreleased]: https://github.com/Razee4315/Vuoom/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Razee4315/Vuoom/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Razee4315/Vuoom/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/Razee4315/Vuoom/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Razee4315/Vuoom/releases/tag/v2.0.0

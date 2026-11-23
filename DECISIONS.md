@@ -60,3 +60,21 @@ All autonomous technical and workflow decisions made during the Vuoom optimizati
 - **Context**: Accumulation across clean debug/test/perf/release Cargo profiles filled `C:` down to `0.01 GB`, causing `rust-lld` to fail linking with `no space on device`.
 - **Decision**: Keep `D:` untouched unless needed, and periodically clean stale `target/debug`, `target/perf`, dead `vuoom_lib.{dll,lib,exp}` release artifacts left from `E1`, and temporary perf/Edge directories in `%LOCALAPPDATA%\Temp` (preserving `target/release` compiled `whisper-rs-sys`), reclaiming `15.73 GB` free on `C:`. After Windows cleaned `%LOCALAPPDATA%\Temp\vuoom-lc` mid-build, moved portable `libclang.dll` into the gitignored `.ci-lc` short folder (to be deleted cleanly before final release completion).
 - **Rationale**: `line-tables-only` + dep `debug = false` rebuilds `target/debug` significantly smaller, keeping all build artifacts cleanly inside the workspace while maintaining ample disk headroom.
+
+### D-010 — Accept `+433 KB` Binary Size Increase for `tauri 2.12.7` / `zip 9.8.2` Security Fix
+- **Date**: 2026-11-23
+- **Context**: Upgrading Tauri in lockstep (`2.11.2 -> 2.12.7` + `tauri-plugin-updater 2.14.1`) upgraded `zip 4.6.1 -> 9.8.2`, eliminating all 6 `zip` CVEs (`RUSTSEC-2026-0367/0368/0369/0429/0545/0548`) and raising `rust-version` requirement to `1.90`, while growing `target/release/vuoom.exe` from `29,784,064 B` (`28.40 MiB`) to `30,217,216 B` (`28.82 MiB`, `+433 KB` / `+1.45%`, slightly above the `29.8 MB` baseline budget).
+- **Decision**: Keep the `tauri 2.12.7` + `zip 9.8.2` upgrade and adjust `Cargo.toml` `rust-version = "1.90"`.
+- **Rationale**: Follows the non-negotiable rule "never trade security for speed" — keeping an unpatched `zip 4.x` tree solely to avoid `+433 KB` would leave 6 security advisories in `Cargo.lock`.
+
+### D-011 — Fix Pre-Existing Rust `1.100` CI Lints Found in Dependabot PR #106
+- **Date**: 2026-11-23
+- **Context**: GitHub Actions `dtolnay/rust-toolchain@stable` runs Rust `1.100.0` (newer than local `1.99.0`). Inspecting PR #106 CI logs revealed `clippy::duplicated_attributes` (`-D warnings` error on `src-tauri/src/session.rs:3172-3173`) and `cargo::unused_dependencies` warning for `tracing` in `crates/vuoom-input/Cargo.toml` on Windows (since `vuoom-input` only calls `tracing::warn!` in `src/mac/recorder.rs`).
+- **Decision**: Removed the duplicate `#[allow(clippy::too_many_arguments)]` line in `src-tauri/src/session.rs` and moved `tracing.workspace = true` in `crates/vuoom-input/Cargo.toml` into `[target.'cfg(target_os = "macos")'.dependencies]`.
+- **Rationale**: Prevents `CI` (`windows-latest` + `macos-14`) from failing on Rust `1.100.0` while keeping macOS warning logging intact.
+
+### D-012 — Wrap Up Track 1 at Wave 1 Completion and Ship `v2.2.0` Draft Release
+- **Date**: 2026-11-23
+- **Context**: User directed: "continue please and wrap up what is done until now and a merge everything and cut a new release." No unmerged local feature branches exist (`refactor/explicit-state-machines` is already squash-merged as `0cc4666` via PR #101), and open Dependabot PRs #104 / #106 are superseded by Wave 1 Commits C & D.
+- **Decision**: Conclude Track 1 cleanly after Wave 1 (`v2.2.0` Draft release via `release.yml`), document remaining Wave 2 / Tier 2 / Tier 3 optimizations and Track 2 UI Redesign in `OPTIMIZATION_PLAN.md`, `PERFORMANCE.md`, `MODERNIZATION.md`, and `MORNING_REPORT.md` for follow-up sessions, and keep open Dependabot PRs #104/#106 unmerged so Dependabot auto-closes/rebases cleanly after `main` pushes.
+- **Rationale**: Ships verified build/idle/bundle/security wins safely without rushing unbenchmarked Tier 2 engine refactors into the release.

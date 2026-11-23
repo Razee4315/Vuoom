@@ -9,7 +9,7 @@ description = "Screen recordings that zoom where it matters — a free, native W
 [lib]
 # `_lib` suffix avoids a name clash with the binary on Windows (rust-lang/cargo#8519).
 name = "vuoom_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

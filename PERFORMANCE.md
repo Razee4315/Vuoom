@@ -163,4 +163,4 @@ Before vs. after running the active CDP session (`runtime_baseline.json`): total
 
 | Date / Commit | ID | Area | Change | Metric Before | Metric After | Delta | Verified On |
 |---|---|---|---|---|---|---|---|
-| _Entries added per verified commit in Phase 5 & Phase 6._ | | | | | | | |
+| 2026-11-23 | E1, E3 | Rust build & link | Drop `staticlib`/`cdylib` in `src-tauri/Cargo.toml`; add `debug="line-tables-only"` + dep `debug=false`; `.cargo/config.toml` `linker="rust-lld"` on Win64 MSVC | `clippy` 155.26 s; `test` 1,417.66 s; inc release 312.68 s; `vuoom.exe` 29,784,064 B | `clippy` 106.92 s; `test` 956.84 s; inc release 264.59 s (`--timings`, isolated; 481.88 s under back-to-back thermal load); `vuoom.exe` 29,754,368 B | **-31.1%** clippy, **-32.5%** test, **-15.4%** inc release (-48.1 s), -29.7 KB binary | Win10 (`cargo fmt`, `clippy`, 290/290 tests, `tauri build --no-bundle`, HWND `83.9 ms`) |

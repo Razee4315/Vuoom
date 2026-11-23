@@ -1,0 +1,3 @@
+# Use rustc's bundled LLD linker on Windows MSVC for faster dev and release linking.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

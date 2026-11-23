@@ -52,9 +52,12 @@ bytemuck    = { version = "1", features = ["derive"] }
 pollster    = "0.4"
 
 [profile.dev]
+debug = "line-tables-only"
+
 # wgpu/windows-capture are painfully slow unoptimized; optimize deps even in dev.
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
 [profile.release]
 lto = "thin"

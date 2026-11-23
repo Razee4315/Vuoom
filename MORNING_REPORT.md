@@ -2,8 +2,17 @@
 
 ## Release & Rollback
 
-- **Release**: `Vuoom v2.2.0` — **[Pending GitHub Release CI Link — populated after Step 5]**
+- **Release**: [`Vuoom v2.2.0`](https://github.com/Razee4315/Vuoom/releases/tag/untagged-f0eb122ced2b69ba9902) (tag `v2.2.0` once published)
 - **Status**: **Draft** (auto-updater in `src-tauri/tauri.conf.json` polls `releases/latest/download/latest.json`; release remains a Draft per `D-002` until you click **Publish release** on GitHub)
+- **Verified Draft Assets (`latest.json` + Windows + macOS Apple Silicon)**:
+  - `Vuoom_2.2.0_x64_en-US.msi` (`11,161,600 B`) + `.sig` (`432 B`)
+  - `Vuoom_2.2.0_x64-setup.exe` (`8,074,028 B`) + `.sig` (`432 B`)
+  - `Vuoom_2.2.0_aarch64.dmg` (`9,276,495 B`)
+  - `Vuoom_2.2.0_aarch64.app.tar.gz` (`9,539,390 B`) + `.sig` (`420 B`)
+  - `latest.json` (`3,259 B`)
+- **CI & Release Runs (All Green)**:
+  - **CI** (`45186750099`): `frontend` (`17s`), `cargo-deny` (`33s`), `ci` (`windows-latest`, `3m3s`), `macos` (`macos-15`, `13m2s`) — [View Run](https://github.com/Razee4315/Vuoom/actions/runs/45186750099)
+  - **Release** (`45186749194`): `check-and-bump` (`5s`, `v2.2.0`), `release (windows-latest)` (`6m50s`), `release (macos-15)` (`7m18s`) — [View Run](https://github.com/Razee4315/Vuoom/actions/runs/45186749194)
 - **Rollback tag**: `pre-optimization-2026-11-23` (`8e07d9b`, pushed on `origin`)
 - **Note on scope (`D-012`)**: Concluded Track 1 after completing and verifying **Wave 1** (build toolchain, idle Windows IPCs, Rust/JS dependency & security modernization, packaged bundle mock removal, and Rust `1.100` CI lint fixes), plus documentation, version sync (`2.2.0`), and release cut. **Wave 2** (`F1–F9`, `A1–A4`, `B3/B5`, `C2/C7`), **Tier 2** (`B1/B2`, `C1`, `C5/C6`), and **Track 2 UI Redesign** remain documented and queued in [`OPTIMIZATION_PLAN.md`](./OPTIMIZATION_PLAN.md).
 
@@ -35,6 +44,9 @@
 3. **`8871332`** — **Wave 1B (`F4`, `A6`)**: Skipped `permissions` IPC/focus/4s polling on Windows in `src/components/Permissions.tsx`; paused macOS polling while hidden and stopped once granted (**-58.8%** Rust focused CPU, **0.00%** Rust minimized CPU, **-19.6% / -22.9%** total idle CPU).
 4. **`dcc6195`** — **Wave 1C (`E5–E9`)**: Removed duplicate `color_quant 1.1.0` via `gif` feature trim, removed unused direct deps, fixed `deny.toml` (`[graph] targets`, `jpeg-encoder` `IJG`), and patched `url 2.5.9`, `cookie 0.18.3`, `clipboard-win 5.4.3`, `swash 0.2.10`, `event-listener 5.4.2`, `memmap2 0.9.12`, `rustix 1.1.6` (`cargo-deny` green, `0` unused deps).
 5. **`3b22758`** — **Wave 1D (`F10-T1` + Rust `1.100` CI fixes)**: Excluded `install-*.js` mock chunk (`41.4 KB`) from packaged Tauri builds via `__TAURI_BUILD__` (`vite.config.ts`, `src/index.tsx`), disabled `modulePreload` polyfill, lockstep-upgraded Tauri `2.12.7` / plugins (`zip 9.8.2` clearing all 6 `zip 4.x` CVEs and removing 6 `deny.toml` ignores), upgraded Vite `8.3.8` / Biome `2.6.8` / TS `5.9.3` / Inter `5.3.0`, fixed `src/preview.ts` TS 5.9 generics, and fixed Rust `1.100` CI lints (`session.rs:3173` duplicate allow, `vuoom-input` `tracing` macOS-only, MSRV `1.90`).
+6. **`6123dac`** — **Phase 7 Documentation**: Recorded Wave 1 performance summary, modernization log, efficiency rules (`AGENTS.md`), and wrap-up report.
+7. **`1ddbb83`** — **Release `2.2.0` Prep**: Synchronized `2.2.0` across `Cargo.toml`, `Cargo.lock`, `package.json`, and `src-tauri/tauri.conf.json`, and updated `CHANGELOG.md`.
+8. **`6eebabe`** — **CI Runner Migration (`D-013`)**: Updated `.github/workflows/{ci,release}.yml` from retired `macos-14` to `macos-15`, unlocking full green Windows + macOS Apple Silicon CI and Draft release artifacts.
 
 ---
 

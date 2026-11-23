@@ -78,3 +78,9 @@ All autonomous technical and workflow decisions made during the Vuoom optimizati
 - **Context**: User directed: "continue please and wrap up what is done until now and a merge everything and cut a new release." No unmerged local feature branches exist (`refactor/explicit-state-machines` is already squash-merged as `0cc4666` via PR #101), and open Dependabot PRs #104 / #106 are superseded by Wave 1 Commits C & D.
 - **Decision**: Conclude Track 1 cleanly after Wave 1 (`v2.2.0` Draft release via `release.yml`), document remaining Wave 2 / Tier 2 / Tier 3 optimizations and Track 2 UI Redesign in `OPTIMIZATION_PLAN.md`, `PERFORMANCE.md`, `MODERNIZATION.md`, and `MORNING_REPORT.md` for follow-up sessions, and keep open Dependabot PRs #104/#106 unmerged so Dependabot auto-closes/rebases cleanly after `main` pushes.
 - **Rationale**: Ships verified build/idle/bundle/security wins safely without rushing unbenchmarked Tier 2 engine refactors into the release.
+
+### D-013 — Migrate GitHub Actions Workflows from Retired `macos-14` to `macos-15`
+- **Date**: 2026-11-23
+- **Context**: GitHub Actions retired `macos-14` runners on 2026-11-02, causing `CI` (`macos`) and `Release` (`release (macos-14)`) to cancel immediately with `The configuration 'macos-14-arm64-us-default' is not supported`. The initial `v2.2.0` run (`45183174930`) therefore uploaded Windows-only assets to an untagged `v2.2.0` draft.
+- **Decision**: Updated `.github/workflows/ci.yml` and `.github/workflows/release.yml` from `macos-14` to `macos-15`, deleted the partial untagged `v2.2.0` draft before pushing, and re-ran `CI` (`45186750099`) and `Release` (`45186749194`) on `main`.
+- **Rationale**: Restores cross-platform Apple Silicon CI verification and bundles both Windows and macOS Apple Silicon artifacts + unified `latest.json` cleanly into Draft `Vuoom v2.2.0`.

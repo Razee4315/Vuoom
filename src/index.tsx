@@ -34,9 +34,12 @@ const mount = () => {
 };
 
 // The dictionary loads before first render, so a Chinese interface never flashes English.
-// In a plain browser the engine is a mock, fetched only then: the packaged app starts
-// without it.
-Promise.all([initLocale(), isMock ? import("./mock/install") : undefined]).then(mount, showMountFailure);
+// In a plain browser the engine is a mock, fetched only then: packaged Tauri builds
+// statically exclude the mock chunk via `__TAURI_BUILD__`.
+Promise.all([initLocale(), !__TAURI_BUILD__ && isMock ? import("./mock/install") : undefined]).then(
+  mount,
+  showMountFailure,
+);
 
 // The launch splash (in index.html) stays up until App connects to the engine,
 // App calls hideSplash() once the backend is ready (or has definitively failed).

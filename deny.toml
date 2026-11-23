@@ -30,15 +30,6 @@ ignore = [
     # doesn't accept yet; Dependabot will pick it up when it does.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
-    # zip 4.x advisories (setuid/symlink extract, AES early-EOF, local-header mismatch). Pulled
-    # by tauri-plugin-updater, which pins zip ^4. Vuoom ships NSIS/MSI on Windows and .tar.gz
-    # bundles on macOS (not zip updates), and update payloads are minisign-verified before extraction.
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-    "RUSTSEC-2026-0429",
-    "RUSTSEC-2026-0545",
-    "RUSTSEC-2026-0548",
 ]
 
 [licenses]

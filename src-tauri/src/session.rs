@@ -3170,7 +3170,6 @@ impl Session {
 
     /// Move/edit a text label. `None` fields keep their current value.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn update_text(
         &self,
         id: u32,

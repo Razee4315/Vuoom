@@ -11,7 +11,7 @@ interface PreviewFrame {
   width: number;
   height: number;
   stride: number;
-  pixels: Uint8Array;
+  pixels: Uint8Array<ArrayBuffer>;
 }
 
 function parseFrame(buf: ArrayBuffer): PreviewFrame | null {
@@ -140,7 +140,7 @@ export class PreviewClient implements PreviewSource {
     const { width, height, stride, pixels } = frame;
 
     const rowBytes = width * 4;
-    let packed: Uint8ClampedArray;
+    let packed: Uint8ClampedArray<ArrayBuffer>;
     if (stride === rowBytes) {
       // Tightly packed (the usual case): draw straight from the received bytes.
       packed = new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, rowBytes * height);

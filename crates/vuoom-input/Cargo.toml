@@ -9,7 +9,6 @@ description = "Global input capture (Raw Input via windows-rs) → QPC-stamped e
 [dependencies]
 vuoom-zoom.workspace = true
 glam.workspace = true
-tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
@@ -24,6 +23,7 @@ windows = { version = "0.62", features = [
 
 # Quartz event tap, display geometry and the host clock (macOS).
 [target.'cfg(target_os = "macos")'.dependencies]
+tracing.workspace = true
 libc = "0.2"
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", features = ["CFRunLoop", "CFMachPort", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }

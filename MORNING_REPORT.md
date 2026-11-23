@@ -2,7 +2,7 @@
 
 ## Release & Rollback
 
-- **Release**: [`Vuoom v2.2.0`](https://github.com/Razee4315/Vuoom/releases/tag/untagged-f0eb122ced2b69ba9902) (tag `v2.2.0` once published)
+- **Release**: [`Vuoom v2.2.0`](https://github.com/Razee4315/Vuoom/releases/tag/untagged-95b5a0094b0d61f9bdc4) (GitHub Releases draft; tag `v2.2.0` created on publish — [All Releases](https://github.com/Razee4315/Vuoom/releases))
 - **Status**: **Draft** (auto-updater in `src-tauri/tauri.conf.json` polls `releases/latest/download/latest.json`; release remains a Draft per `D-002` until you click **Publish release** on GitHub)
 - **Verified Draft Assets (`latest.json` + Windows + macOS Apple Silicon)**:
   - `Vuoom_2.2.0_x64_en-US.msi` (`11,161,600 B`) + `.sig` (`432 B`)

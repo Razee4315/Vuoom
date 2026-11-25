@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .astro/
+tools/raw-assets/
+tools/logs/
 
-# The site ships its demo clips (the repo root ignores *.mp4).
+# The site ships its demo clips and cut-paper studio graphics (the repo root ignores *.mp4 and *.webp).
 !public/media/*.mp4
+!src/assets/studio/*.webp

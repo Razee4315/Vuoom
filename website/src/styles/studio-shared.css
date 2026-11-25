@@ -1,0 +1,140 @@
+/* Shared Tungsten Darkroom + Daylight Archival Studio rules across all 24 routes. */
+html {
+  scroll-behavior: smooth;
+}
+html.menu-open {
+  overflow: hidden;
+}
+html.motion [data-reveal] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Override global focus outline to the warm archival tungsten focus ring */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--r-ui);
+}
+
+.grain {
+  opacity: var(--grain);
+  mix-blend-mode: soft-light;
+}
+[data-theme='light'] .grain {
+  mix-blend-mode: multiply;
+}
+
+/* Smoked glass studio card utility used across inner and home pages */
+.studio-surface {
+  background: var(--ground-glass);
+  border: var(--hair) solid var(--rule);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Subtle cross-document view transitions (opt-in when motion is enabled) */
+@view-transition {
+  navigation: auto;
+}
+::view-transition-old(root) {
+  animation: vt-out 140ms var(--ease-studio) both;
+}
+::view-transition-new(root) {
+  animation: vt-in 180ms var(--ease-studio) both;
+}
+@keyframes vt-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes vt-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+@media (hover: none) {
+  .theme-tooltip {
+    display: none !important;
+  }
+}
+
+/* Shared video player chrome (used by <Video /> and ScreeningRoom) */
+.vid {
+  position: relative;
+  border-radius: var(--r-frame);
+  overflow: hidden;
+  background: var(--ground-well);
+  border: var(--hair) solid var(--rule-strong);
+  box-shadow: var(--shadow-stage), inset 0 1px 0 var(--rim);
+}
+.vid video {
+  width: 100%;
+  height: auto;
+  display: block;
+  cursor: pointer;
+}
+.vid__bar {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.vid__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding-inline: 10px;
+  color: #f6efe5;
+  background: rgb(17 15 14 / 0.84);
+  border: 1px solid rgb(246 223 191 / 0.24);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--r-pill);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+  transition:
+    background-color var(--dur-hover) var(--ease-studio),
+    border-color var(--dur-hover) var(--ease-studio);
+}
+.vid__btn[hidden] {
+  display: none;
+}
+.vid__btn:hover {
+  background: rgb(17 15 14 / 0.96);
+  border-color: var(--tungsten);
+}
+.vid__play,
+.vid__pause {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.vid__pause,
+.vid__btn[aria-pressed='true'] .vid__play {
+  display: none;
+}
+.vid__btn[aria-pressed='true'] .vid__pause {
+  display: inline-flex;
+}
+.vid__sound {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-inline: 12px;
+}

@@ -1,0 +1,124 @@
+---
+import { Image } from 'astro:assets';
+import Button from './Button.astro';
+import Icon from './Icon.astro';
+import Film from './Film.astro';
+import heroBgDark from '../assets/studio/hero-bg-dark.webp';
+import heroBgLight from '../assets/studio/hero-bg-light.webp';
+import graphicPointer from '../assets/studio/graphic-pointer.webp';
+import graphicZoomRest from '../assets/studio/graphic-zoom-rest.webp';
+import graphicZoomActive from '../assets/studio/graphic-zoom-active.webp';
+import homeShot from '../assets/shots/screenshot-home.png';
+---
+<section class="pg-hero" data-camera-playground aria-labelledby="hero-title">
+  <div class="pg-hero__plates" data-parallax-scroll aria-hidden="true">
+    <Image
+      src={heroBgDark}
+      alt=""
+      widths={[960, 1440, 1914]}
+      sizes="100vw"
+      loading="eager"
+      fetchpriority="high"
+      class="pg-plate pg-plate--dark"
+    />
+    <Image
+      src={heroBgLight}
+      alt=""
+      widths={[960, 1440, 1913]}
+      sizes="100vw"
+      loading="lazy"
+      class="pg-plate pg-plate--light"
+    />
+    <div class="pg-plate__scrim"></div>
+  </div>
+
+  <!-- Quiet peripheral cut-paper accents -->
+  <div class="pg-optics" aria-hidden="true">
+    <div class="pg-optic pg-optic--pointer" data-parallax="rear" data-float>
+      <Image src={graphicPointer} alt="" widths={[280, 560]} sizes="132px" loading="lazy" />
+    </div>
+    <div class="pg-optic pg-optic--zoom" data-parallax="front" data-float="alt">
+      <Image src={graphicZoomRest} alt="" widths={[280, 560]} sizes="138px" loading="lazy" class="zoom-layer zoom-layer--rest" />
+      <Image src={graphicZoomActive} alt="" widths={[280, 560]} sizes="138px" loading="lazy" class="zoom-layer zoom-layer--active" />
+    </div>
+  </div>
+
+  <div class="wrap pg-hero__stack">
+    <div class="pg-copy pg-copy--center">
+      <div class="pg-eyebrow mono" data-hero-anim>
+        <span class="rec-dot" aria-hidden="true"></span>
+        <span>FREE &amp; OPEN SOURCE · WINDOWS &amp; MACOS</span>
+      </div>
+
+      <h1 id="hero-title" class="pg-title" data-hero-anim>
+        <span class="pg-title__lead">Record your screen.</span>
+        <span class="pg-title__focus">Direct the take.</span>
+      </h1>
+
+      <p class="pg-sub" data-hero-anim>
+        A native screen recorder that glides the camera into your clicks, smooths your pointer, and exports crisp GIFs or 4K MP4s.
+      </p>
+
+      <div class="pg-actions" data-hero-anim>
+        <Button href="/download/" icon="download" size="lg">Download Vuoom</Button>
+        <Button variant="secondary" icon="play" size="lg" data-open-film>Watch film (1:57)</Button>
+      </div>
+    </div>
+
+    <!-- Full-Screen-First Calm Floating Spring Stage -->
+    <div class="pg-stage-wrap" data-hero-anim>
+      <div class="pg-bezel">
+        <div
+          class="pg-well"
+          data-pg-well
+          tabindex="0"
+          role="application"
+          aria-label="Interactive Vuoom spring camera preview. Click anywhere to zoom in, click again to return to full screen, or press Enter."
+        >
+          <div class="pg-cam" data-pg-cam>
+            <Image
+              src={homeShot}
+              alt="Vuoom capture workspace shown in full screen"
+              widths={[720, 1080, 1440]}
+              sizes="(min-width: 1020px) 920px, 94vw"
+              loading="eager"
+              fetchpriority="high"
+              class="pg-img"
+            />
+            <span class="pg-ripple" data-pg-ripple aria-hidden="true"></span>
+            <svg class="pg-pointer" data-pg-pointer width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+              <path d="M3 2.5 18.5 9l-6.7 2.2L9 18z" fill="#F6EFE5" stroke="#110F0E" stroke-width="1.4" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <span class="pg-reticle" data-pg-reticle aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <div class="pg-float-bar" role="toolbar" aria-label="Camera spring preview controls">
+        <div class="pg-dock__group" role="radiogroup" aria-label="Spring feel">
+          <button type="button" class="pg-pill" role="radio" aria-checked="true" data-pg-preset="smooth">Smooth</button>
+          <button type="button" class="pg-pill" role="radio" aria-checked="false" data-pg-preset="snappy">Snappy</button>
+          <button type="button" class="pg-pill" role="radio" aria-checked="false" data-pg-preset="slow">Slow</button>
+        </div>
+
+        <span class="pg-float-sep" aria-hidden="true"></span>
+        <span class="pg-readout mono" data-pg-readout>1.00×</span>
+        <span class="pg-float-sep" aria-hidden="true"></span>
+        <span class="pg-mode-hint" data-pg-hint>Click anywhere to zoom</span>
+      </div>
+      <span class="visually-hidden" aria-live="polite" data-pg-live></span>
+    </div>
+  </div>
+
+  <dialog class="film-modal" data-film-modal aria-label="Vuoom launch film">
+    <div class="film-modal__head">
+      <span class="mono">VUOOM LAUNCH FILM · 01:57</span>
+      <button type="button" class="film-modal__close" data-close-film aria-label="Close launch film">
+        <Icon name="close" size={18} />
+      </button>
+    </div>
+    <div class="film-modal__body">
+      <Film />
+    </div>
+  </dialog>
+</section>

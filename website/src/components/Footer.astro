@@ -1,5 +1,5 @@
 ---
-// Quiet footer: a compact sitemap, then the oversized VUOOM● wordmark. Curtain reveal.
+// Studio footer: compact 4-column sitemap, platform links, and the signature VUOOM● display mark.
 import { FOOTER, MORE_BY, SITE, url } from '../lib/site';
 import type { Release } from '../lib/github';
 
@@ -12,11 +12,12 @@ const cols = FOOTER.filter((c) => c.title !== 'Legal');
 const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
 ---
 <footer class="foot">
+  <div class="foot__rule" aria-hidden="true"></div>
   <div class="wrap">
     <nav class="foot__cols" aria-label="Footer">
       {cols.map((col) => (
         <div>
-          <h2 class="foot__title">{col.title}</h2>
+          <h2 class="foot__title mono">{col.title}</h2>
           <ul role="list">
             {col.links.map((l) => (
               <li>
@@ -33,13 +34,17 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
 
   <div class="wrap foot__more">
     <span>More by {SITE.author}:</span>
-    {MORE_BY.map((l) => <a class="foot__link" href={l.href}>{l.label}</a>)}
+    {MORE_BY.map((l) => (
+      <a class="foot__link" href={l.href} rel="noopener">{l.label}</a>
+    ))}
   </div>
 
   <div class="wrap foot__base">
-    <span>© {year} Vuoom · Apache-2.0 · v{release.version}</span>
+    <span>© {year} Vuoom · Apache-2.0 · v{release.version} · Windows 10/11 &amp; macOS 14+</span>
     <span class="foot__legal">
-      {legal.map((l) => <a class="foot__link" href={url(l.href)}>{l.label}</a>)}
+      {legal.map((l) => (
+        <a class="foot__link" href={url(l.href)}>{l.label}</a>
+      ))}
     </span>
   </div>
 
@@ -50,12 +55,21 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
 
 <style>
   .foot {
-    position: sticky;
-    bottom: 0;
-    z-index: 0;
+    position: relative;
+    z-index: 1;
     background: var(--ground-sunk);
     padding-top: var(--s-9);
     overflow: hidden;
+    border-top: var(--hair) solid var(--rule);
+  }
+  .foot__rule {
+    position: absolute;
+    top: 0;
+    left: 15%;
+    right: 15%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--tungsten), transparent);
+    opacity: 0.45;
   }
   .foot__cols {
     display: grid;
@@ -63,10 +77,12 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     gap: var(--s-7) var(--col-gap);
   }
   .foot__title {
-    font-size: 0.8125rem;
-    color: var(--ink-3);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--tungsten);
     margin-bottom: var(--s-4);
-    font-weight: 400;
+    font-weight: 500;
   }
   .foot__cols li + li {
     margin-top: var(--s-2);
@@ -74,45 +90,10 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
   .foot__link {
     color: var(--ink-2);
     font-size: 0.875rem;
-    transition: color var(--dur-hover) var(--ease-out-quart);
+    transition: color var(--dur-hover) var(--ease-studio);
   }
   .foot__link:hover {
     color: var(--ink);
-  }
-  .foot__mark {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    margin-top: var(--s-7);
-    /* the bottom of the letters runs off the page edge */
-    margin-bottom: -0.2em;
-    line-height: 0.8;
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: clamp(5rem, 24vw, 23rem);
-    letter-spacing: -0.06em;
-    color: rgb(242 240 235 / 0.92);
-    user-select: none;
-    white-space: nowrap;
-  }
-  .foot__dot {
-    width: 0.2em;
-    height: 0.2em;
-    margin-top: 0.02em;
-    margin-left: 0.02em;
-    border-radius: var(--r-pill);
-    background: var(--rec);
-    box-shadow: 0 0 0.3em var(--rec-glow);
-    flex: none;
-  }
-  .foot__base {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: var(--s-3) var(--s-6);
-    padding-block: var(--s-8) 0;
-    font-size: 0.8125rem;
-    color: var(--ink-3);
   }
   .foot__more {
     display: flex;
@@ -122,9 +103,44 @@ const legal = FOOTER.find((c) => c.title === 'Legal')?.links ?? [];
     font-size: 0.8125rem;
     color: var(--ink-3);
   }
+  .foot__base {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--s-3) var(--s-6);
+    padding-block: var(--s-6) 0;
+    font-size: 0.8125rem;
+    color: var(--ink-3);
+  }
   .foot__legal {
     display: flex;
     gap: var(--s-5);
+  }
+  .foot__mark {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    margin-top: var(--s-7);
+    margin-bottom: -0.22em;
+    line-height: 0.8;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(4.75rem, 23vw, 22rem);
+    letter-spacing: -0.06em;
+    color: var(--ink);
+    opacity: 0.92;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .foot__dot {
+    width: 0.19em;
+    height: 0.19em;
+    margin-top: 0.03em;
+    margin-left: 0.025em;
+    border-radius: var(--r-pill);
+    background: var(--rec);
+    box-shadow: 0 0 0.35em var(--rec-glow);
+    flex: none;
   }
   @media (max-width: 720px) {
     .foot__cols {

@@ -1,8 +1,7 @@
 ---
-// The shell every page renders in: full SEO head, structured data, header, footer, grain,
-// and the progressively enhanced motion runtime.
+// Shared page shell: SEO metadata, JSON-LD, header, footer, film grain, and progressive motion runtime.
 import '../styles/global.css';
-import '../styles/paper-shared.css';
+import '../styles/studio-shared.css';
 import geist from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
 import bricolage from '@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2?url';
 import Header from '../components/Header.astro';
@@ -16,7 +15,6 @@ interface Props {
   path: PagePath;
   crumbs?: { href: string; label: string }[];
   schema?: Record<string, unknown>[];
-
   type?: 'website' | 'article';
 }
 
@@ -61,7 +59,7 @@ const graph = {
 const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
 ---
 <!doctype html>
-<html lang="en" dir="ltr" data-version={release.version}>
+<html lang="en" dir="ltr" data-theme="dark" data-version={release.version}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -70,7 +68,7 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <link rel="canonical" href={canonical} />
     {path === '/404/' ? <meta name="robots" content="noindex" /> : <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />}
     <meta name="theme-color" content={SITE.themeColor} />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="application-name" content="Vuoom" />
     <meta name="author" content={SITE.author} />
     <meta name="generator" content={Astro.generator} />
@@ -86,7 +84,7 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={`${meta.og} Vuoom, the free auto-zoom screen recorder for Windows.`} />
+    <meta property="og:image:alt" content={`${meta.og} Vuoom, the free auto-zoom screen recorder for Windows and macOS.`} />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={meta.description} />
@@ -105,18 +103,16 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     <script type="application/ld+json" set:html={JSON.stringify(graph)} />
 
     <script is:inline>
-      // Read the accessibility preference before initializing optional motion.
       (function () {
         var d = document.documentElement;
         d.classList.add('js');
         var savedTheme = null;
         try { savedTheme = localStorage.getItem('vuoom-theme'); } catch (e) {}
-        d.dataset.theme = savedTheme === 'dark' || savedTheme === 'light'
-          ? savedTheme
-          : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!reduce) d.classList.add('motion');
-
+        var theme = savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'dark';
+        d.dataset.theme = theme;
+        var tc = document.querySelector('meta[name="theme-color"]');
+        if (tc) tc.setAttribute('content', theme === 'light' ? '#f4f0e8' : '#110f0e');
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) d.classList.add('motion');
       })();
     </script>
   </head>
@@ -151,7 +147,7 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
     color: var(--ground);
     border-radius: var(--r-ui);
     transform: translateY(-200%);
-    transition: transform var(--dur-hover) var(--ease-out);
+    transition: transform var(--dur-hover) var(--ease-studio);
   }
   .skip:focus {
     transform: none;
@@ -159,11 +155,10 @@ const fullTitle = path === '/' ? meta.title : `${meta.title} | Vuoom`;
   main {
     position: relative;
     z-index: 1;
-    background: var(--ground);
+    background: transparent;
     outline: none;
   }
   .crumbs-wrap {
     padding-top: calc(var(--nav-h) + var(--s-7));
   }
-
 </style>

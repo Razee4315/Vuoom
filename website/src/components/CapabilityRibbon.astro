@@ -1,0 +1,39 @@
+---
+import { url } from '../lib/site';
+
+interface Pill {
+  title: string;
+  href: string;
+  accent?: 'crimson' | 'tungsten' | 'emerald';
+}
+
+const PILLS: Pill[] = [
+  { title: 'Auto-Zoom Springs', href: '/features/auto-zoom/', accent: 'crimson' },
+  { title: 'Smooth Pointer', href: '/features/auto-zoom/', accent: 'tungsten' },
+  { title: '4 Click Effects', href: '/features/auto-zoom/' },
+  { title: 'Offline Captions', href: '/features/captions/', accent: 'emerald' },
+  { title: 'RNNoise Voice', href: '/features/audio-and-webcam/', accent: 'tungsten' },
+  { title: 'Webcam Bubble', href: '/features/audio-and-webcam/' },
+  { title: '4K 60 fps Capture', href: '/download/', accent: 'crimson' },
+  { title: 'Fit-Under-10MB GIF', href: '/features/gif-export/', accent: 'tungsten' },
+  { title: 'Skim Idle Stretches', href: '/features/editor/', accent: 'crimson' },
+  { title: 'LZ4 Crash Recovery', href: '/open-source/', accent: 'emerald' },
+];
+---
+<section class="rib-sec" aria-label="Vuoom shipped capabilities">
+  <div class="rib-track-wrap">
+    <div class="rib-track rib-track--left">
+      {[...PILLS, ...PILLS].map((p, idx) => (
+        <a
+          class:list={['rib-pill', p.accent && `rib-pill--${p.accent}`]}
+          href={url(p.href)}
+          aria-hidden={idx >= PILLS.length ? 'true' : undefined}
+          tabindex={idx >= PILLS.length ? -1 : undefined}
+        >
+          <span class="rib-card__dot" aria-hidden="true"></span>
+          <span>{p.title}</span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>

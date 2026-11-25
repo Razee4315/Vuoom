@@ -1,0 +1,115 @@
+---
+import { Image } from 'astro:assets';
+import Video from './Video.astro';
+import { url } from '../lib/site';
+import graphicTimeline from '../assets/studio/graphic-timeline.webp';
+import wpCrimson from '../assets/studio/wallpaper-crimson.webp';
+import wpPaper from '../assets/studio/wallpaper-paper.webp';
+import wpSage from '../assets/studio/wallpaper-sage.webp';
+
+const FRAMES = [
+  { id: 'none', label: 'None' },
+  { id: 'subtle', label: 'Subtle' },
+  { id: 'studio', label: 'Studio' },
+];
+
+const BACKDROPS = [
+  { id: 'crimson', label: 'Crimson', kind: 'img', img: wpCrimson },
+  { id: 'sage', label: 'Sage', kind: 'img', img: wpSage },
+  { id: 'warm', label: 'Paper', kind: 'img', img: wpPaper },
+  { id: 'obsidian', label: 'Obsidian', kind: 'solid', color: '#110f0e' },
+];
+---
+<section class="sf-sec" data-studio-finisher aria-labelledby="sf-heading">
+  <div class="sf-ambient" aria-hidden="true"></div>
+
+  <div class="wrap sf-inner">
+    <div class="sf-head">
+      <div data-reveal>
+        <p class="eyebrow-tag mono">FINISHING</p>
+        <h2 id="sf-heading">Give the take a finish.</h2>
+        <p class="sec-lead sf-head-copy">
+          Frame your clip in clean padding and a quiet wallpaper, then export ready to share.
+        </p>
+      </div>
+      <div class="sf-head-art" aria-hidden="true" data-float data-parallax-scroll>
+        <Image
+          src={graphicTimeline}
+          alt=""
+          widths={[340, 680]}
+          sizes="(min-width: 960px) 240px, 190px"
+          loading="lazy"
+        />
+      </div>
+    </div>
+
+    <div class="sf-bench">
+      <div class="sf-preview" data-reveal>
+        <div class="sf-stage" data-sf-stage data-frame="studio" data-backdrop="crimson">
+          <div class="sf-bg sf-bg--crimson" aria-hidden="true">
+            <Image src={wpCrimson} alt="" widths={[720, 1400]} sizes="(min-width: 960px) 58vw, 96vw" loading="lazy" />
+          </div>
+          <div class="sf-bg sf-bg--sage" aria-hidden="true">
+            <Image src={wpSage} alt="" widths={[720, 1400]} sizes="(min-width: 960px) 58vw, 96vw" loading="lazy" />
+          </div>
+          <div class="sf-bg sf-bg--warm" aria-hidden="true">
+            <Image src={wpPaper} alt="" widths={[720, 1400]} sizes="(min-width: 960px) 58vw, 96vw" loading="lazy" />
+          </div>
+          <div class="sf-bg sf-bg--solid" aria-hidden="true"></div>
+
+          <div class="sf-video-frame">
+            <Video name="github" deferSource />
+          </div>
+        </div>
+      </div>
+
+      <aside class="sf-controls studio-surface" data-reveal aria-label="Editor finishing controls">
+        <div class="sf-ctrl-blk">
+          <span class="ctrl-label mono">FRAME</span>
+          <div class="seg-group" role="radiogroup" aria-label="Frame padding and bevel">
+            {FRAMES.map((f) => (
+              <button
+                type="button"
+                class="seg-btn"
+                role="radio"
+                aria-checked={f.id === 'studio' ? 'true' : 'false'}
+                data-sf-frame={f.id}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div class="sf-ctrl-blk">
+          <span class="ctrl-label mono">WALLPAPER</span>
+          <div class="sf-backdrops" role="radiogroup" aria-label="Video backdrop">
+            {BACKDROPS.map((b) => (
+              <button
+                type="button"
+                class="sf-bd-btn"
+                role="radio"
+                aria-checked={b.id === 'crimson' ? 'true' : 'false'}
+                aria-label={b.label}
+                title={b.label}
+                data-sf-backdrop={b.id}
+              >
+                {b.kind === 'img' && b.img ? (
+                  <Image src={b.img} alt="" widths={[160]} sizes="64px" loading="lazy" />
+                ) : (
+                  <span class="sf-bd-solid" style={`background:${b.color}`}></span>
+                )}
+                <span class="sf-bd-name">{b.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div class="sf-controls__foot">
+          <p>Trim fumbles, skim idle loading, or speed up stretches cleanly.</p>
+          <a class="text-link" href={url('/features/editor/')}>All editor tools ↗</a>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>

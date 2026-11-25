@@ -1,5 +1,5 @@
 // Questions shared between the home page, the FAQ page and feature pages.
-// Answers are plain text so they can go into FAQPage JSON-LD unchanged.
+// Plain text so they serialize cleanly into FAQPage JSON-LD. Zero em dashes.
 
 export interface QA {
   q: string;
@@ -12,35 +12,35 @@ export const FAQ_GENERAL: QA[] = [
     a: 'Yes. Vuoom is free and open source under the Apache License 2.0. There is no paid tier, no trial, no watermark and no account.',
   },
   {
-    q: 'Is Vuoom a Screen Studio alternative for Windows?',
-    a: 'That is exactly why it exists. Screen Studio only runs on macOS. Vuoom brings the same idea, a camera that zooms into your clicks, to Windows 10 and 11 as a small native app.',
+    q: 'Is Vuoom a Screen Studio alternative for Windows and Mac?',
+    a: 'Yes. Screen Studio is paid and macOS only. Vuoom brings smooth auto-zoom, a redrawn pointer, timeline editing, offline captions and GIF/MP4 export to both Windows 10/11 and macOS 14+ Apple Silicon, free and open source.',
   },
   {
-    q: 'Why does Windows SmartScreen warn when I install it?',
-    a: 'The installers are not code-signed yet, and SmartScreen warns about any new unsigned app. Click More info, then Run anyway. The source code and the build workflow that produces every installer are public on GitHub.',
+    q: 'Why does Windows SmartScreen or macOS Gatekeeper warn?',
+    a: 'Builds are not code-signed with paid developer certificates yet. On Windows click More info, then Run anyway. On macOS right-click the app and choose Open the first time. Every installer is built in public by GitHub Actions from source.',
   },
   {
     q: 'Does Vuoom upload my recordings?',
     a: 'No. Recording, editing, voice clean-up, captions and export all run on your computer. Vuoom has no account, no cloud and no telemetry.',
   },
   {
-    q: 'Does it work on Mac or Linux?',
-    a: 'Not today. Vuoom is built on Windows Graphics Capture and Media Foundation, which is what keeps it small and fast. Windows 10 and 11 are supported.',
+    q: 'Which platforms are supported?',
+    a: 'Windows 10 (1809+) and Windows 11 (64-bit) using Windows Graphics Capture and Media Foundation, plus macOS 14+ on Apple Silicon using ScreenCaptureKit, Metal and AVFoundation.',
   },
   {
     q: 'What can I export?',
-    a: 'An optimised GIF or an H.264 MP4 up to 60 fps with an AAC soundtrack, plus an .srt caption file. A live size estimate and a fit-under-N-MB helper keep files small enough for GitHub and Slack.',
+    a: 'An optimised GIF or an H.264 MP4 up to 4K at 60 fps with an AAC soundtrack, plus an .srt caption file. A live size estimate and a fit-under-N-MB helper keep files small enough for GitHub and Slack.',
   },
 ];
 
 export const FAQ_MORE: QA[] = [
   {
     q: 'How big is the download?',
-    a: 'The setup .exe is under 8 MB and the .msi is about 10 MB. Vuoom is built with Rust and Tauri, not Electron, so it does not ship a copy of a browser.',
+    a: 'The Windows setup .exe is under 9 MB (.msi is about 11 MB), and the Apple Silicon .dmg is around 11 MB. Vuoom is built with Rust and Tauri, not Electron, so it does not bundle a second browser.',
   },
   {
     q: 'How do I zoom while recording?',
-    a: 'Press Ctrl+Shift+Z to glide the camera into your pointer, and press it again to pull back out. You can also leave it to Auto zooms, which plans zooms from your clicks after you stop.',
+    a: 'Press Ctrl+Shift+Z on Windows (Shift+Command+Z on macOS) to glide the camera into your pointer, and press it again to pull back out. You can also let Auto zooms plan zooms from your clicks after stopping.',
   },
   {
     q: 'Can I edit the zooms afterwards?',
@@ -48,22 +48,22 @@ export const FAQ_MORE: QA[] = [
   },
   {
     q: 'How do captions work without the internet?',
-    a: 'Vuoom uses whisper.cpp on your own processor. The first time you ask for captions it downloads a 57 MB speech model once from Hugging Face; after that everything runs offline.',
+    a: 'Vuoom uses whisper.cpp on your own computer. The first time you ask for captions it downloads a 57 MB speech model once from Hugging Face; after that everything runs offline.',
   },
   {
     q: 'How do updates work?',
-    a: 'On launch Vuoom asks GitHub Releases whether a newer signed build exists. If one does, an Update button appears; nothing installs until you click it.',
+    a: 'On launch Vuoom checks GitHub Releases for a newer signed update manifest. When one exists, an Update button appears in the top bar; nothing installs until you click it.',
   },
   {
     q: 'What happens if Vuoom crashes mid-recording?',
-    a: 'Frames are written to disk as you record, so the take survives. Next time you open Vuoom, the home screen offers to recover it.',
+    a: 'Frames stream directly to disk as compressed LZ4 deltas while you record, so the take survives. Next time you open Vuoom, the home screen offers to recover it.',
   },
   {
     q: 'Can I record a single window or a part of the screen?',
-    a: 'Yes. Pick a region (free or 16:9, 9:16, 1:1 or 4:5), a whole display, or a single app window, on any monitor.',
+    a: 'Yes. Pick a region (free or 16:9, 9:16, 1:1 or 4:5), a whole display, or a single app window, on any monitor, and pause or resume any time.',
   },
   {
     q: 'Can I contribute?',
-    a: 'Please do. Bug reports, ideas and pull requests are welcome on GitHub. The frontend can even run in a plain browser with a mock engine, so you do not need to build the Rust side to work on the interface.',
+    a: 'Please do. Bug reports, ideas and pull requests are welcome on GitHub. The frontend also ships with a browser mock engine so you can work on the UI without building Rust.',
   },
 ];

@@ -1,4 +1,4 @@
-// One 1200×630 social card per page, rendered at build time with satori + resvg.
+// One 1200×630 Tungsten Darkroom social card per page, rendered at build time with satori + resvg.
 import type { APIRoute, GetStaticPaths } from 'astro';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -19,7 +19,7 @@ function load() {
       font('@fontsource/geist/files/geist-latin-400-normal.woff'),
       sharp(join(process.cwd(), 'src/assets/shots/take-zoom.png'))
         .resize(900)
-        .jpeg({ quality: 82 })
+        .jpeg({ quality: 84 })
         .toBuffer(),
     ]);
     return { display, text, shot: `data:image/jpeg;base64,${shotBuf.toString('base64')}` };
@@ -42,20 +42,21 @@ const h = (type: string, style: Record<string, unknown>, children?: unknown, ext
 export const GET: APIRoute = async ({ props }) => {
   const { title, kicker } = props as { title: string; kicker: string };
   const { display, text, shot } = await load();
-  const size = title.length > 34 ? 58 : 68;
+  const size = title.length > 34 ? 54 : 64;
 
-  const tree = h('div', { width: 1200, height: 630, display: 'flex', background: '#f5f1e8', position: 'relative', fontFamily: 'Geist' }, [
+  const tree = h('div', { width: 1200, height: 630, display: 'flex', background: '#110f0e', position: 'relative', fontFamily: 'Geist' }, [
     h('div', { position: 'absolute', left: 72, top: 64, display: 'flex', alignItems: 'center', gap: 14 }, [
       h('svg', { width: 44, height: 44 }, [
-        h('path', {}, undefined, { d: 'M305 338 512 722 700 373', fill: 'none', stroke: '#242720', 'stroke-width': 104, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
-        h('circle', {}, undefined, { cx: 719, cy: 338, r: 100, fill: '#c8412d' }),
+        h('rect', {}, undefined, { width: 1024, height: 1024, rx: 220, fill: '#171412', stroke: '#3c3128', 'stroke-width': 24 }),
+        h('path', {}, undefined, { d: 'M305 338 512 722 700 373', fill: 'none', stroke: '#f6efe5', 'stroke-width': 104, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('circle', {}, undefined, { cx: 719, cy: 338, r: 100, fill: '#e5484d' }),
       ], { viewBox: '0 0 1024 1024' }),
-      h('div', { fontFamily: 'Bricolage', fontSize: 34, color: '#242720', letterSpacing: -0.6 }, 'Vuoom'),
+      h('div', { fontFamily: 'Bricolage', fontSize: 34, color: '#f6efe5', letterSpacing: -0.6 }, 'Vuoom'),
     ]),
-    h('div', { position: 'absolute', left: 72, top: 150, fontSize: 22, color: '#c8412d' }, kicker),
-    h('div', { position: 'absolute', left: 72, top: 190, width: 600, fontFamily: 'Bricolage', fontSize: size, lineHeight: 1, letterSpacing: -2.2, color: '#242720' }, title),
-    h('div', { position: 'absolute', left: 72, bottom: 64, fontSize: 24, color: '#575a50' }, 'Free, open-source screen recorder for Windows'),
-    h('img', { position: 'absolute', left: 720, top: 120, width: 760, height: 428, borderRadius: 18, border: '1px solid rgba(242,240,235,0.12)', objectFit: 'cover' }, undefined, { src: shot, width: 760, height: 428 }),
+    h('div', { position: 'absolute', left: 72, top: 150, fontSize: 22, color: '#e4a45f' }, kicker),
+    h('div', { position: 'absolute', left: 72, top: 192, width: 590, fontFamily: 'Bricolage', fontSize: size, lineHeight: 1.02, letterSpacing: -2.0, color: '#f6efe5' }, title),
+    h('div', { position: 'absolute', left: 72, bottom: 64, fontSize: 22, color: '#bfb2a5' }, 'Free, open-source screen recorder for Windows & macOS'),
+    h('img', { position: 'absolute', left: 710, top: 112, width: 760, height: 428, borderRadius: 16, border: '1px solid rgba(255,229,189,0.22)', objectFit: 'cover' }, undefined, { src: shot, width: 760, height: 428 }),
   ]);
 
   const svg = await satori(tree as never, {

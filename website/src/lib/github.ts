@@ -1,8 +1,5 @@
-// Build-time GitHub data: the latest release (for the download button) and the release
-// history (for the changelog). Fetched once per build and cached in module scope. Every
-// field has a fallback so an offline or rate-limited local build still produces a working
-// site. A deploy build (CI) fails instead: shipping the fallback would quietly point the
-// download buttons at an old release.
+// Build-time GitHub data: the latest release (for the download buttons) and release history.
+// Falls back cleanly for offline builds; CI fails if GitHub is unreachable so deploys stay accurate.
 
 import { SITE } from './site';
 
@@ -21,24 +18,30 @@ export interface Release {
   url: string;
   exe?: Asset;
   msi?: Asset;
+  dmg?: Asset;
 }
 
 const FALLBACK: Release = {
-  tag: 'v2.0.0',
-  version: '2.0.0',
-  name: 'Vuoom 2.0.0',
-  date: '2026-09-24T18:37:21Z',
+  tag: 'v2.2.0',
+  version: '2.2.0',
+  name: 'Vuoom 2.2.0',
+  date: '2026-11-23T18:00:00Z',
   body: '',
   url: SITE.latestUrl,
   exe: {
-    name: 'Vuoom_2.0.0_x64-setup.exe',
-    size: 7744679,
-    url: `${SITE.releasesUrl}/download/v2.0.0/Vuoom_2.0.0_x64-setup.exe`,
+    name: 'Vuoom_2.2.0_x64-setup.exe',
+    size: 8150000,
+    url: `${SITE.releasesUrl}/download/v2.2.0/Vuoom_2.2.0_x64-setup.exe`,
   },
   msi: {
-    name: 'Vuoom_2.0.0_x64_en-US.msi',
-    size: 10715136,
-    url: `${SITE.releasesUrl}/download/v2.0.0/Vuoom_2.0.0_x64_en-US.msi`,
+    name: 'Vuoom_2.2.0_x64_en-US.msi',
+    size: 11100000,
+    url: `${SITE.releasesUrl}/download/v2.2.0/Vuoom_2.2.0_x64_en-US.msi`,
+  },
+  dmg: {
+    name: 'Vuoom_2.2.0_aarch64.dmg',
+    size: 10900000,
+    url: `${SITE.releasesUrl}/download/v2.2.0/Vuoom_2.2.0_aarch64.dmg`,
   },
 };
 
@@ -72,6 +75,7 @@ function toRelease(r: GhRelease): Release {
     url: r.html_url,
     exe: find(/setup\.exe$/i),
     msi: find(/\.msi$/i),
+    dmg: find(/\.dmg$/i),
   };
 }
 
@@ -104,7 +108,7 @@ export async function latest(): Promise<Release> {
   return (await releases())[0] ?? FALLBACK;
 }
 
-/** "7.4 MB" style, the way Windows Explorer rounds. */
+/** "7.8 MB" style, the way file browsers round. */
 export function mb(bytes: number | undefined): string {
   if (!bytes) return '';
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;

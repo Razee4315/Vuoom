@@ -1,0 +1,56 @@
+---
+import { Image } from 'astro:assets';
+import graphicSoundwave from '../assets/studio/graphic-soundwave.webp';
+import Icon from './Icon.astro';
+import { url } from '../lib/site';
+---
+<div class="ap-card studio-surface" data-audio-panel data-reveal>
+  <div class="ap-top">
+    <div class="ap-head">
+      <p class="eyebrow-tag mono">VOICE &amp; CAPTIONS</p>
+      <h3>Clean voice. Offline captions.</h3>
+      <p class="ap-desc">
+        RNNoise strips room noise on a copy while offline whisper.cpp generates burned-in or <code>.srt</code> captions locally.
+      </p>
+    </div>
+
+    <div class="ap-art" aria-hidden="true" data-float data-parallax-scroll>
+      <Image
+        src={graphicSoundwave}
+        alt=""
+        widths={[280, 560]}
+        sizes="(min-width: 960px) 150px, 112px"
+        loading="lazy"
+      />
+    </div>
+  </div>
+
+  <div class="ap-controls">
+    <div class="seg-group" role="radiogroup" aria-label="Microphone processing mode">
+      <button type="button" class="seg-btn" role="radio" aria-checked="true" data-ap-mode="clean">
+        RNNoise Clean
+      </button>
+      <button type="button" class="seg-btn" role="radio" aria-checked="false" data-ap-mode="original">
+        Original Mic
+      </button>
+    </div>
+
+    <button type="button" class="ap-listen" data-ap-play aria-pressed="false">
+      <Icon name="sound" size={16} />
+      <span data-ap-play-label>Listen</span>
+    </button>
+  </div>
+
+  <div class="ap-wave-box">
+    <canvas class="ap-canvas" data-ap-canvas width="480" height="104" aria-label="Audio noise floor and levelling waveform"></canvas>
+  </div>
+
+  <div class="ap-sub-bar" aria-live="off">
+    <div class="ap-sub-bar__pill">
+      <span class="mono ap-sub-bar__time" data-ap-sub-time>00:01</span>
+      <span class="ap-sub-bar__text" data-ap-sub-text>I am using Vuoom to record a quick feature demo.</span>
+    </div>
+    <a class="text-link" href={url('/features/captions/')}>Caption setup ↗</a>
+  </div>
+  <span class="visually-hidden" aria-live="polite" data-ap-live></span>
+</div>

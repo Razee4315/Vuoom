@@ -1,5 +1,5 @@
 // Comparison data. Claims about other products are limited to what their own sites and
-// repositories state, checked September 2026. Anything uncertain says so rather than guessing.
+// repositories state.
 
 export type Cell = { v: 'yes' | 'no' | 'part' | 'text'; t: string };
 
@@ -9,7 +9,7 @@ const p = (t: string): Cell => ({ v: 'part', t });
 const x = (t: string): Cell => ({ v: 'text', t });
 
 export const ROWS = [
-  'Runs on Windows',
+  'Platforms',
   'Price',
   'Open source',
   'Auto-zoom into clicks',
@@ -31,13 +31,13 @@ export const PRODUCTS: Product[] = [
     id: 'vuoom',
     name: 'Vuoom',
     url: '/',
-    cells: [y('Windows 10 and 11'), x('Free'), y('Apache-2.0'), y(), y(), y(), y('Offline, on device'), n()],
+    cells: [y('Windows 10/11 & macOS 14+'), x('Free'), y('Apache-2.0'), y(), y(), y(), y('Offline, on device'), n()],
   },
   {
     id: 'screen-studio',
     name: 'Screen Studio',
     url: 'https://screen.studio',
-    cells: [n('macOS only'), x('Paid'), n(), y(), y(), y(), y('On device'), x('Paid licence')],
+    cells: [p('macOS only'), x('Paid'), n(), y(), y(), y(), y('On device'), x('Paid licence')],
   },
   {
     id: 'cap',
@@ -55,7 +55,7 @@ export const PRODUCTS: Product[] = [
     id: 'screentogif',
     name: 'ScreenToGif',
     url: 'https://www.screentogif.com',
-    cells: [y('Windows'), x('Free'), y('MS-PL'), n(), n(), y(), n(), n()],
+    cells: [p('Windows only'), x('Free'), y('MS-PL'), n(), n(), y(), n(), n()],
   },
   {
     id: 'focusee',
@@ -82,24 +82,23 @@ export const COMPARE_PAGES: ComparePage[] = [
     slug: 'screen-studio',
     path: '/compare/screen-studio/',
     them: 'screen-studio',
-    h1: 'The Screen Studio alternative for Windows.',
+    h1: 'Free Screen Studio alternative for Windows and Mac.',
     verdict:
-      'Screen Studio set the standard for recordings that zoom into your clicks, and it only runs on a Mac. Vuoom brings that idea to Windows, free and open source.',
+      'Screen Studio set the bar for recordings that zoom into clicks on macOS. Vuoom brings that smooth spring camera to both Windows and Apple Silicon Macs, completely free and open source.',
     chooseThem: [
-      'You record on a Mac.',
-      'You want to record an iPhone or iPad over a cable.',
-      'You want a polished commercial product with paid support.',
+      'You want to record an iPhone or iPad screen over a cable.',
+      'You want a polished commercial app with paid support.',
     ],
     chooseUs: [
-      'You record on Windows 10 or 11.',
+      'You record on Windows 10/11 or macOS 14+ Apple Silicon.',
       'You want it free, with no account and no subscription.',
-      'You want the source code and a permissive licence.',
-      'You mostly ship small GIFs for READMEs, changelogs and chat.',
+      'You want the source code and a permissive Apache-2.0 licence.',
+      'You ship small GIFs for READMEs, changelogs and chat.',
     ],
     notes: [
       {
-        h: 'The same idea, built natively for Windows',
-        p: 'Vuoom captures with Windows Graphics Capture, renders zooms on the GPU with wgpu and encodes MP4 with Media Foundation, using NVENC, Quick Sync or AMF when your graphics card has them.',
+        h: 'Native performance on both platforms',
+        p: 'Vuoom captures with Windows Graphics Capture on PC and ScreenCaptureKit on Mac, composites zooms on the GPU with wgpu, and encodes MP4 using hardware acceleration.',
       },
       {
         h: 'Zooms you can see and edit',
@@ -107,17 +106,17 @@ export const COMPARE_PAGES: ComparePage[] = [
       },
       {
         h: 'Moving from Screen Studio',
-        p: 'The workflow will feel familiar: record, let the zooms happen, trim, export. Keyboard shortcuts differ; the cheat sheet is one keypress away with ?.',
+        p: 'The workflow feels immediately familiar: record, let the camera glide into clicks, trim, export. Press ? any time inside Vuoom for shortcuts.',
       },
     ],
     faq: [
       {
         q: 'Is there a Screen Studio for Windows?',
-        a: 'Screen Studio itself only runs on macOS. Vuoom is a free, open-source Windows app built around the same idea: a camera that zooms into your clicks.',
+        a: 'Screen Studio itself only runs on macOS. Vuoom is a free, open-source app built around the same smooth spring camera idea, native to both Windows 10/11 and macOS 14+.',
       },
       {
         q: 'Is Vuoom as good as Screen Studio?',
-        a: 'Screen Studio is a mature commercial app with features Vuoom does not have, such as iPhone recording. Vuoom covers the core of it on Windows: auto-zoom, a smooth pointer, webcam, narration, captions and GIF or MP4 export, for free.',
+        a: 'Screen Studio is a mature commercial app with extras such as iPhone capture. Vuoom covers the core demo studio for free: auto-zoom, smooth pointer, click effects, webcam, narration cleanup, offline captions and GIF/MP4 export.',
       },
     ],
   },
@@ -127,32 +126,32 @@ export const COMPARE_PAGES: ComparePage[] = [
     them: 'cap',
     h1: 'Vuoom vs Cap.',
     verdict:
-      'Both are open-source screen recorders with auto-zoom. Cap is cross-platform and built around sharing links. Vuoom is Windows-only and built around small files you paste anywhere.',
+      'Both are open-source screen recorders with auto-zoom. Cap focuses on hosted share links like Loom. Vuoom focuses on local files you paste straight into docs, GitHub and chat.',
     chooseThem: [
-      'You need Mac, Windows and Linux with one tool.',
-      'You want instant share links and a hosted library, like Loom.',
-      'Your team wants a paid plan with cloud storage.',
+      'You need Linux support today.',
+      'You want instant cloud share links and a hosted video library.',
+      'Your team wants a hosted Pro workspace.',
     ],
     chooseUs: [
-      'You are on Windows and want a native app with no account at all.',
-      'You want a permissive licence (Apache-2.0) rather than AGPL.',
-      'You want captions and voice clean-up that run entirely on your PC.',
-      'You ship GIFs and MP4s as files rather than links.',
+      'You want a tiny native app with zero account and zero cloud uploads.',
+      'You prefer a permissive Apache-2.0 licence rather than AGPL.',
+      'You want offline captions and RNNoise voice clean-up built in.',
+      'You ship small GIFs and MP4s as standalone files.',
     ],
     notes: [
       {
         h: 'Licence',
-        p: 'Cap\'s app is AGPL-3.0. Vuoom is Apache-2.0, which lets anyone reuse the code in their own projects, open or closed.',
+        p: 'Cap uses AGPL-3.0 for its app. Vuoom uses Apache-2.0, which allows reuse in open or commercial workflows cleanly.',
       },
       {
-        h: 'Sharing versus files',
-        p: 'Cap leans on uploading and sharing a link. Vuoom never uploads anything; it hands you a file and a Copy button.',
+        h: 'Cloud links versus standalone files',
+        p: 'Vuoom never uploads your screen. It gives you an estimated file size, fits GIFs under limits like 10 MB, and copies the file to your clipboard.',
       },
     ],
     faq: [
       {
         q: 'Are Cap and Vuoom related?',
-        a: 'No. They are separate projects. Both use Rust and Tauri, and Vuoom\'s code is written independently.',
+        a: 'No. They are independent projects. Both use Rust and Tauri, and Vuoom is written independently from scratch.',
       },
     ],
   },
@@ -162,27 +161,27 @@ export const COMPARE_PAGES: ComparePage[] = [
     them: 'obs',
     h1: 'OBS is for streams. Vuoom is for demos.',
     verdict:
-      'OBS Studio is the best free tool for streaming and long recordings with scenes. For a 30-second product demo that zooms into clicks and ends up as a GIF, Vuoom gets you there without an editor.',
+      'OBS Studio is unmatched for live streaming and multi-scene broadcasts. For a focused 30-second product demo with click zooms and a clean GIF or MP4 export, Vuoom takes seconds.',
     chooseThem: [
-      'You stream to Twitch or YouTube.',
-      'You need scenes, sources, overlays and plugins.',
-      'You record long sessions and edit them elsewhere.',
+      'You stream live to Twitch or YouTube.',
+      'You build complex multi-source scenes and audio routing.',
+      'You record hour-long sessions and cut them in Premiere or DaVinci Resolve.',
     ],
     chooseUs: [
-      'You want zooms that follow your clicks without keyframing them by hand.',
-      'You want to trim, cut, annotate and export in the same app.',
-      'You want a GIF or small MP4 at the end, not a large MKV.',
+      'You want smooth spring zooms that follow your clicks automatically.',
+      'You want to trim, skim idle gaps, annotate and export in one app.',
+      'You want a crisp GIF or compact MP4 right away.',
     ],
     notes: [
       {
         h: 'Use both',
-        p: 'Plenty of people keep OBS for streams and reach for Vuoom when they need a quick demo. They do not conflict.',
+        p: 'Many creators keep OBS for streams and open Vuoom whenever a feature needs a fast, readable demo.',
       },
     ],
     faq: [
       {
-        q: 'Can OBS zoom into the mouse?',
-        a: 'Not on its own. There are community plugins and scripts that follow the mouse. Vuoom does it natively, plans zooms from your clicks and lets you edit them on a timeline.',
+        q: 'Can OBS zoom into the pointer?',
+        a: 'Not natively out of the box. Vuoom plans zooms around your clicks automatically, renders motion blur on pans, and lets you adjust every zoom block on a timeline.',
       },
     ],
   },
@@ -192,26 +191,26 @@ export const COMPARE_PAGES: ComparePage[] = [
     them: 'screentogif',
     h1: 'ScreenToGif, plus a camera.',
     verdict:
-      'ScreenToGif is a much-loved free Windows tool with a frame-by-frame editor. Vuoom is also free and open source on Windows, and adds a camera that zooms into your clicks.',
+      'ScreenToGif is a classic free Windows utility with a frame-by-frame editor. Vuoom is also free and open source, runs on both Windows and Mac, and adds auto-zoom and MP4.',
     chooseThem: [
-      'You want to edit a GIF frame by frame.',
-      'You need its board and webcam recorders or its many GIF encoders.',
+      'You need frame-by-frame pixel editing of an existing GIF.',
+      'You rely on its sketch board or multiple legacy GIF encoders.',
     ],
     chooseUs: [
-      'You want the recording to zoom into what you click, automatically.',
-      'You want narration, captions, a webcam bubble or MP4 as well as GIF.',
-      'You prefer a timeline editor with cuts, speed-ups and annotations.',
+      'You want your recording to zoom into clicks automatically.',
+      'You want narration cleanup, offline captions, a webcam bubble and MP4 export.',
+      'You record on macOS as well as Windows.',
     ],
     notes: [
       {
         h: 'Small GIFs, on purpose',
-        p: 'Vuoom shows the file size before you export and can fit a GIF under a size you choose, which matters for GitHub\'s 10 MB limit.',
+        p: 'Vuoom shows an honest size estimate before export and fits GIFs under limits such as GitHub 10 MB automatically.',
       },
     ],
     faq: [
       {
         q: 'What is the best free GIF screen recorder for Windows?',
-        a: 'ScreenToGif is excellent for frame-level GIF editing. If you want the camera to zoom into your clicks automatically, and captions or MP4 too, try Vuoom. Both are free and open source.',
+        a: 'ScreenToGif is great for manual frame editing. If you want automatic camera zooms, smooth pointers, captions and MP4 too, try Vuoom.',
       },
     ],
   },

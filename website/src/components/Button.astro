@@ -1,52 +1,70 @@
 ---
-// Buttons roll their label on hover (M03) and press on :active (M04). The primary variant
-// carries the record light and is the only red fill on a page.
+// Buttons roll their label on hover and press cleanly. Primary carries the crimson record light.
 import Icon from './Icon.astro';
 import { url } from '../lib/site';
 
 interface Props {
-  href: string;
+  href?: string;
+  type?: 'button' | 'submit';
   variant?: 'primary' | 'secondary' | 'ghost';
-  icon?: 'github' | 'star' | 'arrow' | 'download' | 'external' | 'windows';
+  icon?: 'github' | 'star' | 'arrow' | 'download' | 'external' | 'windows' | 'apple' | 'play' | 'film';
   size?: 'md' | 'lg';
   class?: string;
   [key: string]: unknown;
 }
-const { href, variant = 'primary', icon, size = 'md', class: cls, ...rest } = Astro.props;
-const external = /^https?:/.test(href);
-const target = url(href);
+const { href, type = 'button', variant = 'primary', icon, size = 'md', class: cls, ...rest } = Astro.props;
+const external = href ? /^https?:/.test(href) : false;
+const target = href ? url(href) : undefined;
 ---
-<a
-  href={target}
-  class:list={['btn', `btn--${variant}`, `btn--${size}`, cls]}
-  {...(external ? { rel: 'noopener' } : {})}
-  {...rest}
->
-  {variant === 'primary' && <span class="btn__light" aria-hidden="true" />}
-  {icon && <Icon name={icon} size={18} class="btn__icon" />}
-  <span class="btn__roll">
-    <span class="btn__label"><slot /></span>
-    <span class="btn__label btn__label--dup" aria-hidden="true"><slot /></span>
-  </span>
-</a>
+{target ? (
+  <a
+    href={target}
+    class:list={['btn', `btn--${variant}`, `btn--${size}`, cls]}
+    {...(external ? { rel: 'noopener' } : {})}
+    {...rest}
+  >
+    {variant === 'primary' && <span class="btn__light" aria-hidden="true" />}
+    {icon && <Icon name={icon} size={18} class="btn__icon" />}
+    <span class="btn__roll">
+      <span class="btn__label"><slot /></span>
+      <span class="btn__label btn__label--dup" aria-hidden="true"><slot /></span>
+    </span>
+  </a>
+) : (
+  <button
+    type={type}
+    class:list={['btn', `btn--${variant}`, `btn--${size}`, cls]}
+    {...rest}
+  >
+    {variant === 'primary' && <span class="btn__light" aria-hidden="true" />}
+    {icon && <Icon name={icon} size={18} class="btn__icon" />}
+    <span class="btn__roll">
+      <span class="btn__label"><slot /></span>
+      <span class="btn__label btn__label--dup" aria-hidden="true"><slot /></span>
+    </span>
+  </button>
+)}
+
 <style>
   .btn {
-    --h: 48px;
+    --h: 46px;
     position: relative;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: var(--s-3);
     height: var(--h);
     padding-inline: var(--s-5);
     border-radius: var(--r-pill);
     font-weight: 560;
-    font-size: var(--step-0);
+    font-size: 0.9375rem;
     letter-spacing: var(--track-sub);
     white-space: nowrap;
     transition:
-      transform var(--dur-press) var(--ease-out-quart),
-      background-color var(--dur-hover) var(--ease-out-quart),
-      box-shadow var(--dur-hover) var(--ease-out-quart);
+      transform var(--dur-control) var(--ease-studio),
+      background-color var(--dur-hover) var(--ease-studio),
+      box-shadow var(--dur-hover) var(--ease-studio),
+      border-color var(--dur-hover) var(--ease-studio);
     -webkit-tap-highlight-color: transparent;
   }
   .btn--lg {
@@ -55,28 +73,35 @@ const target = url(href);
     font-size: 1rem;
   }
   .btn:active {
-    transform: translateY(1px) scale(0.98);
+    transform: translateY(1px) scale(0.985);
   }
   .btn--primary {
-    background: var(--rec);
+    background: var(--rec-fill);
     color: var(--on-rec);
+    box-shadow:
+      inset 0 1px 0 rgb(255 245 235 / 0.28),
+      0 12px 32px -12px var(--rec-glow);
   }
   .btn--secondary {
     color: var(--ink);
-    box-shadow: inset 0 0 0 var(--hair) var(--rule);
+    background: var(--ground-glass);
+    border: var(--hair) solid var(--rule-strong);
+    box-shadow: inset 0 1px 0 var(--rim);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
   }
   .btn--ghost {
     color: var(--ink-2);
     padding-inline: var(--s-3);
   }
   .btn__light {
-    width: 10px;
-    height: 10px;
+    width: 9px;
+    height: 9px;
     flex: none;
     border-radius: var(--r-pill);
     background: var(--on-rec);
-    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.28);
-    transition: box-shadow var(--dur-hover) var(--ease-out-quart);
+    box-shadow: 0 0 0 3px rgb(255 245 235 / 0.24);
+    transition: box-shadow var(--dur-hover) var(--ease-studio);
   }
   .btn__roll {
     position: relative;
@@ -86,27 +111,33 @@ const target = url(href);
   }
   .btn__label {
     grid-area: 1 / 1;
-    transition: transform var(--dur-hover) var(--ease-out-quart);
+    transition: transform var(--dur-hover) var(--ease-studio);
   }
   .btn__label--dup {
-    transform: translateY(110%);
+    transform: translateY(115%);
   }
   :global(.btn__icon) {
     flex: none;
   }
   @media (hover: hover) {
     .btn:hover .btn__label {
-      transform: translateY(-110%);
+      transform: translateY(-115%);
     }
     .btn:hover .btn__label--dup {
       transform: translateY(0);
     }
+    .btn--primary:hover {
+      background: var(--rec);
+      box-shadow:
+        inset 0 1px 0 rgb(255 245 235 / 0.36),
+        0 16px 38px -10px var(--rec-glow);
+    }
     .btn--primary:hover .btn__light {
-      box-shadow: 0 0 0 5px rgb(255 255 255 / 0.3);
+      box-shadow: 0 0 0 5px rgb(255 245 235 / 0.32);
     }
     .btn--secondary:hover {
-      background: var(--wash);
-      box-shadow: inset 0 0 0 var(--hair) rgb(242 240 235 / 0.28);
+      background: var(--ground-raised);
+      border-color: var(--tungsten);
     }
     .btn--ghost:hover {
       color: var(--ink);

@@ -1,18 +1,17 @@
 ---
-// Before/after wipe (M08): the same take, flat and zoomed. Two real frames from the owner's
-// demo. The handle is a keyboard-operable slider; without JS the two frames sit side by side.
+// Before/after wipe: the same take, flat and zoomed. Two real frames from the Aurora 2.4 demo.
 import { Image } from 'astro:assets';
 import flat from '../assets/shots/take-flat.png';
 import zoom from '../assets/shots/take-zoom.png';
 ---
 <div class="ba" data-ba style="--split: 50%">
   <div class="ba__layer ba__layer--after">
-    <Image src={zoom} alt="The same moment recorded with Vuoom, zoomed 2.5 times into the sign-up count, which reads 12,408." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1360px, 100vw" loading="lazy" />
-    <span class="ba__tag ba__tag--after label"><span class="ba__light" aria-hidden="true"></span>Vuoom</span>
+    <Image src={zoom} alt="The same moment recorded with Vuoom, zoomed 2.5 times into the sign-up count, which reads 12,408." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1280px, 100vw" loading="lazy" />
+    <span class="ba__tag ba__tag--after mono"><span class="ba__light" aria-hidden="true"></span>Vuoom · 2.5×</span>
   </div>
   <div class="ba__layer ba__layer--before" data-ba-before>
-    <Image src={flat} alt="A flat full-screen recording of a launch dashboard. The sign-up count is too small to read." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1360px, 100vw" loading="lazy" />
-    <span class="ba__tag label">Flat recording</span>
+    <Image src={flat} alt="A flat full-screen recording of a launch dashboard. The sign-up count is small at 1x scale." widths={[640, 1000, 1600]} sizes="(min-width: 1360px) 1280px, 100vw" loading="lazy" />
+    <span class="ba__tag mono">Flat · 1.0×</span>
   </div>
   <div
     class="ba__handle"
@@ -37,10 +36,9 @@ import zoom from '../assets/shots/take-zoom.png';
     aspect-ratio: 16 / 9;
     border-radius: var(--r-frame);
     overflow: hidden;
-    background: var(--ground-raised);
-    box-shadow:
-      var(--shadow-stage),
-      0 0 0 var(--hair) var(--rule);
+    background: var(--ground-well);
+    border: var(--hair) solid var(--rule-strong);
+    box-shadow: var(--shadow-stage), inset 0 1px 0 var(--rim);
     touch-action: pan-y;
     user-select: none;
   }
@@ -62,11 +60,16 @@ import zoom from '../assets/shots/take-zoom.png';
     left: 14px;
     display: inline-flex;
     align-items: center;
-    gap: var(--s-2);
-    color: var(--ink);
-    background: rgb(11 11 12 / 0.82);
-    padding: 4px 8px;
-    border-radius: var(--r-ui);
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f6efe5;
+    background: rgb(17 15 14 / 0.82);
+    border: 1px solid rgb(246 223 191 / 0.22);
+    backdrop-filter: blur(10px);
+    padding: 5px 10px;
+    border-radius: var(--r-chip);
   }
   .ba__tag--after {
     left: auto;
@@ -77,6 +80,7 @@ import zoom from '../assets/shots/take-zoom.png';
     height: 7px;
     border-radius: var(--r-pill);
     background: var(--rec);
+    box-shadow: 0 0 8px var(--rec-glow);
   }
   .ba__handle {
     position: absolute;
@@ -98,28 +102,30 @@ import zoom from '../assets/shots/take-zoom.png';
     left: 50%;
     width: 2px;
     margin-left: -1px;
-    background: var(--ink);
+    background: var(--tungsten);
+    box-shadow: 0 0 12px rgb(0 0 0 / 0.6);
   }
   .ba__grip {
     position: relative;
-    width: 44px;
-    height: 44px;
+    width: 42px;
+    height: 42px;
     display: grid;
     place-items: center;
-    color: var(--ground);
-    background: var(--ink);
+    color: #110f0e;
+    background: #f6efe5;
+    border: 2px solid var(--tungsten);
     border-radius: var(--r-pill);
-    transition: transform var(--dur-hover) var(--ease-out-quart);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+    transition: transform var(--dur-hover) var(--ease-studio);
   }
   .ba__handle:hover .ba__grip,
   .ba__handle.is-drag .ba__grip {
-    transform: scale(1.1);
+    transform: scale(1.08);
   }
   .ba__handle:focus-visible .ba__grip {
-    outline: 2px solid var(--rec);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 3px;
   }
-  /* no JS: side by side, both whole */
   :global(html:not(.js)) .ba {
     aspect-ratio: auto;
     display: grid;

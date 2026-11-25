@@ -1,0 +1,93 @@
+{
+  "hero-bg-dark": {
+    "width": 1914,
+    "height": 822,
+    "transparent": false,
+    "bytes": 30254,
+    "slot": "hero-bg-dark"
+  },
+  "hero-bg-light": {
+    "width": 1913,
+    "height": 822,
+    "transparent": false,
+    "bytes": 30528,
+    "slot": "hero-bg-light"
+  },
+  "graphic-pointer": {
+    "width": 560,
+    "height": 673,
+    "transparent": true,
+    "bytes": 77366,
+    "slot": "hero-fg-pointer"
+  },
+  "graphic-zoom-rest": {
+    "width": 560,
+    "height": 554,
+    "transparent": true,
+    "bytes": 77382,
+    "slot": "hero-fg-zoom-rest"
+  },
+  "graphic-zoom-active": {
+    "width": 560,
+    "height": 554,
+    "transparent": true,
+    "bytes": 78128,
+    "slot": "hero-fg-zoom-active"
+  },
+  "wallpaper-crimson": {
+    "width": 1400,
+    "height": 788,
+    "transparent": false,
+    "bytes": 27154,
+    "slot": "studio-backdrop-crimson"
+  },
+  "wallpaper-paper": {
+    "width": 1400,
+    "height": 788,
+    "transparent": false,
+    "bytes": 26210,
+    "slot": "studio-backdrop-paper"
+  },
+  "wallpaper-sage": {
+    "width": 1400,
+    "height": 788,
+    "transparent": false,
+    "bytes": 26370,
+    "slot": "studio-backdrop-sage"
+  },
+  "graphic-timeline": {
+    "width": 680,
+    "height": 531,
+    "transparent": true,
+    "bytes": 49982,
+    "slot": "finisher-graphic-timeline"
+  },
+  "graphic-soundwave": {
+    "width": 560,
+    "height": 275,
+    "transparent": true,
+    "bytes": 27580,
+    "slot": "audio-graphic-wave"
+  },
+  "graphic-export": {
+    "width": 640,
+    "height": 537,
+    "transparent": true,
+    "bytes": 44906,
+    "slot": "export-graphic-cards"
+  },
+  "closing-bg-dark": {
+    "width": 1914,
+    "height": 822,
+    "transparent": false,
+    "bytes": 35378,
+    "slot": "closing-bg-dark"
+  },
+  "closing-bg-light": {
+    "width": 1914,
+    "height": 822,
+    "transparent": false,
+    "bytes": 27580,
+    "slot": "closing-bg-light"
+  }
+}

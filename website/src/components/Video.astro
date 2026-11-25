@@ -1,6 +1,6 @@
 ---
-// A real Vuoom take. Muted, looping, played only while in view (src/scripts/videos.ts);
-// never autoplays under reduced motion, where the poster and a play button stay.
+// A real Vuoom take. Never autoplays at rest when deferred or under reduced motion;
+// attaches source on demand when explicit Play is used or when visible in Screening Room.
 import { url } from '../lib/site';
 import Icon from './Icon.astro';
 
@@ -14,11 +14,13 @@ interface Props {
   name: keyof typeof CLIPS;
   class?: string;
   sound?: boolean;
+  deferSource?: boolean;
 }
-const { name, class: cls, sound = false } = Astro.props;
+const { name, class: cls, sound = false, deferSource = false } = Astro.props;
 const c = CLIPS[name];
+const srcUrl = url(`/media/${name}.mp4`);
 ---
-<figure class:list={['vid', cls]} data-video>
+<figure class:list={['vid', cls]} data-video={deferSource ? 'demand' : 'auto'}>
   <video
     width={c.w}
     height={c.h}
@@ -27,9 +29,10 @@ const c = CLIPS[name];
     playsinline
     preload="none"
     poster={url(`/media/${name}-poster.jpg`)}
+    data-src={deferSource ? srcUrl : undefined}
     aria-label={c.label}
   >
-    <source src={url(`/media/${name}.mp4`)} type="video/mp4" />
+    {!deferSource && <source src={srcUrl} type="video/mp4" />}
   </video>
   <div class="vid__bar">
     <button class="vid__btn" type="button" data-video-toggle aria-pressed="false">
@@ -37,50 +40,9 @@ const c = CLIPS[name];
       <span class="vid__pause"><Icon name="pause" size={14} /><span class="visually-hidden">Pause</span></span>
     </button>
     {sound && (
-      <button class="vid__btn vid__sound label" type="button" data-video-sound aria-pressed="false">
+      <button class="vid__btn vid__sound mono" type="button" data-video-sound aria-pressed="false">
         Sound off
       </button>
     )}
   </div>
 </figure>
-<style>
-  .vid {
-    position: relative;
-    border-radius: var(--r-frame);
-    overflow: hidden;
-    background: var(--ground-raised);
-    box-shadow:
-      var(--shadow-stage),
-      0 0 0 var(--hair) var(--rule);
-  }
-  video {
-    width: 100%;
-  }
-  .vid__bar {
-    position: absolute;
-    right: 10px;
-    bottom: 10px;
-    display: flex;
-    gap: var(--s-2);
-  }
-  .vid__btn {
-    min-width: 28px;
-    height: 28px;
-    padding-inline: var(--s-2);
-    display: grid;
-    place-items: center;
-    color: var(--ink);
-    background: rgb(11 11 12 / 0.75);
-    border-radius: var(--r-ui);
-  }
-  .vid__pause,
-  .vid__btn[aria-pressed='true'] .vid__play {
-    display: none;
-  }
-  .vid__btn[aria-pressed='true'] .vid__pause {
-    display: block;
-  }
-  .vid__sound {
-    color: var(--ink);
-  }
-</style>

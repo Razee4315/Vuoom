@@ -1,18 +1,14 @@
 ---
-// A framed product screenshot, the only image treatment on the site (docs/08).
+// Framed genuine product screenshot/still, never dummy code-bar placeholders.
 import { Image } from 'astro:assets';
-import editor from '../assets/shots/screenshot-editor.png';
-import editorLight from '../assets/shots/screenshot-editor-light.png';
 import home from '../assets/shots/screenshot-home.png';
-import record from '../assets/shots/screenshot-record.png';
-import exp from '../assets/shots/screenshot-export.png';
+import flat from '../assets/shots/take-flat.png';
+import zoom from '../assets/shots/take-zoom.png';
 
 const SHOTS = {
-  editor: { src: editor, alt: 'The Vuoom editor with zoom blocks, notes and a cut on the timeline' },
-  'editor-light': { src: editorLight, alt: 'The Vuoom editor in the light Paper theme' },
-  home: { src: home, alt: "Vuoom's home screen with Region, Full screen and Window options" },
-  record: { src: record, alt: 'Picking a region to record with the record HUD' },
-  export: { src: exp, alt: 'The export card with GIF and MP4 presets and a size estimate' },
+  home: { src: home, alt: "Vuoom's home screen with Region, Full screen, Window and crash recovery options" },
+  flat: { src: flat, alt: 'Full-screen capture of the Aurora 2.4 launch dashboard at 1x scale' },
+  zoom: { src: zoom, alt: 'Vuoom auto-zoom locked smoothly onto the Aurora 2.4 sign-up counter' },
 } as const;
 
 interface Props {
@@ -23,13 +19,13 @@ interface Props {
   alt?: string;
 }
 const { name, sizes = '(min-width: 960px) 50vw, 100vw', eager = false, class: cls, alt } = Astro.props;
-const s = SHOTS[name];
+const s = SHOTS[name] ?? SHOTS.zoom;
 ---
 <div class:list={['shot', cls]}>
   <Image
     src={s.src}
     alt={alt ?? s.alt}
-    widths={[480, 800, 1200, 1440]}
+    widths={[480, 800, 1200, 1600]}
     sizes={sizes}
     loading={eager ? 'eager' : 'lazy'}
     decoding="async"
@@ -39,12 +35,12 @@ const s = SHOTS[name];
   .shot {
     border-radius: var(--r-frame);
     overflow: hidden;
-    background: var(--ground-raised);
-    box-shadow:
-      var(--shadow-stage),
-      0 0 0 var(--hair) var(--rule);
+    background: var(--ground-well);
+    border: var(--hair) solid var(--rule-strong);
+    box-shadow: var(--shadow-stage), inset 0 1px 0 var(--rim);
   }
   .shot :global(img) {
     width: 100%;
+    height: auto;
   }
 </style>

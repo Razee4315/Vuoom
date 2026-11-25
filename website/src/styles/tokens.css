@@ -1,33 +1,46 @@
-/* Vuoom website tokens. Source of truth; mirrored in docs/03-design-tokens.md.
-   No raw values in components: everything resolves to one of these. */
+/* Vuoom website design tokens: Tungsten Darkroom (default) & Daylight Archival Studio.
+   Zero purple anywhere. Everything in components resolves to one of these tokens. */
 :root {
-  color-scheme: light;
+  color-scheme: dark light;
 
-  /* colour, by role */
-  --ground: #f5f1e8;
-  --ground-raised: #eae5d9;
-  --ground-sunk: #242720;
-  --ink: #242720;
-  --ink-2: #575a50;
-  --ink-3: #63665c;
-  --rule: rgb(36 39 32 / 0.2);
-  --wash: rgb(36 39 32 / 0.05);
-  --rec: #c8412d;
-  --rec-ink: #b83b28;
+  /* Tungsten Darkroom (primary signature dark) */
+  --ground: #110f0e;
+  --ground-sunk: #0b0a09;
+  --ground-well: #171412;
+  --ground-raised: #221e1a;
+  --ground-glass: rgb(23 20 18 / 0.76);
+  --ground-glass-strong: rgb(23 20 18 / 0.9);
+  --ink: #f6efe5;
+  --ink-2: #bfb2a5;
+  --ink-3: #8c8075;
+  --rule: rgb(246 223 191 / 0.14);
+  --rule-strong: rgb(246 223 191 / 0.24);
+  --rim: rgb(255 229 189 / 0.28);
+  --wash: rgb(246 223 191 / 0.06);
+  --wash-strong: rgb(246 223 191 / 0.11);
+
+  --rec: #e5484d;
+  --rec-fill: #c62f38;
+  --rec-ink: #ff8589;
   --rec-glow: rgb(229 72 77 / 0.35);
-  --on-rec: #ffffff;
-  --grain: 0.045;
+  --on-rec: #fff9f3;
 
-  --paper: #f5f1e8;
-  --paper-white: #fffdf7;
-  --studio: #252a24;
-  --blue: #2949d5;
-  --coral: #f49b7f;
-  --butter: #f5dc82;
-  --mint: #c7dccb;
-  --tape: rgb(235 207 142 / .85);
+  --tungsten: #e4a45f;
+  --tungsten-soft: rgb(228 164 95 / 0.16);
+  --tungsten-glow: rgb(228 164 95 / 0.22);
+  --emerald: #4fb37f;
+  --emerald-soft: rgb(79 179 127 / 0.16);
+  --focus-ring: #ffc680;
+  --grain: 0.032;
 
-  /* type */
+  /* Nav & Elevation */
+  --nav-glass: rgb(20 17 15 / 0.78);
+  --nav-rule: rgb(246 223 191 / 0.16);
+  --nav-shadow: 0 18px 48px -18px rgb(0 0 0 / 0.65), inset 0 1px 0 var(--rim);
+  --shadow-stage: 0 36px 96px -24px rgb(0 0 0 / 0.68), 0 8px 24px -8px rgb(0 0 0 / 0.45);
+  --shadow-card: 0 20px 50px -20px rgb(0 0 0 / 0.58), inset 0 1px 0 var(--rim);
+
+  /* Type */
   --font-display: 'Bricolage Grotesque Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
   --font-text: 'Geist Variable', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
@@ -38,21 +51,20 @@
   --step-2: clamp(1.625rem, 1.4rem + 1.1vw, 2.25rem);
   --step-3: clamp(1.875rem, 1.5rem + 1.8vw, 3rem);
   --step-4: clamp(2.25rem, 1.6rem + 3vw, 4rem);
-  --step-5: clamp(3.25rem, 1.6rem + 8vw, 8.5rem);
-  --step-6: clamp(3.5rem, 0.8rem + 13vw, 12rem);
+  --step-5: clamp(3rem, 1.6rem + 6.5vw, 6.5rem);
+  --step-6: clamp(3.25rem, 1.5rem + 7.2vw, 7rem);
 
-  --track-display: -0.035em;
+  --track-display: -0.038em;
   --track-heading: -0.028em;
-  --track-sub: -0.01em;
+  --track-sub: -0.012em;
   --track-label: 0.08em;
 
-  --lh-display: 1.04;
-  --lh-heading: 1.1;
-  --lh-sub: 1.3;
+  --lh-display: 0.96;
+  --lh-heading: 1.08;
+  --lh-sub: 1.32;
   --lh-body: 1.6;
 
-
-  /* space */
+  /* Space */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -62,69 +74,83 @@
   --s-7: 48px;
   --s-8: 64px;
   --s-9: 96px;
-  --section: clamp(4rem, 8vw, 8rem);
+  --section: clamp(4.5rem, 8.5vw, 8.5rem);
 
-  /* form */
-  --r-ui: 2px;
+  /* Form */
+  --r-ui: 8px;
+  --r-chip: 6px;
   --r-frame: 14px;
+  --r-panel: 18px;
   --r-pill: 999px;
   --hair: 1px;
-  --shadow-stage: 0 40px 120px -20px rgb(0 0 0 / 0.4);
 
-  /* motion */
+  /* Motion */
+  --ease-studio: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --dur-control: 120ms;
+  --dur-hover: 180ms;
+  --dur-fade: 220ms;
   --dur-press: 120ms;
-  --dur-hover: 240ms;
 
-  /* layout */
-  --max: 1240px;
+  /* Layout */
+  --max: 1360px;
   --gutter: clamp(16px, 4vw, 48px);
   --col-gap: 24px;
   --nav-h: 72px;
   --nav-h-compact: 56px;
-  --nav-max: 1120px;
-  --nav-max-compact: 920px;
-  --nav-logo-compact: 32px;
-  --nav-word-compact: 22px;
-  --nav-word-small: 20px;
-  --nav-compact-duration: 280ms;
+  --nav-max: 1180px;
+  --nav-max-compact: 980px;
+  --nav-logo-compact: 30px;
+  --nav-word-compact: 21px;
+  --nav-word-small: 19px;
+  --nav-compact-duration: 240ms;
 
-  /* Full-screen centered homepage and floating recording motifs */
-  --hero-screen: 100vh;
-  --hero-pad-top: calc(var(--nav-h) + clamp(var(--s-6), 6svh, var(--s-8)));
-  --hero-pad-bottom: clamp(var(--s-7), 8svh, var(--s-9));
-  --hero-title: clamp(3.25rem, min(7vw, 12svh), 6rem);
-  --hero-title-mobile: clamp(2.25rem, 10vw, 3.25rem);
-  --hero-copy-max: 900px;
-  --hero-description-max: 580px;
-  --hero-demo-max: 960px;
-  --hero-demo-tilt: -1deg;
-  --hero-focus-stroke: 2px;
-  --hero-sprite-size: 64px;
-  --hero-sprite-small: 48px;
-  --hero-sprite-mobile: 44px;
-  --hero-sprite-tilt: 12deg;
-  --hero-sprite-inset: 8%;
-  --hero-sprite-inner: 16%;
-  --hero-art-ink: #242720;
-  --hero-art-blue: #2949d5;
-  --hero-art-rec: #c8412d;
-  --hero-sprite-label: 12px;
-  --hero-sprite-active-tilt: 4deg;
-  --hero-sprite-top: 28%;
-  --hero-sprite-top-high: 22%;
-  --hero-sprite-bottom: 18%;
-  --hero-sprite-bottom-mobile: clamp(var(--s-5), 7svh, var(--s-8));
-
-  /* stacking */
+  /* Stacking */
   --z-nav: 50;
   --z-grain: 90;
-  --z-countdown: 110;
+  --z-modal: 120;
+  --z-countdown: 120;
 }
 
-@supports (min-height: 100svh) {
-  :root { --hero-screen: 100svh; }
+/* Daylight Archival Studio */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ground: #f4f0e8;
+  --ground-sunk: #eae4d9;
+  --ground-well: #eae4d9;
+  --ground-raised: #fffcf5;
+  --ground-glass: rgb(255 252 245 / 0.84);
+  --ground-glass-strong: rgb(255 252 245 / 0.94);
+  --ink: #211b17;
+  --ink-2: #62554a;
+  --ink-3: #76685c;
+  --rule: rgb(71 53 40 / 0.16);
+  --rule-strong: rgb(71 53 40 / 0.28);
+  --rim: rgb(255 255 255 / 0.92);
+  --wash: rgb(71 53 40 / 0.055);
+  --wash-strong: rgb(71 53 40 / 0.1);
+
+  --rec: #d93b40;
+  --rec-fill: #a82731;
+  --rec-ink: #a32b35;
+  --rec-glow: rgb(217 59 64 / 0.24);
+  --on-rec: #fff9f3;
+
+  --tungsten: #9a571f;
+  --tungsten-soft: rgb(154 87 31 / 0.11);
+  --tungsten-glow: rgb(154 87 31 / 0.16);
+  --emerald: #1f7a4d;
+  --emerald-soft: rgb(31 122 77 / 0.12);
+  --focus-ring: #78420f;
+  --grain: 0.025;
+
+  --nav-glass: rgb(255 252 245 / 0.86);
+  --nav-rule: rgb(71 53 40 / 0.15);
+  --nav-shadow: 0 12px 36px -18px rgb(61 41 28 / 0.24), inset 0 1px 0 var(--rim);
+  --shadow-stage: 0 32px 84px -24px rgb(61 41 28 / 0.22), 0 6px 18px -6px rgb(61 41 28 / 0.12);
+  --shadow-card: 0 18px 42px -18px rgb(61 41 28 / 0.18), inset 0 1px 0 var(--rim);
 }
 
 @media (max-width: 640px) {
@@ -132,32 +158,4 @@
     --col-gap: 16px;
     --nav-h: 60px;
   }
-}
-
-/* Theme roles: light is always the first-visit default. */
-:root {
-  --nav-glass: rgb(255 253 247 / .88);
-  --nav-rule: rgb(36 39 32 / .13);
-  --nav-shadow: 0 10px 35px -18px rgb(36 39 32 / .28), inset 0 1px 0 rgb(255 255 255 / .6);
-  --card-shadow: #242720;
-}
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --ground: #192830;
-  --ground-raised: #263942;
-  --ground-sunk: #132127;
-  --ink: #f2eadb;
-  --ink-2: #c0cbc9;
-  --ink-3: #a8b8b8;
-  --rule: rgb(211 226 221 / .23);
-  --wash: rgb(211 226 221 / .08);
-  --rec: #f39c82;
-  --rec-ink: #ffc3a6;
-  --on-rec: #192830;
-  --blue: #9bbcff;
-  --studio: #12232b;
-  --nav-glass: rgb(34 53 62 / .93);
-  --nav-rule: rgb(192 211 215 / .24);
-  --nav-shadow: 0 14px 45px -18px rgb(4 15 22 / .7), inset 0 1px 0 rgb(232 242 238 / .08);
-  --card-shadow: #0e1d23;
 }

@@ -1,5 +1,5 @@
-// Ported verbatim from crates/vuoom-zoom/src/camera.rs so the site's camera moves exactly
-// like the app's: a critically damped spring with exact, frame-rate independent integration.
+// Critically-damped spring camera ported from crates/vuoom-zoom/src/camera.rs, plus
+// preset angular frequencies (Snappy=20, Smooth=14, Slow=9) for the interactive studio stage.
 
 const LN_2 = Math.LN2;
 
@@ -8,15 +8,28 @@ export interface Spring {
   v: number;
 }
 
-/** Critically-damped spring toward `goal`. `hl` is the half-life in seconds. */
-export function springUpdate(s: Spring, goal: number, hl: number, dt: number): void {
-  const h = Math.max(hl, 1e-4);
-  const y = (2 * LN_2) / h;
+export type SpringPreset = 'smooth' | 'snappy' | 'slow';
+
+export const SPRING_OMEGA: Record<SpringPreset, { cam: number; zoom: number; pointer: number }> = {
+  snappy: { cam: 20, zoom: 20, pointer: 26 },
+  smooth: { cam: 14, zoom: 14, pointer: 18 },
+  slow: { cam: 9, zoom: 9, pointer: 13 },
+};
+
+/** Exact analytic critically-damped spring toward `goal` with angular frequency `omega` (s^-1). */
+export function springUpdateOmega(s: Spring, goal: number, omega: number, dt: number): void {
+  const y = Math.max(omega, 0.1);
   const j0 = s.x - goal;
   const j1 = s.v + j0 * y;
   const eydt = Math.exp(-y * dt);
   s.x = eydt * (j0 + j1 * dt) + goal;
   s.v = eydt * (s.v - j1 * y * dt);
+}
+
+/** Critically-damped spring toward `goal`. `hl` is the half-life in seconds. */
+export function springUpdate(s: Spring, goal: number, hl: number, dt: number): void {
+  const h = Math.max(hl, 1e-4);
+  springUpdateOmega(s, goal, (2 * LN_2) / h, dt);
 }
 
 /** Clamp the camera center so the zoomed viewport never reveals area outside the frame. */

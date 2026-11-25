@@ -5,7 +5,7 @@ export const SITE = {
   name: 'Vuoom',
   tagline: 'Screen recordings that zoom where it matters.',
   description:
-    'Free, open-source screen recorder for Windows. The camera zooms into every click, then export a small GIF or MP4. No account, no watermark.',
+    'Free, open-source screen recorder for Windows and macOS. The camera glides into every click, then export a small GIF or MP4. No account, no watermark.',
   repo: 'Razee4315/Vuoom',
   repoUrl: 'https://github.com/Razee4315/Vuoom',
   releasesUrl: 'https://github.com/Razee4315/Vuoom/releases',
@@ -18,7 +18,7 @@ export const SITE = {
   author: 'Saqlain Razee',
   authorUrl: 'https://github.com/Razee4315',
   license: 'Apache-2.0',
-  themeColor: '#f5f1e8',
+  themeColor: '#110f0e',
   locale: 'en_US',
   gscVerification: import.meta.env.PUBLIC_GSC_VERIFICATION ?? '',
 } as const;

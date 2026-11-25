@@ -3,21 +3,20 @@ import Base from '../layouts/Base.astro';
 import PageHead from '../components/PageHead.astro';
 import Keycap from '../components/Keycap.astro';
 
-// Mirrors README "Keyboard shortcuts".
 const GROUPS = [
   {
     t: 'Recording',
     rows: [
-      { k: [['Ctrl', 'Shift', 'R']], d: 'Start the record flow' },
-      { k: [['Ctrl', 'Shift', 'Z']], d: 'Zoom in or out at the pointer' },
-      { k: [['Ctrl', 'Shift', 'X']], d: 'Stop recording, from anywhere' },
+      { k: [['Ctrl', 'Shift', 'R']], d: 'Start the record flow (Shift+Command+R on macOS)' },
+      { k: [['Ctrl', 'Shift', 'Z']], d: 'Zoom in or out at the pointer (Shift+Command+Z on macOS)' },
+      { k: [['Ctrl', 'Shift', 'X']], d: 'Stop recording, from anywhere (Shift+Command+X on macOS)' },
     ],
   },
   {
     t: 'Playback and trim',
     rows: [
       { k: [['Space']], d: 'Play or pause' },
-      { k: [['←'], ['→']], d: 'Scrub the playhead. Shift jumps 1 s, Home and End go to the trim bounds' },
+      { k: [['←'], ['→']], d: 'Scrub the playhead. Shift jumps 1 s, Home and End go to trim bounds' },
       { k: [['I'], ['O']], d: 'Trim start or end at the playhead. Shift clears' },
       { k: [['Z'], ['X'], ['C']], d: 'Insert a zoom, a speed-up or a cut at the playhead' },
     ],
@@ -27,12 +26,13 @@ const GROUPS = [
     rows: [
       { k: [['V']], d: 'Select' },
       { k: [['T']], d: 'Text' },
-      { k: [['A']], d: 'Arrow' },
-      { k: [['P']], d: 'Pen' },
-      { k: [['S']], d: 'Shape' },
+      { k: [['A']], d: 'Arrow (hold Shift for 45 degree steps)' },
+      { k: [['N']], d: 'Numbered step' },
+      { k: [['P']], d: 'Pen and marker' },
+      { k: [['S']], d: 'Shape (box or ellipse)' },
       { k: [['H']], d: 'Highlight' },
       { k: [['L']], d: 'Spotlight' },
-      { k: [['M']], d: 'Hide (blur mask)' },
+      { k: [['M']], d: 'Hide (black or pixelated mask)' },
     ],
   },
   {
@@ -49,7 +49,7 @@ const GROUPS = [
   {
     t: 'App',
     rows: [
-      { k: [['Ctrl', 'K']], d: 'Search every action' },
+      { k: [['Ctrl', 'K']], d: 'Search every action (Command+K on macOS)' },
       { k: [['Ctrl', '1'], ['Ctrl', '2'], ['Ctrl', '3']], d: 'Show or hide tools, inspector, timeline' },
       { k: [['Ctrl', '0']], d: 'Reset the layout' },
       { k: [['Ctrl', 'S'], ['Ctrl', 'O']], d: 'Save or open a project' },
@@ -62,12 +62,12 @@ const GROUPS = [
 ];
 ---
 <Base path="/shortcuts/" crumbs={[{ href: '/guide/', label: 'Guide' }, { href: '/shortcuts/', label: 'Shortcuts' }]}>
-  <PageHead title="Every shortcut." sub="Press ? inside Vuoom to see them any time." />
+  <PageHead title="Every shortcut." sub="Press ? inside Vuoom to see them any time. On macOS use Command instead of Ctrl." />
 
   <div class="wrap narrow">
     {GROUPS.map((g) => (
       <section class="grp" aria-label={g.t}>
-        <h2 class="grp__h">{g.t}</h2>
+        <h2 class="grp__h mono">{g.t}</h2>
         <dl>
           {g.rows.map((r) => (
             <div class="row">
@@ -90,9 +90,11 @@ const GROUPS = [
     margin-top: var(--s-9);
   }
   .grp__h {
-    font-size: 0.875rem;
-    color: var(--ink-3);
-    font-weight: 400;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--tungsten);
+    font-weight: 500;
     margin-bottom: var(--s-4);
   }
   .row {
@@ -101,7 +103,7 @@ const GROUPS = [
     gap: var(--s-5);
     align-items: center;
     padding-block: var(--s-4);
-    box-shadow: inset 0 -1px 0 var(--rule);
+    border-bottom: var(--hair) solid var(--rule);
   }
   .row__k {
     display: flex;

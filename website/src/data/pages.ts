@@ -1,6 +1,5 @@
-// Every route's SEO metadata, in one place (docs/10-content.md "Meta per page").
-// Titles stay under 60 characters and descriptions between 140 and 160 where possible.
-// `og` is the short headline drawn on that page's social card.
+// Every route's SEO metadata, in one place.
+// Titles stay concise and descriptions clear. `og` is drawn on that page's social card.
 
 export interface PageMeta {
   title: string;
@@ -11,17 +10,17 @@ export interface PageMeta {
 
 export const PAGES = {
   '/': {
-    title: 'Vuoom | Free Screen Recorder for Windows, No Watermark',
+    title: 'Vuoom | Free Auto-Zoom Screen Recorder for Windows & Mac',
     description:
-      'Record polished demos with Vuoom, the free Windows screen recorder. Automatic zoom, video editing, offline captions and GIF or MP4 export. No watermark.',
-    og: 'Hit record. Make it Vuoom.',
-    kicker: 'Free for Windows 10 and 11',
+      'Record polished demos with Vuoom, the free open-source screen recorder for Windows and macOS. Auto-zoom on click, timeline editing, offline captions and GIF or MP4 export.',
+    og: 'Record your screen. Direct the take.',
+    kicker: 'Free for Windows & macOS',
   },
   '/download/': {
-    title: 'Download Vuoom for Windows 10 and 11 (free)',
+    title: 'Download Vuoom for Windows and macOS (free)',
     description:
-      'Download the free Vuoom screen recorder for Windows. A small installer, no account, no watermark, open source under Apache-2.0.',
-    og: 'Download Vuoom for Windows.',
+      'Download the free Vuoom screen recorder for Windows 10/11 and macOS 14+ Apple Silicon. Small native installer, no account, no watermark, Apache-2.0.',
+    og: 'Download Vuoom.',
     kicker: 'Download',
   },
   '/features/': {
@@ -32,35 +31,35 @@ export const PAGES = {
     kicker: 'Features',
   },
   '/features/auto-zoom/': {
-    title: 'Auto-zoom screen recorder for Windows, free',
+    title: 'Auto-zoom screen recorder for Windows and Mac, free',
     description:
-      'Vuoom zooms your screen recording into each click with smooth spring motion. Press Ctrl+Shift+Z or let auto zooms plan it. Free and open source.',
+      'Vuoom zooms your screen recording into each click with smooth spring motion. Press Ctrl+Shift+Z or let Auto zooms plan it. Free and open source.',
     og: 'Auto-zoom that follows your clicks.',
     kicker: 'Feature',
   },
   '/features/gif-export/': {
     title: 'Record your screen as a GIF for GitHub and Slack',
     description:
-      'Turn a screen recording into a small, crisp GIF or MP4 with a live size estimate and a fit-under-10-MB helper. Free Windows app, no watermark.',
+      'Turn a screen recording into a small, crisp GIF or MP4 with a live size estimate and a fit-under-10-MB helper. Free native app, no watermark.',
     og: 'GIF or MP4, small on purpose.',
     kicker: 'Feature',
   },
   '/features/captions/': {
     title: 'Offline auto captions for screen recordings',
     description:
-      'Vuoom turns your narration into captions on your own PC with whisper.cpp. Nothing is uploaded. Burn them into a GIF or MP4, or save an .srt file.',
-    og: 'Captions, made on your PC.',
+      'Vuoom turns your narration into captions on your own computer with whisper.cpp. Nothing is uploaded. Burn them into a GIF or MP4, or save an .srt file.',
+    og: 'Captions, made on your computer.',
     kicker: 'Feature',
   },
   '/features/editor/': {
     title: 'Screen recording editor: cut, speed up, annotate',
     description:
-      'Trim, cut, skim idle parts, add text, arrows, a pen, a spotlight and blur masks on one timeline. A free screen recording editor for Windows.',
+      'Trim, cut, skim idle parts, add text, curved arrows, numbered steps, a spotlight and blur masks on one timeline. Free and open source.',
     og: 'A real editor, not a video suite.',
     kicker: 'Feature',
   },
   '/features/audio-and-webcam/': {
-    title: 'Record screen, webcam and microphone on Windows',
+    title: 'Record screen, webcam and microphone cleanly',
     description:
       'Record narration, system sound and a webcam bubble with your screen. One switch removes fan hum and evens out your voice. Free and offline.',
     og: 'Your voice, your face, your screen.',
@@ -69,21 +68,21 @@ export const PAGES = {
   '/compare/': {
     title: 'Vuoom vs Screen Studio, Cap, OBS and ScreenToGif',
     description:
-      'An honest comparison of screen recorders for product demos: platform, price, licence, auto-zoom, GIF export and captions. Checked September 2026.',
+      'An honest comparison of screen recorders for product demos: platform, price, licence, auto-zoom, GIF export and captions.',
     og: 'How it stacks up.',
     kicker: 'Compare',
   },
   '/compare/screen-studio/': {
-    title: 'Screen Studio alternative for Windows, free',
+    title: 'Free Screen Studio alternative for Windows and Mac',
     description:
-      'Screen Studio is macOS only. Vuoom brings auto-zoom screen recording to Windows 10 and 11, free and open source. See how the two compare.',
-    og: 'The Screen Studio alternative for Windows.',
+      'Screen Studio is paid and macOS only. Vuoom brings auto-zoom screen recording to Windows 10/11 and macOS, free and open source.',
+    og: 'Free Screen Studio alternative.',
     kicker: 'Vuoom vs Screen Studio',
   },
   '/compare/cap/': {
     title: 'Vuoom vs Cap: open-source screen recorders compared',
     description:
-      'Cap and Vuoom are both open-source screen recorders with auto-zoom. How they differ in platform, licence, sharing, captions and export.',
+      'Cap and Vuoom are both open-source screen recorders with auto-zoom. How they differ in platform, licence, local files, captions and export.',
     og: 'Vuoom vs Cap.',
     kicker: 'Compare',
   },
@@ -97,7 +96,7 @@ export const PAGES = {
   '/compare/screentogif/': {
     title: 'ScreenToGif alternative with auto-zoom',
     description:
-      'Like ScreenToGif, Vuoom is free and open source on Windows. It adds auto-zoom, a smooth pointer, offline captions and MP4 export.',
+      'Like ScreenToGif, Vuoom is free and open source on Windows. It adds auto-zoom, a smooth pointer, offline captions, macOS support and MP4 export.',
     og: 'ScreenToGif, plus a camera.',
     kicker: 'Compare',
   },
@@ -118,7 +117,7 @@ export const PAGES = {
   '/faq/': {
     title: 'Vuoom FAQ: is it free, safe and private?',
     description:
-      'Answers about Vuoom: is it free, is it safe, why SmartScreen warns, what data it collects (none), Mac and Linux support and more.',
+      'Answers about Vuoom: is it free, Windows and macOS support, why SmartScreen warns, what data it collects (none) and more.',
     og: 'Questions, answered.',
     kicker: 'FAQ',
   },

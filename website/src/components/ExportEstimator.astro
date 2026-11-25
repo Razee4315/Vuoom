@@ -1,0 +1,61 @@
+---
+import { Image } from 'astro:assets';
+import graphicExport from '../assets/studio/graphic-export.webp';
+import { url } from '../lib/site';
+---
+<div class="ee-card studio-surface" data-export-estimator data-fits="true" data-reveal>
+  <div class="ee-top">
+    <div class="ee-head">
+      <p class="eyebrow-tag mono">EXPORT</p>
+      <h3>Fits before you export.</h3>
+      <p class="ee-desc">
+        Preview file size live and fit a dithered GIF under GitHub's 10 MB limit, or export a GPU H.264 MP4 up to 4K 60 fps.
+      </p>
+    </div>
+
+    <div class="ee-art" aria-hidden="true" data-float="alt" data-parallax-scroll>
+      <Image
+        src={graphicExport}
+        alt=""
+        widths={[320, 640]}
+        sizes="(min-width: 960px) 160px, 120px"
+        loading="lazy"
+      />
+    </div>
+  </div>
+
+  <div class="ee-controls">
+    <div class="seg-group" role="radiogroup" aria-label="Export format">
+      <button type="button" class="seg-btn" role="radio" aria-checked="true" data-ee-format="gif">GIF (Dithered)</button>
+      <button type="button" class="seg-btn" role="radio" aria-checked="false" data-ee-format="mp4">MP4 (GPU H.264)</button>
+    </div>
+
+    <div class="ee-slider-row">
+      <label for="ee-dur" class="mono">CLIP LENGTH: <strong data-ee-dur-val>14s</strong></label>
+      <input id="ee-dur" type="range" min="4" max="30" step="1" value="14" data-ee-duration />
+    </div>
+  </div>
+
+  <div class="ee-meter-box">
+    <div class="ee-meter-top">
+      <div>
+        <strong class="ee-size mono" data-ee-size>7.4 MB</strong>
+        <span class="ee-spec mono" data-ee-spec>1080p · 15 fps</span>
+      </div>
+      <button type="button" class="ee-fit-btn" data-ee-fit>Fit under 10 MB</button>
+    </div>
+
+    <div class="ee-bar-track" aria-hidden="true">
+      <div class="ee-bar-fill" data-ee-fill style="width: 46%"></div>
+      <span class="ee-limit-line" style="left: 62.5%">
+        <span class="mono">10 MB</span>
+      </span>
+    </div>
+
+    <div class="ee-meter-foot">
+      <span class="ee-status mono" data-ee-status>Under GitHub 10 MB limit</span>
+      <a class="text-link" href={url('/features/gif-export/')}>Export guide ↗</a>
+    </div>
+  </div>
+  <span class="visually-hidden" aria-live="polite" data-ee-live></span>
+</div>

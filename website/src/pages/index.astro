@@ -1,111 +1,148 @@
 ---
 import Base from '../layouts/Base.astro';
 import Button from '../components/Button.astro';
-import BeforeAfter from '../components/BeforeAfter.astro';
-import Video from '../components/Video.astro';
 import Faq from '../components/Faq.astro';
-import StudioDoodle from '../components/StudioDoodle.astro';
-import HeroSprites from '../components/HeroSprites.astro';
+import CameraPlayground from '../components/CameraPlayground.astro';
+import CapabilityRibbon from '../components/CapabilityRibbon.astro';
+import ScreeningRoom from '../components/ScreeningRoom.astro';
+import StudioFinisher from '../components/StudioFinisher.astro';
+import AudioCaptionsPanel from '../components/AudioCaptionsPanel.astro';
+import ExportEstimator from '../components/ExportEstimator.astro';
 import { Image } from 'astro:assets';
-import editor from '../assets/shots/screenshot-editor.png';
-import record from '../assets/shots/screenshot-record.png';
-import exported from '../assets/shots/screenshot-export.png';
+import closingBgDark from '../assets/studio/closing-bg-dark.webp';
+import closingBgLight from '../assets/studio/closing-bg-light.webp';
 import { FAQ_GENERAL } from '../data/faq';
 import { SITE, absolute, url } from '../lib/site';
+import { latest, mb } from '../lib/github';
 import { softwareApp, faqPage } from '../lib/schema';
-import '../styles/paper-home.css';
-const faq = [FAQ_GENERAL[0], FAQ_GENERAL[3], FAQ_GENERAL[4], FAQ_GENERAL[5]];
-const scenes = [
-  { name: 'Record', key: '01', title: 'Start with a simple recording.', copy: 'Pick a window, your whole screen, or just a region. Bring your microphone and webcam along, too.', image: record, alt: 'Vuoom recording controls with screen, microphone and webcam options.' },
-  { name: 'Edit', key: '02', title: 'A little polish. A big difference.', copy: 'Adjust your zooms, cut the waiting, and add arrows or text. Everything has its place on the timeline.', image: editor, alt: 'Vuoom video editor showing zoom blocks, annotations and speed controls on the timeline.' },
-  { name: 'Export', key: '03', title: 'Made to leave the timeline.', copy: 'Export an MP4 for your next tutorial or a compact GIF for your README. Preview the file size before you share.', image: exported, alt: 'Vuoom export settings for GIF and MP4, with file size controls.' },
+import '../styles/studio-home.css';
+
+const r = await latest();
+const faq = [FAQ_GENERAL[0], FAQ_GENERAL[1], FAQ_GENERAL[3], FAQ_GENERAL[5]];
+const schema = [
+  await softwareApp(),
+  faqPage(faq),
+  {
+    '@type': 'VideoObject',
+    name: 'Vuoom automatic zoom screen recording demo',
+    description: 'A real browser screen recording with critically-damped automatic zoom and motion blur.',
+    thumbnailUrl: absolute('/media/github-poster.jpg'),
+    contentUrl: absolute('/media/github.mp4'),
+    uploadDate: '2026-09-25T00:00:00Z',
+    duration: 'PT18S',
+  },
 ];
-const schema = [await softwareApp(), faqPage(faq), {
-  '@type': 'VideoObject', name: 'Vuoom automatic zoom screen recording demo',
-  description: 'A real screen recording of a dashboard, with automatic zoom into clicks.',
-  thumbnailUrl: absolute('/media/demo-poster.jpg'), contentUrl: absolute('/media/demo.mp4'),
-  uploadDate: '2026-09-25T00:00:00Z', duration: 'PT24S',
-}];
 ---
 <Base path="/" schema={schema}>
-  <section class="paper-hero wrap" aria-labelledby="hero-title">
-    <div class="hero-topline"><span class="eyebrow"><i></i> The free Windows screen recorder with auto-zoom</span></div>
-    <div class="hero-layout">
-      <div class="hero-copy">
-        <h1 id="hero-title">Hit record.<br/>Make it <span class="word-cut">Vuoom.<svg viewBox="0 0 380 24" aria-hidden="true"><path d="M5 15Q160 -4 373 10M34 22Q190 6 347 18"/></svg></span></h1>
-        <p class="hero-description">Record your screen. Vuoom takes care of the zooms, motion, and finishing touches. All on your PC.</p>
-        <div class="hero-actions"><Button href="/download/" icon="windows" size="lg">Download for Windows</Button><a class="watch-link" href="#in-action"><span aria-hidden="true">▶</span> See it in action</a></div>
-        <p class="hero-fine">100% free. No watermark. No account. Just create.</p>
+  <!-- 1. Centered Minimalist Hero + Living Spring Camera Stage -->
+  <CameraPlayground />
+
+  <!-- 2. Quiet Single-Row Capability Pill Ribbon -->
+  <CapabilityRibbon />
+
+  <!-- 3. Dark Cinema Screening Room (Pure Real Takes) -->
+  <ScreeningRoom />
+
+  <!-- 4. Gallery Studio Finishing Bay -->
+  <StudioFinisher />
+
+  <!-- 6. Dual Interactive Studio Panels: RNNoise/Captions & Export Size Estimator -->
+  <section class="dual-panels wrap" aria-label="Voice cleanup, offline captions and export estimator">
+    <AudioCaptionsPanel />
+    <ExportEstimator />
+  </section>
+
+  <!-- 7. Native Engine & Architecture Metrics Strip -->
+  <section class="craft-sec wrap" aria-labelledby="craft-h">
+    <div class="craft-head" data-reveal>
+      <p class="eyebrow-tag mono">NATIVE ENGINE</p>
+      <h2 id="craft-h">Built to stay light. Built never to lose a take.</h2>
+      <p class="craft-lead">
+        Capture, GPU compositing, and hardware encoding run natively in Rust while LZ4 deltas stream safely to disk.
+      </p>
+      <div class="craft-links">
+        <a class="text-link" href={url('/open-source/')}>Explore the Rust architecture ↗</a>
+        <a class="text-link" href={url('/guide/#projects')}>Projects &amp; recovery guide ↗</a>
       </div>
     </div>
-    <HeroSprites />
-  </section>
 
-  <section class="demo-section wrap" id="in-action" aria-labelledby="demo-title">
-    <div class="demo-heading"><p class="eyebrow">01 / SEE IT IN ACTION</p><h2 id="demo-title">A little zoom.<br/>A lot of difference.</h2><p>A real recording. Automatic zooms. This is what you get.</p></div>
-      <div class="demo-collage" data-reveal>
-        <span class="tape" aria-hidden="true"></span>
-        <div class="demo-window">
-          <div class="window-bar"><span><i></i> THE NEXT GREAT DEMO</span><span>TAKE 001</span></div>
-          <Video name="demo" />
-          <div class="mini-timeline" aria-hidden="true"><div class="time-ruler"><span>00:00</span><span>00:08</span><span>00:16</span><span>00:24</span></div><div class="clip-row"><span>↗ Auto zoom</span><span>↗ Follow the click</span></div><div class="audio-track"></div><div class="playhead"></div></div>
-        </div>
-        <span class="sticker sticker-yellow" aria-hidden="true">LESS EDITING.<br/>MORE <b>“WOW.”</b></span>
-        <span class="collage-caption mono">REAL VUOOM FOOTAGE. ZERO MANUAL ZOOMS.</span>
+    <div class="craft-metrics" data-reveal-stagger>
+      <div class="craft-stat">
+        <strong class="mono">&lt; 11 MB</strong>
+        <span>Native Windows &amp; macOS installers</span>
       </div>
+      <div class="craft-stat">
+        <strong class="mono">0.00%</strong>
+        <span>Rust host idle CPU when minimised</span>
+      </div>
+      <div class="craft-stat">
+        <strong class="mono">4K 60 fps</strong>
+        <span>Hardware GPU H.264 &amp; dithered GIF</span>
+      </div>
+      <div class="craft-stat">
+        <strong class="mono">20× smaller</strong>
+        <span>LZ4 XOR delta streaming to disk</span>
+      </div>
+    </div>
   </section>
 
-  <section class="workflow-section torn" id="workflow" aria-labelledby="workflow-title">
+  <!-- 8. Frequently Asked Questions -->
+  <section class="faq-sec wrap" aria-labelledby="faq-title">
+    <div class="faq-intro" data-reveal>
+      <p class="eyebrow-tag mono">FAQ</p>
+      <h2 id="faq-title">Good questions.<br />Clear answers.</h2>
+      <a class="text-link" href={url('/faq/')}>Read all questions ↗</a>
+    </div>
+    <div data-reveal>
+      <Faq items={faq} />
+    </div>
+  </section>
+
+  <!-- 9. Closing Download Gate -->
+  <section class="close-sec" aria-labelledby="close-h">
+    <div class="close-bg" data-parallax-scroll aria-hidden="true">
+      <Image
+        src={closingBgDark}
+        alt=""
+        widths={[960, 1440, 1914]}
+        sizes="100vw"
+        loading="lazy"
+        class="close-bg__dark"
+      />
+      <Image
+        src={closingBgLight}
+        alt=""
+        widths={[960, 1440, 1914]}
+        sizes="100vw"
+        loading="lazy"
+        class="close-bg__light"
+      />
+      <div class="close-bg__scrim"></div>
+    </div>
+
     <div class="wrap">
-      <div class="section-heading"><div><p class="eyebrow">02 / FROM FIRST CLICK TO FINAL CUT</p><h2 id="workflow-title">Big ideas.<br/>Small learning curve.</h2></div><p>You bring the thing worth showing.<br/>Vuoom helps you show it beautifully.</p></div>
-      <div class="workbench" data-workbench>
-        <div class="workflow-copy"><div class="scene-tabs" role="tablist" aria-label="Recording workflow">{scenes.map((s,i) => <button type="button" role="tab" id={`tab-${i}`} aria-selected={i === 0 ? 'true' : 'false'} aria-controls={`scene-${i}`} tabindex={i === 0 ? 0 : -1} data-scene-tab={i}><span>{s.key}</span>{s.name}</button>)}</div>
-          {scenes.map((s,i) => <div class="scene-copy" id={`scene-${i}`} role="tabpanel" aria-labelledby={`tab-${i}`} tabindex="0" hidden={i !== 0} data-scene-panel={i}><span class="scene-number" aria-hidden="true">{s.key}</span><h3>{s.title}</h3><p>{s.copy}</p><a class="text-arrow" href={url('/guide/')}>The quick-start guide <span>↗</span></a></div>)}
+      <div class="close-card studio-surface" data-reveal>
+        <p class="eyebrow-tag mono">READY TO RECORD?</p>
+        <h2 id="close-h">Your next crisp demo starts with one take.</h2>
+        <p class="close-sub">
+          Free under Apache-2.0 with no account or watermark. Pick your platform and record in seconds.
+        </p>
+
+        <div class="close-actions">
+          <Button href={r.exe?.url ?? '/download/'} icon="windows" size="lg" data-dl="exe">
+            Windows .exe · <span data-dl-size="exe">{mb(r.exe?.size) || '8 MB'}</span>
+          </Button>
+          <Button href={r.dmg?.url ?? '/download/'} variant="secondary" icon="apple" size="lg" data-dl="dmg">
+            macOS .dmg · <span data-dl-size="dmg">{mb(r.dmg?.size) || '11 MB'}</span>
+          </Button>
         </div>
-        <div class="workflow-screen">{scenes.map((s,i) => <div hidden={i !== 0} data-scene-image={i}><Image src={s.image} alt={s.alt} widths={[640,1000,1440]} sizes="(min-width: 900px) 60vw, 100vw" loading="lazy" /></div>)}<div class="screen-caption mono"><span>YOUR OWN LITTLE EDITING STUDIO</span><span>● LOCAL & PRIVATE</span></div></div>
+
+        <div class="close-meta mono">
+          <span>v<span data-dl-version>{r.version}</span></span>
+          <a class="text-link" href={url('/download/')}>All installers (.msi, guide)</a>
+          <a class="text-link" href={SITE.repoUrl} rel="noopener">GitHub source</a>
+        </div>
       </div>
     </div>
   </section>
-
-  <section class="zoom-section wrap" aria-labelledby="zoom-title">
-    <div class="zoom-copy" data-reveal><StudioDoodle kind="focus" class="focus-doodle" /><p class="eyebrow">03 / DIRECT THEIR ATTENTION</p><h2 id="zoom-title">The right detail.<br/><span class="blue-ink">At the right moment.</span></h2><p>Tiny buttons shouldn't need a big explanation. Vuoom automatically zooms into your clicks, so viewers can follow every step.</p><a class="text-arrow" href={url('/features/auto-zoom/')}>Meet automatic zoom <span>↗</span></a><span class="drag-note">Drag to see the difference →</span></div>
-    <div class="comparison-paper" data-reveal><BeforeAfter /><p class="mono">SAME SCREEN. A WHOLE DIFFERENT STORY.</p></div>
-  </section>
-
-  <section class="toolkit-section torn" aria-labelledby="toolkit-title"><div class="wrap">
-    <div class="section-heading"><div><p class="eyebrow">04 / THE GOOD STUFF IS INCLUDED</p><h2 id="toolkit-title">A creative toolkit.<br/>Without the price tag.</h2></div><StudioDoodle kind="spark" class="spark-doodle" /><a class="text-arrow" href={url('/features/')}>Explore every feature <span>↗</span></a></div>
-    <div class="toolkit-grid">
-      <a class="tool-card sound-card" href={url('/features/audio-and-webcam/')} data-reveal><div class="wave-art" aria-hidden="true">{Array.from({length: 29}, (_,i) => <span style={`--bar: ${20 + ((i*17)%65)}%; --delay: ${i*35}ms`}></span>)}</div><span class="card-label mono">SOUND LIKE YOURSELF</span><h3>Your voice.<br/>Loud and clear.</h3><p>Microphone, system audio, voice clean-up and a webcam bubble for the human touch.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
-      <a class="tool-card captions-card" href={url('/features/captions/')} data-reveal><div class="caption-art" aria-hidden="true"><span>make every</span><span><mark>word</mark> count.</span><small>CAPTIONS, MADE ON YOUR PC</small></div><span class="card-label mono">LET EVERYONE FOLLOW ALONG</span><h3>Words that<br/>stay with you.</h3><p>Generate captions locally after a one-time model download. Export subtitles as an SRT file.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
-      <a class="tool-card export-card" href={url('/features/gif-export/')} data-reveal><div class="export-art" aria-hidden="true"><span>.mp4</span><span>.gif</span><b>↗</b></div><div><span class="card-label mono">FINISHED? SEND IT.</span><h3>Small files. Big impression.</h3><p>A crisp MP4 for your walkthrough. A looping GIF for your next GitHub update. Ready when you are.</p></div><span class="card-arrow" aria-hidden="true">↗</span></a>
-    </div>
-  </div></section>
-
-  <section class="open-note wrap" aria-labelledby="open-title"><span class="open-stamp" aria-hidden="true">OPEN<br/>SOURCE<br/>↗</span><div><p class="eyebrow">MADE FOR MAKING. OPEN TO EVERYONE.</p><h2 id="open-title">Your recordings belong to you.</h2><p>Record, edit and export on your own computer. No cloud uploads, no subscription, no watermark. Free and open source under Apache-2.0.</p></div><a class="text-arrow" href={SITE.repoUrl}>Look under the hood <span>↗</span></a></section>
-
-  <section class="faq-section wrap" aria-labelledby="faq-title"><div><p class="eyebrow">A FEW FINAL DETAILS</p><h2 id="faq-title">Good questions.<br/>Straight answers.</h2><a class="text-arrow" href={url('/faq/')}>All your questions <span>↗</span></a></div><Faq items={faq} /></section>
-
-  <section class="final-cut torn" aria-labelledby="end-title"><div class="wrap"><StudioDoodle kind="orbit" class="orbit-doodle" /><p class="eyebrow">THAT'S YOUR CUE.</p><h2 id="end-title">Your next great demo<br/>starts with <em>record.</em></h2><Button href="/download/" icon="windows" size="lg">Get Vuoom. It's free.</Button><p>For Windows 10 & 11 · Made to stay on your PC</p><span class="end-time mono" aria-hidden="true">00:00:00 / A FRESH START</span></div></section>
 </Base>
-<script>
-  const workbench = document.querySelector('[data-workbench]');
-  if (workbench) {
-    const tabs = [...workbench.querySelectorAll<HTMLButtonElement>('[data-scene-tab]')];
-    const activate = (index: number) => {
-      tabs.forEach((tab, i) => { tab.setAttribute('aria-selected', String(i === index)); tab.tabIndex = i === index ? 0 : -1; });
-      workbench.querySelectorAll<HTMLElement>('[data-scene-panel], [data-scene-image]').forEach(el => { el.hidden = Number(el.dataset.scenePanel ?? el.dataset.sceneImage) !== index; });
-    };
-    tabs.forEach((tab, index) => {
-      tab.addEventListener('click', () => activate(index));
-      tab.addEventListener('keydown', event => {
-        let next = index;
-        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
-        else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
-        else if (event.key === 'Home') next = 0;
-        else if (event.key === 'End') next = tabs.length - 1;
-        else return;
-        event.preventDefault(); activate(next); tabs[next].focus();
-      });
-    });
-  }
-</script>

@@ -1,0 +1,83 @@
+---
+import Icon from './Icon.astro';
+import { url } from '../lib/site';
+
+const TAKES = [
+  {
+    id: 'github',
+    n: '01',
+    chip: 'Browser motion blur',
+    title: 'Browser zoom with shutter motion blur',
+    meta: '1000×562 · Spring zoom + motion blur',
+    poster: url('/media/github-poster.jpg'),
+    src: url('/media/github.mp4'),
+    sound: false,
+  },
+  {
+    id: 'voice',
+    n: '02',
+    chip: 'Voice & offline captions',
+    title: 'Narrated guide with offline captions',
+    meta: '1000×562 · AAC mic + whisper.cpp captions',
+    poster: url('/media/voice-poster.jpg'),
+    src: url('/media/voice.mp4'),
+    sound: true,
+  },
+];
+---
+<section class="sr-sec wrap" id="in-action" data-screening-room aria-labelledby="sr-heading">
+  <div class="sr-head" data-reveal>
+    <p class="eyebrow-tag mono">REAL FOOTAGE</p>
+    <h2 id="sr-heading">Real captures, untouched.</h2>
+    <p class="sec-lead">Actual screen takes straight out of Vuoom, with zero mockups or hand-keyframed paths.</p>
+  </div>
+
+  <div class="sr-tabs" role="group" aria-label="Select a recorded take" data-reveal>
+    {TAKES.map((t, idx) => (
+      <button
+        type="button"
+        class="sr-tab"
+        aria-pressed={idx === 0 ? 'true' : 'false'}
+        data-sr-card={t.id}
+        data-src={t.src}
+        data-poster={t.poster}
+        data-title={t.title}
+        data-meta={t.meta}
+        data-sound={String(t.sound)}
+      >
+        <span class="mono">{t.n}</span>
+        <span>{t.chip}</span>
+      </button>
+    ))}
+  </div>
+
+  <div class="sr-cinema" data-reveal>
+    <figure class="vid sr-vid" data-video="demand" data-sr-fig>
+      <video
+        width="1000"
+        height="562"
+        muted
+        loop
+        playsinline
+        preload="none"
+        poster={TAKES[0].poster}
+        data-src={TAKES[0].src}
+        data-sr-video
+        aria-label="Real Vuoom screen recording screening player"
+      ></video>
+      <div class="vid__bar">
+        <button class="vid__btn" type="button" data-video-toggle aria-pressed="false">
+          <span class="vid__play"><Icon name="play" size={14} /><span class="visually-hidden">Play</span></span>
+          <span class="vid__pause"><Icon name="pause" size={14} /><span class="visually-hidden">Pause</span></span>
+        </button>
+        <button class="vid__btn vid__sound mono" type="button" data-video-sound aria-pressed="false" hidden>
+          Sound off
+        </button>
+      </div>
+    </figure>
+
+    <div class="sr-foot">
+      <a class="text-link" href={url('/features/auto-zoom/')}>Explore auto-zoom ↗</a>
+    </div>
+  </div>
+</section>

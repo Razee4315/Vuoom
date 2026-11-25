@@ -16,7 +16,7 @@ function contentFiles(path) {
   const [section, slug] = path.split('/').filter(Boolean);
   switch (section) {
     case undefined:
-      return ['src/pages/index.astro', 'src/data/faq.ts', 'src/assets/shots'];
+      return ['src/pages/index.astro', 'src/data/faq.ts', 'src/assets/shots', 'src/assets/studio'];
     case 'features':
       return slug
         ? ['src/pages/features/[slug].astro', 'src/data/featurePages.ts', 'src/assets/shots']

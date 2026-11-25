@@ -129,3 +129,7 @@ Replace content-only sizing with a small-viewport minimum height and centered
 content. Reserve navigation and mobile decoration space, use fluid typography,
 and allow natural growth on short screens. This supersedes the earlier compact
 section height while preserving the small interactive objects and scroll shrink.
+
+## 2026-11-25: Tungsten Darkroom redesign & `gpt-6.2-astra` Cut-Paper Graphics (ADR-018)
+
+Co-designed with GPT-6.2 Sol (`codex`) and art-directed with `gpt-6.2-astra` to replace Paper Cut and dummy mock-bar screenshots with **Tungsten Darkroom** (dark default `#110F0E` paired with Daylight Archival Studio `#F4F0E8`), 13 bespoke `gpt-6.2-astra` tactile layered cut-paper screen-recording graphics, minimalist wallpapers, and theme-matched plates (`website/tools/`), zero purple, Windows + macOS v2.2.0 positioning, and six interactive product proofs (Projection Gate spring playground, Capability Ribbon, Screening Room + Before/After wipe, Pointer & Click FX Lab, Studio Finisher with 5 in-app themes & 7 backdrops, RNNoise Voice/Captions panel, and Export Size Estimator). See `docs/17-tungsten-darkroom-redesign.md`.

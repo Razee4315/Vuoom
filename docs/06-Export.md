@@ -117,12 +117,14 @@ in the low-MB range. This is the headline preset, programmers want a small READM
 
 Every preset shows an **estimated output size** (sample-and-extrapolate) before export.
 
-## WebP (opt-in, later)
+## WebP (shipped, `v2.3.0`)
 
-Animated **WebP** is ~70-80% smaller than GIF at similar quality with ~97% browser support, a
-nice **opt-in "smaller, modern" export** for places that accept it (it is *not* a drop-in for
-GitHub README inline rendering the way GIF is, so GIF stays the default). Encode via a small
-permissively-licensed path (the `webp`/`image` crates, or an LGPL ffmpeg `libwebp_anim` sidecar).
+Animated **WebP** is typically ~50–80% smaller than GIF with full 24-bit color + alpha and broad
+browser/chat support (though GIF remains the default for GitHub README inline rendering).
+Vuoom encodes animated WebP in `crates/vuoom-encode/src/webp.rs` via Google `libwebp`
+(`BSD-3-Clause` with WebM patent grant via `libwebp-sys`, statically compiled from vendored C
+sources — zero AGPL code). Supports lossy quality control, pixel-exact Lossless mode, up to
+60 fps, debounced size estimation, and `Fit under __ MB` target sizing.
 Skip APNG (little size benefit, worse compatibility).
 
 ## Implementation checklist (M4)

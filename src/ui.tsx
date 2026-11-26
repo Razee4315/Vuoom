@@ -475,6 +475,8 @@ export function TooltipLayer(): JSX.Element {
   };
   const show = (el: HTMLElement) => {
     if (current !== el || !el.isConnected || !el.dataset.tip) return;
+    // Skip custom floating tooltips inside the 68px Mini Bar so they never clip.
+    if (window.innerHeight < 110) return;
     const r = el.getBoundingClientRect();
     const below = r.top < 64;
     setTip({

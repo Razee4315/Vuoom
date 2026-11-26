@@ -591,19 +591,20 @@
 /* ── export ─────────────────────────────────────────────────────────────── */
 
 .modal.export {
-  width: min(560px, 100%);
+  width: min(600px, 100%);
   gap: 16px;
 }
 .export-formats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 .export-format {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 12px;
   border-radius: var(--r-md);
   border: 1px solid var(--line-2);
   background: var(--panel-2);
@@ -619,8 +620,8 @@
 .export-format-icon {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   flex: none;
   border-radius: var(--r);
   background: var(--hover);
@@ -634,6 +635,7 @@
 .export-format small {
   color: var(--muted);
   font-size: var(--fs-xs);
+  line-height: 1.35;
 }
 .export-presets {
   display: grid;

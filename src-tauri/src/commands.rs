@@ -22,8 +22,9 @@ use vuoom_project::{
     SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
 };
 
-/// The visible frame around the recorded region, plus the region it should frame.
-/// Held as Tauri managed state so the record-flow commands can show/clear it.
+/// The visible frame around the recorded region, plus the region or window it should avoid.
+/// Held as Tauri managed state so the record-flow commands can show/clear it and keep the
+/// live recording panel clear of the captured area.
 #[derive(Default)]
 pub struct BorderState {
     /// A copy of the region chosen by the selector (monitor-relative physical px);
@@ -31,6 +32,9 @@ pub struct BorderState {
     pub region: Mutex<Option<CropRegion>>,
     /// Virtual-desktop origin of the monitor being recorded (physical px).
     pub origin: Mutex<(i32, i32)>,
+    /// Client area of a captured window in virtual-desktop physical px (`None` for display
+    /// captures), used to park the live panel away from the recorded window.
+    pub avoid_rect: Mutex<Option<Rect>>,
     /// The live strips while recording; dropping them removes the frame.
     pub border: Mutex<Option<RegionBorder>>,
 }
@@ -57,9 +61,9 @@ fn restore_editor(app: &AppHandle) {
         let _ = main.set_always_on_top(false);
         let _ = main.unminimize();
         // Return the editor's real min size and a sane normal size BEFORE maximizing. The
-        // panel phase shrank the window to 384x300 and dropped the min constraint to match;
-        // without resetting them here, double-clicking the title bar to un-maximize would
-        // restore the editor to that unusable 384x300 panel size (see enter_stopbar).
+        // panel phase shrank the window down to the compact/mini panel size and dropped the
+        // min constraint to match; without resetting them here, double-clicking the title bar
+        // to un-maximize would restore the editor to that tiny panel size (see enter_stopbar).
         #[cfg(target_os = "macos")]
         crate::mac_window::editor(&main);
         let _ = main.set_min_size(Some(LogicalSize::new(EDITOR_MIN_W, EDITOR_MIN_H)));
@@ -203,11 +207,16 @@ pub fn enter_overlay(
         }
     }
     // A window take has no region of its own: one left from an earlier take would draw its
-    // border, and park the panel, around nothing.
-    if matches!(target, Target::Window { .. }) {
+    // border around nothing, while the window's own rect keeps the live panel clear of it.
+    if let Target::Window { client, .. } = &target {
         if let Ok(mut slot) = border.region.lock() {
             *slot = None;
         }
+        if let Ok(mut slot) = border.avoid_rect.lock() {
+            *slot = Some((client.0, client.1, client.2 as i32, client.3 as i32));
+        }
+    } else if let Ok(mut slot) = border.avoid_rect.lock() {
+        *slot = None;
     }
     if let Ok(mut slot) = border.origin.lock() {
         // Region-relative origin: the client rect for window capture, the monitor origin
@@ -276,13 +285,52 @@ pub fn enter_overlay(
     Ok(backdrop)
 }
 
-/// Width/height (logical px) of the recording panel, a live zoom preview + Stop controls.
-const PANEL_W: f64 = 384.0;
-const PANEL_H: f64 = 300.0;
+/// Logical sizes for the floating recording panel:
+/// - `Mini` (`420x68`): docked control bar when Live Preview is off
+/// - `Compact` (`420x316`): default live director's monitor + controls
+/// - `Large` (`600x444`): expanded director's monitor
+const PANEL_MINI_W: f64 = 420.0;
+const PANEL_MINI_H: f64 = 68.0;
+const PANEL_COMPACT_W: f64 = 420.0;
+const PANEL_COMPACT_H: f64 = 316.0;
+const PANEL_LARGE_W: f64 = 600.0;
+const PANEL_LARGE_H: f64 = 444.0;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PanelMode {
+    Mini,
+    Compact,
+    Large,
+}
+
+impl PanelMode {
+    fn resolve(mode: Option<&str>, large: Option<bool>) -> Self {
+        match mode {
+            Some("mini") => Self::Mini,
+            Some("large") => Self::Large,
+            Some("compact") => Self::Compact,
+            _ => {
+                if large.unwrap_or(false) {
+                    Self::Large
+                } else {
+                    Self::Compact
+                }
+            }
+        }
+    }
+
+    fn logical_size(self) -> (f64, f64) {
+        match self {
+            Self::Mini => (PANEL_MINI_W, PANEL_MINI_H),
+            Self::Compact => (PANEL_COMPACT_W, PANEL_COMPACT_H),
+            Self::Large => (PANEL_LARGE_W, PANEL_LARGE_H),
+        }
+    }
+}
 
 /// Editor window's normal (un-maximized) size and min size, mirroring `tauri.conf.json`.
 /// `restore_editor` re-applies these when the editor returns so a later un-maximize lands
-/// at a usable size rather than the panel's 384x300.
+/// at a usable size rather than the panel's compact size.
 const EDITOR_W: f64 = 1100.0;
 const EDITOR_H: f64 = 720.0;
 const EDITOR_MIN_W: f64 = 880.0;
@@ -291,6 +339,9 @@ const EDITOR_MIN_H: f64 = 560.0;
 /// Breathing room (physical px) kept between the panel and the recorded region, so the panel
 /// also clears the 3px border strips drawn just outside the region.
 const REGION_PAD: i32 = 16;
+
+/// Margin (logical px) kept between the floating panel and the monitor work-area edges.
+const PANEL_MARGIN: f64 = 16.0;
 
 /// An axis-aligned rect in virtual-desktop physical px: `(x, y, w, h)`.
 type Rect = (i32, i32, i32, i32);
@@ -303,11 +354,33 @@ fn rects_overlap(a: Rect, b: Rect) -> bool {
     a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
 }
 
+/// The monitor's usable work area (excluding taskbar / Dock / menu bar) in virtual-desktop
+/// physical px, falling back to full monitor bounds if the OS reports an empty work area.
+fn monitor_work_rect(mon: &tauri::Monitor) -> Rect {
+    let wa = mon.work_area();
+    if wa.size.width > 0 && wa.size.height > 0 {
+        (
+            wa.position.x,
+            wa.position.y,
+            wa.size.width as i32,
+            wa.size.height as i32,
+        )
+    } else {
+        let (mp, ms) = (mon.position(), mon.size());
+        (mp.x, mp.y, ms.width as i32, ms.height as i32)
+    }
+}
+
 /// The pending capture region in virtual-desktop physical px (`None` = full screen).
 fn region_virtual(border: &BorderState) -> Option<Rect> {
     let r = border.region.lock().ok().and_then(|r| *r)?;
     let (ox, oy) = border.origin.lock().map_or((0, 0), |o| *o);
     Some((ox + r.x as i32, oy + r.y as i32, r.w as i32, r.h as i32))
+}
+
+/// Any rect (recorded region or captured window) the floating panel should avoid overlapping.
+fn panel_avoid_rect(border: &BorderState) -> Option<Rect> {
+    region_virtual(border).or_else(|| border.avoid_rect.lock().ok().and_then(|r| *r))
 }
 
 /// The window's current on-screen rect, if it can be read.
@@ -317,69 +390,88 @@ fn window_rect(win: &tauri::WebviewWindow) -> Option<Rect> {
     Some((pos.x, pos.y, size.width as i32, size.height as i32))
 }
 
-/// First monitor corner where a `panel`-sized window stays clear of `region`
-/// (bottom-right → bottom-left → top-right → top-left). `None` when every corner overlaps;
-/// the caller then parks at bottom-right anyway (`start_recording` minimizes the panel before
-/// capture matters).
+/// First clear spot inside `work` (corners first, then edge centers) where a `panel`-sized
+/// window stays clear of `avoid`. `None` when every candidate overlaps; the caller then parks
+/// at bottom-right anyway (`start_recording` minimizes an overlapping panel when capture
+/// cannot exclude it).
 fn pick_panel_spot(
-    mon: Rect,
+    work: Rect,
     panel: (i32, i32),
     margin: i32,
-    region: Option<Rect>,
+    avoid: Option<Rect>,
 ) -> Option<(i32, i32)> {
-    let (mx, my, mw, mh) = mon;
+    let (mx, my, mw, mh) = work;
     let (pw, ph) = panel;
-    let corners = [
-        (mx + mw - pw - margin, my + mh - ph - margin), // bottom-right
-        (mx + margin, my + mh - ph - margin),           // bottom-left
-        (mx + mw - pw - margin, my + margin),           // top-right
-        (mx + margin, my + margin),                     // top-left
+    let max_x = (mx + mw - pw).max(mx);
+    let max_y = (my + mh - ph).max(my);
+    let clamp_pt = |(x, y): (i32, i32)| (x.clamp(mx, max_x), y.clamp(my, max_y));
+    let left = mx + margin;
+    let right = mx + mw - pw - margin;
+    let top = my + margin;
+    let bottom = my + mh - ph - margin;
+    let mid_x = mx + (mw - pw) / 2;
+    let mid_y = my + (mh - ph) / 2;
+    let candidates = [
+        clamp_pt((right, bottom)), // bottom-right
+        clamp_pt((left, bottom)),  // bottom-left
+        clamp_pt((right, top)),    // top-right
+        clamp_pt((left, top)),     // top-left
+        clamp_pt((mid_x, bottom)), // bottom-center
+        clamp_pt((mid_x, top)),    // top-center
+        clamp_pt((right, mid_y)),  // right-center
+        clamp_pt((left, mid_y)),   // left-center
     ];
-    let Some(r) = region else {
-        return Some(corners[0]);
+    let Some(r) = avoid else {
+        return Some(candidates[0]);
     };
     let r = inflate(r, REGION_PAD);
-    corners
+    candidates
         .into_iter()
         .find(|&(px, py)| !rects_overlap((px, py, pw, ph), r))
 }
 
 /// Step 2, a region (or full screen) was confirmed: drop out of fullscreen and shrink the
-/// window to the always-on-top recording panel (live preview + Stop).
+/// window to the always-on-top recording panel (mini bar, compact monitor, or large monitor).
 ///
-/// The panel is parked on a monitor corner that clears the recorded region (bottom-right
-/// first). Capture exclusion alone is NOT enough on Windows 10: an excluded window that
-/// overlaps the captured area is recorded as a solid BLACK rectangle, so the panel must
-/// physically stay outside the region, here (initial park) and while dragging (the WM_MOVING
-/// drag wall installed by `start_recording`, see `drag_wall.rs`). When the region crowds out
-/// every corner we park bottom-right regardless; `start_recording` minimizes the panel for
-/// the duration in that case. The min size is dropped to the panel size so the shrink isn't
-/// fought by the editor's 880x560 constraint; `restore_editor` puts it back.
+/// The panel is parked inside the monitor's work area at the first corner or edge center that
+/// clears the recorded region or window. Capture exclusion alone is NOT enough on Windows 10:
+/// an excluded window that overlaps the captured area is recorded as a solid BLACK rectangle,
+/// so the panel must physically stay outside the region, here (initial park) and while
+/// dragging (the WM_MOVING drag wall installed by `start_recording`, see `drag_wall.rs`).
+/// When the region crowds out every spot we park bottom-right regardless; `start_recording`
+/// minimizes the panel for the duration in that case. The min size is dropped to `Mini` so
+/// switching sizes works smoothly; `restore_editor` puts it back.
 #[tauri::command]
-pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> Result<(), String> {
+pub fn enter_stopbar(
+    app: AppHandle,
+    border: tauri::State<'_, BorderState>,
+    mode: Option<String>,
+    large: Option<bool>,
+) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
+    let (w, h) = PanelMode::resolve(mode.as_deref(), large).logical_size();
     main.set_fullscreen(false).map_err(|e| e.to_string())?;
-    // The panel has two sizes, toggled from the panel itself (`set_panel_size`); it can't be
-    // dragged to other sizes or maximized.
+    // The panel switches between fixed presets (`set_panel_size`); it can't be dragged to
+    // arbitrary sizes or maximized.
     let _ = main.set_resizable(false);
     let _ = main.set_maximizable(false);
-    main.set_min_size(Some(LogicalSize::new(PANEL_W, PANEL_H)))
+    main.set_min_size(Some(LogicalSize::new(PANEL_MINI_W, PANEL_MINI_H)))
         .map_err(|e| e.to_string())?;
-    main.set_size(LogicalSize::new(PANEL_W, PANEL_H))
+    main.set_size(LogicalSize::new(w, h))
         .map_err(|e| e.to_string())?;
     main.set_always_on_top(true).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
     crate::mac_window::panel(&main);
     if let Ok(Some(mon)) = main.current_monitor() {
         let scale = mon.scale_factor();
-        let mp = mon.position();
-        let ms = mon.size();
-        let panel = ((PANEL_W * scale) as i32, (PANEL_H * scale) as i32);
-        let margin = (24.0 * scale) as i32;
-        let mon_rect = (mp.x, mp.y, ms.width as i32, ms.height as i32);
-        let (x, y) = pick_panel_spot(mon_rect, panel, margin, region_virtual(&border)).unwrap_or((
-            mp.x + mon_rect.2 - panel.0 - margin,
-            mp.y + mon_rect.3 - panel.1 - margin,
+        let work = monitor_work_rect(&mon);
+        let panel = ((w * scale).round() as i32, (h * scale).round() as i32);
+        let margin = (PANEL_MARGIN * scale).round() as i32;
+        let (x, y) = pick_panel_spot(work, panel, margin, panel_avoid_rect(&border)).unwrap_or((
+            (work.0 + work.2 - panel.0 - margin)
+                .clamp(work.0, (work.0 + work.2 - panel.0).max(work.0)),
+            (work.1 + work.3 - panel.1 - margin)
+                .clamp(work.1, (work.1 + work.3 - panel.1).max(work.1)),
         ));
         let _ = main.set_position(PhysicalPosition::new(x, y));
     }
@@ -389,38 +481,48 @@ pub fn enter_stopbar(app: AppHandle, border: tauri::State<'_, BorderState>) -> R
     Ok(())
 }
 
-/// The recording panel's larger size (logical px), for a bigger live preview.
-const PANEL_LARGE_W: f64 = 560.0;
-const PANEL_LARGE_H: f64 = 420.0;
-
-/// Switch the recording panel between its compact and large size. It grows away from the
-/// screen edges it's nearest, so a panel parked in a corner stays in that corner, and it is
-/// kept on its monitor.
+/// Switch the recording panel between `mini`, `compact`, and `large`. It grows away from
+/// the screen edges it's nearest, keeps inside the monitor work area, and automatically
+/// moves to another clear spot if expanding would overlap the recorded region or window.
 #[tauri::command]
-pub fn set_panel_size(app: AppHandle, large: bool) -> Result<(), String> {
+pub fn set_panel_size(
+    app: AppHandle,
+    border: tauri::State<'_, BorderState>,
+    mode: Option<String>,
+    large: Option<bool>,
+) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("no main window")?;
-    let (w, h) = if large {
-        (PANEL_LARGE_W, PANEL_LARGE_H)
-    } else {
-        (PANEL_W, PANEL_H)
-    };
+    let (w, h) = PanelMode::resolve(mode.as_deref(), large).logical_size();
+    let _ = main.set_min_size(Some(LogicalSize::new(PANEL_MINI_W, PANEL_MINI_H)));
     let pos = main.outer_position();
     let size = main.outer_size();
     let mon = main.current_monitor();
     let (Ok(pos), Ok(size), Ok(Some(mon))) = (pos, size, mon) else {
-        let _ = main.set_size(LogicalSize::new(w, h));
+        main.set_size(LogicalSize::new(w, h))
+            .map_err(|e| e.to_string())?;
+        let _ = exclude_from_capture(&main);
         return Ok(());
     };
     let scale = mon.scale_factor();
-    let (nw, nh) = ((w * scale) as i32, (h * scale) as i32);
-    let (mp, ms) = (mon.position(), mon.size());
-    let monitor = (mp.x, mp.y, ms.width as i32, ms.height as i32);
+    let (nw, nh) = ((w * scale).round() as i32, (h * scale).round() as i32);
+    let work = monitor_work_rect(&mon);
     let rect = (pos.x, pos.y, size.width as i32, size.height as i32);
-    let (x, y) = resize_anchored(rect, (nw, nh), monitor);
+    let mut spot = resize_anchored(rect, (nw, nh), work);
+    if let Some(avoid) = panel_avoid_rect(&border) {
+        let padded = inflate(avoid, REGION_PAD);
+        if rects_overlap((spot.0, spot.1, nw, nh), padded) {
+            let margin = (PANEL_MARGIN * scale).round() as i32;
+            if let Some(clear) = pick_panel_spot(work, (nw, nh), margin, Some(avoid)) {
+                spot = clear;
+            }
+        }
+    }
     main.set_size(LogicalSize::new(w, h))
         .map_err(|e| e.to_string())?;
-    main.set_position(PhysicalPosition::new(x, y))
-        .map_err(|e| e.to_string())
+    main.set_position(PhysicalPosition::new(spot.0, spot.1))
+        .map_err(|e| e.to_string())?;
+    let _ = exclude_from_capture(&main);
+    Ok(())
 }
 
 /// Where a window at `rect` (x, y, w, h) goes when resized to `size`: the edges nearest the
@@ -1129,6 +1231,34 @@ pub async fn export_mp4(
         })
 }
 
+/// Export the recording to an animated WebP at `path`, emitting `export-progress` events.
+#[tauri::command]
+pub async fn export_webp(
+    app: AppHandle,
+    path: String,
+    fps: u32,
+    width: Option<u32>,
+    quality: u8,
+    lossless: Option<bool>,
+) -> Result<(), String> {
+    let lossless = lossless.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        let emitter = app.clone();
+        app.state::<Engine>().session()?.export_webp(
+            path,
+            fps,
+            width,
+            quality,
+            lossless,
+            &|done, total| {
+                let _ = emitter.emit("export-progress", ExportProgress { done, total });
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("webp export: {e}"))?
+}
+
 /// Abort an in-flight GIF/MP4 export. The export loop bails at its next frame check with an
 /// `"export cancelled"` error and deletes its partial output file. A no-op if nothing is
 /// exporting (the flag resets when the next export starts).
@@ -1270,6 +1400,25 @@ pub async fn estimate_gif(
 ) -> Result<u64, String> {
     let dither = dither.unwrap_or(true);
     engine.session()?.estimate_gif(fps, width, quality, dither)
+}
+
+/// Estimate the animated WebP export size in bytes for the given settings.
+#[tauri::command]
+pub async fn estimate_webp(
+    app: AppHandle,
+    fps: u32,
+    width: Option<u32>,
+    quality: u8,
+    lossless: Option<bool>,
+) -> Result<u64, String> {
+    let lossless = lossless.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Engine>()
+            .session()?
+            .estimate_webp(fps, width, quality, lossless)
+    })
+    .await
+    .map_err(|e| format!("webp estimate: {e}"))?
 }
 
 /// Put an exported file (GIF or MP4) on the clipboard as CF_HDROP, so pasting into Slack /
@@ -1905,21 +2054,64 @@ mod tests {
 
     #[test]
     fn a_resized_panel_keeps_its_corner_and_its_monitor() {
-        let monitor = (0, 0, 1920, 1080);
+        let work = (0, 0, 1920, 1040);
         // Parked bottom right: it grows up and to the left.
         assert_eq!(
-            resize_anchored((1500, 750, 384, 300), (560, 420), monitor),
-            (1324, 630)
+            resize_anchored((1484, 708, 420, 316), (600, 444), work),
+            (1304, 580)
         );
         // Top left: it grows down and to the right.
         assert_eq!(
-            resize_anchored((24, 24, 384, 300), (560, 420), monitor),
-            (24, 24)
+            resize_anchored((16, 16, 420, 316), (600, 444), work),
+            (16, 16)
         );
-        // Never off the monitor.
+        // Never off the work area (taskbar stays clear).
         assert_eq!(
-            resize_anchored((1800, 900, 384, 300), (560, 420), monitor),
-            (1360, 660)
+            resize_anchored((1800, 900, 420, 316), (600, 444), work),
+            (1320, 596)
+        );
+    }
+
+    #[test]
+    fn pick_panel_spot_avoids_region_and_respects_work_area() {
+        let work = (0, 0, 1920, 1040);
+        let panel = (420, 316);
+        let margin = 16;
+
+        // No avoid rect: defaults to bottom-right inside the work area.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, None),
+            Some((1920 - 420 - 16, 1040 - 316 - 16))
+        );
+
+        // Tall portrait region in the center leaves bottom-right clear.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, Some((660, 0, 600, 1040))),
+            Some((1920 - 420 - 16, 1040 - 316 - 16))
+        );
+
+        // Region covering bottom-right moves the panel to bottom-left.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, Some((1200, 500, 700, 520))),
+            Some((16, 1040 - 316 - 16))
+        );
+
+        // Region covering the entire bottom half moves the panel to top-right.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, Some((0, 600, 1920, 440))),
+            Some((1920 - 420 - 16, 16))
+        );
+
+        // Region covering the right half moves the panel to bottom-left.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, Some((1020, 0, 900, 1040))),
+            Some((16, 1040 - 316 - 16))
+        );
+
+        // Almost full-screen region blocks every spot -> returns None.
+        assert_eq!(
+            pick_panel_spot(work, panel, margin, Some((100, 100, 1720, 840))),
+            None
         );
     }
 }

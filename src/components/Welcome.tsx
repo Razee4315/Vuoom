@@ -23,7 +23,7 @@ const STEPS = (): { icon: IconName; title: string; text: () => string }[] => [
   {
     icon: "export",
     title: t("Ship"),
-    text: () => t("Export a crisp GIF or MP4 and paste it straight into Slack or GitHub."),
+    text: () => t("Export a crisp GIF, WebP or MP4 and paste it straight into Slack or GitHub."),
   },
 ];
 

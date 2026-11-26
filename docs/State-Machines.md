@@ -49,12 +49,15 @@ From a Record press to the overlay that owns the screen. `recordFlow()` holds on
 ### Record overlay: `src/RecordOverlay.tsx`
 
 `phase`: `select → preparing → countdown → recording → finalizing`. Diagram at the
-component. A failed engine setup returns `preparing` to `select`; a capture that fails to
-start ends the overlay (`onFailed`), and so does a failed stop: the engine takes the take
-out before anything can fail and restores the editor window either way, so there is no live
-take to go back to. If the failed take had replaced the loaded clip, the editor goes back to
-Home instead of showing a clip the engine no longer has.
-`paused` is a sub-state of `recording` (the elapsed readout freezes).
+component. `preparing` keeps the selector overlay mounted until `enter_stopbar` finishes
+shrinking and parking the window, so the live panel never expands full-screen over the
+desktop on start. A failed engine setup returns `preparing` to `select`; a capture that
+fails to start ends the overlay (`onFailed`), and so does a failed stop: the engine takes
+the take out before anything can fail and restores the editor window either way, so there is
+no live take to go back to. If the failed take had replaced the loaded clip, the editor goes
+back to Home instead of showing a clip the engine no longer has.
+`paused` is a sub-state of `recording` (the elapsed readout freezes and a frosted veil with
+1-click Resume covers the monitor stage).
 
 `control` tracks the overlay's hand-off to the editor: `open → closed` on Cancel / Esc,
 `open → committed` when capture starts (the countdown reaches 0, or at once with no
@@ -135,7 +138,10 @@ A new dialog must be added there.
 ### Record window modes: `src-tauri/src/commands.rs`
 
 The editor window is in one of three modes: **normal**, **overlay** (fullscreen, hidden
-from capture: `enter_overlay`) and **stop bar** (`enter_stopbar`). Both `finish_recording`
+from capture: `enter_overlay`) and **stop bar** (`enter_stopbar`, which sizes and parks the
+panel in one of three modes: `mini` `420×68` when Live Preview is off, `compact` `420×316`,
+or `large` `600×444` inside `monitor.work_area()`, avoiding any recorded region or captured
+window rect). Both `finish_recording`
 and `cancel_record_flow` take it back to normal and drop what the take put up: the stop
 hotkey watcher (`RecordingHotkey`), the region border (`BorderState`) and the panel's drag
 limits (`drag_wall`). The front end's record flow decides when each runs. `enter_overlay`,

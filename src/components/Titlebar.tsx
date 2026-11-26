@@ -42,7 +42,7 @@ export default function Titlebar() {
       onSelect: () => void ed.onSaveProjectAs(),
     },
     {
-      label: t("Export GIF or MP4…"),
+      label: t("Export GIF, WebP or MP4…"),
       icon: "export",
       kbd: "Ctrl+E",
       disabled: !ed.hasClip(),
@@ -235,7 +235,7 @@ export default function Titlebar() {
         type="button"
         class="btn primary sm tb-export"
         disabled={!ed.hasClip()}
-        data-tip={t("Export a GIF or MP4")}
+        data-tip={t("Export a GIF, WebP or MP4")}
         data-kbd="Ctrl+E"
         onClick={() => ed.setShowExport(true)}
       >

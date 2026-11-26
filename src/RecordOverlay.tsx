@@ -62,6 +62,9 @@ const fmt = (t: number) => {
 
 /** From this many pixels (a 3K screen) a take at 60 fps gets the offer of a lighter rate. */
 const HEAVY_PIXELS = 6_000_000;
+const RING_RADIUS = 36;
+const RING_CIRC = 2 * Math.PI * RING_RADIUS;
+type PanelMode = "mini" | "compact" | "large";
 
 /**
  * The full recording flow as a single in-window overlay: pick a region (fullscreen) →
@@ -122,18 +125,16 @@ export default function RecordOverlay(props: {
   const [count, setCount] = createSignal(prefs.countdown());
   const [elapsed, setElapsed] = createSignal(0);
   const [paused, setPaused] = createSignal(false);
-  // Audio: the mic check feeds the HUD meter while framing; during the take the engine's
-  // own capture feeds the live panel's meters.
+  const [targetMeta, setTargetMeta] = createSignal("");
+  // Audio: the mic check feeds the HUD meter while framing (and through "preparing", so the
+  // check stays warm); during the take the engine's own capture feeds the panel meters.
   const audioDevices = createAudioDevices();
-  const framing = () => phase() === "select" || phase() === "countdown";
-  useMicCheck(() => framing() && prefs.recordMic());
-  const levels = createLevels(() => (framing() && prefs.recordMic()) || phase() === "recording");
+  const beforeTake = () => phase() === "select" || phase() === "preparing" || phase() === "countdown";
+  useMicCheck(() => beforeTake() && prefs.recordMic());
+  const levels = createLevels(() => (beforeTake() && prefs.recordMic()) || phase() === "recording");
   // Webcam: opened while framing so its bubble previews where it will sit in the take; the
   // same camera then records without reopening.
   const cameras = createCameras();
-  // It stays open through "preparing" too: closing it there would make the take reopen
-  // the device (or race a reopen) instead of reusing it.
-  const beforeTake = () => phase() === "select" || phase() === "preparing" || phase() === "countdown";
   const camera = useCameraPreview(() => beforeTake() && prefs.recordCamera());
   // Cursor over the selection surface, reflects what a press-drag would do (draw / move /
   // resize a given edge). Applied inline so it overrides the base crosshair.
@@ -163,7 +164,7 @@ export default function RecordOverlay(props: {
 
   // Live "director's monitor": the backend streams a zoom-tracked preview to this canvas.
   const preview = createPreviewClient();
-  let canvasEl: HTMLCanvasElement | undefined;
+  const [canvas, setCanvas] = createSignal<HTMLCanvasElement | undefined>();
   let shotEl: HTMLImageElement | undefined;
 
   // Physical px per CSS px. The backdrop screenshot is an exact pixel map of the recorded
@@ -178,9 +179,23 @@ export default function RecordOverlay(props: {
     };
   };
 
+  const panelMode = (): PanelMode =>
+    !prefs.livePreview() ? "mini" : layout.panelLarge() ? "large" : "compact";
+
   const stopTimer = () => {
-    if (elapsedTimer) clearInterval(elapsedTimer);
+    if (elapsedTimer) clearTimeout(elapsedTimer);
     elapsedTimer = undefined;
+  };
+
+  const startElapsedTimer = () => {
+    stopTimer();
+    const tick = () => {
+      elapsedTimer = undefined;
+      if (phase() !== "recording" || paused() || control() === "closed" || document.hidden) return;
+      setElapsed((Date.now() - startMs) / 1000);
+      elapsedTimer = window.setTimeout(tick, 200);
+    };
+    if (!document.hidden) elapsedTimer = window.setTimeout(tick, 200);
   };
 
   /** Hand control back to the editor: the backend flow is undone, then `then` reports why. */
@@ -206,10 +221,16 @@ export default function RecordOverlay(props: {
     if (!windowMode && p.ratio !== "full" && (!r || r.w < 8 || r.h < 8)) return;
     stillRegion = null; // recomputed below; never reuse a previous attempt's rect
     setCount(prefs.countdown());
-    setPhase("preparing"); // instant acknowledgment: no dead click while the engine sets up
+    setPhase("preparing"); // instant acknowledgment on the HUD button; panel waits until resized
     try {
       if (windowMode) {
-        // Window capture records the whole client area; no region call at all.
+        // Window capture records the whole client area; the backdrop (when captured) is
+        // already cropped to that window's client rect.
+        if (shotEl?.naturalWidth && shotEl.naturalHeight) {
+          stillRegion = { x: 0, y: 0, w: shotEl.naturalWidth, h: shotEl.naturalHeight };
+        }
+        const label = props.target?.kind === "window" ? props.target.label : "";
+        setTargetMeta(label ? `${label} · ${prefs.captureFps()} fps` : `${prefs.captureFps()} fps`);
       } else if (p.ratio === "full" || !r) {
         const { sx, sy } = toPhysical();
         stillRegion = {
@@ -218,6 +239,7 @@ export default function RecordOverlay(props: {
           w: Math.round(window.innerWidth * sx),
           h: Math.round(window.innerHeight * sy),
         };
+        setTargetMeta(`${stillRegion.w} × ${stillRegion.h} · ${prefs.captureFps()} fps`);
         await invoke("set_region", {}); // no fields → full screen
         if (control() !== "open") return;
       } else {
@@ -231,6 +253,7 @@ export default function RecordOverlay(props: {
           w: Math.round(r.w * sx),
           h: Math.round(r.h * sy),
         };
+        setTargetMeta(`${stillRegion.w} × ${stillRegion.h} · ${prefs.captureFps()} fps`);
         if (props.target?.kind === "display") {
           prefs.lastRegion.set({
             x: r.x,
@@ -251,12 +274,11 @@ export default function RecordOverlay(props: {
         });
         if (control() !== "open") return;
       }
-      await invoke("enter_stopbar"); // shrink the host window to the bar
+      // Shrink and park the host window BEFORE leaving the selector phase so the floating
+      // panel never expands fullscreen over the desktop.
+      await invoke("enter_stopbar", { mode: panelMode(), large: layout.panelLarge() });
       // Cancelled while the engine set up: the cancel's restore ran after the shrink (the
       // commands run in order), so stop here and leave the editor window as it now is.
-      if (control() !== "open") return;
-      // The panel remembers its size between takes.
-      if (layout.panelLarge()) await invoke("set_panel_size", { large: true }).catch(() => undefined);
       if (control() !== "open") return;
       // Show the recorded-region frame as the 3-2-1 begins, so the user sees exactly what's
       // in frame before capture starts. Idempotent + a no-op for full-screen on the Rust side.
@@ -270,18 +292,9 @@ export default function RecordOverlay(props: {
       if (control() !== "open") return;
       setPhase("countdown");
       if (count() <= 0) {
-        // No countdown: capture starts right away (the preview still hooks up below).
-        hookPreview();
         void beginRecording();
         return;
       }
-      // Hook the preview socket now: the port exists from engine boot, frames only flow
-      // once recording starts, so the very first live frame lands with capture instead of
-      // a connect round-trip later. hookPreview also paints the frozen backdrop cropped to
-      // the chosen region into the canvas, so the countdown shows exactly what will record
-      // and the first live frame replaces the identical geometry instead of popping from
-      // black.
-      hookPreview();
       runCountdown();
     } catch (e) {
       if (control() !== "open") return; // cancelled meanwhile: the editor already has control
@@ -307,39 +320,60 @@ export default function RecordOverlay(props: {
     countTimer = window.setTimeout(tick, 1000);
   };
 
-  // Bind the panel canvas to the live preview stream as early as the countdown. The
-  // connect is idempotent, so `beginRecording`'s own call below is a no-op once open.
-  // The still is painted after the connect settles: a mock client resets the canvas
-  // there, and repainting last keeps the countdown frame intact either way.
-  const hookPreview = () => {
-    if (!canvasEl) return;
-    preview.attach(canvasEl);
-    const paint = () => paintStill();
+  const startNow = () => {
+    if (phase() !== "countdown" || control() !== "open") return;
+    clearCountdown();
+    setCount(0);
+    void beginRecording();
+  };
+
+  // Bind the panel canvas to the live preview stream whenever monitor mode is active.
+  // Toggling Mini Bar disconnects the WebSocket and cancels rAF work; toggling Live
+  // Preview back on attaches the newly mounted canvas immediately. During countdown the
+  // still is painted after `connect()` settles (the mock client resets on connect).
+  createEffect(() => {
+    const p = phase();
+    const el = canvas();
+    const active = (p === "countdown" || p === "recording") && prefs.livePreview();
+    if (!active || !el) {
+      preview.disconnect();
+      return;
+    }
+    preview.attach(el);
+    const paint = () => {
+      if (phase() === "countdown") paintStill();
+    };
+    let cancelled = false;
     void invoke<{ port: number; token: string }>("preview_port")
       .then((conn) => {
+        if (cancelled) return;
         preview.connect(conn.port, conn.token);
         paint();
       })
-      .catch(paint);
-  };
+      .catch(() => {
+        if (!cancelled) paint();
+      });
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
 
   // The region that will record, in backdrop (natural image) pixels, captured while the
-  // overlay is still fullscreen. `null` = no still to show (nothing drawn / window target).
+  // overlay is still fullscreen. `null` = no still to show.
   let stillRegion: { x: number; y: number; w: number; h: number } | null = null;
 
   // Draw the frozen backdrop cropped to the recorded region into the preview canvas at
-  // the stream's own resolution. The still occupies exactly the pixels the live frames
-  // will replace, so the hand-over from countdown to recording is invisible instead of
-  // the picture jumping in from black once the stream connects.
+  // the stream's own resolution (matching `live_preview::PREVIEW_WIDTH`).
   const paintStill = () => {
-    if (!canvasEl || !shotEl?.naturalWidth || !stillRegion) return;
-    const ctx = canvasEl.getContext("2d");
+    const el = canvas();
+    if (!el || !shotEl?.naturalWidth || !stillRegion) return;
+    const ctx = el.getContext("2d");
     if (!ctx) return;
     const aspect = stillRegion.w / stillRegion.h;
-    const w = 480;
+    const w = 640;
     const h = Math.max(1, Math.round(w / aspect));
-    canvasEl.width = w;
-    canvasEl.height = h;
+    el.width = w;
+    el.height = h;
     ctx.drawImage(
       shotEl,
       stillRegion.x,
@@ -360,17 +394,8 @@ export default function RecordOverlay(props: {
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording");
       setPhase("recording");
-      // The stream was hooked at countdown; refresh the binding in case the canvas
-      // changed, and rely on the idempotent connect to skip an already-open socket.
-      if (canvasEl) preview.attach(canvasEl);
-      try {
-        const conn = await invoke<{ port: number; token: string }>("preview_port");
-        preview.connect(conn.port, conn.token);
-      } catch {
-        /* preview is best-effort; recording proceeds regardless */
-      }
       startMs = Date.now();
-      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
+      startElapsedTimer();
     } catch (e) {
       // Capture never started, clean up the backend flow, then surface the real reason
       // (e.g. "No frames were captured…") instead of a bland "cancelled".
@@ -410,7 +435,7 @@ export default function RecordOverlay(props: {
       stopTimer();
     } else {
       startMs = Date.now() - elapsed() * 1000;
-      elapsedTimer = window.setInterval(() => setElapsed((Date.now() - startMs) / 1000), 200);
+      startElapsedTimer();
     }
   };
 
@@ -601,6 +626,10 @@ export default function RecordOverlay(props: {
       cancel();
       return;
     }
+    if (phase() === "countdown" && e.key === "Enter" && control() === "open") {
+      startNow();
+      return;
+    }
     if (phase() !== "select") return;
     if (e.key === "Enter") {
       const p = preset();
@@ -622,6 +651,15 @@ export default function RecordOverlay(props: {
     window.addEventListener("resize", offerLastRegion);
     onCleanup(() => window.removeEventListener("resize", offerLastRegion));
     window.addEventListener("keydown", onKey);
+    const onVisibility = () => {
+      if (document.hidden) {
+        stopTimer();
+      } else if (phase() === "recording" && !paused()) {
+        setElapsed((Date.now() - startMs) / 1000);
+        startElapsedTimer();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     // The global stop hotkey (watched by the backend while recording) stops the recording
     // even when this panel doesn't have focus.
     const unlistenStop = listen("stop-hotkey", () => {
@@ -629,6 +667,7 @@ export default function RecordOverlay(props: {
     });
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onVisibility);
       void unlistenStop.then((un) => un());
       clearCountdown();
       stopTimer();
@@ -677,16 +716,21 @@ export default function RecordOverlay(props: {
   const windowMode = () => props.target?.kind === "window";
   const canStart = () => windowMode() || preset().ratio === "full" || !!sel();
   /** Show or hide the live picture. Applies at once, also mid-take: off, the engine stops
-   *  copying and drawing preview frames, which frees processor time on slower PCs. */
+   *  copying preview frames and collapses the floating panel into the slim Mini Bar. */
   const setLivePreview = (on: boolean) => {
     prefs.livePreview.set(on);
     void invoke("set_live_preview", { on }).catch(() => undefined);
+    if (phase() !== "select" && phase() !== "preparing") {
+      void invoke("set_panel_size", { mode: panelMode(), large: layout.panelLarge() }).catch(() => undefined);
+    }
   };
-  /** Switch the panel between its compact size and a bigger live preview. */
+  /** Switch the live monitor between its compact size and a bigger preview. */
   const togglePanelSize = () => {
     const next = !layout.panelLarge();
     layout.panelLarge.set(next);
-    void invoke("set_panel_size", { large: next }).catch(() => undefined);
+    if (phase() !== "select" && phase() !== "preparing") {
+      void invoke("set_panel_size", { mode: next ? "large" : "compact", large: next }).catch(() => undefined);
+    }
   };
   /** The bubble's spot: the bottom right of the recorded area, sized like a new take's. */
   const bubbleSpot = () => {
@@ -698,150 +742,325 @@ export default function RecordOverlay(props: {
     return { left: r.x + r.w - m - size, top: r.y + r.h - m - size, size };
   };
 
+  const ringOffset = () => RING_CIRC * (1 - Math.max(0, count()) / Math.max(1, prefs.countdown()));
+
   return (
     <Show
-      when={phase() === "select"}
+      when={phase() === "select" || phase() === "preparing"}
       fallback={
         <div class="rec-panel-root">
           <div
             class="rec-panel"
-            classList={{ live: phase() === "recording", paused: paused(), large: layout.panelLarge() }}
+            classList={{
+              live: phase() === "recording",
+              paused: paused(),
+              large: prefs.livePreview() && layout.panelLarge(),
+            }}
           >
-            <div class="rec-drag" data-tauri-drag-region>
-              <span class="rec-state" data-tauri-drag-region>
+            <Show
+              when={prefs.livePreview()}
+              fallback={
+                <div class="rec-mini" data-tauri-drag-region>
+                  <span class="rec-grip" data-tauri-drag-region aria-hidden="true">
+                    <Icon name="grip" size={14} />
+                  </span>
+                  <Show
+                    when={phase() === "recording"}
+                    fallback={
+                      <Show
+                        when={phase() === "finalizing"}
+                        fallback={
+                          <>
+                            <span class="rec-mini-badge" data-tauri-drag-region>
+                              {count() > 0 ? count() : t("Go")}
+                            </span>
+                            <span class="rec-mini-label" data-tauri-drag-region>
+                              {t("Get ready")}
+                            </span>
+                            <span class="rec-mini-drag" data-tauri-drag-region />
+                            <button
+                              type="button"
+                              class="rec-icon-btn"
+                              aria-label={t("Show live preview")}
+                              onClick={() => setLivePreview(true)}
+                            >
+                              <Icon name="eye" size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              class="rec-start-now mini"
+                              disabled={control() !== "open"}
+                              onClick={startNow}
+                            >
+                              {t("Start")}
+                            </button>
+                            <button
+                              type="button"
+                              class="rec-cancel mini"
+                              disabled={control() !== "open"}
+                              onClick={cancel}
+                            >
+                              {t("Cancel")}
+                            </button>
+                          </>
+                        }
+                      >
+                        <span class="spinner rec-mini-spin" aria-hidden="true" />
+                        <span class="rec-mini-label" data-tauri-drag-region>
+                          {t("Saving take…")}
+                        </span>
+                        <span class="rec-mini-drag" data-tauri-drag-region />
+                      </Show>
+                    }
+                  >
+                    <span class="live-dot" data-tauri-drag-region />
+                    <span class="rec-mini-time" classList={{ paused: paused() }} aria-live="off" data-tauri-drag-region>
+                      {fmt(elapsed())}
+                    </span>
+                    <Show when={prefs.recordMic() || prefs.recordSystem()}>
+                      <div class="rec-mini-meters" data-tauri-drag-region>
+                        <Show when={prefs.recordMic()}>
+                          <LevelMeter class="rec-mini-meter" level={paused() ? 0 : levels.mic()} />
+                        </Show>
+                        <Show when={prefs.recordSystem()}>
+                          <LevelMeter class="rec-mini-meter" level={paused() ? 0 : levels.system()} />
+                        </Show>
+                      </div>
+                    </Show>
+                    <span class="rec-mini-drag" data-tauri-drag-region />
+                    <button
+                      type="button"
+                      class="rec-icon-btn"
+                      aria-label={t("Show live preview")}
+                      onClick={() => setLivePreview(true)}
+                    >
+                      <Icon name="eye" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class="rec-pause mini"
+                      classList={{ on: paused() }}
+                      aria-label={paused() ? t("Resume recording") : t("Pause recording")}
+                      onClick={() => void togglePause()}
+                    >
+                      <Icon name={paused() ? "play" : "pause"} size={13} />
+                      {paused() ? t("Resume") : t("Pause")}
+                    </button>
+                    <button
+                      type="button"
+                      class="rec-stop mini"
+                      aria-label={t("Stop recording")}
+                      onClick={() => void stop()}
+                    >
+                      <span class="rec-stop-square" />
+                      {t("Stop")}
+                    </button>
+                  </Show>
+                </div>
+              }
+            >
+              <div class="rec-drag" data-tauri-drag-region>
+                <div class="rec-drag-start" data-tauri-drag-region>
+                  <span class="rec-grip" data-tauri-drag-region aria-hidden="true">
+                    <Icon name="grip" size={14} />
+                  </span>
+                  <span class="rec-state" data-tauri-drag-region>
+                    <span class="rec-state-label" data-tauri-drag-region>
+                      <Show when={phase() === "recording"} fallback={<span class="live-dot ready" />}>
+                        <span class="live-dot" />
+                      </Show>
+                      <span data-tauri-drag-region>
+                        {phase() === "recording"
+                          ? paused()
+                            ? t("Paused")
+                            : t("Recording")
+                          : phase() === "finalizing"
+                            ? t("Saving take…")
+                            : t("Get ready")}
+                      </span>
+                    </span>
+                  </span>
+                  <Show when={targetMeta()}>
+                    {(meta) => (
+                      <span class="rec-meta" data-tauri-drag-region>
+                        {meta()}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+                <div class="rec-drag-end">
+                  <button
+                    type="button"
+                    class="rec-icon-btn"
+                    aria-label={t("Hide live preview")}
+                    data-tip={t("Collapse to mini bar (hides live preview)")}
+                    onClick={() => setLivePreview(false)}
+                  >
+                    <Icon name="eyeOff" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    class="rec-icon-btn"
+                    aria-label={layout.panelLarge() ? t("Make the panel smaller") : t("Make the preview bigger")}
+                    data-tip={
+                      layout.panelLarge()
+                        ? t("Smaller panel (or double-click the preview)")
+                        : t("Bigger preview (or double-click the preview)")
+                    }
+                    onClick={togglePanelSize}
+                  >
+                    <Icon name={layout.panelLarge() ? "shrink" : "grow"} size={14} />
+                  </button>
+                </div>
+              </div>
+              <div class="rec-screen" onDblClick={togglePanelSize}>
+                <canvas
+                  ref={(el) => {
+                    setCanvas(el);
+                    onCleanup(() => {
+                      if (canvas() === el) setCanvas(undefined);
+                    });
+                  }}
+                  class="rec-canvas"
+                />
+                <Show when={phase() === "countdown"}>
+                  <div class="rec-countdown">
+                    <div class="rec-ring-wrap">
+                      <svg class="rec-ring-svg" viewBox="0 0 84 84" aria-hidden="true">
+                        <circle class="rec-ring-track" cx="42" cy="42" r={RING_RADIUS} />
+                        <circle
+                          class="rec-ring-arc"
+                          cx="42"
+                          cy="42"
+                          r={RING_RADIUS}
+                          stroke-dasharray={String(RING_CIRC)}
+                          stroke-dashoffset={String(ringOffset())}
+                        />
+                      </svg>
+                      <span class="rec-num">{count() > 0 ? count() : t("Go")}</span>
+                    </div>
+                    <span class="rec-sub">
+                      {preset().ratio === "full" ? t("Vuoom hides from the recording") : t("Recording starts…")}
+                    </span>
+                  </div>
+                </Show>
+                <Show when={phase() === "recording" && paused()}>
+                  <div class="rec-paused-veil">
+                    <span class="rec-paused-badge">{t("Paused")}</span>
+                    <span class="rec-sub">{t("This gap is cut from the take")}</span>
+                    <button type="button" class="rec-resume-pill" onClick={() => void togglePause()}>
+                      <Icon name="play" size={12} />
+                      {t("Resume")}
+                    </button>
+                  </div>
+                </Show>
+                <Show when={phase() === "recording" && !paused() && props.zoom > 1}>
+                  <span class="rec-previewtag">
+                    <Rich
+                      text={t("{keys} zooms {amount}×", { amount: props.zoom.toFixed(1) })}
+                      parts={{ keys: () => <For each={keyCaps(zoomKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
+                    />
+                  </span>
+                </Show>
+                <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
+                  <div class="rec-audio">
+                    <Show when={prefs.recordMic()}>
+                      <span class="rec-audio-row" data-tip={t("Microphone level")}>
+                        <Icon name="mic" size={11} />
+                        <LevelMeter level={paused() ? 0 : levels.mic()} />
+                      </span>
+                    </Show>
+                    <Show when={prefs.recordSystem()}>
+                      <span class="rec-audio-row" data-tip={t("System sound level")}>
+                        <Icon name="volume" size={11} />
+                        <LevelMeter level={paused() ? 0 : levels.system()} />
+                      </span>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+              <div class="rec-controls">
                 <Show
                   when={phase() === "recording"}
                   fallback={
-                    <span data-tauri-drag-region>
-                      {phase() === "finalizing" ? t("Saving take…") : phase() === "preparing" ? t("Preparing…") : t("Get ready")}
-                    </span>
+                    <Show
+                      when={phase() === "finalizing"}
+                      fallback={
+                        <>
+                          <div class="rec-timebox">
+                            <span class="rec-time" aria-live="off">
+                              {fmt(0)}
+                            </span>
+                            <span class="rec-hint">
+                              <Rich
+                                text={t("{keys} cancels")}
+                                parts={{ keys: () => <kbd>Esc</kbd> }}
+                              />
+                            </span>
+                          </div>
+                          <div class="rec-btn-group">
+                            <button
+                              type="button"
+                              class="rec-cancel"
+                              disabled={control() !== "open"}
+                              onClick={cancel}
+                            >
+                              {t("Cancel")}
+                            </button>
+                            <button
+                              type="button"
+                              class="rec-start-now"
+                              disabled={control() !== "open"}
+                              onClick={startNow}
+                            >
+                              {t("Start now")}
+                            </button>
+                          </div>
+                        </>
+                      }
+                    >
+                      <span class="rec-hint finalizing">{t("Writing the take and opening the editor…")}</span>
+                    </Show>
                   }
                 >
-                  <span class="live-dot" />
-                  <span data-tauri-drag-region>{paused() ? t("Paused") : t("Recording")}</span>
-                </Show>
-              </span>
-              <span class="rec-drag-end" data-tauri-drag-region>
-                <label
-                  class="rec-live-toggle"
-                  data-tip={prefs.livePreview() ? t("Hide the live preview to save processor time") : t("Show what is being recorded")}
-                >
-                  <input
-                    type="checkbox"
-                    checked={prefs.livePreview()}
-                    onChange={(e) => setLivePreview(e.currentTarget.checked)}
-                  />
-                  <span>{t("Live preview")}</span>
-                </label>
-                <button
-                  type="button"
-                  class="rec-size"
-                  aria-label={layout.panelLarge() ? t("Make the panel smaller") : t("Make the preview bigger")}
-                  data-tip={layout.panelLarge() ? t("Smaller panel (or double-click the preview)") : t("Bigger preview (or double-click the preview)")}
-                  onClick={togglePanelSize}
-                >
-                  <Icon name={layout.panelLarge() ? "shrink" : "grow"} size={13} />
-                </button>
-                <span class="rec-grip" data-tauri-drag-region data-tip={t("Drag to move")} aria-hidden="true">
-                  <Icon name="grip" size={14} />
-                </span>
-              </span>
-            </div>
-            <div class="rec-screen" onDblClick={togglePanelSize}>
-              <canvas ref={(el) => (canvasEl = el)} class="rec-canvas" classList={{ off: !prefs.livePreview() }} />
-              <Show when={!prefs.livePreview() && phase() !== "countdown"}>
-                <div class="rec-preview-off">
-                  <Icon name="eye" size={18} />
-                  <strong>{t("Preview off")}</strong>
-                  <span>{phase() === "recording" ? t("Still recording. Tick Live preview to watch.") : t("Tick Live preview to watch the take.")}</span>
-                </div>
-              </Show>
-              <Show when={phase() === "countdown"}>
-                <div class="rec-countdown">
-                  <div class="rec-ring" style={{ "--total": String(Math.max(1, prefs.countdown())) }}>
-                    <span class="rec-num">{count() > 0 ? count() : t("Go")}</span>
+                  <div class="rec-timebox">
+                    <span class="rec-time" classList={{ paused: paused() }} aria-live="off">
+                      {fmt(elapsed())}
+                    </span>
+                    <span class="rec-hint">
+                      <Rich
+                        text={t("{keys} stops")}
+                        parts={{ keys: () => <For each={keyCaps(stopKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
+                      />
+                    </span>
                   </div>
-                  <span class="rec-sub">
-                    {preset().ratio === "full" ? t("Vuoom hides from the recording") : t("Recording starts…")}
-                  </span>
-                </div>
-              </Show>
-              <Show when={phase() === "recording" && props.zoom > 1}>
-                <span class="rec-previewtag">
-                  <Rich
-                    text={t("{keys} zooms {amount}×", { amount: props.zoom.toFixed(1) })}
-                    parts={{ keys: () => <For each={keyCaps(zoomKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
-                  />
-                </span>
-              </Show>
-              <Show when={phase() === "recording" && (prefs.recordMic() || prefs.recordSystem())}>
-                <div class="rec-audio">
-                  <Show when={prefs.recordMic()}>
-                    <span class="rec-audio-row" data-tip={t("Microphone level")}>
-                      <Icon name="mic" size={11} />
-                      <LevelMeter level={paused() ? 0 : levels.mic()} />
-                    </span>
-                  </Show>
-                  <Show when={prefs.recordSystem()}>
-                    <span class="rec-audio-row" data-tip={t("System sound level")}>
-                      <Icon name="volume" size={11} />
-                      <LevelMeter level={paused() ? 0 : levels.system()} />
-                    </span>
-                  </Show>
-                </div>
-              </Show>
-            </div>
-            <div class="rec-controls">
-              <Show
-                when={phase() === "recording"}
-                fallback={
-                  <Show
-                    when={phase() === "finalizing"}
-                    fallback={
-                      <button type="button" class="rec-cancel" disabled={phase() === "preparing" || control() !== "open"} onClick={cancel}>
-                        {t("Cancel")}
-                      </button>
-                    }
-                  >
-                    <span class="rec-hint">{t("Writing the take and opening the editor…")}</span>
-                  </Show>
-                }
-              >
-                <button
-                  type="button"
-                  class="rec-stop"
-                  aria-label={t("Stop recording")}
-                  data-tip={t("Stop and open the editor")}
-                  data-kbd={stopKeys()}
-                  onClick={() => void stop()}
-                >
-                  <span class="rec-stop-square" />
-                  {t("Stop")}
-                </button>
-                <div class="rec-timebox">
-                  <span class="rec-time" aria-live="off">
-                    {fmt(elapsed())}
-                  </span>
-                  <span class="rec-hint">
-                    <Rich
-                      text={t("{keys} stops")}
-                      parts={{ keys: () => <For each={keyCaps(stopKeys())}>{(k) => <kbd>{k}</kbd>}</For> }}
-                    />
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  class="rec-pause"
-                  classList={{ on: paused() }}
-                  aria-label={paused() ? t("Resume recording") : t("Pause recording")}
-                  data-tip={paused() ? t("Carry on recording") : t("Pause. The gap is cut from the take")}
-                  onClick={() => void togglePause()}
-                >
-                  <Icon name={paused() ? "play" : "pause"} size={14} />
-                  {paused() ? t("Resume") : t("Pause")}
-                </button>
-              </Show>
-            </div>
+                  <div class="rec-btn-group">
+                    <button
+                      type="button"
+                      class="rec-pause"
+                      classList={{ on: paused() }}
+                      aria-label={paused() ? t("Resume recording") : t("Pause recording")}
+                      data-tip={paused() ? t("Carry on recording") : t("Pause. The gap is cut from the take")}
+                      onClick={() => void togglePause()}
+                    >
+                      <Icon name={paused() ? "play" : "pause"} size={14} />
+                      {paused() ? t("Resume") : t("Pause")}
+                    </button>
+                    <button
+                      type="button"
+                      class="rec-stop"
+                      aria-label={t("Stop recording")}
+                      data-tip={t("Stop and open the editor")}
+                      data-kbd={stopKeys()}
+                      onClick={() => void stop()}
+                    >
+                      <span class="rec-stop-square" />
+                      {t("Stop")}
+                    </button>
+                  </div>
+                </Show>
+              </div>
+            </Show>
           </div>
         </div>
       }
@@ -888,7 +1107,7 @@ export default function RecordOverlay(props: {
             </>
           )}
         </Show>
-        <Show when={framing() && prefs.recordCamera() && bubbleSpot()}>
+        <Show when={beforeTake() && prefs.recordCamera() && bubbleSpot()}>
           {(b) => (
             <CameraBubble
               url={camera.url()}

@@ -62,7 +62,7 @@ export default function CommandPalette() {
     { id: "open", label: t("Open project…"), group: t("Project"), icon: "folder", kbd: "Ctrl+O", run: () => void ed.onOpenProject() },
     { id: "save", label: t("Save project"), group: t("Project"), icon: "save", kbd: "Ctrl+S", run: () => void ed.onSaveProject(), when: clip },
     { id: "save-as", label: t("Save project as…"), group: t("Project"), icon: "save", kbd: "Ctrl+Shift+S", run: () => void ed.onSaveProjectAs(), when: clip },
-    { id: "export", label: t("Export GIF or MP4…"), group: t("Project"), icon: "export", kbd: "Ctrl+E", run: () => ed.setShowExport(true), when: clip },
+    { id: "export", label: t("Export GIF, WebP or MP4…"), group: t("Project"), icon: "export", kbd: "Ctrl+E", run: () => ed.setShowExport(true), when: clip },
     { id: "recover", label: t("Recover last session"), group: t("Project"), icon: "history", run: () => void ed.onRecover(), when: () => ed.recoverable() !== null },
     { id: "play", label: t("Play / pause"), group: t("Playback"), icon: "play", kbd: "Space", run: ed.togglePlay, when: clip },
     { id: "start", label: t("Go to start"), group: t("Playback"), icon: "toStart", kbd: "Home", run: ed.restart, when: clip },

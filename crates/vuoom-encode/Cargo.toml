@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "GIF export: frame planning, size estimation, and a pure-Rust (Apache/MIT) animated-GIF encoder (keeps Vuoom Apache-2.0)."
+description = "GIF and animated WebP export: frame planning, size estimation, and pure-Rust/libwebp encoders (keeps Vuoom Apache-2.0)."
 
 [dependencies]
 thiserror.workspace = true
@@ -16,6 +16,9 @@ gif = { version = "0.13", default-features = false, features = ["std", "raii_no_
 # NeuQuant quantizer (MIT/Apache) — used directly to build ONE global palette for the whole
 # clip so frames can be delta-encoded.
 color_quant = "2.0"
+# Google libwebp (BSD-3-Clause, bindings MIT), statically compiled from vendored C sources
+# for animated WebP export without external binaries or copyleft dependencies.
+libwebp-sys = "0.14"
 
 [dev-dependencies]
 tempfile = "3"

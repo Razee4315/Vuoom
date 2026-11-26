@@ -616,14 +616,17 @@ class MockEngine {
     this.live = true;
     this.livePaused = false;
     this.liveStartedAt = Date.now();
+    this.markDirty();
   }
   setRecordPaused(paused: boolean) {
     if (paused && !this.livePaused) {
       this.livePaused = true;
       this.livePausedAt = Date.now();
+      this.markDirty();
     } else if (!paused && this.livePaused) {
       this.liveStartedAt += Date.now() - this.livePausedAt;
       this.livePaused = false;
+      this.markDirty();
     }
   }
   liveElapsed() {
@@ -1130,6 +1133,9 @@ class MockEngine {
     const h = Math.round((width * 9) / 16);
     const outDur = this.outDuration();
     return Math.round(width * h * fps * outDur * (0.05 + (quality / 100) * 0.12));
+  }
+  estimateWebp(fps: number, width: number, quality: number, lossless: boolean): number {
+    return Math.round(this.estimateGif(fps, width, quality) * (lossless ? 0.65 : 0.35));
   }
   onProgress(cb: (p: { done: number; total: number }) => void): () => void {
     this.progressCbs.add(cb);

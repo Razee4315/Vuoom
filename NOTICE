@@ -7,8 +7,10 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Third-party components
 ----------------------------------------------------------------------
 
-GIF encoding uses the pure-Rust `gif` crate (MIT or Apache-2.0). Earlier plans to ship
-gifski (AGPL) as a separate binary were dropped; Vuoom bundles no AGPL code.
+GIF encoding uses the pure-Rust `gif` crate (MIT or Apache-2.0). Animated WebP encoding
+uses Google `libwebp` (BSD-3-Clause with WebM patent grant) via `libwebp-sys` (MIT),
+statically linked from vendored C sources. Earlier plans to ship gifski (AGPL) as a
+separate binary were dropped; Vuoom bundles no AGPL code.
 
 Main components and their licences are listed at
 https://razee4315.github.io/Vuoom/licenses/

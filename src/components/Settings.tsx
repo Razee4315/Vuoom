@@ -333,6 +333,7 @@ export default function Settings() {
                 onChange={(v) => prefs.exportFormat.set(v)}
                 options={[
                   { value: "gif", label: "GIF" },
+                  { value: "webp", label: "WebP" },
                   { value: "mp4", label: "MP4" },
                 ]}
               />

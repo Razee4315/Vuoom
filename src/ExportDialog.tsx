@@ -3,15 +3,16 @@ import { invoke, listen, revealItemInDir } from "./bridge";
 import { t } from "./i18n";
 import { pickSavePath } from "./saveDir";
 import { Icon } from "./icons";
-import { prefs } from "./prefs";
+import { type ExportFormat, prefs } from "./prefs";
 import { Field, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError, timeLeft } from "./format";
 import { outputDuration } from "./geometry";
 import type { ClipState, SpeedRegion, Trim } from "./types";
 
-/** The widest GIF on offer (a wider one is enormous and no chat app plays it smoothly). */
+/** The widest GIF or WebP on offer (a wider one is huge and few chat apps play it smoothly). */
 const GIF_MAX_WIDTH = 1920;
+const WEBP_MAX_WIDTH = 1920;
 /** The largest frame H.264 encoders take: no side over 4096, and at most 4096 x 2304 pixels. */
 const H264_MAX_SIDE = 4096;
 const H264_MAX_PIXELS = 4096 * 2304;
@@ -47,7 +48,7 @@ export function ExportDialog(props: {
   onStatus: (s: string) => void;
   onExported: () => void;
 }): JSX.Element {
-  const [format, setFormat] = createSignal<"gif" | "mp4">(prefs.exportFormat());
+  const [format, setFormat] = createSignal<ExportFormat>(prefs.exportFormat());
   const [preset, setPreset] = createSignal<"readme" | "hq" | "custom">("readme");
   const [fps, setFps] = createSignal(15);
   const [width, setWidth] = createSignal(1000);
@@ -83,7 +84,8 @@ export function ExportDialog(props: {
   /** The widest this format exports the take: its own width, up to the format's limit. */
   const widest = () => {
     const { width: w, height: h } = full();
-    if (format() !== "mp4") return Math.min(w, GIF_MAX_WIDTH);
+    if (format() === "gif") return Math.min(w, GIF_MAX_WIDTH);
+    if (format() === "webp") return Math.min(w, WEBP_MAX_WIDTH);
     return h > 0 ? mp4Width(w, h) : Math.min(w, H264_MAX_SIDE);
   };
   /** The slider's top stop: the widest, rounded up to a whole step so it can be reached. */
@@ -107,21 +109,28 @@ export function ExportDialog(props: {
     return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8) + audioBytes;
   };
 
-  // Live size estimate: GIF samples-and-extrapolates (debounced); MP4 is closed-form.
+  // Live size estimate: GIF and WebP sample-and-extrapolate (debounced); MP4 is closed-form.
   // A failed probe shows "Estimate unavailable" instead of a fake 0 B.
   let estimateTimer: number | undefined;
   let estimateGen = 0;
   createEffect(() => {
-    const args = { fps: fps(), width: outWidth(), quality: quality(), dither: prefs.gifDither() };
+    const f = format();
+    const w = outWidth();
+    const q = quality();
+    const r = fps();
+    const dither = prefs.gifDither();
+    const lossless = prefs.webpLossless();
     setEstimate(null);
     clearTimeout(estimateTimer);
     const gen = ++estimateGen;
-    if (format() === "mp4") {
+    if (f === "mp4") {
       setEstimate(mp4Estimate());
       return;
     }
     estimateTimer = window.setTimeout(() => {
-      invoke<number>("estimate_gif", args)
+      const cmd = f === "webp" ? "estimate_webp" : "estimate_gif";
+      const args = f === "webp" ? { fps: r, width: w, quality: q, lossless } : { fps: r, width: w, quality: q, dither };
+      invoke<number>(cmd, args)
         .then((b) => {
           if (gen === estimateGen) setEstimate(Math.max(1, Math.round(b)));
         })
@@ -132,18 +141,24 @@ export function ExportDialog(props: {
   });
   onCleanup(() => clearTimeout(estimateTimer));
 
-  // Presets are FORMAT-AWARE: the same named preset means different fps for GIF and MP4,
-  // so the sliders can never contradict the selected preset chip. A GIF is kept small on
-  // purpose; an MP4 keeps the take's own pixels (1080p for Balanced, everything for High
-  // quality, at 60 fps when the take has them), because video compresses them well.
-  const presetValues = (p: "readme" | "hq"): { fps: number; width: number; quality: number } =>
-    format() === "mp4"
-      ? p === "readme"
+  // Presets are FORMAT-AWARE: the same named preset means different fps/widths for GIF,
+  // WebP and MP4, so the sliders never contradict the selected preset chip.
+  const presetValues = (p: "readme" | "hq"): { fps: number; width: number; quality: number } => {
+    const f = format();
+    if (f === "mp4") {
+      return p === "readme"
         ? { fps: 30, width: Math.min(widest(), 1920), quality: 85 }
-        : { fps: full().fps >= 50 ? 60 : 30, width: widest(), quality: 95 }
-      : p === "readme"
-        ? { fps: 15, width: 1000, quality: 80 }
-        : { fps: 20, width: 1280, quality: 95 };
+        : { fps: full().fps >= 50 ? 60 : 30, width: widest(), quality: 95 };
+    }
+    if (f === "webp") {
+      return p === "readme"
+        ? { fps: 20, width: Math.min(widest(), 1280), quality: 80 }
+        : { fps: 30, width: Math.min(widest(), 1920), quality: 92 };
+    }
+    return p === "readme"
+      ? { fps: 15, width: Math.min(widest(), 1000), quality: 80 }
+      : { fps: 20, width: Math.min(widest(), 1280), quality: 95 };
+  };
 
   const applyPreset = (p: "readme" | "hq" | "custom") => {
     setPreset(p);
@@ -156,9 +171,9 @@ export function ExportDialog(props: {
   };
 
   // Each format remembers its last settings; otherwise it starts on its Balanced preset.
-  const savedFor = (f: "gif" | "mp4") => (f === "gif" ? prefs.exportGif() : prefs.exportMp4());
-  const restore = (f: "gif" | "mp4") => {
-    const s = savedFor(f);
+  const prefSlot = (f: ExportFormat) => (f === "gif" ? prefs.exportGif : f === "webp" ? prefs.exportWebp : prefs.exportMp4);
+  const restore = (f: ExportFormat) => {
+    const s = prefSlot(f)();
     if (!s) {
       applyPreset("readme");
       return;
@@ -187,11 +202,11 @@ export function ExportDialog(props: {
   );
   createEffect(() => {
     const s = { preset: preset(), fps: fps(), width: width(), quality: quality() };
-    (format() === "gif" ? prefs.exportGif : prefs.exportMp4).set(s);
+    prefSlot(format()).set(s);
   });
 
   // Switching format restores that format's own last settings.
-  const switchFormat = (f: "gif" | "mp4") => {
+  const switchFormat = (f: ExportFormat) => {
     if (f === format()) return;
     // One batch, so the save effect never sees the new format with the old values.
     batch(() => {
@@ -200,11 +215,12 @@ export function ExportDialog(props: {
     });
   };
 
-  // E2: fit the GIF into an explicit byte budget by probing the engine's estimator for the
-  // largest width that fits (then relaxing quality if nothing fits). Frontend-only.
+  // E2: fit GIF or WebP into an explicit byte budget by probing the engine's estimator for
+  // the largest width that fits (then relaxing quality if nothing fits). Frontend-only.
   const fitToBudget = async () => {
     const mb = Number(budgetMb());
-    if (!Number.isFinite(mb) || mb <= 0 || format() !== "gif") return;
+    const f = format();
+    if (!Number.isFinite(mb) || mb <= 0 || (f !== "gif" && f !== "webp")) return;
     setFitting(true);
     try {
       const budget = mb * 1024 * 1024;
@@ -212,14 +228,15 @@ export function ExportDialog(props: {
         .filter((w, i, arr) => w <= Math.max(outWidth(), 400) && arr.indexOf(w) === i)
         .sort((a, b) => b - a);
       const qualities = [quality(), 75, 65, 55, 45];
+      const cmd = f === "webp" ? "estimate_webp" : "estimate_gif";
       for (const q of qualities) {
         for (const w of widths) {
-          const est = await invoke<number>("estimate_gif", {
-            fps: fps(),
-            width: w,
-            quality: q,
-            dither: prefs.gifDither(),
-          }).catch(() => Number.POSITIVE_INFINITY);
+          const est = await invoke<number>(
+            cmd,
+            f === "webp"
+              ? { fps: fps(), width: w, quality: q, lossless: prefs.webpLossless() }
+              : { fps: fps(), width: w, quality: q, dither: prefs.gifDither() },
+          ).catch(() => Number.POSITIVE_INFINITY);
           if (est > 0 && est <= budget) {
             setWidth(w);
             setQuality(q);
@@ -236,18 +253,25 @@ export function ExportDialog(props: {
     }
   };
 
+  const formatLabel = (f: ExportFormat = format()) => (f === "gif" ? "GIF" : f === "webp" ? "WebP" : "MP4");
+
   const doExport = async () => {
     // Starts from the settings or from a failure's Try again; a second click finds the
     // phase already moved on to "starting".
     if (phase() !== "configure" && phase() !== "error") return;
     const f = format();
+    const label = formatLabel(f);
     const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
     setPhase("starting"); // dialog locks while the OS save dialog is open
     try {
       const path = await pickSavePath(
         safe,
         f,
-        f === "gif" ? { name: "GIF", extensions: ["gif"] } : { name: t("MP4 video"), extensions: ["mp4"] },
+        f === "gif"
+          ? { name: "GIF", extensions: ["gif"] }
+          : f === "webp"
+            ? { name: "WebP", extensions: ["webp"] }
+            : { name: t("MP4 video"), extensions: ["mp4"] },
       );
       if (!path) {
         setPhase("configure");
@@ -257,24 +281,31 @@ export function ExportDialog(props: {
       setNow(Date.now());
       setPhase("exporting");
       setProgress(0);
-      props.onStatus(t("Exporting {format}...", { format: f.toUpperCase() }));
+      props.onStatus(t("Exporting {format}...", { format: label }));
       // The listener is registered INSIDE the guarded flow and always cleaned up.
       const unlisten = await listen<{ done: number; total: number }>("export-progress", (p) => {
         setProgress(p.total > 0 ? p.done / p.total : 0);
       });
       try {
-        await invoke(f === "gif" ? "export_gif" : "export_mp4", {
+        const cmd = f === "gif" ? "export_gif" : f === "webp" ? "export_webp" : "export_mp4";
+        const extra =
+          f === "mp4"
+            ? { audio: audioOn() }
+            : f === "webp"
+              ? { lossless: prefs.webpLossless() }
+              : { dither: prefs.gifDither() };
+        await invoke(cmd, {
           path,
           fps: fps(),
           width: outWidth(),
           quality: quality(),
-          ...(f === "mp4" ? { audio: audioOn() } : { dither: prefs.gifDither() }),
+          ...extra,
         });
         setOutPath(path);
         setPhase("done");
         props.onExported();
         props.onStatus(t("Exported {path}", { path }));
-        toast(t("{format} exported", { format: f.toUpperCase() }), "success");
+        toast(t("{format} exported", { format: label }), "success");
       } catch (e) {
         const msg = String(e);
         props.onStatus(
@@ -303,12 +334,14 @@ export function ExportDialog(props: {
   const copyFile = async () => {
     try {
       await invoke("copy_export_to_clipboard", { path: outPath() });
-      // Honest per-format copy: GIFs paste as animations almost everywhere; MP4s are
-      // copied as a *file*, which many chat apps won't accept from the clipboard.
+      // Honest per-format copy: GIFs paste as animations almost everywhere; WebP pastes in
+      // modern browsers/chat apps; MP4s are copied as a file.
       setCopied(
         format() === "gif"
           ? t("Copied! Paste it into Slack, Discord, or a GitHub comment.")
-          : t("Copied as a file. If pasting doesn't work, drag it in from Show in folder."),
+          : format() === "webp"
+            ? t("Copied! Paste it into Discord, Slack, or a browser, or drag it in from Show in folder.")
+            : t("Copied as a file. If pasting doesn't work, drag it in from Show in folder."),
       );
       toast(t("Copied to clipboard"), "success");
     } catch (e) {
@@ -397,6 +430,21 @@ export function ExportDialog(props: {
             <button
               type="button"
               class="export-format"
+              classList={{ on: format() === "webp" }}
+              aria-pressed={format() === "webp"}
+              onClick={() => switchFormat("webp")}
+            >
+              <span class="export-format-icon">
+                <Icon name="webp" size={20} />
+              </span>
+              <span>
+                <strong>WebP</strong>
+                <small>{t("Much smaller than GIF, full color")}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="export-format"
               classList={{ on: format() === "mp4" }}
               aria-pressed={format() === "mp4"}
               onClick={() => switchFormat("mp4")}
@@ -453,7 +501,7 @@ export function ExportDialog(props: {
               <Slider
                 value={fps()}
                 min={8}
-                max={format() === "mp4" ? 60 : 30}
+                max={format() === "gif" ? 30 : 60}
                 step={1}
                 label={t("Frame rate")}
                 format={(v) => `${v} fps`}
@@ -496,7 +544,10 @@ export function ExportDialog(props: {
                 when={format() === "mp4"}
                 fallback={
                   <p class="note export-audio-note">
-                    <Icon name="volumeOff" size={13} /> {t("GIFs are silent. Pick MP4 to keep the sound.")}
+                    <Icon name="volumeOff" size={13} />{" "}
+                    {format() === "webp"
+                      ? t("WebP animations are silent. Pick MP4 to keep the sound.")
+                      : t("GIFs are silent. Pick MP4 to keep the sound.")}
                   </p>
                 }
               >
@@ -516,6 +567,20 @@ export function ExportDialog(props: {
                   onChange={(v) => prefs.gifDither.set(v)}
                 />
               </Field>
+            </Show>
+            <Show when={format() === "webp"}>
+              <Field
+                label={t("Lossless")}
+                hint={t("Pixel-exact text and UI with no compression artifacts. Larger than lossy WebP, still smaller than GIF")}
+              >
+                <Switch
+                  checked={prefs.webpLossless()}
+                  label={t("Lossless")}
+                  onChange={(v) => prefs.webpLossless.set(v)}
+                />
+              </Field>
+            </Show>
+            <Show when={format() === "gif" || format() === "webp"}>
               <div class="export-fit">
                 <Icon name="target" size={14} />
                 <span>{t("Fit under")}</span>
@@ -561,7 +626,7 @@ export function ExportDialog(props: {
               {t("Cancel")}
             </button>
             <button type="button" class="btn primary" onClick={() => void doExport()}>
-              <Icon name="export" size={14} /> {t("Export {format}", { format: format().toUpperCase() })}
+              <Icon name="export" size={14} /> {t("Export {format}", { format: formatLabel() })}
             </button>
           </div>
         </Show>
@@ -571,7 +636,7 @@ export function ExportDialog(props: {
             <h2 data-phase-title tabindex="-1">
               {t("Choose where to save")}
             </h2>
-            <p class="muted small">{t("Pick a folder and a name for the {format}.", { format: format().toUpperCase() })}</p>
+            <p class="muted small">{t("Pick a folder and a name for the {format}.", { format: formatLabel() })}</p>
           </div>
         </Show>
 
@@ -589,7 +654,7 @@ export function ExportDialog(props: {
               <span>{pct()}%</span>
             </div>
             <h2 data-phase-title tabindex="-1">
-              {t("Exporting {format}", { format: format().toUpperCase() })}
+              {t("Exporting {format}", { format: formatLabel() })}
             </h2>
             <p class="muted small">
               {timeLeft(progress(), startedAt(), now()) || t("Rendering every frame with your zooms and annotations.")}
@@ -623,7 +688,7 @@ export function ExportDialog(props: {
               </span>
             </div>
             <h2 data-phase-title tabindex="-1">
-              {t("{format} ready", { format: format().toUpperCase() })}
+              {t("{format} ready", { format: formatLabel() })}
             </h2>
             <p class="export-path" data-tip={outPath()}>
               {outPath()}
@@ -650,7 +715,9 @@ export function ExportDialog(props: {
               {copied() ||
                 (format() === "gif"
                   ? t("Copy, then paste the GIF into Slack, Discord or a GitHub comment.")
-                  : t("Copy puts the MP4 on the clipboard as a file. If an app refuses to paste it, drag it in from the folder."))}
+                  : format() === "webp"
+                    ? t("Copy, then paste the WebP into Discord, Slack or a browser.")
+                    : t("Copy puts the MP4 on the clipboard as a file. If an app refuses to paste it, drag it in from the folder."))}
             </p>
           </div>
           <div class="modal-actions">

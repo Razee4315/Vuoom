@@ -54,3 +54,56 @@ impl Default for GifSettings {
         Self::readme()
     }
 }
+
+fn default_webp_method() -> u8 {
+    4
+}
+
+/// User-facing animated WebP export settings. Defaults to the Balanced preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebpSettings {
+    /// Output frames per second (WebP supports up to 60 fps smoothly).
+    pub fps: u32,
+    /// Output width cap in pixels; height follows aspect. `None` = keep source width.
+    pub width: Option<u32>,
+    /// Encoder quality (0-100). Lossy quality when `lossless` is false; effort when true.
+    pub quality: u8,
+    /// Encode losslessly (VP8L) instead of lossy VP8.
+    #[serde(default)]
+    pub lossless: bool,
+    /// Quality/speed trade-off (0 = fastest, 6 = slowest/smallest). Defaults to 4.
+    #[serde(default = "default_webp_method")]
+    pub method: u8,
+}
+
+impl WebpSettings {
+    /// Compact and crisp: the default for chat, docs, and web sharing.
+    #[must_use]
+    pub fn balanced() -> Self {
+        Self {
+            fps: 20,
+            width: Some(1280),
+            quality: 80,
+            lossless: false,
+            method: 4,
+        }
+    }
+
+    /// Higher detail and frame rate, still significantly smaller than GIF.
+    #[must_use]
+    pub fn high_quality() -> Self {
+        Self {
+            fps: 30,
+            width: Some(1920),
+            quality: 92,
+            lossless: false,
+            method: 4,
+        }
+    }
+}
+
+impl Default for WebpSettings {
+    fn default() -> Self {
+        Self::balanced()
+    }
+}

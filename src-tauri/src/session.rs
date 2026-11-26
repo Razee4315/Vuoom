@@ -30,8 +30,9 @@ use vuoom_capture::{
     CropRegion,
 };
 use vuoom_encode::{
-    encode_png_fast_to_vec, encode_png_to_vec, estimate_delta_total_bytes, export_gif_native,
-    export_gif_native_streaming, read_png, swizzle_rb, GifSettings, RgbaImage,
+    encode_png_fast_to_vec, encode_png_to_vec, encode_webp_to_vec, estimate_delta_total_bytes,
+    export_gif_native, export_gif_native_streaming, export_webp_streaming, read_png, swizzle_rb,
+    GifSettings, RgbaImage, WebpSettings,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
@@ -1756,6 +1757,89 @@ impl Session {
         dither: bool,
         progress: &dyn Fn(u32, u32),
     ) -> Result<(), String> {
+        let settings = GifSettings {
+            fps,
+            width: None,
+            quality,
+            dither,
+            ..GifSettings::readme()
+        };
+        self.export_image_sequence(&out_path, fps, width, |count, compose, out| {
+            export_gif_native_streaming(count, compose, &settings, out, &|done, total| {
+                progress(done as u32, total as u32);
+            })
+            .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Composite the output-timeline frames (honoring trim + speed regions) and export an
+    /// animated WebP to `out_path`. `progress(done, total)` ticks per frame and once on write.
+    pub fn export_webp(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        lossless: bool,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), String> {
+        let out = Path::new(&out_path);
+        let part = export_part_path(out);
+        self.export_webp_impl(
+            part.to_string_lossy().into_owned(),
+            fps,
+            width,
+            quality,
+            lossless,
+            progress,
+        )
+        .and_then(|()| finish_export(&part, out))
+        .inspect(|_| self.mark_take_kept())
+        .map_err(|e| {
+            tracing::error!("WebP export failed: {e}");
+            e
+        })
+    }
+
+    fn export_webp_impl(
+        &self,
+        out_path: String,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        lossless: bool,
+        progress: &dyn Fn(u32, u32),
+    ) -> Result<(), String> {
+        let settings = WebpSettings {
+            fps,
+            width: None,
+            quality,
+            lossless,
+            method: 4,
+        };
+        self.export_image_sequence(&out_path, fps, width, |count, compose, out| {
+            export_webp_streaming(count, compose, &settings, out, &|done, total| {
+                progress(done as u32, total as u32);
+            })
+            .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Shared frame-by-frame compositing loop for GIF and animated WebP exports.
+    fn export_image_sequence<E>(
+        &self,
+        out_path: &str,
+        fps: u32,
+        width: Option<u32>,
+        encode: E,
+    ) -> Result<(), String>
+    where
+        E: FnOnce(
+            usize,
+            &mut dyn FnMut(usize) -> Result<RgbaImage, String>,
+            &Path,
+        ) -> Result<(), String>,
+    {
         // Clear any stale cancel request from a prior export before we begin (see
         // `cancel_export`): the flag is process-global and one export runs at a time.
         self.export_cancel.store(false, Ordering::SeqCst);
@@ -1779,7 +1863,7 @@ impl Session {
         self.sync_backdrop(compositor, &project.frame);
         self.sync_pointer(compositor, project.cursor.as_ref());
 
-        // Composited straight at the GIF's size: the GPU scales the picture as it draws it
+        // Composited straight at the export's size: the GPU scales the picture as it draws it
         // (averaging every source pixel), so no frame is rendered large, read back and then
         // shrunk on the processor.
         let (out_w, out_h) = project.output_dims();
@@ -1790,19 +1874,10 @@ impl Session {
         let count = ((d_out * f64::from(fps)).ceil() as usize).max(1);
         let cam_frames = self.camera_frames();
 
-        let settings = GifSettings {
-            fps,
-            width: None,
-            quality,
-            dither,
-            ..GifSettings::readme()
-        };
-
-        // Composite one output frame on demand, the streaming encoder pulls these and keeps
-        // only the current + previous frame resident. Checked once per frame so a cancel
-        // request (Cancel button / window-close) aborts within one composite instead of
-        // running the full multi-minute encode to completion.
-        let compose = |i: usize| -> Result<RgbaImage, String> {
+        // Composite one output frame on demand; the streaming encoder pulls these without
+        // buffering the whole clip in RAM. Checked once per frame so a cancel request
+        // (Cancel button / window-close) aborts within one composite.
+        let mut compose = |i: usize| -> Result<RgbaImage, String> {
             if self.export_cancel.load(Ordering::SeqCst) {
                 return Err("export cancelled".into());
             }
@@ -1825,24 +1900,14 @@ impl Session {
             );
             Ok(RgbaImage::new(out_w, out_h, rgba))
         };
-        let result = export_gif_native_streaming(
-            count,
-            compose,
-            &settings,
-            Path::new(&out_path),
-            &|done, total| {
-                progress(done as u32, total as u32);
-            },
-        )
-        .map_err(|e| e.to_string());
-        // On cancellation or any encode error, best-effort delete the partial .gif so the user
+        let result = encode(count, &mut compose, Path::new(out_path));
+        // On cancellation or any encode error, best-effort delete the partial file so the user
         // is never left with a truncated file at their chosen path.
         if result.is_err() {
-            let _ = std::fs::remove_file(&out_path);
+            let _ = std::fs::remove_file(out_path);
         }
-        // A cancel bails out through the compose closure, so the streaming encoder surfaces it
-        // wrapped as "gif encoding failed: export cancelled". Normalize it back to the bare
-        // sentinel the frontend matches on.
+        // A cancel bails out through the compose closure, so the encoder surfaces it wrapped
+        // as "<fmt> encoding failed: export cancelled". Normalize it back to the bare sentinel.
         if self.export_cancel.load(Ordering::SeqCst) {
             return Err("export cancelled".into());
         }
@@ -2064,12 +2129,56 @@ impl Session {
         quality: u8,
         dither: bool,
     ) -> Result<u64, String> {
+        let settings = GifSettings {
+            fps,
+            width: None,
+            quality,
+            dither,
+            ..GifSettings::readme()
+        };
+        self.estimate_delta_export(fps, width, |frames, k, tag| {
+            encode_sample_bytes(frames, &settings, k, tag)
+        })
+    }
+
+    /// Estimate the animated WebP export size (bytes) using contiguous sample windows.
+    pub fn estimate_webp(
+        &self,
+        fps: u32,
+        width: Option<u32>,
+        quality: u8,
+        lossless: bool,
+    ) -> Result<u64, String> {
+        // Method 2 keeps live slider estimates snappy while closely tracking method 4 output size.
+        let settings = WebpSettings {
+            fps,
+            width: None,
+            quality,
+            lossless,
+            method: 2,
+        };
+        self.estimate_delta_export(fps, width, |frames, _k, _tag| {
+            encode_webp_to_vec(frames, &settings)
+                .map(|bytes| bytes.len() as u64)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn estimate_delta_export<M>(
+        &self,
+        fps: u32,
+        width: Option<u32>,
+        mut measure: M,
+    ) -> Result<u64, String>
+    where
+        M: FnMut(&[RgbaImage], usize, &str) -> Result<u64, String>,
+    {
         /// Sample windows can still miss the clip's busiest stretch; nudge up.
         const MOTION_FUDGE: f64 = 1.15;
         const WINDOW: usize = 12;
 
         // Detach the state the sampling needs under a short lock, then drop the real lock so the
-        // GPU compositing + throwaway GIF encodes below run unlocked (they only read, never
+        // GPU compositing + throwaway sample encodes below run unlocked (they only read, never
         // mutate `edited`). `undo`/`redo` stay empty, the helpers read only project/track/
         // frames/start_qpc. The Arc-shared frame store reads from disk on demand.
         let edited = {
@@ -2091,13 +2200,6 @@ impl Session {
             vec![(total - win) / 2]
         };
 
-        let settings = GifSettings {
-            fps,
-            width: None,
-            quality,
-            dither,
-            ..GifSettings::readme()
-        };
         let mut windows: Vec<(u64, u64, usize)> = Vec::with_capacity(starts.len());
         for (k, &start) in starts.iter().enumerate() {
             let start = start.min(total - win);
@@ -2106,8 +2208,8 @@ impl Session {
             if frames.is_empty() {
                 continue;
             }
-            let window_bytes = encode_sample_bytes(&frames, &settings, k, "win")?;
-            let key_bytes = encode_sample_bytes(&frames[0..1], &settings, k, "key")?;
+            let window_bytes = measure(&frames, k, "win")?;
+            let key_bytes = measure(&frames[0..1], k, "key")?;
             windows.push((window_bytes, key_bytes, frames.len()));
         }
         Ok(estimate_delta_total_bytes(&windows, total, MOTION_FUDGE))

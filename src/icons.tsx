@@ -88,6 +88,7 @@ const P: Record<string, string> = {
   timer: "M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 10v4l2 2M9 2h6",
   film: "M3 3h18v18H3zM7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4",
   gif: "M3 5h18v14H3zM10 10H8a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2v-2M13 10v4M16 14v-4h2.5M16 12h2",
+  webp: "M3 5h18v14H3zM6.5 9.5l1.3 5 1.4-3.5 1.4 3.5 1.3-5M14.5 14.5v-5h2a1.25 1.25 0 0 1 0 2.5h-2",
   image: "M3 3h18v18H3zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21",
   grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",

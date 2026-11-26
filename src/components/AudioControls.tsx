@@ -106,25 +106,60 @@ export function audioMenuItems(devices: AudioDevices): MenuItem[] {
 export function createLevels(active: () => boolean) {
   const [mic, setMic] = createSignal(0);
   const [system, setSystem] = createSignal(0);
-  let timer = 0;
-  const poll = async () => {
+  let timer: number | undefined;
+  let runId = 0;
+
+  const clear = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = undefined;
+  };
+
+  const schedule = (id: number) => {
+    clear();
+    if (id !== runId || !active() || document.hidden) return;
+    timer = window.setTimeout(() => void tick(id), 70);
+  };
+
+  const tick = async (id: number) => {
+    timer = undefined;
+    if (id !== runId || !active() || document.hidden) return;
     try {
       const l = await invoke<{ mic: number; system: number }>("audio_levels");
-      setMic((m) => Math.max(l.mic, m * 0.72));
-      setSystem((s) => Math.max(l.system, s * 0.72));
+      if (id === runId && active()) {
+        setMic((m) => Math.max(l.mic, m * 0.72));
+        setSystem((s) => Math.max(l.system, s * 0.72));
+      }
     } catch {
       /* older engine: meters stay flat */
+    } finally {
+      schedule(id);
     }
   };
+
+  const onVis = () => {
+    if (!active()) return;
+    if (document.hidden) clear();
+    else schedule(runId);
+  };
+
   createEffect(() => {
-    window.clearInterval(timer);
-    if (active()) timer = window.setInterval(() => void poll(), 70);
-    else {
+    const on = active();
+    runId++;
+    clear();
+    if (on) {
+      if (!document.hidden) schedule(runId);
+    } else {
       setMic(0);
       setSystem(0);
     }
   });
-  onCleanup(() => window.clearInterval(timer));
+
+  document.addEventListener("visibilitychange", onVis);
+  onCleanup(() => {
+    runId++;
+    clear();
+    document.removeEventListener("visibilitychange", onVis);
+  });
   return { mic, system };
 }
 

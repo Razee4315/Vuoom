@@ -9,6 +9,20 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-27
+
+### Added
+
+- **Animated WebP export ([#100](https://github.com/Razee4315/Vuoom/issues/100)):** New WebP export format powered by vendored Google `libwebp` (`crates/vuoom-encode/src/webp.rs`) supporting lossy quality control, pixel-exact Lossless mode, up to 60 fps, debounced size estimation, `Fit under __ MB` target sizing, and format preference in Settings (`v2.3.0` keeps Apache-2.0 compliance).
+- **Mini Bar mode & Countdown Start Now:** Turning **Live preview** off collapses the floating recording panel into a compact `420×68` Mini Bar with time, compact audio meters, Pause/Resume, and Stop (disabling live preview frame encoding and WebSocket streaming cleanly); countdown adds an SVG progress ring and a **Start now** control (also bound to `Enter`).
+- **Paused frosted veil:** Pausing mid-take overlays a clear status veil with a one-click **Resume** pill inside the monitor stage.
+
+### Fixed
+
+- **Recording startup overlap & inner button collision:** Kept the selector overlay mounted through `preparing` until `enter_stopbar` finishes shrinking and parking the host window so the panel no longer flashes full-screen over the desktop at take start; anchored `.rec-timebox` and `.rec-btn-group` side-by-side inside dedicated header (`36px`) and bottom deck (`54px`) chrome so timer readouts, keyboard hints, Pause/Resume, and Stop never overlap.
+- **Work-area & window-aware panel parking:** `enter_stopbar` and `set_panel_size` now park inside `mon.work_area()` (clearing taskbars/Docks) across 8 candidate perimeter positions (`pick_panel_spot`) and avoid recorded regions and captured window bounds (`BorderState::avoid_rect`).
+- **Timer & meter background hygiene:** Recording elapsed ticker and `AudioControls` level polling clean up properly and pause when `document.hidden` becomes true.
+
 ## [2.2.0] - 2026-11-23
 
 ### Performance & Efficiency

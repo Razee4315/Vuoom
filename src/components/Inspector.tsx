@@ -1491,7 +1491,7 @@ function ClipPanel() {
               </div>
             )}
           </Index>
-          <p class="note">{t("Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIFs are always silent.")}</p>
+          <p class="note">{t("Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIF and WebP are always silent.")}</p>
         </Show>
       </Section>
 

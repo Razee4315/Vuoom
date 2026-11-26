@@ -537,6 +537,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "556e016178bb5662a08681bbe0f00f8e17631781a4dfc8c45e466e4b185ec27f"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex 2.0.1",
 ]
 
@@ -2184,7 +2186,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.58.0",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -2491,6 +2493,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.2",
+ "libc",
+]
+
+[[package]]
 name = "jpeg-encoder"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2641,6 +2653,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "libwebp-sys"
+version = "0.14.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b3a87b44e34d17161e4f17d92a463d596cb13825dcd1758ed18fd3a721e189c"
+dependencies = [
+ "cc",
+ "glob",
+ "pkg-config",
 ]
 
 [[package]]
@@ -6076,7 +6099,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -6125,7 +6148,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-audio"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "block2",
  "cpal",
@@ -6146,7 +6169,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-camera"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -6165,7 +6188,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-captions"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "vuoom-audio",
  "whisper-rs",
@@ -6173,7 +6196,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -6193,10 +6216,11 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "color_quant",
  "gif",
+ "libwebp-sys",
  "png",
  "serde",
  "tempfile",
@@ -6205,7 +6229,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "glam",
  "libc",
@@ -6221,7 +6245,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
@@ -6232,7 +6256,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "glam",
  "serde",
@@ -6242,7 +6266,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -6255,7 +6279,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "glam",
  "serde",

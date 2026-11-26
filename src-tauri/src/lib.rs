@@ -181,7 +181,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_window_event(|window, event| {
             // If the window is closed mid-export, the process is about to tear down the export
-            // thread, which would leave a truncated .gif/.mp4 at the user's chosen path. Signal
+            // thread, which would leave a truncated .gif/.webp/.mp4 at the user's chosen path. Signal
             // the export to abort so its own loop deletes the partial file first. Fire-and-forget:
             // we don't prevent the close, so this is best-effort (see the residual-risk note in
             // the audit), the abort races the process exit, but on a normal close the export
@@ -229,6 +229,7 @@ pub fn run() {
             commands::set_record_paused,
             commands::seek,
             commands::export_gif,
+            commands::export_webp,
             commands::export_mp4,
             commands::cancel_export,
             commands::captions_status,
@@ -283,6 +284,7 @@ pub fn run() {
             commands::delete_zoom,
             commands::clear_zooms,
             commands::estimate_gif,
+            commands::estimate_webp,
             commands::copy_export_to_clipboard,
             commands::update_text,
             commands::update_arrow,

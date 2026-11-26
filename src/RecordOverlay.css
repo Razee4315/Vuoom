@@ -301,139 +301,177 @@
   background: #fff;
 }
 
-/* ── live panel (the window shrinks to ~384×300 around this) ──────────────── */
+/* ── live panel (mini 420×68, compact 420×316, large 600×444) ──────────────── */
 
 .rec-panel-root {
   display: grid;
-  place-items: center;
+  place-items: stretch;
   padding: 0;
+  background: #0d0d10;
 }
 .rec-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   width: 100%;
   height: 100%;
-  padding: 8px;
-  border-radius: 18px;
-  background: #121215;
-  border: 1px solid var(--glass-line);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  border-radius: 0;
+  background: linear-gradient(180deg, #16161b 0%, #101014 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 }
+.rec-panel.live {
+  border-color: rgba(229, 72, 77, 0.35);
+}
+.rec-panel.paused {
+  border-color: rgba(240, 180, 41, 0.38);
+}
+
+/* ── header (compact & large monitor modes) ──────────────────────────────── */
+
 .rec-drag {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 22px;
-  padding: 0 4px 0 6px;
+  gap: 8px;
+  height: 36px;
+  flex: none;
+  padding: 0 10px;
   cursor: move;
 }
-.rec-state {
+.rec-drag-start {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.06em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  cursor: move;
+}
+.rec-grip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 14px;
+  color: rgba(255, 255, 255, 0.32);
+  cursor: move;
+}
+.rec-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 10.5px;
+  font-weight: 680;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 .rec-panel.live .rec-state {
-  color: #fff;
+  background: rgba(229, 72, 77, 0.15);
+  color: #ff8085;
+}
+.rec-panel.paused .rec-state {
+  background: rgba(240, 180, 41, 0.16);
+  color: #f5c451;
+}
+.rec-state-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.rec-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
 }
 .live-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
+  flex: none;
   border-radius: 50%;
   background: var(--rec);
+  box-shadow: 0 0 0 2px rgba(229, 72, 77, 0.25);
   animation: live-blink 1.2s ease-in-out infinite;
+}
+.live-dot.ready {
+  box-shadow: none;
 }
 .rec-panel.paused .live-dot {
   background: #f0b429;
+  box-shadow: none;
   animation: none;
 }
 @keyframes live-blink {
   50% {
-    opacity: 0.35;
+    opacity: 0.32;
   }
 }
 .rec-drag-end {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  flex: none;
 }
-.rec-size {
+.rec-icon-btn {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 22px;
-  border: 0;
+  width: 28px;
+  height: 26px;
+  flex: none;
+  border: 1px solid transparent;
   border-radius: 7px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
   cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
 }
-.rec-size:hover {
-  background: rgba(255, 255, 255, 0.1);
+.rec-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
-.rec-size:focus-visible,
+.rec-icon-btn:focus-visible,
 .rec-stop:focus-visible,
-.rec-pause:focus-visible {
+.rec-pause:focus-visible,
+.rec-start-now:focus-visible,
+.rec-cancel:focus-visible,
+.rec-resume-pill:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
-.rec-live-toggle {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 7px 0 5px;
-  border-radius: 7px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 11px;
-  font-weight: 550;
-  cursor: pointer;
-  user-select: none;
-}
-.rec-live-toggle:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-}
-.rec-live-toggle input {
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: #e5484d;
-  cursor: pointer;
-}
-.rec-live-toggle:has(input:focus-visible) {
-  outline: 2px solid #fff;
-  outline-offset: 1px;
-}
-.rec-grip {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  color: rgba(255, 255, 255, 0.35);
-  cursor: move;
-}
+
+/* ── live stage ──────────────────────────────────────────────────────────── */
+
 .rec-screen {
   position: relative;
   flex: 1;
   min-height: 0;
+  margin: 0 10px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 11px;
-  background: #000;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #08080a;
+  border: 1px solid rgba(255, 255, 255, 0.09);
 }
 .rec-panel.live .rec-screen {
-  border-color: rgba(229, 72, 77, 0.45);
+  border-color: rgba(229, 72, 77, 0.42);
 }
 .rec-panel.paused .rec-screen {
-  border-color: rgba(240, 180, 41, 0.45);
+  border-color: rgba(240, 180, 41, 0.42);
 }
 .rec-canvas {
   width: 100%;
@@ -441,40 +479,26 @@
   object-fit: contain;
   display: block;
 }
-.rec-canvas.off {
-  visibility: hidden;
-}
-.rec-preview-off {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 12px;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 11px;
-}
-.rec-preview-off strong {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  font-weight: 600;
-}
 .rec-previewtag {
   position: absolute;
   top: 8px;
   right: 8px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(9, 9, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
   font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  pointer-events: none;
 }
 .rec-audio {
   position: absolute;
@@ -485,13 +509,16 @@
   gap: 4px;
   padding: 5px 8px;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(9, 9, 12, 0.74);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
 }
 .rec-audio-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.8);
 }
 .rec-audio .meter {
   width: 56px;
@@ -504,71 +531,178 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(3px);
+  background: rgba(6, 6, 9, 0.56);
+  backdrop-filter: blur(4px);
 }
-.rec-ring {
+.rec-ring-wrap {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--rec);
-  animation: ring-spin 1s linear infinite;
+  width: 84px;
+  height: 84px;
+}
+.rec-ring-svg {
+  width: 84px;
+  height: 84px;
+  transform: rotate(-90deg);
+}
+.rec-ring-track {
+  fill: rgba(10, 10, 14, 0.65);
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 3.5;
+}
+.rec-ring-arc {
+  fill: none;
+  stroke: var(--rec);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.85s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .rec-num {
-  font-size: 32px;
-  font-weight: 750;
+  position: absolute;
+  font-size: 30px;
+  font-weight: 760;
   font-variant-numeric: tabular-nums;
-  animation: ring-counter-spin 1s linear infinite;
-}
-@keyframes ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes ring-counter-spin {
-  to {
-    transform: rotate(-360deg);
-  }
+  line-height: 1;
 }
 .rec-sub {
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 11px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 11.5px;
+  font-weight: 500;
 }
+.rec-paused-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(9, 9, 12, 0.68);
+  backdrop-filter: blur(5px);
+}
+.rec-paused-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(240, 180, 41, 0.2);
+  border: 1px solid rgba(240, 180, 41, 0.45);
+  color: #f5c451;
+  font-size: 11.5px;
+  font-weight: 680;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rec-resume-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  margin-top: 2px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #f5f5f6;
+  color: #111114;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.rec-resume-pill:hover {
+  background: #fff;
+}
+
+/* ── bottom control deck ─────────────────────────────────────────────────── */
+
 .rec-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 46px;
-  padding: 0 4px;
+  justify-content: space-between;
+  gap: 12px;
+  height: 54px;
+  flex: none;
+  padding: 8px 10px;
 }
-/* Stop: the one control that matters mid-take, so it's the biggest, reddest, labeled
-   target in the panel (Fitts). */
-.rec-stop {
+.rec-timebox {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.rec-time {
+  font-size: 20px;
+  font-weight: 720;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.rec-time.paused {
+  color: #f5c451;
+}
+.rec-panel.large .rec-time {
+  font-size: 24px;
+}
+.rec-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.rec-hint kbd {
+  height: 15px;
+  min-width: 15px;
+  padding: 0 4px;
+  font-size: 10px;
+}
+.rec-hint.finalizing {
+  width: 100%;
+  justify-content: center;
+}
+.rec-btn-group {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 16px 0 14px;
+  flex: none;
+  margin-left: auto;
+}
+.rec-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 15px;
   flex: none;
   border: 0;
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--rec);
-  box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.2);
+  box-shadow: 0 2px 10px rgba(229, 72, 77, 0.35);
   color: #fff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     transform 0.12s ease,
     background 0.12s ease;
 }
 .rec-stop-square {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2.5px;
   background: #fff;
 }
 .rec-stop:hover {
@@ -577,69 +711,164 @@
 .rec-stop:active {
   transform: scale(0.97);
 }
-.rec-timebox {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
-.rec-time {
-  font-size: 20px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.rec-hint {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
 .rec-pause {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   height: 36px;
   padding: 0 12px;
   flex: none;
-  border: 0;
-  border-radius: 12px;
-  background: var(--chip);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
   color: #fff;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 .rec-pause:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.13);
 }
 .rec-pause.on {
-  background: rgba(240, 180, 41, 0.2);
+  background: rgba(240, 180, 41, 0.18);
+  border-color: rgba(240, 180, 41, 0.4);
   color: #f5c451;
 }
-/* The bigger panel: a roomier time readout. */
-.rec-panel.large .rec-time {
-  font-size: 24px;
+.rec-start-now {
+  height: 34px;
+  padding: 0 13px;
+  flex: none;
+  border: 0;
+  border-radius: 10px;
+  background: #f5f5f6;
+  color: #111114;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rec-start-now:hover:not(:disabled) {
+  background: #fff;
+}
+.rec-start-now:disabled {
+  opacity: 0.5;
 }
 .rec-cancel {
-  margin-left: auto;
   height: 34px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: 11px;
+  padding: 0 14px;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
   background: var(--chip);
   color: #fff;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .rec-cancel:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
 }
 .rec-cancel:disabled {
   opacity: 0.5;
+}
+
+/* ── compact Mini Bar (420×68 when Live Preview is collapsed/off) ────────── */
+
+.rec-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 12px;
+  cursor: move;
+}
+.rec-mini-drag {
+  flex: 1;
+  min-width: 6px;
+  height: 100%;
+  cursor: move;
+}
+.rec-mini-time {
+  flex: none;
+  font-size: 16px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+  color: #fff;
+}
+.rec-mini-time.paused {
+  color: #f5c451;
+}
+.rec-mini-meters {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  flex: none;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+.rec-mini-meter {
+  width: 30px;
+  height: 3px;
+}
+.rec-mini-badge {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  flex: none;
+  border-radius: 999px;
+  background: rgba(229, 72, 77, 0.18);
+  border: 1px solid rgba(229, 72, 77, 0.5);
+  color: #ff8e92;
+  font-size: 12px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+.rec-mini-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12.5px;
+  font-weight: 560;
+}
+.rec-mini-spin {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.rec-stop.mini,
+.rec-pause.mini,
+.rec-start-now.mini,
+.rec-cancel.mini {
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.rec-stop.mini {
+  padding: 0 13px;
+}
+
+:root[data-motion="reduced"] .live-dot,
+:root[data-motion="reduced"] .rec-ring-arc {
+  animation: none;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot,
+  .rec-ring-arc {
+    animation: none;
+    transition: none;
+  }
 }
 
 /* The webcam bubble previewed where the take will put it. It never takes the pointer, so

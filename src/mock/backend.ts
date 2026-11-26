@@ -406,7 +406,10 @@ function handleMock(cmd: string, a: Record<string, unknown>): unknown {
       return null;
     case "estimate_gif":
       return m.estimateGif(a.fps as number, a.width as number, a.quality as number);
+    case "estimate_webp":
+      return m.estimateWebp(a.fps as number, a.width as number, a.quality as number, !!a.lossless);
     case "export_gif":
+    case "export_webp":
     case "export_mp4":
       return m.runExport(a.path as string, a.fps as number, a.width as number, a.quality as number);
     case "cancel_export":

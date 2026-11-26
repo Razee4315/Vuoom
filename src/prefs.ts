@@ -65,6 +65,8 @@ export interface LastRegion {
   display: string;
 }
 
+export type ExportFormat = "gif" | "webp" | "mp4";
+
 /** Recording, editing and interface preferences (Settings dialog). */
 export const prefs = {
   /** Capture frame-rate cap for new recordings. */
@@ -125,7 +127,7 @@ export const prefs = {
   /** Tone down interface animation. */
   reduceMotion: persisted<boolean>("reduce-motion", false),
   /** Default export format when the export dialog opens. */
-  exportFormat: persisted<"gif" | "mp4">("export-format", "gif"),
+  exportFormat: persisted<ExportFormat>("export-format", "gif"),
   /** Loop playback by default (GIFs loop). */
   loop: persisted<boolean>("loop", false),
   /** Preview playback speed (does not affect the export). */
@@ -134,8 +136,11 @@ export const prefs = {
   captionLanguage: persisted<string>("caption-language", "auto"),
   /** Dither GIF gradients (backdrops, shadows, the webcam) so they don't band. */
   gifDither: persisted<boolean>("gif-dither", true),
+  /** Encode animated WebP losslessly (VP8L) instead of lossy VP8. */
+  webpLossless: persisted<boolean>("webp-lossless", false),
   /** Last export settings per format, restored the next time the dialog opens. */
   exportGif: persisted<ExportSettings | null>("export-gif", null),
+  exportWebp: persisted<ExportSettings | null>("export-webp", null),
   exportMp4: persisted<ExportSettings | null>("export-mp4", null),
 };
 

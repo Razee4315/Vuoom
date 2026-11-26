@@ -401,6 +401,42 @@ pub struct Scene {
     pub blur_from: Option<NormRect>,
 }
 
+impl Scene {
+    /// True when both scenes produce identical rendered pixels for the same source frame
+    /// and webcam frame (ignoring [`ResolvedCamera::t`], whose resolved frame index is
+    /// compared by the caller).
+    #[must_use]
+    pub fn visually_equal(&self, other: &Self) -> bool {
+        let cam_eq = match (self.camera, other.camera) {
+            (None, None) => true,
+            (Some(a), Some(b)) => {
+                a.x == b.x
+                    && a.y == b.y
+                    && a.w == b.w
+                    && a.h == b.h
+                    && a.radius == b.radius
+                    && a.mirror == b.mirror
+            }
+            _ => false,
+        };
+        cam_eq
+            && self.layout == other.layout
+            && self.texts == other.texts
+            && self.arrows == other.arrows
+            && self.highlights == other.highlights
+            && self.spot_corners == other.spot_corners
+            && self.strokes == other.strokes
+            && self.ripples == other.ripples
+            && self.key_chips == other.key_chips
+            && self.key_texts == other.key_texts
+            && self.masks == other.masks
+            && self.mosaics == other.mosaics
+            && self.cursor == other.cursor
+            && self.caption == other.caption
+            && self.blur_from == other.blur_from
+    }
+}
+
 /// The most masks that pixelate at once; any more are drawn black.
 pub const MAX_MOSAICS: usize = 8;
 
@@ -1305,5 +1341,38 @@ mod tests {
         let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
         let scene = build_scene(&p, &track, 1000, 1000, 4.0); // after the text disappears
         assert!(scene.texts.is_empty());
+    }
+
+    #[test]
+    fn visually_equal_ignores_camera_timestamp_but_catches_visual_changes() {
+        let mut p = project_with_text();
+        p.camera = Some(CameraOverlay::default());
+        let track = vuoom_zoom::simulate(&[], &[], 5.0, 60.0, &p.zoom_config);
+        let a = build_scene(&p, &track, 1000, 1000, 0.5);
+        let b = build_scene(&p, &track, 1000, 1000, 0.7);
+        assert!(a.visually_equal(&b));
+
+        // Moving the cursor breaks visual equality.
+        let mut c = a.clone();
+        c.cursor = Some(ResolvedCursor {
+            x: 10.0,
+            y: 20.0,
+            size: 24.0,
+            press: 0.0,
+            opacity: 1.0,
+            shape: PointerShape::Arrow,
+            color: None,
+            halo: false,
+            look: PointerLook::Classic,
+            hotspot: [0.0, 0.0],
+            alpha: 1.0,
+            shadow: true,
+        });
+        assert!(!a.visually_equal(&c));
+
+        // Moving the camera bubble breaks visual equality.
+        let mut d = a.clone();
+        d.camera.as_mut().unwrap().x += 1.0;
+        assert!(!a.visually_equal(&d));
     }
 }

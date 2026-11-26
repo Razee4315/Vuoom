@@ -56,7 +56,7 @@ impl Default for GifSettings {
 }
 
 fn default_webp_method() -> u8 {
-    4
+    3
 }
 
 /// User-facing animated WebP export settings. Defaults to the Balanced preset.
@@ -71,7 +71,7 @@ pub struct WebpSettings {
     /// Encode losslessly (VP8L) instead of lossy VP8.
     #[serde(default)]
     pub lossless: bool,
-    /// Quality/speed trade-off (0 = fastest, 6 = slowest/smallest). Defaults to 4.
+    /// Quality/speed trade-off (0 = fastest, 6 = slowest/smallest). Defaults to 3.
     #[serde(default = "default_webp_method")]
     pub method: u8,
 }
@@ -85,7 +85,7 @@ impl WebpSettings {
             width: Some(1280),
             quality: 80,
             lossless: false,
-            method: 4,
+            method: 3,
         }
     }
 
@@ -97,7 +97,7 @@ impl WebpSettings {
             width: Some(1920),
             quality: 92,
             lossless: false,
-            method: 4,
+            method: 3,
         }
     }
 }

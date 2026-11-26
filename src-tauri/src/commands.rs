@@ -22,6 +22,18 @@ use vuoom_project::{
     SpeedRegion, Trim, ZoomKeyframe, ZoomStyle,
 };
 
+/// Run a heavy or blocking [`crate::session::Session`] call on Tokio's blocking pool so the
+/// UI / IPC thread never stalls.
+async fn run_blocking<T, F>(app: AppHandle, op: &'static str, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&crate::session::Session) -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || task(app.state::<Engine>().session()?))
+        .await
+        .map_err(|e| format!("{op}: {e}"))?
+}
+
 /// The visible frame around the recorded region, plus the region or window it should avoid.
 /// Held as Tauri managed state so the record-flow commands can show/clear it and keep the
 /// live recording panel clear of the captured area.
@@ -630,12 +642,8 @@ pub fn set_region(
 
 /// Evenly spaced frame thumbnails (PNG data URLs) for the timeline filmstrip.
 #[tauri::command]
-pub async fn thumbnails(
-    engine: tauri::State<'_, Engine>,
-    count: u32,
-    width: u32,
-) -> Result<Vec<String>, String> {
-    engine.session()?.thumbnails(count, width)
+pub async fn thumbnails(app: AppHandle, count: u32, width: u32) -> Result<Vec<String>, String> {
+    run_blocking(app, "thumbnails", move |s| s.thumbnails(count, width)).await
 }
 
 /// Set the zoom multiplier (1.0 = no zoom) applied to the next recording.
@@ -869,26 +877,26 @@ pub fn set_capture_fps(engine: tauri::State<'_, Engine>, fps: u32) -> Result<(),
 
 /// Save the current recording as a `.vuoom` bundle (manifest + frames) at `dir`.
 #[tauri::command]
-pub async fn save_project_bundle(
-    engine: tauri::State<'_, Engine>,
-    dir: String,
-) -> Result<(), String> {
-    engine.session()?.save_bundle(std::path::Path::new(&dir))
+pub async fn save_project_bundle(app: AppHandle, dir: String) -> Result<(), String> {
+    run_blocking(app, "save bundle", move |s| {
+        s.save_bundle(std::path::Path::new(&dir))
+    })
+    .await
 }
 
 /// Open a `.vuoom` bundle and rehydrate the editor; returns a summary like `finish_recording`.
 #[tauri::command]
-pub async fn open_project_bundle(
-    engine: tauri::State<'_, Engine>,
-    dir: String,
-) -> Result<RecordingSummary, String> {
-    engine.session()?.open_bundle(std::path::Path::new(&dir))
+pub async fn open_project_bundle(app: AppHandle, dir: String) -> Result<RecordingSummary, String> {
+    run_blocking(app, "open bundle", move |s| {
+        s.open_bundle(std::path::Path::new(&dir))
+    })
+    .await
 }
 
 /// Duration (s) of a recoverable session left by a crash/close, if one exists.
 #[tauri::command]
-pub fn check_recovery(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, String> {
-    Ok(engine.session()?.recovery_available())
+pub async fn check_recovery(app: AppHandle) -> Result<Option<f64>, String> {
+    run_blocking(app, "check recovery", |s| Ok(s.recovery_available())).await
 }
 
 /// Length (s) of an earlier take the next recording would delete although it was never
@@ -900,8 +908,8 @@ pub fn take_at_risk(engine: tauri::State<'_, Engine>) -> Result<Option<f64>, Str
 
 /// Reload the recoverable session into the editor.
 #[tauri::command]
-pub async fn recover_session(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {
-    engine.session()?.recover_session()
+pub async fn recover_session(app: AppHandle) -> Result<RecordingSummary, String> {
+    run_blocking(app, "recover session", |s| s.recover_session()).await
 }
 
 /// Bytes held in the recovery store plus how many sessions those bytes back.
@@ -913,15 +921,18 @@ pub struct RecoveryStorage {
 
 /// Report the recovery store's disk usage for the storage readout.
 #[tauri::command]
-pub fn recovery_storage(engine: tauri::State<'_, Engine>) -> Result<RecoveryStorage, String> {
-    let (bytes, sessions) = engine.session()?.recovery_storage();
-    Ok(RecoveryStorage { bytes, sessions })
+pub async fn recovery_storage(app: AppHandle) -> Result<RecoveryStorage, String> {
+    run_blocking(app, "recovery storage", |s| {
+        let (bytes, sessions) = s.recovery_storage();
+        Ok(RecoveryStorage { bytes, sessions })
+    })
+    .await
 }
 
 /// Delete saved recovery data (except the currently-loaded clip's store); returns bytes freed.
 #[tauri::command]
-pub fn clear_recovery_storage(engine: tauri::State<'_, Engine>) -> Result<u64, String> {
-    engine.session()?.clear_recovery_storage()
+pub async fn clear_recovery_storage(app: AppHandle) -> Result<u64, String> {
+    run_blocking(app, "clear recovery", |s| s.clear_recovery_storage()).await
 }
 
 // ── Recording / preview / export ──────────────────────────────────────────────
@@ -958,13 +969,17 @@ pub struct EngineHealth {
 /// A plain-text report for bug reports (see `diagnostics`), built on this PC. The UI puts
 /// it on the clipboard when the user asks; nothing is sent.
 #[tauri::command]
-pub fn diagnostics(app: AppHandle, engine: tauri::State<'_, Engine>) -> String {
-    let gpu = match engine.session() {
-        Ok(session) => session.gpu_summary(),
-        Err(e) => format!("unknown, the engine isn't running ({e})"),
-    };
-    let version = app.package_info().version.to_string();
-    crate::diagnostics::report(&version, &gpu, &crate::log_dir(&app))
+pub async fn diagnostics(app: AppHandle) -> String {
+    tauri::async_runtime::spawn_blocking(move || {
+        let gpu = match app.state::<Engine>().session() {
+            Ok(session) => session.gpu_summary(),
+            Err(e) => format!("unknown, the engine isn't running ({e})"),
+        };
+        let version = app.package_info().version.to_string();
+        crate::diagnostics::report(&version, &gpu, &crate::log_dir(&app))
+    })
+    .await
+    .unwrap_or_else(|e| format!("diagnostics failed: {e}"))
 }
 
 /// The folder holding Vuoom's daily log files.
@@ -1177,12 +1192,8 @@ pub fn set_record_paused(engine: tauri::State<'_, Engine>, paused: bool) -> Resu
 /// Composite the frame at time `t` (seconds) and push it to the preview, at most
 /// `max_width` pixels wide (how wide the stage shows it; omitted = full size).
 #[tauri::command]
-pub async fn seek(
-    engine: tauri::State<'_, Engine>,
-    t: f64,
-    max_width: Option<u32>,
-) -> Result<(), String> {
-    engine.session()?.seek(t, max_width)
+pub async fn seek(app: AppHandle, t: f64, max_width: Option<u32>) -> Result<(), String> {
+    run_blocking(app, "seek", move |s| s.seek(t, max_width)).await
 }
 
 /// Payload for the `export-progress` event the export panel listens to.
@@ -1197,7 +1208,6 @@ struct ExportProgress {
 #[tauri::command]
 pub async fn export_gif(
     app: AppHandle,
-    engine: tauri::State<'_, Engine>,
     path: String,
     fps: u32,
     width: Option<u32>,
@@ -1205,18 +1215,19 @@ pub async fn export_gif(
     dither: Option<bool>,
 ) -> Result<(), String> {
     let dither = dither.unwrap_or(true);
-    engine
-        .session()?
-        .export_gif(path, fps, width, quality, dither, &|done, total| {
-            let _ = app.emit("export-progress", ExportProgress { done, total });
+    let emitter = app.clone();
+    run_blocking(app, "gif export", move |s| {
+        s.export_gif(path, fps, width, quality, dither, &|done, total| {
+            let _ = emitter.emit("export-progress", ExportProgress { done, total });
         })
+    })
+    .await
 }
 
 /// Export the recording to an H.264 MP4 at `path`, emitting `export-progress` events.
 #[tauri::command]
 pub async fn export_mp4(
     app: AppHandle,
-    engine: tauri::State<'_, Engine>,
     path: String,
     fps: u32,
     width: Option<u32>,
@@ -1224,11 +1235,13 @@ pub async fn export_mp4(
     audio: Option<bool>,
 ) -> Result<(), String> {
     let audio = audio.unwrap_or(true);
-    engine
-        .session()?
-        .export_mp4(path, fps, width, quality, audio, &|done, total| {
-            let _ = app.emit("export-progress", ExportProgress { done, total });
+    let emitter = app.clone();
+    run_blocking(app, "mp4 export", move |s| {
+        s.export_mp4(path, fps, width, quality, audio, &|done, total| {
+            let _ = emitter.emit("export-progress", ExportProgress { done, total });
         })
+    })
+    .await
 }
 
 /// Export the recording to an animated WebP at `path`, emitting `export-progress` events.
@@ -1242,21 +1255,13 @@ pub async fn export_webp(
     lossless: Option<bool>,
 ) -> Result<(), String> {
     let lossless = lossless.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
-        let emitter = app.clone();
-        app.state::<Engine>().session()?.export_webp(
-            path,
-            fps,
-            width,
-            quality,
-            lossless,
-            &|done, total| {
-                let _ = emitter.emit("export-progress", ExportProgress { done, total });
-            },
-        )
+    let emitter = app.clone();
+    run_blocking(app, "webp export", move |s| {
+        s.export_webp(path, fps, width, quality, lossless, &|done, total| {
+            let _ = emitter.emit("export-progress", ExportProgress { done, total });
+        })
     })
     .await
-    .map_err(|e| format!("webp export: {e}"))?
 }
 
 /// Abort an in-flight GIF/MP4 export. The export loop bails at its next frame check with an
@@ -1385,21 +1390,27 @@ pub fn set_caption_style(
 
 /// Save the captions as an `.srt` file timed to the exported video.
 #[tauri::command]
-pub async fn export_srt(engine: tauri::State<'_, Engine>, path: String) -> Result<(), String> {
-    engine.session()?.export_srt(std::path::Path::new(&path))
+pub async fn export_srt(app: AppHandle, path: String) -> Result<(), String> {
+    run_blocking(app, "srt export", move |s| {
+        s.export_srt(std::path::Path::new(&path))
+    })
+    .await
 }
 
 /// Estimate the export size in bytes for the given settings (sample-and-extrapolate).
 #[tauri::command]
 pub async fn estimate_gif(
-    engine: tauri::State<'_, Engine>,
+    app: AppHandle,
     fps: u32,
     width: Option<u32>,
     quality: u8,
     dither: Option<bool>,
 ) -> Result<u64, String> {
     let dither = dither.unwrap_or(true);
-    engine.session()?.estimate_gif(fps, width, quality, dither)
+    run_blocking(app, "gif estimate", move |s| {
+        s.estimate_gif(fps, width, quality, dither)
+    })
+    .await
 }
 
 /// Estimate the animated WebP export size in bytes for the given settings.
@@ -1412,13 +1423,10 @@ pub async fn estimate_webp(
     lossless: Option<bool>,
 ) -> Result<u64, String> {
     let lossless = lossless.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
-        app.state::<Engine>()
-            .session()?
-            .estimate_webp(fps, width, quality, lossless)
+    run_blocking(app, "webp estimate", move |s| {
+        s.estimate_webp(fps, width, quality, lossless)
     })
     .await
-    .map_err(|e| format!("webp estimate: {e}"))?
 }
 
 /// Put an exported file (GIF or MP4) on the clipboard as CF_HDROP, so pasting into Slack /
@@ -1438,11 +1446,8 @@ pub fn set_trim(engine: tauri::State<'_, Engine>, start: f64, end: f64) -> Resul
 
 /// Detect idle stretches and mark them to play at `factor`×; returns the regions.
 #[tauri::command]
-pub fn auto_speed(
-    engine: tauri::State<'_, Engine>,
-    factor: f64,
-) -> Result<Vec<SpeedRegion>, String> {
-    engine.session()?.auto_speed(factor)
+pub async fn auto_speed(app: AppHandle, factor: f64) -> Result<Vec<SpeedRegion>, String> {
+    run_blocking(app, "auto speed", move |s| s.auto_speed(factor)).await
 }
 
 /// Remove all speed regions.
@@ -1716,11 +1721,8 @@ pub fn set_crop(
 /// Re-run the automatic zoom planner over the recorded click log at the given strength,
 /// replacing the manual zoom list (undoable).
 #[tauri::command]
-pub fn plan_zoom_auto(
-    engine: tauri::State<'_, Engine>,
-    amount: f64,
-) -> Result<Vec<ZoomKeyframe>, String> {
-    engine.session()?.plan_zoom_auto(amount)
+pub async fn plan_zoom_auto(app: AppHandle, amount: f64) -> Result<Vec<ZoomKeyframe>, String> {
+    run_blocking(app, "plan zoom", move |s| s.plan_zoom_auto(amount)).await
 }
 
 /// Every active display, for the record-flow source picker.
@@ -1731,8 +1733,10 @@ pub fn list_displays() -> Vec<DisplayInfo> {
 
 /// Enumerable top-level windows (visible, non-tool, non-cloaked), for window capture.
 #[tauri::command]
-pub fn list_windows() -> Vec<crate::windows_list::WindowInfo> {
-    crate::windows_list::enumerate()
+pub async fn list_windows() -> Vec<crate::windows_list::WindowInfo> {
+    tauri::async_runtime::spawn_blocking(crate::windows_list::enumerate)
+        .await
+        .unwrap_or_default()
 }
 
 /// Snapshot every annotation (for the editor overlay).
@@ -1910,8 +1914,8 @@ pub fn set_append_take(engine: tauri::State<'_, Engine>, on: bool) -> Result<(),
 
 /// Load the built-in sample clip, to try the editor without recording anything.
 #[tauri::command]
-pub async fn load_sample(engine: tauri::State<'_, Engine>) -> Result<RecordingSummary, String> {
-    engine.session()?.load_sample()
+pub async fn load_sample(app: AppHandle) -> Result<RecordingSummary, String> {
+    run_blocking(app, "load sample", |s| s.load_sample()).await
 }
 
 /// Add a numbered step marker at a normalized position; returns its id.
@@ -1992,14 +1996,14 @@ pub fn update_annotation_range(
 
 /// Revert the most recent edit; returns whether anything was undone.
 #[tauri::command]
-pub async fn undo(engine: tauri::State<'_, Engine>) -> Result<bool, String> {
-    engine.session()?.undo()
+pub async fn undo(app: AppHandle) -> Result<bool, String> {
+    run_blocking(app, "undo", |s| s.undo()).await
 }
 
 /// Re-apply the most recently undone edit; returns whether anything was redone.
 #[tauri::command]
-pub async fn redo(engine: tauri::State<'_, Engine>) -> Result<bool, String> {
-    engine.session()?.redo()
+pub async fn redo(app: AppHandle) -> Result<bool, String> {
+    run_blocking(app, "redo", |s| s.redo()).await
 }
 
 /// Duplicate an annotation (same style/timing, nudged); returns the new id.

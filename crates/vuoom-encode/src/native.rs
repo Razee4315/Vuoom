@@ -22,7 +22,9 @@
 use crate::error::EncodeError;
 use crate::image::RgbaImage;
 use crate::settings::GifSettings;
+use crate::StreamFrame;
 use color_quant::NeuQuant;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
@@ -36,7 +38,11 @@ const PALETTE_COLORS: usize = 255;
 const PALETTE_SAMPLE_PIXELS: usize = 1 << 18;
 /// Frames the streaming encoder composites to train the global palette, enough spread for
 /// a representative palette without holding the whole clip in RAM.
-const PALETTE_SAMPLE_FRAMES: usize = 48;
+const PALETTE_SAMPLE_FRAMES: usize = 24;
+/// Per-thread direct-mapped RGB24->palette lookup size (16K entries = 64 KB, L1/L2 friendly).
+const LUT_BITS: usize = 14;
+const LUT_LEN: usize = 1 << LUT_BITS;
+const LUT_MASK: usize = LUT_LEN - 1;
 
 /// The 8x8 Bayer matrix: every position's rank (0..=63) in an evenly spread ordering.
 const BAYER: [[u8; 8]; 8] = [
@@ -121,15 +127,14 @@ pub fn frame_delay_cs(fps: u32) -> u16 {
     (((100 + fps / 2) / fps) as u16).max(2)
 }
 
-/// One global NeuQuant palette for the whole clip, with an exact 24-bit-RGB lookup cache
-/// (composited frames are opaque, so alpha is ignored). Identical colors always map to
-/// identical indices, which is what makes index-level frame diffing exact.
+/// One global NeuQuant palette for the whole clip, queried in parallel across CPU cores
+/// via L1/L2-friendly 64 KB per-thread direct-mapped RGB24 lookup tables (composited frames
+/// are opaque, so alpha is ignored). Identical colors always map to identical indices, which
+/// is what makes index-level frame diffing exact without a 33.5 MB L3-thrashing array.
 struct GlobalQuantizer {
     quant: NeuQuant,
     /// The palette's colors as RGB triples, by index.
     colors: Vec<u8>,
-    /// `1 << 24` entries keyed by RGB; -1 = unseen, else the palette index.
-    cache: Vec<i16>,
 }
 
 impl GlobalQuantizer {
@@ -156,7 +161,6 @@ impl GlobalQuantizer {
         Self {
             colors: quant.color_map_rgb(),
             quant,
-            cache: vec![-1i16; 1 << 24],
         }
     }
 
@@ -167,44 +171,64 @@ impl GlobalQuantizer {
         p
     }
 
-    fn index(&mut self, r: u8, g: u8, b: u8) -> u8 {
-        let key = ((r as usize) << 16) | ((g as usize) << 8) | (b as usize);
-        let cached = self.cache[key];
-        if cached >= 0 {
-            return cached as u8;
+    #[inline]
+    fn index(&self, cache: &mut [u32], r: u8, g: u8, b: u8) -> u8 {
+        let rgb24 = (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+        let slot = ((rgb24.wrapping_mul(0x9E37_79B1)) >> (32 - LUT_BITS)) as usize & LUT_MASK;
+        let entry = cache[slot];
+        if entry != u32::MAX && (entry >> 8) == rgb24 {
+            return entry as u8;
         }
         let i = self.quant.index_of(&[r, g, b, 255]).min(PALETTE_COLORS - 1);
-        self.cache[key] = i as i16;
+        cache[slot] = (rgb24 << 8) | (i as u32);
         i as u8
     }
 
-    /// Quantize a frame to global-palette indices (one byte per pixel), dithering it first
-    /// when `dither` is on.
-    fn index_frame(&mut self, img: &RgbaImage, dither: bool) -> Vec<u8> {
-        let mut out = Vec::with_capacity(img.pixels.len() / 4);
-        let (pixels, _) = img.pixels.as_chunks::<4>();
+    /// Quantize a frame in parallel to global-palette indices (one byte per pixel), dithering
+    /// it first when `dither` is on.
+    fn index_frame(&self, img: &RgbaImage, dither: bool) -> Vec<u8> {
+        let len = img.pixels.len() / 4;
+        let w = img.width.max(1) as usize;
+        let mut out = vec![0u8; len];
+        if len == 0 {
+            return out;
+        }
         if !dither {
-            for px in pixels {
-                out.push(self.index(px[0], px[1], px[2]));
-            }
+            out.par_chunks_mut(w)
+                .zip(img.pixels.par_chunks_exact(w * 4))
+                .for_each_init(
+                    || vec![u32::MAX; LUT_LEN],
+                    |cache, (dst, src)| {
+                        for (o, px) in dst.iter_mut().zip(src.as_chunks::<4>().0) {
+                            *o = self.index(cache, px[0], px[1], px[2]);
+                        }
+                    },
+                );
             return out;
         }
         let nudge = |c: u8, by: i32| (i32::from(c) + by).clamp(0, 255) as u8;
-        for (y, row) in pixels.chunks(img.width.max(1) as usize).enumerate() {
-            for (x, px) in row.iter().enumerate() {
-                let nearest = self.index(px[0], px[1], px[2]);
-                if self.holds(nearest, px) {
-                    out.push(nearest);
-                    continue;
-                }
-                let by = dither_offset(x, y);
-                out.push(self.index(nudge(px[0], by), nudge(px[1], by), nudge(px[2], by)));
-            }
-        }
+        out.par_chunks_mut(w)
+            .zip(img.pixels.par_chunks_exact(w * 4))
+            .enumerate()
+            .for_each_init(
+                || vec![u32::MAX; LUT_LEN],
+                |cache, (y, (dst, src))| {
+                    for (x, (o, px)) in dst.iter_mut().zip(src.as_chunks::<4>().0).enumerate() {
+                        let nearest = self.index(cache, px[0], px[1], px[2]);
+                        *o = if self.holds(nearest, px) {
+                            nearest
+                        } else {
+                            let by = dither_offset(x, y);
+                            self.index(cache, nudge(px[0], by), nudge(px[1], by), nudge(px[2], by))
+                        };
+                    }
+                },
+            );
         out
     }
 
     /// Whether palette color `index` is `px` to within [`DITHER_MIN_ERROR`] on every channel.
+    #[inline]
     fn holds(&self, index: u8, px: &[u8; 4]) -> bool {
         let at = usize::from(index) * 3;
         let Some(color) = self.colors.get(at..at + 3) else {
@@ -304,7 +328,7 @@ pub fn export_gif_native(
     }
     let (wu, hu) = (w as usize, h as usize);
 
-    let mut quant = GlobalQuantizer::train(&scaled, quality_to_speed(settings.quality));
+    let quant = GlobalQuantizer::train(&scaled, quality_to_speed(settings.quality));
     let palette = quant.palette();
 
     let file = File::create(out)?;
@@ -378,13 +402,44 @@ pub fn export_gif_native(
 /// frame dimensions, or a write/encode failure.
 pub fn export_gif_native_streaming<F>(
     count: usize,
-    mut frame: F,
+    frame: F,
     settings: &GifSettings,
     out: &Path,
     progress: &dyn Fn(usize, usize),
 ) -> Result<(), EncodeError>
 where
     F: FnMut(usize) -> Result<RgbaImage, String>,
+{
+    let frame = std::cell::RefCell::new(frame);
+    export_gif_stream_dedup(
+        count,
+        |i| (frame.borrow_mut())(i),
+        |i| (frame.borrow_mut())(i).map(StreamFrame::Image),
+        settings,
+        out,
+        progress,
+    )
+}
+
+/// Pipelined/dedup streaming variant of [`export_gif_native`]:
+/// - Pass 1 samples up to [`PALETTE_SAMPLE_FRAMES`] evenly spaced frames (starting at 0).
+/// - Pass 2 consumes frames `1..count` via `next_frame(i)`: [`StreamFrame::Repeat`] extends
+///   the previous frame's delay without re-compositing, quantizing, or diffing pixels.
+///
+/// # Errors
+/// Returns [`EncodeError`] for zero frames, callback errors, mismatched/zero-size frame
+/// dimensions, or write/encode failures.
+pub fn export_gif_stream_dedup<F, P>(
+    count: usize,
+    mut sample_frame: F,
+    mut next_frame: P,
+    settings: &GifSettings,
+    out: &Path,
+    progress: &dyn Fn(usize, usize),
+) -> Result<(), EncodeError>
+where
+    F: FnMut(usize) -> Result<RgbaImage, String>,
+    P: FnMut(usize) -> Result<StreamFrame, String>,
 {
     if count == 0 {
         return Err(EncodeError::NoFrames);
@@ -407,7 +462,7 @@ where
         } else {
             s * (count - 1) / (sample_count - 1)
         };
-        let img = scale(frame(i).map_err(EncodeError::Gif)?);
+        let img = scale(sample_frame(i).map_err(EncodeError::Gif)?);
         if s == 0 {
             w = img.width;
             h = img.height;
@@ -421,8 +476,10 @@ where
     if w == 0 || h == 0 {
         return Err(EncodeError::Gif("zero-size frame".into()));
     }
-    let mut quant = GlobalQuantizer::train(&samples, quality_to_speed(settings.quality));
-    drop(samples); // free the sample frames before the encode pass
+    let quant = GlobalQuantizer::train(&samples, quality_to_speed(settings.quality));
+    // Reuse sample 0 (which is always frame 0!) instead of compositing frame 0 twice.
+    let first = samples.swap_remove(0);
+    drop(samples);
     let palette = quant.palette();
     let (wu, hu) = (w as usize, h as usize);
 
@@ -435,10 +492,6 @@ where
         .map_err(|e| EncodeError::Gif(e.to_string()))?;
 
     let delay = u32::from(frame_delay_cs(settings.fps));
-    let first = scale(frame(0).map_err(EncodeError::Gif)?);
-    if first.width != w || first.height != h {
-        return Err(EncodeError::Gif("frame dimensions differ".into()));
-    }
     let mut prev = quant.index_frame(&first, settings.dither);
     drop(first);
     let mut pending = PendingFrame {
@@ -452,39 +505,67 @@ where
     work += 1;
     progress(work, total_work);
 
-    for i in 1..count {
-        let img = scale(frame(i).map_err(EncodeError::Gif)?);
-        if img.width != w || img.height != h {
-            return Err(EncodeError::Gif("frame dimensions differ".into()));
+    let max_delay = u32::from(u16::MAX);
+    let hold = |encoder: &mut gif::Encoder<BufWriter<File>>,
+                pending: &mut PendingFrame|
+     -> Result<(), EncodeError> {
+        if pending.delay_cs + delay <= max_delay {
+            pending.delay_cs += delay;
+        } else {
+            write_pending(encoder, pending)?;
+            *pending = PendingFrame {
+                left: 0,
+                top: 0,
+                width: 1,
+                height: 1,
+                buffer: vec![TRANSPARENT_INDEX],
+                delay_cs: delay,
+            };
         }
-        let cur = quant.index_frame(&img, settings.dither);
-        match diff_bbox(&prev, &cur, wu, hu) {
-            // Identical frame: hold the pending frame on screen longer instead.
-            None => pending.delay_cs += delay,
-            Some((x0, y0, x1, y1)) => {
-                write_pending(&mut encoder, &pending)?;
-                let (bw, bh) = (x1 - x0, y1 - y0);
-                let mut buf = Vec::with_capacity(bw * bh);
-                for y in y0..y1 {
-                    let row = y * wu;
-                    for x in x0..x1 {
-                        let p = row + x;
-                        buf.push(if cur[p] == prev[p] {
-                            TRANSPARENT_INDEX
-                        } else {
-                            cur[p]
-                        });
+        Ok(())
+    };
+
+    for i in 1..count {
+        match next_frame(i).map_err(EncodeError::Gif)? {
+            StreamFrame::Repeat => {
+                hold(&mut encoder, &mut pending)?;
+            }
+            StreamFrame::Image(raw) => {
+                let img = scale(raw);
+                if img.width != w || img.height != h {
+                    return Err(EncodeError::Gif("frame dimensions differ".into()));
+                }
+                let cur = quant.index_frame(&img, settings.dither);
+                match diff_bbox(&prev, &cur, wu, hu) {
+                    None => {
+                        hold(&mut encoder, &mut pending)?;
+                    }
+                    Some((x0, y0, x1, y1)) => {
+                        write_pending(&mut encoder, &pending)?;
+                        let (bw, bh) = (x1 - x0, y1 - y0);
+                        let mut buf = Vec::with_capacity(bw * bh);
+                        for y in y0..y1 {
+                            let row = y * wu;
+                            for x in x0..x1 {
+                                let p = row + x;
+                                buf.push(if cur[p] == prev[p] {
+                                    TRANSPARENT_INDEX
+                                } else {
+                                    cur[p]
+                                });
+                            }
+                        }
+                        pending = PendingFrame {
+                            left: x0 as u16,
+                            top: y0 as u16,
+                            width: bw as u16,
+                            height: bh as u16,
+                            buffer: buf,
+                            delay_cs: delay,
+                        };
+                        prev = cur;
                     }
                 }
-                pending = PendingFrame {
-                    left: x0 as u16,
-                    top: y0 as u16,
-                    width: bw as u16,
-                    height: bh as u16,
-                    buffer: buf,
-                    delay_cs: delay,
-                };
-                prev = cur;
             }
         }
         work += 1;
@@ -550,7 +631,7 @@ mod tests {
     fn dithering_blends_a_gradient_and_leaves_flat_color_alone() {
         // A smooth ramp with far more shades than a 16-color palette holds.
         let img = ramp(512, 16);
-        let mut quant = GlobalQuantizer::new(NeuQuant::new(10, 16, &img.pixels));
+        let quant = GlobalQuantizer::new(NeuQuant::new(10, 16, &img.pixels));
         let columns_that_vary = |idx: &[u8]| {
             (0..512usize)
                 .filter(|&x| (1..16usize).any(|y| idx[y * 512 + x] != idx[x]))
@@ -808,5 +889,45 @@ mod tests {
             .filter(|&&i| i != TRANSPARENT_INDEX)
             .count();
         assert_eq!(opaque, 2);
+    }
+
+    #[test]
+    fn stream_dedup_extends_delay_and_matches_full_encoding() {
+        let a = solid(12, 12, [100, 150, 200, 255]);
+        let b = solid(12, 12, [200, 100, 50, 255]);
+        let frames = [a.clone(), a.clone(), a.clone(), b.clone(), b];
+        let dir = tempfile::tempdir().unwrap();
+        let dedup_out = dir.path().join("dedup.gif");
+        let full_out = dir.path().join("full.gif");
+        let settings = GifSettings {
+            fps: 10, // 10cs per frame
+            width: None,
+            ..GifSettings::readme()
+        };
+        export_gif_native_streaming(
+            frames.len(),
+            |i| Ok(frames[i].clone()),
+            &settings,
+            &full_out,
+            &|_, _| {},
+        )
+        .unwrap();
+        export_gif_stream_dedup(
+            frames.len(),
+            |i| Ok(frames[i].clone()),
+            |i| match i {
+                1 | 2 | 4 => Ok(StreamFrame::Repeat),
+                _ => Ok(StreamFrame::Image(frames[i].clone())),
+            },
+            &settings,
+            &dedup_out,
+            &|_, _| {},
+        )
+        .unwrap();
+        let (_, expected) = decode(&full_out);
+        let (_, actual) = decode(&dedup_out);
+        assert_eq!(actual.len(), expected.len());
+        assert_eq!(actual[0].delay, 30);
+        assert_eq!(actual[1].delay, 20);
     }
 }

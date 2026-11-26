@@ -285,15 +285,8 @@ impl Mp4Encoder {
         Ok(())
     }
 
-    /// Encode one RGBA frame of exactly the encoder's size (tightly packed rows).
-    pub fn write_rgba(&self, rgba: &[u8], index: u32) -> Result<(), String> {
+    fn append_planes(&self, y: &[u8], uv: &[u8], index: u32) -> Result<(), String> {
         let (w, h) = (self.w as usize, self.h as usize);
-        if rgba.len() != w * h * 4 {
-            return Err("frame is not the encoder's size".into());
-        }
-        let mut planes = self.planes.borrow_mut();
-        let (y, uv) = &mut *planes;
-        rgba_to_nv12(rgba, w, y, uv);
         self.wait_ready(&self.video)?;
         // SAFETY: the pool's buffer is locked while its planes are written within bounds.
         unsafe {
@@ -330,6 +323,24 @@ impl Mp4Encoder {
             }
         }
         Ok(())
+    }
+
+    /// Encode one RGBA frame of exactly the encoder's size (tightly packed rows).
+    pub fn write_rgba(&self, rgba: &[u8], index: u32) -> Result<(), String> {
+        let (w, h) = (self.w as usize, self.h as usize);
+        if rgba.len() != w * h * 4 {
+            return Err("frame is not the encoder's size".into());
+        }
+        let mut planes = self.planes.borrow_mut();
+        let (y, uv) = &mut *planes;
+        rgba_to_nv12(rgba, w, y, uv);
+        self.append_planes(y, uv, index)
+    }
+
+    /// Re-emit the previously converted NV12 frame at `index`.
+    pub fn write_repeat(&self, index: u32) -> Result<(), String> {
+        let planes = self.planes.borrow();
+        self.append_planes(&planes.0, &planes.1, index)
     }
 
     /// Encode interleaved 16-bit stereo samples (48 kHz) starting at output sample frame

@@ -221,6 +221,11 @@ impl Frames {
         })
     }
 
+    /// Index of the webcam frame active at camera time `t`, without decoding it.
+    pub fn index_at(&self, t: f64) -> Option<usize> {
+        self.track.index_at(t)
+    }
+
     /// The frame showing at camera time `t`; `None` (logged) if it can't be read.
     pub fn at(&self, t: f64) -> Option<Arc<Decoded>> {
         let i = self.track.index_at(t)?;

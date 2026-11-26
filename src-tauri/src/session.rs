@@ -30,9 +30,9 @@ use vuoom_capture::{
     CropRegion,
 };
 use vuoom_encode::{
-    encode_png_fast_to_vec, encode_png_to_vec, encode_webp_to_vec, estimate_delta_total_bytes,
-    export_gif_native, export_gif_native_streaming, export_webp_streaming, read_png, swizzle_rb,
-    GifSettings, RgbaImage, WebpSettings,
+    encode_png_fast_to_vec, encode_webp_to_vec, estimate_delta_total_bytes, export_gif_native,
+    export_gif_stream_dedup, export_webp_stream_dedup, read_png, swizzle_rb, GifSettings,
+    RgbaImage, StreamFrame, WebpSettings,
 };
 use vuoom_input::{normalize, zoom_marks, CaptureRegion, Clock, InputRecorder, RawEvent};
 use vuoom_preview::{pack_frame_owned, FrameMeta, PreviewServer};
@@ -857,6 +857,7 @@ impl Session {
     /// nearest its spot: a filmstrip can't show the difference, and replaying the deltas up
     /// to the exact frame, 120 times over, kept a long 4K take busy for many seconds.
     pub fn thumbnails(&self, count: u32, width: u32) -> Result<Vec<String>, String> {
+        use rayon::prelude::*;
         let (store, start_qpc, duration) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
             let project = edited.project.as_ref().ok_or("no recording")?;
@@ -868,19 +869,36 @@ impl Session {
         };
         let count = count.clamp(1, 120);
         let width = width.clamp(16, 480);
-        let mut out = Vec::with_capacity(count as usize);
+        // Decode each distinct keyframe once, then shrink + fast-PNG + base64 in parallel.
+        let mut unique_frames = Vec::new();
+        let mut id_to_unique = std::collections::HashMap::<u64, usize>::new();
+        let mut slot_map = Vec::with_capacity(count as usize);
         for k in 0..count {
             let t = (f64::from(k) + 0.5) / f64::from(count) * duration;
             let idx = nearest_idx(store.recs(), self.clock, start_qpc, t).ok_or("no frames")?;
             let frame = store.keyframe_near(idx)?;
-            let (fw, fh) = (frame.width, frame.height);
-            let view = (0, 0, fw, fh);
-            let small = crate::live_preview::shrink(&frame.bgra, fw, view, width.min(fw));
-            let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
-            out.push(format!("data:image/png;base64,{b64}"));
+            let u = if let Some(&existing) = id_to_unique.get(&frame.pixels_id) {
+                existing
+            } else {
+                let next = unique_frames.len();
+                id_to_unique.insert(frame.pixels_id, next);
+                unique_frames.push(frame);
+                next
+            };
+            slot_map.push(u);
         }
-        Ok(out)
+        let encoded: Vec<String> = unique_frames
+            .par_iter()
+            .map(|frame| -> Result<String, String> {
+                let (fw, fh) = (frame.width, frame.height);
+                let small =
+                    crate::live_preview::shrink(&frame.bgra, fw, (0, 0, fw, fh), width.min(fw));
+                let png = encode_png_fast_to_vec(&small).map_err(|e| e.to_string())?;
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+                Ok(format!("data:image/png;base64,{b64}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(slot_map.into_iter().map(|u| encoded[u].clone()).collect())
     }
 
     /// The localhost port the webview connects to for the live preview.
@@ -1721,17 +1739,10 @@ impl Session {
         width: Option<u32>,
         quality: u8,
         dither: bool,
-        progress: &dyn Fn(u32, u32),
+        progress: &(dyn Fn(u32, u32) + Sync),
     ) -> Result<(), String> {
-        // Encoded into a sibling `.part` file and moved over `out_path` only once complete: a
-        // failed or cancelled export then never truncates or deletes a file that was already
-        // there (re-exporting over yesterday's GIF), and nothing half-written carries the
-        // final name.
         let out = Path::new(&out_path);
         let part = export_part_path(out);
-        // Log every failure exit once at this seam (missing compositor/frames, encode error,
-        // disk-full mid-write), the frontend only sees the string, so without this the cause
-        // never reaches the log.
         self.export_gif_impl(
             part.to_string_lossy().into_owned(),
             fps,
@@ -1764,12 +1775,24 @@ impl Session {
             dither,
             ..GifSettings::readme()
         };
-        self.export_image_sequence(&out_path, fps, width, |count, compose, out| {
-            export_gif_native_streaming(count, compose, &settings, out, &|done, total| {
-                progress(done as u32, total as u32);
-            })
-            .map_err(|e| e.to_string())
-        })
+        self.export_image_sequence_pipelined(
+            &out_path,
+            fps,
+            width,
+            |count, sample_frame, next_frame, out| {
+                export_gif_stream_dedup(
+                    count,
+                    sample_frame,
+                    next_frame,
+                    &settings,
+                    out,
+                    &|done, total| {
+                        progress(done as u32, total as u32);
+                    },
+                )
+                .map_err(|e| e.to_string())
+            },
+        )
     }
 
     /// Composite the output-timeline frames (honoring trim + speed regions) and export an
@@ -1781,7 +1804,7 @@ impl Session {
         width: Option<u32>,
         quality: u8,
         lossless: bool,
-        progress: &dyn Fn(u32, u32),
+        progress: &(dyn Fn(u32, u32) + Sync),
     ) -> Result<(), String> {
         let out = Path::new(&out_path);
         let part = export_part_path(out);
@@ -1815,38 +1838,24 @@ impl Session {
             width: None,
             quality,
             lossless,
-            method: 4,
+            method: if lossless { 2 } else { 3 },
         };
-        self.export_image_sequence(&out_path, fps, width, |count, compose, out| {
-            export_webp_streaming(count, compose, &settings, out, &|done, total| {
+        self.export_image_sequence_pipelined(&out_path, fps, width, |count, _, next_frame, out| {
+            export_webp_stream_dedup(count, next_frame, &settings, out, &|done, total| {
                 progress(done as u32, total as u32);
             })
             .map_err(|e| e.to_string())
         })
     }
 
-    /// Shared frame-by-frame compositing loop for GIF and animated WebP exports.
-    fn export_image_sequence<E>(
+    /// Snapshots the immutable project/store handles needed for an export without holding
+    /// `self.edited` locked during the encode.
+    fn export_snapshot(
         &self,
-        out_path: &str,
-        fps: u32,
         width: Option<u32>,
-        encode: E,
-    ) -> Result<(), String>
-    where
-        E: FnOnce(
-            usize,
-            &mut dyn FnMut(usize) -> Result<RgbaImage, String>,
-            &Path,
-        ) -> Result<(), String>,
-    {
-        // Clear any stale cancel request from a prior export before we begin (see
-        // `cancel_export`): the flag is process-global and one export runs at a time.
+        even: bool,
+    ) -> Result<ExportSnapshot<'_>, String> {
         self.export_cancel.store(false, Ordering::SeqCst);
-        // Snapshot the minimal state under a short lock, then release it so the (minutes-long)
-        // encode never blocks scrubbing/editing/starting a new recording. The frame store is
-        // shared via `Arc` and reads from disk on demand, frames are never all resident, so
-        // even an hour-long 1080p export stays within a bounded memory budget.
         let (project, track, store, start_qpc) = {
             let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
             (
@@ -1863,51 +1872,205 @@ impl Session {
         self.sync_backdrop(compositor, &project.frame);
         self.sync_pointer(compositor, project.cursor.as_ref());
 
-        // Composited straight at the export's size: the GPU scales the picture as it draws it
-        // (averaging every source pixel), so no frame is rendered large, read back and then
-        // shrunk on the processor.
         let (out_w, out_h) = project.output_dims();
-        let (out_w, out_h) = scaled_dims(out_w, out_h, width, false);
+        let (out_w, out_h) = scaled_dims(out_w, out_h, width, even);
         let bg = background_fill(&project.frame);
+        Ok((
+            project,
+            track,
+            store,
+            start_qpc,
+            compositor,
+            (out_w, out_h),
+            bg,
+        ))
+    }
+
+    /// 3-stage pipelined compositor + encoder runner for GIF and animated WebP exports,
+    /// combining lock-free identical-frame skipping (`FrameKey`) and double-buffered
+    /// GPU readback (`ExportStream`).
+    fn export_image_sequence_pipelined<E>(
+        &self,
+        out_path: &str,
+        fps: u32,
+        width: Option<u32>,
+        encode: E,
+    ) -> Result<(), String>
+    where
+        E: FnOnce(
+            usize,
+            &mut dyn FnMut(usize) -> Result<RgbaImage, String>,
+            &mut dyn FnMut(usize) -> Result<StreamFrame, String>,
+            &Path,
+        ) -> Result<(), String>,
+    {
+        let (project, track, store, start_qpc, compositor, (out_w, out_h), bg) =
+            self.export_snapshot(width, false)?;
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let count = ((d_out * f64::from(fps)).ceil() as usize).max(1);
         let cam_frames = self.camera_frames();
+        let clock = self.clock;
+        let cancel = &self.export_cancel;
 
-        // Composite one output frame on demand; the streaming encoder pulls these without
-        // buffering the whole clip in RAM. Checked once per frame so a cancel request
-        // (Cancel button / window-close) aborts within one composite.
-        let mut compose = |i: usize| -> Result<RgbaImage, String> {
-            if self.export_cancel.load(Ordering::SeqCst) {
-                return Err("export cancelled".into());
-            }
-            let t_out = (i as f64 / f64::from(fps)).min(d_out);
-            let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
-            let idx = nearest_idx(store.recs(), self.clock, start_qpc, t_src).ok_or("no frames")?;
-            let frame = store.frame(idx)?;
-            let scene = build_scene(&project, &track, out_w, out_h, t_src);
-            let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
-            let rgba = compositor.composite_scene(
-                &frame.bgra,
-                Some(frame.pixels_id),
-                frame.width,
-                frame.height,
-                out_w,
-                out_h,
-                &scene,
-                bg,
-                cam.as_deref().map(Decoded::image),
+        let result = std::thread::scope(|scope| -> Result<(), String> {
+            let mut prev_sample_key: Option<(FrameKey, RgbaImage)> = None;
+            let frame_0_key = std::cell::RefCell::new(None::<FrameKey>);
+            let mut sample_frame = |i: usize| -> Result<RgbaImage, String> {
+                if cancel.load(Ordering::SeqCst) {
+                    return Err("export cancelled".into());
+                }
+                let t_out = (i as f64 / f64::from(fps)).min(d_out);
+                let t_src = t0 + output_to_source(t_out, span, &regions, &cuts);
+                let idx = nearest_idx(store.recs(), clock, start_qpc, t_src).ok_or("no frames")?;
+                let pixels_id = store.pixels_id_at(idx).ok_or("no frames")?;
+                let scene = build_scene(&project, &track, out_w, out_h, t_src);
+                let cam_idx = cam_frames
+                    .as_ref()
+                    .and_then(|cf| scene.camera.and_then(|b| cf.index_at(b.t)));
+                if i == 0 {
+                    *frame_0_key.borrow_mut() = Some(FrameKey {
+                        pixels_id,
+                        cam_idx,
+                        scene: scene.clone(),
+                    });
+                }
+                if let Some((pk, prev_img)) = &prev_sample_key {
+                    if pk.matches(pixels_id, cam_idx, &scene) {
+                        return Ok(prev_img.clone());
+                    }
+                }
+                let frame = store.frame(idx)?;
+                let cam =
+                    cam_idx.and_then(|_| crate::camera::frame_for(&scene, cam_frames.as_deref()));
+                let rgba = compositor.composite_scene(
+                    &frame.bgra,
+                    Some(frame.pixels_id),
+                    frame.width,
+                    frame.height,
+                    out_w,
+                    out_h,
+                    &scene,
+                    bg,
+                    cam.as_deref().map(Decoded::image),
+                );
+                let img = RgbaImage::new(out_w, out_h, rgba);
+                prev_sample_key = Some((
+                    FrameKey {
+                        pixels_id,
+                        cam_idx,
+                        scene,
+                    },
+                    img.clone(),
+                ));
+                Ok(img)
+            };
+
+            let mut out_rx: Option<Receiver<Result<StreamFrame, String>>> = None;
+            let mut next_frame = |start_i: usize| -> Result<StreamFrame, String> {
+                if cancel.load(Ordering::SeqCst) {
+                    return Err("export cancelled".into());
+                }
+                if out_rx.is_none() {
+                    let initial_key = frame_0_key.borrow_mut().take();
+                    let (read_tx, read_rx) = sync_channel::<Result<ReadMsg, String>>(READ_AHEAD);
+                    let (tx, rx) = sync_channel::<Result<StreamFrame, String>>(ENCODE_AHEAD);
+                    let (store_ref, project_ref, track_ref) = (&store, &project, &track);
+                    let (regions_ref, cuts_ref, cam_ref) = (&regions, &cuts, &cam_frames);
+                    scope.spawn(move || {
+                        read_export_frames(
+                            start_i,
+                            count,
+                            initial_key,
+                            store_ref,
+                            project_ref,
+                            track_ref,
+                            cam_ref.as_deref(),
+                            clock,
+                            start_qpc,
+                            t0,
+                            span,
+                            regions_ref,
+                            cuts_ref,
+                            d_out,
+                            out_w,
+                            out_h,
+                            fps,
+                            cancel,
+                            &read_tx,
+                        );
+                    });
+                    scope.spawn(move || {
+                        let mut stream = compositor.begin_export_stream();
+                        let mut emit = |rgba: Vec<u8>| -> Result<(), ()> {
+                            tx.send(Ok(StreamFrame::Image(RgbaImage::new(out_w, out_h, rgba))))
+                                .map_err(|_| ())
+                        };
+                        for msg in read_rx {
+                            if cancel.load(Ordering::SeqCst) {
+                                let _ = tx.send(Err("export cancelled".into()));
+                                break;
+                            }
+                            match msg {
+                                Ok(ReadMsg::Repeat) => {
+                                    if stream.flush(&mut emit).is_err()
+                                        || tx.send(Ok(StreamFrame::Repeat)).is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Ok(ReadMsg::Frame(rf)) => {
+                                    let ReadFrame { frame, scene, cam } = *rf;
+                                    if stream
+                                        .push(
+                                            &frame.bgra,
+                                            Some(frame.pixels_id),
+                                            frame.width,
+                                            frame.height,
+                                            out_w,
+                                            out_h,
+                                            &scene,
+                                            bg,
+                                            cam.as_deref().map(Decoded::image),
+                                            &mut emit,
+                                        )
+                                        .is_err()
+                                    {
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = stream.flush(&mut emit);
+                                    let _ = tx.send(Err(e));
+                                    break;
+                                }
+                            }
+                        }
+                        let _ = stream.finish(&mut emit);
+                    });
+                    out_rx = Some(rx);
+                }
+                match out_rx.as_ref().unwrap().recv() {
+                    Ok(Ok(frame)) => Ok(frame),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err("export cancelled".into()),
+                }
+            };
+
+            let res = encode(
+                count,
+                &mut sample_frame,
+                &mut next_frame,
+                Path::new(out_path),
             );
-            Ok(RgbaImage::new(out_w, out_h, rgba))
-        };
-        let result = encode(count, &mut compose, Path::new(out_path));
-        // On cancellation or any encode error, best-effort delete the partial file so the user
-        // is never left with a truncated file at their chosen path.
+            // Drop the receiver immediately if encoding stopped early so upstream threads exit.
+            drop(out_rx);
+            res
+        });
+
         if result.is_err() {
             let _ = std::fs::remove_file(out_path);
         }
-        // A cancel bails out through the compose closure, so the encoder surfaces it wrapped
-        // as "<fmt> encoding failed: export cancelled". Normalize it back to the bare sentinel.
         if self.export_cancel.load(Ordering::SeqCst) {
             return Err("export cancelled".into());
         }
@@ -1915,7 +2078,7 @@ impl Session {
     }
 
     /// Composite the output timeline and encode an H.264 MP4 to `out_path`, streaming one
-    /// frame at a time (no full-clip RAM spike, unlike GIF which needs a global palette).
+    /// frame at a time with universal identical-frame dedup and double-buffered GPU readback.
     pub fn export_mp4(
         &self,
         out_path: String,
@@ -1923,13 +2086,10 @@ impl Session {
         width: Option<u32>,
         quality: u8,
         audio: bool,
-        progress: &dyn Fn(u32, u32),
+        progress: &(dyn Fn(u32, u32) + Sync),
     ) -> Result<(), String> {
-        // Written to a `.part` sibling first (see `export_gif`). The temporary name keeps
-        // the `.mp4` extension: the encoder picks its container from it.
         let out = Path::new(&out_path);
         let part = export_part_path(out);
-        // Log every failure exit once at this seam (see `export_gif`).
         self.export_mp4_impl(
             part.to_string_lossy().into_owned(),
             fps,
@@ -1953,39 +2113,20 @@ impl Session {
         width: Option<u32>,
         quality: u8,
         audio: bool,
-        progress: &dyn Fn(u32, u32),
+        progress: &(dyn Fn(u32, u32) + Sync),
     ) -> Result<(), String> {
-        // Clear any stale cancel request before we begin (see `cancel_export` / `export_gif`).
-        self.export_cancel.store(false, Ordering::SeqCst);
-        // Snapshot under a short lock, then release it so the long encode doesn't freeze
-        // scrub/edit/record (see `export_gif`). MP4 already streams frame-by-frame.
-        let (project, track, store, start_qpc) = {
-            let edited = self.edited.lock().unwrap_or_else(|e| e.into_inner());
-            (
-                edited.project.as_ref().ok_or("no recording")?.clone(),
-                edited.track.as_ref().ok_or("no recording")?.clone(),
-                Arc::clone(edited.frames.as_ref().ok_or("no frames")?),
-                edited.start_qpc,
-            )
-        };
-        if store.is_empty() {
-            return Err("no frames".into());
+        enum Mp4Msg {
+            Image(Vec<u8>),
+            Repeat,
         }
-        let compositor = self.compositor.as_ref().ok_or("no GPU compositor")?;
-        self.sync_backdrop(compositor, &project.frame);
-        self.sync_pointer(compositor, project.cursor.as_ref());
 
-        // Composited straight at the encoded size (H.264 wants even dimensions): the GPU
-        // scales the picture as it draws it, so no frame is resized on the processor.
-        let (out_w, out_h) = project.output_dims();
-        let (out_w, out_h) = scaled_dims(out_w, out_h, width, true);
-        let (out_w, out_h) = crate::mp4::fit_h264(out_w, out_h);
-        let bg = background_fill(&project.frame);
+        let (project, track, store, start_qpc, compositor, (raw_w, raw_h), bg) =
+            self.export_snapshot(width, true)?;
+        let (out_w, out_h) = crate::mp4::fit_h264(raw_w, raw_h);
         let (t0, span, regions, cuts) = out_mapping(&project);
         let d_out = output_duration(span, &regions, &cuts);
         let total = ((d_out * f64::from(fps)).ceil() as usize).max(1);
 
-        // The mixed soundtrack for the played timeline, if there's anything audible.
         let dir = self
             .current_recovery
             .lock()
@@ -1996,29 +2137,37 @@ impl Session {
             (true, Some(d)) => crate::audio::Mix::load(&d, &project, t0, span, &regions, &cuts),
             _ => None,
         };
-        // Three stages, each on its own thread with a short queue between them: reading frames
-        // from the store, compositing on the GPU, and converting and encoding. One after the
-        // other they add up to several times the slowest of them, which is what a 4K export
-        // costs; side by side the export runs at the pace of the slowest.
+
         let stopped = AtomicBool::new(false);
+        let cancel = &self.export_cancel;
+        let clock = self.clock;
         let result = std::thread::scope(|scope| -> Result<(), String> {
-            let (frames_tx, frames_rx) = sync_channel(READ_AHEAD);
-            let (rgba_tx, rgba_rx) = sync_channel::<Vec<u8>>(ENCODE_AHEAD);
-            let (store_ref, regions_ref, cuts_ref) = (&store, &regions, &cuts);
-            let clock = self.clock;
+            let (frames_tx, frames_rx) = sync_channel::<Result<ReadMsg, String>>(READ_AHEAD);
+            let (rgba_tx, rgba_rx) = sync_channel::<Mp4Msg>(ENCODE_AHEAD);
+            let (store_ref, project_ref, track_ref) = (&store, &project, &track);
+            let (regions_ref, cuts_ref, cam_ref) = (&regions, &cuts, &cam_frames);
             scope.spawn(move || {
-                for i in 0..total {
-                    let t_out = (i as f64 / f64::from(fps)).min(d_out);
-                    let t_src = t0 + output_to_source(t_out, span, regions_ref, cuts_ref);
-                    let frame = nearest_idx(store_ref.recs(), clock, start_qpc, t_src)
-                        .ok_or_else(|| "no frames".to_string())
-                        .and_then(|idx| store_ref.frame(idx))
-                        .map(|frame| (t_src, frame));
-                    let failed = frame.is_err();
-                    if frames_tx.send(frame).is_err() || failed {
-                        break;
-                    }
-                }
+                read_export_frames(
+                    0,
+                    total,
+                    None,
+                    store_ref,
+                    project_ref,
+                    track_ref,
+                    cam_ref.as_deref(),
+                    clock,
+                    start_qpc,
+                    t0,
+                    span,
+                    regions_ref,
+                    cuts_ref,
+                    d_out,
+                    out_w,
+                    out_h,
+                    fps,
+                    cancel,
+                    &frames_tx,
+                );
             });
             let (path, stopped_ref) = (out_path.as_str(), &stopped);
             let encoding = scope.spawn(move || -> Result<(), String> {
@@ -2030,15 +2179,19 @@ impl Session {
                     quality,
                     mix.is_some(),
                 )?;
-                // Falls back to video-only when the OS has no usable AAC encoder.
                 let mix = mix.filter(|_| encoder.has_audio());
                 let audio_rate = f64::from(vuoom_audio::OUTPUT_RATE);
                 let mut audio_done = 0u64;
-                for (i, rgba) in rgba_rx.iter().enumerate() {
-                    encoder.write_rgba(&rgba, i as u32)?;
-                    compositor.recycle(rgba);
-                    // Keep the soundtrack level with the video: audio up to this frame's end.
-                    // (a little ahead of it where the container needs that, see AUDIO_LEAD_SECS)
+                for (i, msg) in rgba_rx.iter().enumerate() {
+                    match msg {
+                        Mp4Msg::Image(rgba) => {
+                            encoder.write_rgba(&rgba, i as u32)?;
+                            compositor.recycle(rgba);
+                        }
+                        Mp4Msg::Repeat => {
+                            encoder.write_repeat(i as u32)?;
+                        }
+                    }
                     if let Some(mix) = &mix {
                         let lead = crate::mp4::AUDIO_LEAD_SECS;
                         let end = (i + 1) as f64 / f64::from(fps) + lead;
@@ -2053,55 +2206,64 @@ impl Session {
                             }
                         }
                     }
+                    progress(i as u32 + 1, total as u32 + 1);
                 }
                 if stopped_ref.load(Ordering::SeqCst) {
-                    return Ok(()); // Not finalized: the caller deletes the partial file.
+                    return Ok(());
                 }
                 encoder.finish()
             });
-            // Track the first frame error instead of `?`-ing out mid-stream, so a failure can
-            // delete the half-written file rather than leaving a corrupt .mp4 at the user's path.
+
             let mut frame_err: Option<String> = None;
-            for i in 0..total {
-                // Poll once per frame so a cancel request (Cancel button / window-close) aborts
-                // mid-encode; the shared cleanup below then deletes the half-written .mp4.
-                if self.export_cancel.load(Ordering::SeqCst) {
+            let mut stream = compositor.begin_export_stream();
+            let mut emit = |rgba: Vec<u8>| -> Result<(), ()> {
+                rgba_tx.send(Mp4Msg::Image(rgba)).map_err(|_| ())
+            };
+            for item in frames_rx {
+                if cancel.load(Ordering::SeqCst) {
                     frame_err = Some("export cancelled".into());
                     break;
                 }
-                let (t_src, frame) = match frames_rx.recv() {
-                    Ok(Ok(next)) => next,
-                    Ok(Err(e)) => {
+                match item {
+                    Ok(ReadMsg::Repeat) => {
+                        if stream.flush(&mut emit).is_err() || rgba_tx.send(Mp4Msg::Repeat).is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Ok(ReadMsg::Frame(rf)) => {
+                        let ReadFrame { frame, scene, cam } = *rf;
+                        if stream
+                            .push(
+                                &frame.bgra,
+                                Some(frame.pixels_id),
+                                frame.width,
+                                frame.height,
+                                out_w,
+                                out_h,
+                                &scene,
+                                bg,
+                                cam.as_deref().map(Decoded::image),
+                                &mut emit,
+                            )
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(e) => {
                         frame_err = Some(e);
                         break;
                     }
-                    Err(_) => {
-                        frame_err = Some("no frames".into());
-                        break;
-                    }
-                };
-                let scene = build_scene(&project, &track, out_w, out_h, t_src);
-                let cam = crate::camera::frame_for(&scene, cam_frames.as_deref());
-                let rgba = compositor.composite_scene(
-                    &frame.bgra,
-                    Some(frame.pixels_id),
-                    frame.width,
-                    frame.height,
-                    out_w,
-                    out_h,
-                    &scene,
-                    bg,
-                    cam.as_deref().map(Decoded::image),
-                );
-                // Gone only when the encoder failed: joining it below gives the reason.
-                if rgba_tx.send(rgba).is_err() {
-                    break;
                 }
-                progress(i as u32 + 1, total as u32 + 1);
+            }
+            if frame_err.is_none() {
+                let _ = stream.finish(&mut emit);
+            } else {
+                drop(stream);
             }
             stopped.store(frame_err.is_some(), Ordering::SeqCst);
             drop(rgba_tx);
-            drop(frames_rx);
             let encoded = encoding
                 .join()
                 .unwrap_or_else(|_| Err("the MP4 encoder stopped unexpectedly".into()));
@@ -4707,7 +4869,7 @@ pub fn pointer_picture(path: &str) -> Result<PointerPicture, String> {
     let (width, height, px) = load_pointer(path)?;
     let img = RgbaImage::new(width, height, swizzle_rb(&px));
     let small = vuoom_encode::downscale_rgba(&img, 160);
-    let png = encode_png_to_vec(&small).map_err(|e| e.to_string())?;
+    let png = encode_png_fast_to_vec(&small).map_err(|e| e.to_string())?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
     Ok(PointerPicture {
         width,
@@ -4852,6 +5014,121 @@ fn default_end(t: f64, duration: f64) -> f64 {
 
 /// Default capture-rate cap for a recording (the UI can pick another, see `set_capture_fps`).
 const DEFAULT_CAPTURE_FPS: u32 = 60;
+type ExportSnapshot<'a> = (
+    Project,
+    CameraTrack,
+    Arc<FrameStore>,
+    i64,
+    &'a Compositor,
+    (u32, u32),
+    BgFill,
+);
+
+/// Lock-free dedup signature for one composited output frame: if pixels, webcam frame, and
+/// visually observable scene parameters match the previous frame, Stage 1 emits `ReadMsg::Repeat`
+/// without decoding BGRA, hitting the GPU, or re-converting NV12/quantizing.
+struct FrameKey {
+    pixels_id: u64,
+    cam_idx: Option<usize>,
+    scene: vuoom_render::Scene,
+}
+
+impl FrameKey {
+    fn matches(&self, pixels_id: u64, cam_idx: Option<usize>, scene: &vuoom_render::Scene) -> bool {
+        self.pixels_id == pixels_id && self.cam_idx == cam_idx && self.scene.visually_equal(scene)
+    }
+}
+
+struct ReadFrame {
+    frame: crate::frame_store::StoredFrame,
+    scene: vuoom_render::Scene,
+    cam: Option<Arc<Decoded>>,
+}
+
+enum ReadMsg {
+    Repeat,
+    Frame(Box<ReadFrame>),
+}
+
+/// Stage 1 of the pipelined exporter: walk output frames `start..count`, skip exact visual
+/// duplicates before disk/LZ4 decode, and stream decoded frames into the compositor channel.
+#[allow(clippy::too_many_arguments)]
+fn read_export_frames(
+    start: usize,
+    count: usize,
+    initial_key: Option<FrameKey>,
+    store: &FrameStore,
+    project: &Project,
+    track: &CameraTrack,
+    cam_frames: Option<&crate::camera::Frames>,
+    clock: Clock,
+    start_qpc: i64,
+    t0: f64,
+    span: f64,
+    regions: &[SpeedRegion],
+    cuts: &[Trim],
+    d_out: f64,
+    out_w: u32,
+    out_h: u32,
+    fps: u32,
+    cancel: &AtomicBool,
+    tx: &std::sync::mpsc::SyncSender<Result<ReadMsg, String>>,
+) {
+    // Only reuse an initial key when resuming after frame 0 (e.g. GIF global palette sampled
+    // frame 0 up front); start == 0 must always emit frame 0 in full so encoders have a base.
+    let mut prev_key = if start > 0 { initial_key } else { None };
+    for i in start..count {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = tx.send(Err("export cancelled".into()));
+            break;
+        }
+        let t_out = (i as f64 / f64::from(fps)).min(d_out);
+        let t_src = t0 + output_to_source(t_out, span, regions, cuts);
+        let Some(idx) = nearest_idx(store.recs(), clock, start_qpc, t_src) else {
+            let _ = tx.send(Err("no frames".into()));
+            break;
+        };
+        let Some(pixels_id) = store.pixels_id_at(idx) else {
+            let _ = tx.send(Err("no frames".into()));
+            break;
+        };
+        let scene = build_scene(project, track, out_w, out_h, t_src);
+        let cam_idx = cam_frames.and_then(|cf| scene.camera.and_then(|b| cf.index_at(b.t)));
+        if prev_key
+            .as_ref()
+            .is_some_and(|pk| pk.matches(pixels_id, cam_idx, &scene))
+        {
+            if tx.send(Ok(ReadMsg::Repeat)).is_err() {
+                break;
+            }
+            continue;
+        }
+        let frame = match store.frame(idx) {
+            Ok(f) => f,
+            Err(e) => {
+                let _ = tx.send(Err(e));
+                break;
+            }
+        };
+        let cam = cam_idx.and_then(|_| crate::camera::frame_for(&scene, cam_frames));
+        prev_key = Some(FrameKey {
+            pixels_id,
+            cam_idx,
+            scene: scene.clone(),
+        });
+        if tx
+            .send(Ok(ReadMsg::Frame(Box::new(ReadFrame {
+                frame,
+                scene,
+                cam,
+            }))))
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
 /// Frames an MP4 export reads ahead of the compositor, and composites ahead of the encoder.
 /// Each is a full frame in memory, so these are kept short.
 const READ_AHEAD: usize = 3;
@@ -5028,7 +5305,7 @@ pub fn screenshot_window(hwnd: isize) -> Result<String, String> {
         // The DIB is BGRA; the pipeline wants RGBA.
         let rgba = swizzle_rb(&pixels);
         let img = RgbaImage::new(w as u32, h as u32, rgba);
-        let png = encode_png_to_vec(&img).map_err(|e| e.to_string())?;
+        let png = encode_png_fast_to_vec(&img).map_err(|e| e.to_string())?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(format!("data:image/png;base64,{b64}"))
     }
@@ -5568,5 +5845,195 @@ mod tests {
     fn rgb01_clamps_components_and_is_opaque() {
         let c = rgb01([-1.0, 0.5, 2.0]);
         assert_eq!((c.r, c.g, c.b, c.a), (0.0, 0.5, 1.0, 1.0));
+    }
+
+    #[test]
+    #[ignore = "1-minute realistic low-end screen export benchmark"]
+    fn perf_1min_exports() {
+        use std::io::Read;
+        use std::time::Instant;
+
+        const W: u32 = 1920;
+        const H: u32 = 1080;
+        const FPS: u32 = 30;
+        const SECS: u32 = 60;
+        const TOTAL_FRAMES: usize = (FPS * SECS) as usize; // 1,800 frames
+
+        let dir = std::env::temp_dir().join(format!("vuoom-perf-1min-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store_dir = dir.join("store");
+        std::fs::create_dir_all(&store_dir).unwrap();
+
+        // Build a synthetic 1080p IDE/browser-like BGRA frame so colors, text-like contrast bars,
+        // and subtle gradients match real desktop screen recordings.
+        let mut bgra = vec![0u8; (W * H * 4) as usize];
+        for y in 0..H {
+            for x in 0..W {
+                let i = ((y * W + x) * 4) as usize;
+                let sidebar = x < 260;
+                let topbar = y < 48;
+                let card = (320..1840).contains(&x) && (96..980).contains(&y);
+                let (b, g, r) = if topbar {
+                    (46, 38, 34)
+                } else if sidebar {
+                    (38, 32, 29)
+                } else if card && ((y / 24) % 2 == 0) && x < 1100 {
+                    (58, 48, 42)
+                } else {
+                    (28 + (x / 64) as u8, 24 + (y / 48) as u8, 22)
+                };
+                bgra[i] = b;
+                bgra[i + 1] = g;
+                bgra[i + 2] = r;
+                bgra[i + 3] = 255;
+            }
+        }
+
+        let session = Session::new().expect("engine boots");
+        let freq = session.clock.freq() as f64;
+        let mut writer = FrameWriter::create(store_dir).expect("create store");
+        let build_start = Instant::now();
+        for f in 0..TOTAL_FRAMES {
+            let phase = f % 90;
+            let dirty = if f == 0 {
+                None
+            } else if phase < 27 {
+                // Active typing/scrolling burst (~30% of frames): animate an area band.
+                let top = 120 + ((phase as u32 * 28) % 600);
+                let bottom = (top + 64).min(H);
+                for y in top..bottom {
+                    let row = (y * W * 4) as usize;
+                    for x in 320..1200 {
+                        let i = row + (x * 4) as usize;
+                        bgra[i] = ((x + f as u32 * 7) % 255) as u8;
+                        bgra[i + 1] = ((y + f as u32 * 3) % 220) as u8;
+                        bgra[i + 2] = 190;
+                    }
+                }
+                Some((top, bottom))
+            } else if phase < 40 {
+                // Cursor / small widget update (~14% of frames): small horizontal band.
+                let y = 500 + (phase as u32 - 27) * 4;
+                for dy in 0..8 {
+                    let row = ((y + dy) * W * 4) as usize;
+                    bgra[row + 400 * 4..row + 432 * 4].fill(220);
+                }
+                Some((y, (y + 8).min(H)))
+            } else {
+                // Idle pause / reading (~56% of frames): duplicate frame (`FLAG_DUP`).
+                Some((0, 0))
+            };
+            writer
+                .push(CapturedFrame {
+                    width: W,
+                    height: H,
+                    bgra: bgra.clone(),
+                    qpc: ((f as f64 / f64::from(FPS)) * freq).round() as i64,
+                    dirty,
+                })
+                .expect("write frame");
+        }
+        let store = Arc::new(writer.finish().expect("finish store"));
+        println!(
+            "PERF 1min fixture: 1800 1080p frames built+encoded to FrameStore in {:.2}s",
+            build_start.elapsed().as_secs_f64()
+        );
+
+        let mut project = Project::new(SourceInfo {
+            path: String::new(),
+            width: W,
+            height: H,
+            fps: f64::from(FPS),
+            duration: f64::from(SECS),
+        });
+        project.frame = frame_for_preset("studio", &project.frame.background);
+        let events = [
+            vuoom_zoom::InputEvent::Click {
+                t: 10.0,
+                pos: DVec2::new(0.4, 0.45),
+                button: vuoom_zoom::MouseButton::Left,
+            },
+            vuoom_zoom::InputEvent::Move {
+                t: 12.0,
+                pos: DVec2::new(0.6, 0.55),
+            },
+        ];
+        project.zooms = plan_zooms(&events, f64::from(SECS), &ZoomConfig::default());
+        let track = simulate(
+            &events,
+            &project.zooms,
+            f64::from(SECS),
+            f64::from(FPS),
+            &ZoomConfig::default(),
+        );
+
+        {
+            let mut e = session.edited.lock().unwrap();
+            e.frames = Some(store);
+            e.project = Some(project);
+            e.track = Some(track);
+            e.start_qpc = 0;
+        }
+
+        let check_header = |path: &Path, check: &dyn Fn(&[u8]) -> bool, name: &str| {
+            let mut f = std::fs::File::open(path).expect("open export");
+            let len = f.metadata().unwrap().len();
+            assert!(len > 1024, "{name} output too small: {len} bytes");
+            let mut head = [0u8; 32];
+            let n = f.read(&mut head).unwrap();
+            assert!(check(&head[..n]), "{name} invalid header: {:?}", &head[..n]);
+            len
+        };
+
+        let bench = |name: &str,
+                     filename: &str,
+                     frames_approx: f64,
+                     check: &dyn Fn(&[u8]) -> bool,
+                     run: &dyn Fn(String) -> Result<(), String>| {
+            let out = dir.join(filename);
+            let at = Instant::now();
+            run(out.to_string_lossy().into_owned())
+                .unwrap_or_else(|e| panic!("{name} failed: {e}"));
+            let secs = at.elapsed().as_secs_f64();
+            let bytes = check_header(&out, check, name);
+            println!(
+                "PERF 1min {name}: {secs:.2}s ({:.1} fps, {:.2}x realtime), {:.1} KB",
+                frames_approx / secs,
+                60.0 / secs,
+                bytes as f64 / 1024.0
+            );
+        };
+
+        #[cfg(any(windows, target_os = "macos"))]
+        bench(
+            "mp4-1080p-30fps",
+            "out.mp4",
+            1800.0,
+            &|h| h.windows(4).any(|w| w == b"ftyp"),
+            &|p| session.export_mp4(p, 30, Some(1920), 80, false, &|_, _| {}),
+        );
+        bench(
+            "webp-lossy-1080p-20fps",
+            "out_lossy.webp",
+            1200.0,
+            &|h| h.len() >= 12 && &h[..4] == b"RIFF" && &h[8..12] == b"WEBP",
+            &|p| session.export_webp(p, 20, Some(1920), 80, false, &|_, _| {}),
+        );
+        bench(
+            "webp-lossless-1080p-20fps",
+            "out_lossless.webp",
+            1200.0,
+            &|h| h.len() >= 12 && &h[..4] == b"RIFF" && &h[8..12] == b"WEBP",
+            &|p| session.export_webp(p, 20, Some(1920), 80, true, &|_, _| {}),
+        );
+        bench(
+            "gif-1280p-15fps",
+            "out.gif",
+            900.0,
+            &|h| h.starts_with(b"GIF89a"),
+            &|p| session.export_gif(p, 15, Some(1280), 80, true, &|_, _| {}),
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

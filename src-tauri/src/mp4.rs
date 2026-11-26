@@ -70,13 +70,23 @@ fn nv12_row_pair(src: &[u8], w: usize, y_rows: &mut [u8], uv_row: &mut [u8]) {
 
 /// Convert a tightly packed RGBA frame, `w` pixels wide (`w` and the height even), to NV12:
 /// `y` gets the full-size luma plane and `uv` the half-height interleaved chroma plane.
-/// BT.709, studio range. Row pairs are converted in parallel.
+/// BT.709, studio range. Strips of row pairs are converted in parallel to minimize task
+/// scheduling overhead on low-core CPUs.
 pub(crate) fn rgba_to_nv12(rgba: &[u8], w: usize, y: &mut [u8], uv: &mut [u8]) {
     use rayon::prelude::*;
-    y.par_chunks_mut(w * 2)
-        .zip(uv.par_chunks_mut(w))
-        .zip(rgba.par_chunks(w * 8))
-        .for_each(|((y_rows, uv_row), src)| nv12_row_pair(src, w, y_rows, uv_row));
+    const PAIR_GROUP: usize = 8;
+    y.par_chunks_mut(w * 2 * PAIR_GROUP)
+        .zip(uv.par_chunks_mut(w * PAIR_GROUP))
+        .zip(rgba.par_chunks(w * 8 * PAIR_GROUP))
+        .for_each(|((y_strip, uv_strip), src_strip)| {
+            for ((y_rows, uv_row), src) in y_strip
+                .chunks_mut(w * 2)
+                .zip(uv_strip.chunks_mut(w))
+                .zip(src_strip.chunks(w * 8))
+            {
+                nv12_row_pair(src, w, y_rows, uv_row);
+            }
+        });
 }
 
 /// The largest frame H.264 encoders take, by the High profile's level 5.2 and in practice:
@@ -122,23 +132,27 @@ mod imp {
     use std::sync::OnceLock;
     use windows::core::{GUID, PCWSTR};
     use windows::Win32::Media::MediaFoundation::{
-        CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
-        CODECAPI_AVEncMPVGOPSize, IMFAttributes, IMFByteStream, IMFMediaType, IMFSinkWriter,
-        MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateAttributes, MFCreateMediaType,
-        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Audio,
-        MFMediaType_Video, MFStartup, MFVideoFormat_H264, MFVideoFormat_NV12,
-        MFVideoInterlace_Progressive, MFSTARTUP_FULL, MF_MT_AUDIO_AVG_BYTES_PER_SECOND,
-        MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT, MF_MT_AUDIO_NUM_CHANNELS,
-        MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE,
-        MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE,
-        MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_MT_TRANSFER_FUNCTION,
-        MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES, MF_MT_YUV_MATRIX,
-        MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
+        CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonQualityVsSpeed,
+        CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize, IMFAttributes,
+        IMFByteStream, IMFMediaType, IMFSinkWriter, MFAudioFormat_AAC, MFAudioFormat_PCM,
+        MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
+        MFCreateSinkWriterFromURL, MFMediaType_Audio, MFMediaType_Video, MFStartup,
+        MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoInterlace_Progressive, MFSTARTUP_FULL,
+        MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT,
+        MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE,
+        MF_MT_DEFAULT_STRIDE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
+        MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
+        MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES,
+        MF_MT_YUV_MATRIX, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_VERSION,
     };
     use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
     /// `eAVEncH264VProfile_High`.
     const H264_PROFILE_HIGH: u32 = 100;
+    /// `eAVEncH264VProfile_Main` (used on software fallback so weak CPUs encode faster).
+    const H264_PROFILE_MAIN: u32 = 77;
+    /// Speed bias on software H.264 fallback (0 = fastest, 100 = slowest quality).
+    const SOFTWARE_QUALITY_VS_SPEED: u32 = 30;
     /// `eAVEncCommonRateControlMode_UnconstrainedVBR`: hold the average bitrate over the
     /// whole file, spending it where the picture needs it.
     const RATE_CONTROL_VBR: u32 = 2;
@@ -222,20 +236,34 @@ mod imp {
     }
 
     /// The encoder settings the sink writer hands the H.264 encoder: VBR around `bitrate`
-    /// and a keyframe every [`KEYFRAME_SECONDS`].
+    /// and a keyframe every [`KEYFRAME_SECONDS`]. Software mode also asks for a faster speed
+    /// preset so low-end CPUs keep up.
     ///
     /// # Safety
     /// Media Foundation must be started in this process (see [`ensure_mf`]).
-    unsafe fn encoder_params(bitrate: u32, fps: u32) -> Result<IMFAttributes, String> {
+    unsafe fn encoder_params(
+        bitrate: u32,
+        fps: u32,
+        fast_software: bool,
+    ) -> Result<IMFAttributes, String> {
         // SAFETY: a fresh attribute store, owned here; every pointer outlives its call.
         unsafe {
             let mut attrs: Option<IMFAttributes> = None;
-            ok(MFCreateAttributes(&mut attrs, 3))?;
+            ok(MFCreateAttributes(
+                &mut attrs,
+                if fast_software { 4 } else { 3 },
+            ))?;
             let attrs = attrs.ok_or("encoder attributes")?;
             ok(attrs.SetUINT32(&CODECAPI_AVEncCommonRateControlMode, RATE_CONTROL_VBR))?;
             ok(attrs.SetUINT32(&CODECAPI_AVEncCommonMeanBitRate, bitrate))?;
             let gop = fps.max(1) * KEYFRAME_SECONDS;
             ok(attrs.SetUINT32(&CODECAPI_AVEncMPVGOPSize, gop))?;
+            if fast_software {
+                ok(attrs.SetUINT32(
+                    &CODECAPI_AVEncCommonQualityVsSpeed,
+                    SOFTWARE_QUALITY_VS_SPEED,
+                ))?;
+            }
             Ok(attrs)
         }
     }
@@ -278,13 +306,16 @@ mod imp {
         h: u32,
         /// Per-frame duration in 100ns units.
         frame_hns: i64,
+        /// Last encoded NV12 frame, reused by [`Self::write_repeat`] for identical frames.
+        last_nv12: std::cell::RefCell<Vec<u8>>,
     }
 
     impl Mp4Encoder {
         /// Create the sink writer for `path` and configure H.264 out / NV12 in, trying a
-        /// tuned hardware encoder first, then Microsoft's software one, then that one on its
-        /// defaults. With `audio`, an AAC stream is added too; if no setup accepts it, the
-        /// file is video-only (see [`Self::has_audio`]).
+        /// tuned hardware encoder first, then untuned hardware (keeps QuickSync/AMF/older
+        /// NVENC on GPU even when they reject VBR/High profile), then speed-tuned software,
+        /// then bare software defaults. With `audio`, an AAC stream is added too; if no setup
+        /// accepts it, the file is video-only (see [`Self::has_audio`]).
         pub fn new(
             path: &Path,
             w: u32,
@@ -298,7 +329,7 @@ mod imp {
                 return Err(format!("MP4 needs even dimensions, got {w}x{h}"));
             }
             let soundtracks: &[bool] = if audio { &[true, false] } else { &[false] };
-            let encoders = [(true, true), (false, true), (false, false)];
+            let encoders = [(true, true), (true, false), (false, true), (false, false)];
             let mut last = String::new();
             for &audio in soundtracks {
                 for (hardware, tuned) in encoders {
@@ -369,7 +400,12 @@ mod imp {
                 let out = video_type(&MFVideoFormat_H264, w, h, fps)?;
                 ok(out.SetUINT32(&MF_MT_AVG_BITRATE, rate))?;
                 if setup.tuned {
-                    ok(out.SetUINT32(&MF_MT_MPEG2_PROFILE, H264_PROFILE_HIGH))?;
+                    let profile = if setup.hardware {
+                        H264_PROFILE_HIGH
+                    } else {
+                        H264_PROFILE_MAIN
+                    };
+                    ok(out.SetUINT32(&MF_MT_MPEG2_PROFILE, profile))?;
                 }
                 let stream = writer
                     .AddStream(&out)
@@ -379,7 +415,7 @@ mod imp {
                 // Positive stride = top-down rows, one byte per pixel in the luma plane.
                 ok(inp.SetUINT32(&MF_MT_DEFAULT_STRIDE, w))?;
                 let params = if setup.tuned {
-                    Some(encoder_params(rate, fps)?)
+                    Some(encoder_params(rate, fps, !setup.hardware)?)
                 } else {
                     None
                 };
@@ -401,26 +437,20 @@ mod imp {
                     w,
                     h,
                     frame_hns: (10_000_000 / i64::from(fps.max(1))).max(1),
+                    last_nv12: std::cell::RefCell::new(Vec::new()),
                 })
             }
         }
 
-        /// Encode one RGBA frame of exactly the encoder's size (tightly packed rows).
-        pub fn write_rgba(&self, rgba: &[u8], index: u32) -> Result<(), String> {
-            let (w, h) = (self.w as usize, self.h as usize);
-            if rgba.len() != w * h * 4 {
-                return Err("frame is not the encoder's size".into());
-            }
-            // NV12: a full-size luma plane, then a half-height plane of chroma pairs.
-            let len = self.w * self.h * 3 / 2;
+        fn submit_nv12(&self, nv12: &[u8], index: u32) -> Result<(), String> {
+            let len = nv12.len() as u32;
             // SAFETY: buffer is locked, filled within bounds, unlocked before use.
             unsafe {
                 let buffer = ok(MFCreateMemoryBuffer(len))?;
                 let mut ptr: *mut u8 = std::ptr::null_mut();
                 ok(buffer.Lock(&mut ptr, None, None))?;
-                let dst = std::slice::from_raw_parts_mut(ptr, len as usize);
-                let (y, uv) = dst.split_at_mut(w * h);
-                rgba_to_nv12(rgba, w, y, uv);
+                let dst = std::slice::from_raw_parts_mut(ptr, nv12.len());
+                dst.copy_from_slice(nv12);
                 ok(buffer.Unlock())?;
                 ok(buffer.SetCurrentLength(len))?;
 
@@ -433,6 +463,31 @@ mod imp {
                     .map_err(|e| format!("encode frame {index}: {e}"))?;
             }
             Ok(())
+        }
+
+        /// Encode one RGBA frame of exactly the encoder's size (tightly packed rows).
+        pub fn write_rgba(&self, rgba: &[u8], index: u32) -> Result<(), String> {
+            let (w, h) = (self.w as usize, self.h as usize);
+            if rgba.len() != w * h * 4 {
+                return Err("frame is not the encoder's size".into());
+            }
+            let len = w * h * 3 / 2;
+            let mut last = self.last_nv12.borrow_mut();
+            last.resize(len, 0);
+            let (y, uv) = last.split_at_mut(w * h);
+            rgba_to_nv12(rgba, w, y, uv);
+            self.submit_nv12(&last, index)
+        }
+
+        /// Re-emit the previously converted NV12 frame at `index` (strict CFR without GPU
+        /// compositing or RGBA->NV12 conversion).
+        pub fn write_repeat(&self, index: u32) -> Result<(), String> {
+            let last = self.last_nv12.borrow();
+            let expected = self.w as usize * self.h as usize * 3 / 2;
+            if last.len() != expected {
+                return Err("no previous frame to repeat".into());
+            }
+            self.submit_nv12(&last, index)
         }
 
         /// Encode interleaved 16-bit stereo samples (48 kHz) starting at output sample frame
@@ -524,6 +579,9 @@ impl Mp4Encoder {
         Err("MP4 export is Windows-only".into())
     }
     pub fn write_rgba(&self, _rgba: &[u8], _i: u32) -> Result<(), String> {
+        Err("MP4 export is Windows-only".into())
+    }
+    pub fn write_repeat(&self, _i: u32) -> Result<(), String> {
         Err("MP4 export is Windows-only".into())
     }
     pub fn finish(self) -> Result<(), String> {
@@ -624,22 +682,33 @@ mod tests {
         }
         let bg = BgFill::solid([0.1, 0.1, 0.12, 1.0]);
         let encoder = Mp4Encoder::new(out, w, h, FPS, 85, false).expect("MP4 encoder");
-        let (mut drawn, mut encoded) = (Duration::ZERO, Duration::ZERO);
+        let mut encoded = Duration::ZERO;
+        let mut idx = 0u32;
         let start = Instant::now();
-        for i in 0..FRAMES {
-            // A bar that moves, so each frame has something new to encode.
-            let row = (i * 40) as usize * sw as usize * 4;
-            source[row..row + sw as usize * 40].fill(i as u8 * 5);
-            let t = f64::from(i) / f64::from(FPS);
-            let scene = build_scene(&project, &track, w, h, t);
-            let at = Instant::now();
-            let rgba = compositor.composite_scene(&source, None, sw, sh, w, h, &scene, bg, None);
-            drawn += at.elapsed();
-            let at = Instant::now();
-            encoder.write_rgba(&rgba, i).expect("encode");
-            encoded += at.elapsed();
-            compositor.recycle(rgba);
+        {
+            let mut stream = compositor.begin_export_stream();
+            let mut emit = |rgba: Vec<u8>| -> Result<(), String> {
+                let at = Instant::now();
+                encoder.write_rgba(&rgba, idx)?;
+                encoded += at.elapsed();
+                compositor.recycle(rgba);
+                idx += 1;
+                Ok(())
+            };
+            for i in 0..FRAMES {
+                // A bar that moves, so each frame has something new to encode.
+                let row = (i * 40) as usize * sw as usize * 4;
+                source[row..row + sw as usize * 40].fill(i as u8 * 5);
+                let t = f64::from(i) / f64::from(FPS);
+                let scene = build_scene(&project, &track, w, h, t);
+                stream
+                    .push(&source, None, sw, sh, w, h, &scene, bg, None, &mut emit)
+                    .expect("composite");
+            }
+            stream.finish(&mut emit).expect("flush");
         }
+        assert_eq!(idx, FRAMES);
+        let drawn = start.elapsed().saturating_sub(encoded);
         encoder.finish().expect("finish");
         let total = start.elapsed().as_secs_f64();
         println!(

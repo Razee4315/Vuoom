@@ -18,9 +18,17 @@ pub use image::{
     encode_png_fast_to_vec, encode_png_to_vec, read_png, swizzle_rb, write_png, RgbaImage,
 };
 pub use native::{
-    downscale_rgba, export_gif_native, export_gif_native_streaming, frame_delay_cs,
-    quality_to_speed,
+    downscale_rgba, export_gif_native, export_gif_native_streaming, export_gif_stream_dedup,
+    frame_delay_cs, quality_to_speed,
 };
 pub use plan::{estimate_delta_total_bytes, estimate_total_bytes, plan_frames, EmittedFrame};
 pub use settings::{GifSettings, WebpSettings};
-pub use webp::{encode_webp_to_vec, export_webp, export_webp_streaming};
+pub use webp::{encode_webp_to_vec, export_webp, export_webp_stream_dedup, export_webp_streaming};
+
+/// Frame input for streaming exporters; [`StreamFrame::Repeat`] signals that the frame is
+/// visually identical to the previous frame and extends its hold time without re-encoding.
+#[derive(Debug, Clone)]
+pub enum StreamFrame {
+    Image(RgbaImage),
+    Repeat,
+}

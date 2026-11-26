@@ -621,11 +621,20 @@ export function createEditor() {
       setTimeout(() => el.remove(), 300);
     }
   };
+  const [previewConn, setPreviewConn] = createSignal<{ port: number; token: string } | null>(null);
+  createEffect(() => {
+    const conn = previewConn();
+    if (!conn || ownsScreen(recordFlow())) {
+      preview.disconnect();
+      return;
+    }
+    preview.connect(conn.port, conn.token);
+  });
   const connectEngine = async () => {
     for (let tries = 0; tries < 200; tries++) {
       try {
         const conn = await invoke<{ port: number; token: string }>("preview_port");
-        preview.connect(conn.port, conn.token);
+        setPreviewConn(conn);
         setStatus(t("Ready. Press Record to start."));
         hideSplash();
         void maybeShowWelcome();

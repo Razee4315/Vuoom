@@ -1,6 +1,8 @@
-# Track 1 Optimization Plan (Vuoom v2.1.2 -> v2.2.0)
+# Track 1 Optimization Plan (Vuoom v2.1.2 -> v2.4.0)
 
 Synthesized from baseline measurements (`PERFORMANCE.md`), dependency/security scans (`pnpm audit`, `cargo-audit`, `cargo-deny`, `cargo-machete`, `cargo tree -d`, `knip`), Phase 2 research (`RESEARCH.md`), and the two full-repo Claude Opus 5.5 read-only audits.
+
+> **v2.4.0 Execution Status**: Completed in **v2.4.0**: Tier 1 **A1/A2**, **A4**, **B3/B5**, **F5** (incl. `ExportDialog` clock gating), **C2/C7** (`FrameStore::scratch`, `live_preview::sample` `step==1` fast path), Tier 2 **B1/B2** (`Backends::PRIMARY` + `HighPerformance` + parallel font/adapter boot + `is_software` fallback), **C5/C6** (double-buffered `ExportStream` + text caches + plain 1:1 CPU path + universal Stage-1 `FrameKey` dedup + `64 KB` parallel GIF quantizer + fast WebP + Win MF HW-first/`QualityVsSpeed=30`), **F10-T2 Live** (editor preview socket disconnected during recording), and **Home idle CSS animations** (`.home-inner::before` / `.rec-dot.live` continuous repaints removed). See `PERFORMANCE.md` for measured numbers.
 
 > **Track 1 Scope Constraint**: **Zero visible UI or behavior changes.** All items execute in strict order: **Tier 1** first (one focused commit per verified item/group, measured before/after), then **Tier 2** (targeted refactors with extra care), followed by the Phase 6 optimization loop. **Tier 3** items and **Track 2 UI items** are excluded from Track 1 edits and documented in `MORNING_REPORT.md` / executed in Track 2.
 

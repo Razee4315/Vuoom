@@ -23,7 +23,7 @@
   justify-content: center;
   gap: 26px;
 }
-/* A soft red glow that drifts slowly behind the title: the room feels switched on. */
+/* A soft ambient glow behind the title (static gradient avoids continuous blur repaints). */
 .home-inner::before {
   content: "";
   position: absolute;
@@ -35,28 +35,10 @@
   margin-left: -310px;
   border-radius: 50%;
   background: radial-gradient(closest-side, color-mix(in srgb, var(--record) 13%, transparent), transparent);
-  filter: blur(20px);
   pointer-events: none;
-  animation: glow-drift 14s ease-in-out infinite alternate;
 }
 .home {
   isolation: isolate;
-}
-@keyframes glow-drift {
-  from {
-    transform: translate(-60px, 0) scale(1);
-  }
-  to {
-    transform: translate(60px, 24px) scale(1.12);
-  }
-}
-:root[data-motion="reduced"] .home-inner::before {
-  animation: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .home-inner::before {
-    animation: none;
-  }
 }
 
 .home-hero {
@@ -70,17 +52,7 @@
   width: 7px;
   height: 7px;
   color: var(--record);
-  box-shadow: 0 0 0 0 var(--record-ring);
-  animation: live 1.8s ease-out infinite;
-}
-@keyframes live {
-  0% {
-    box-shadow: 0 0 0 0 var(--record-ring);
-  }
-  70%,
-  100% {
-    box-shadow: 0 0 0 7px transparent;
-  }
+  box-shadow: 0 0 0 3px var(--record-ring);
 }
 .home-title {
   margin: 0 0 10px;

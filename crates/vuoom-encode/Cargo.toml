@@ -9,6 +9,7 @@ description = "GIF and animated WebP export: frame planning, size estimation, an
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
+rayon = "1"
 png = "0.18"
 # Pure-Rust animated-GIF encoder (MIT/Apache), linked — this is the shipping GIF encoder.
 # See docs/06-Export.md. Default features are disabled to omit duplicate `color_quant 1.x`.

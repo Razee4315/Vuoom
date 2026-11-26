@@ -8,6 +8,7 @@ import { Field, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError, timeLeft } from "./format";
 import { outputDuration } from "./geometry";
+import { createSyncSlot } from "./sync";
 import type { ClipState, SpeedRegion, Trim } from "./types";
 
 /** The widest GIF or WebP on offer (a wider one is huge and few chat apps play it smoothly). */
@@ -55,11 +56,38 @@ export function ExportDialog(props: {
   const [quality, setQuality] = createSignal(80);
   const [phase, setPhase] = createSignal<Phase>("configure");
   const [progress, setProgress] = createSignal(0);
-  // For the time-left line: when the export began, and a clock that ticks while it runs.
+  // For the time-left line: when the export began, and a clock that ticks only while running.
   const [startedAt, setStartedAt] = createSignal(0);
   const [now, setNow] = createSignal(0);
-  const clock = window.setInterval(() => setNow(Date.now()), 1000);
-  onCleanup(() => window.clearInterval(clock));
+  createEffect(() => {
+    if (phase() !== "exporting") return;
+    setNow(Date.now());
+    let timer: number | undefined;
+    const arm = () => {
+      clearTimeout(timer);
+      if (!document.hidden) {
+        timer = window.setTimeout(() => {
+          setNow(Date.now());
+          arm();
+        }, 1000);
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearTimeout(timer);
+        timer = undefined;
+      } else {
+        setNow(Date.now());
+        arm();
+      }
+    };
+    arm();
+    document.addEventListener("visibilitychange", onVisibility);
+    onCleanup(() => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    });
+  });
   const [estimate, setEstimate] = createSignal<number | null>(null); // -1 = unavailable
   const [outPath, setOutPath] = createSignal("");
   const [copied, setCopied] = createSignal("");
@@ -109,10 +137,16 @@ export function ExportDialog(props: {
     return Math.min(Math.max(bits, 1_000_000), 50_000_000) * (outDur() / 8) + audioBytes;
   };
 
-  // Live size estimate: GIF and WebP sample-and-extrapolate (debounced); MP4 is closed-form.
-  // A failed probe shows "Estimate unavailable" instead of a fake 0 B.
+  // Live size estimate: GIF and WebP sample-and-extrapolate (debounced + latest-wins
+  // serialized via createSyncSlot); MP4 is closed-form. A failed probe shows "Estimate
+  // unavailable" instead of a fake 0 B.
   let estimateTimer: number | undefined;
   let estimateGen = 0;
+  const estimateSlot = createSyncSlot<{
+    gen: number;
+    cmd: "estimate_gif" | "estimate_webp";
+    args: Record<string, unknown>;
+  }>();
   createEffect(() => {
     const f = format();
     const w = outWidth();
@@ -130,13 +164,15 @@ export function ExportDialog(props: {
     estimateTimer = window.setTimeout(() => {
       const cmd = f === "webp" ? "estimate_webp" : "estimate_gif";
       const args = f === "webp" ? { fps: r, width: w, quality: q, lossless } : { fps: r, width: w, quality: q, dither };
-      invoke<number>(cmd, args)
-        .then((b) => {
-          if (gen === estimateGen) setEstimate(Math.max(1, Math.round(b)));
-        })
-        .catch(() => {
-          if (gen === estimateGen) setEstimate(-1);
-        });
+      estimateSlot.push({ gen, cmd, args }, async (req, superseded) => {
+        if (superseded() || req.gen !== estimateGen) return;
+        try {
+          const b = await invoke<number>(req.cmd, req.args);
+          if (req.gen === estimateGen) setEstimate(Math.max(1, Math.round(b)));
+        } catch {
+          if (req.gen === estimateGen) setEstimate(-1);
+        }
+      });
     }, 350);
   });
   onCleanup(() => clearTimeout(estimateTimer));

@@ -9,6 +9,36 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-27
+
+### Performance & Engine Optimizations (Low-End Hardware & OBS-Level Export Pipeline)
+
+- **Universal Stage-1 duplicate-frame deduplication (`FrameKey` + `StreamFrame::Repeat`):** Screen recordings often hold static frames while paused, reading, or thinking. Exporters now compare lock-free pixel IDs (`FrameStore::pixels_id_at`), webcam indices (`Frames::index_at`), and visually observable scene parameters (`Scene::visually_equal`, ignoring `ResolvedCamera::t`) *before* LZ4 decoding, GPU upload, or pixel encoding—emitting zero-copy repeats directly across MP4 (`Mp4Encoder::write_repeat`), GIF (`export_gif_stream_dedup`), and animated WebP (`export_webp_stream_dedup`).
+- **Double-buffered GPU `ExportStream` & plain 1:1 CPU fast path (`vuoom-render`):**
+  - Eliminated double `device.poll(Wait)` stalls by combining render + readback copy into one queue submission and double-buffering two readback staging buffers via `ExportStream` (`WaitForSubmissionIndex` overlapping frame `N + 1` on GPU with frame `N` encode on CPU).
+  - Unstyled 1:1 frames (`is_plain_1to1`) bypass the GPU entirely with parallel `rayon` BGRA→RGBA swizzling into recycled staging vectors.
+  - Added growable reusable `shape_vbuf`/`layer_vbuf`, shaped `LabelKey`/`CaptionKey` `glyphon::Buffer` caches, zero-copy `fontdb::Source::Binary` bundled fonts, and parallel `FontSystem::new()` overlapped with GPU adapter selection.
+  - Updated adapter initialization to `Backends::PRIMARY` + `PowerPreference::HighPerformance` with discrete hardware fallback (`Quadro M1200` selected over Integrated `Intel HD Graphics 630` on hybrid laptops) and an automatic `is_software` fast shader fallback (`taps: [1.0, 1.0]`, `blur: 0.0`) on CPU rasterizers.
+- **L1/L2-friendly parallel GIF quantizer & faster WebP defaults (`vuoom-encode`):**
+  - Replaced the single-threaded 33.5 MB (`1 << 24`) `GlobalQuantizer` cache with `rayon` per-row quantization using `64 KB` (`1 << 14` `u32`) per-thread caches; reduced `PALETTE_SAMPLE_FRAMES` to `24` reusing sample 0.
+  - Tuned WebP defaults to `method: 3`, gated expensive `use_sharp_yuv` on `!lossless && method >= 5 && quality >= 90`, and capped lossless `method <= 2`.
+- **Windows H.264 MediaFoundation & frame store tuning (`src-tauri`):**
+  - Fixed Windows encoder probe order `[(true, true), (true, false), (false, true), (false, false)]` so hardware MFTs are never skipped prematurely on strict profile negotiation, and configured `H264_PROFILE_MAIN` + `QualityVsSpeed = 30` when falling back to software encoding; processed `rgba_to_nv12` in 8-row-pair cache-friendly strips.
+  - Added reusable `ReadState::scratch` read buffer in `FrameStore` (`frame_store.rs`), direct clone fast path in `LivePreview::sample`, parallel PNG thumbnail generation via `encode_png_fast_to_vec`, and offloaded heavy/blocking Tauri commands (`thumbnails`, `seek`, `export_*`, `estimate_gif`, `save/open_project_bundle`, recovery/diagnostics/undo/redo, `list_windows`) to `spawn_blocking` while preserving synchronous record-overlay ordering.
+- **Lower idle WebView2 & recording UI overhead (`src/`):**
+  - Removed continuous infinite CSS blur (`blur(20px)` + `glow-drift`) and `box-shadow` (`live`) animations on Home (`src/styles/home.css`) to eliminate constant WebView2 idle repaints.
+  - Paused the editor `preview` WebSocket while recording overlay owns the screen (`src/editor/createEditor.ts`), gated `ExportDialog` 1s elapsed timer on active export + `!document.hidden`, and serialized size estimation probes via `createSyncSlot`.
+
+### Benchmarks (`--profile perf`, i7-7820HQ / Intel HD 630 + Quadro M1200)
+
+- **`perf_4k_export`:** Adapter switched `Intel HD Graphics 630` -> `Quadro M1200 (Vulkan, DiscreteGpu)`; 4K plain export improved **+32.5%** (`20.0 -> 26.5 fps`, composite `42 ms -> 13 ms`); 4K framed (`4094×2304`) export held `17.5 fps` vs `17.4 fps` with composite nearly **2x** faster (`45 ms -> 24 ms`).
+- **`perf_1min_exports` (60s 1080p realistic desktop recording, Studio frame + shadow + zoom):**
+  - MP4 (`1080p @ 30fps`): **12.45 s** (`144.6 fps`, **4.82x** realtime), `7,156.7 KB`
+  - WebP lossy (`1080p @ 20fps`, `q=80`): **22.64 s** (`53.0 fps`, **2.65x** realtime), `512.5 KB`
+  - WebP lossless (`1080p @ 20fps`): **29.02 s** (`41.4 fps`, **2.07x** realtime), `260.2 KB`
+  - GIF (`1280px @ 15fps`, `dither=true`): **5.66 s** (`159.0 fps`, **10.60x** realtime), `2,322.2 KB`
+- **Packaged `dist/` bundle (`vite build`):** `1,446,889 B` (`1,413.0 KB`) raw / `682,987 B` (`667.0 KB`) gzip (within `<= 1,478 KB raw / <= 694 KB gz` budget).
+
 ## [2.3.0] - 2026-11-27
 
 ### Added

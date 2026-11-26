@@ -9,23 +9,57 @@
 use crate::scene::{ResolvedCaption, ResolvedCursor, ResolvedHighlight, Scene, MAX_MOSAICS};
 use crate::shapes::{build_shape_vertices, cursor_scale, pointer_vertices, ShapeVertex};
 use glyphon::{
-    Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family, FontSystem,
-    Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
-    Viewport, Weight,
+    fontdb, Attrs, Buffer as TextBuffer, Cache as GlyphCache, Color as GlyphColor, Family,
+    FontSystem, Metrics, Resolution, Shaping, Style, SwashCache, TextArea, TextAtlas, TextBounds,
+    TextRenderer, Viewport, Weight,
 };
-use std::sync::Mutex;
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use vuoom_project::{Color, PointerLook};
 
-/// Load the bundled display fonts into the glyphon font DB so text annotations can be
-/// rendered by family name (matching the `@font-face` set the web UI previews with).
+const FONT_ANTON: &[u8] = include_bytes!("../../../assets/fonts/Anton-Regular.ttf");
+const FONT_BEBAS: &[u8] = include_bytes!("../../../assets/fonts/BebasNeue-Regular.ttf");
+const FONT_POPPINS: &[u8] = include_bytes!("../../../assets/fonts/Poppins-Bold.ttf");
+const FONT_MARKER: &[u8] = include_bytes!("../../../assets/fonts/PermanentMarker-Regular.ttf");
+const FONT_SHRIKHAND: &[u8] = include_bytes!("../../../assets/fonts/Shrikhand-Regular.ttf");
+
+/// Load the bundled display fonts into the glyphon font DB zero-copy so text annotations can
+/// be rendered by family name (matching the `@font-face` set the web UI previews with).
 fn load_bundled_fonts(font_system: &mut FontSystem) {
     let db = font_system.db_mut();
-    db.load_font_data(include_bytes!("../../../assets/fonts/Anton-Regular.ttf").to_vec());
-    db.load_font_data(include_bytes!("../../../assets/fonts/BebasNeue-Regular.ttf").to_vec());
-    db.load_font_data(include_bytes!("../../../assets/fonts/Poppins-Bold.ttf").to_vec());
-    db.load_font_data(include_bytes!("../../../assets/fonts/PermanentMarker-Regular.ttf").to_vec());
-    db.load_font_data(include_bytes!("../../../assets/fonts/Shrikhand-Regular.ttf").to_vec());
+    for data in [
+        FONT_ANTON,
+        FONT_BEBAS,
+        FONT_POPPINS,
+        FONT_MARKER,
+        FONT_SHRIKHAND,
+    ] {
+        db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+    }
 }
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct LabelKey {
+    text: String,
+    font: String,
+    font_px_bits: u32,
+    bold: bool,
+    italic: bool,
+}
+
+#[derive(Clone, PartialEq)]
+struct CaptionKey {
+    text: String,
+    font_px: f64,
+    max_w: f64,
+    center_x: f64,
+    edge_y: f64,
+    from_top: bool,
+}
+
+const MAX_LABEL_CACHE: usize = 64;
 
 struct TextState {
     font_system: FontSystem,
@@ -33,6 +67,8 @@ struct TextState {
     atlas: TextAtlas,
     viewport: Viewport,
     renderer: TextRenderer,
+    label_cache: HashMap<LabelKey, TextBuffer>,
+    caption_cache: Option<(CaptionKey, CaptionText)>,
 }
 
 /// The backdrop fill for the area behind/around the framed recording: a linear 2-stop
@@ -293,6 +329,9 @@ struct CompositeCache {
     backdrop_generation: u64,
     shape_ubuf: wgpu::Buffer,
     shape_bind_group: wgpu::BindGroup,
+    /// Growable vertex buffers reused across frames to avoid per-frame GPU allocations.
+    shape_vbuf: Option<(wgpu::Buffer, u64)>,
+    layer_vbuf: Option<(wgpu::Buffer, u64)>,
     target: wgpu::Texture,
     target_view: wgpu::TextureView,
     /// The pointer drawn on its own, opaque, when it is to be shown see-through: faded
@@ -301,7 +340,9 @@ struct CompositeCache {
     layer_view: wgpu::TextureView,
     layer_ubuf: wgpu::Buffer,
     layer_bind_group: wgpu::BindGroup,
-    readback: wgpu::Buffer,
+    /// Double-buffered readback staging buffers so `ExportStream` can overlap GPU render +
+    /// readback of frame N+1 with CPU encode of frame N.
+    readback: [Arc<wgpu::Buffer>; 2],
     /// `bytes_per_row` of `readback`, rounded up to `COPY_BYTES_PER_ROW_ALIGNMENT` (256).
     padded_bpr: u32,
     /// The pixels now in `src_tex`, when the caller named them.
@@ -342,6 +383,8 @@ pub struct Compositor {
     backdrop: Mutex<Backdrop>,
     /// The GPU in use (name, graphics API, type, driver), for diagnostics.
     adapter: String,
+    /// True when the chosen adapter is a CPU software rasterizer (e.g. WARP/llvmpipe).
+    is_software: bool,
     /// Finished frames to fill again (see [`Compositor::recycle`]).
     spare_frames: Mutex<Vec<Vec<u8>>>,
 }
@@ -433,6 +476,45 @@ fn describe_adapter(info: &wgpu::AdapterInfo) -> String {
     )
 }
 
+async fn pick_adapter() -> Option<wgpu::Adapter> {
+    let primary_backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::PRIMARY);
+    let primary = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: primary_backends,
+        ..Default::default()
+    });
+    let opts = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    };
+    let best = primary.request_adapter(&opts).await.ok();
+    if best
+        .as_ref()
+        .is_some_and(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
+    {
+        return best;
+    }
+    if primary_backends != wgpu::Backends::all() {
+        let all = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        if let Ok(hw) = all.request_adapter(&opts).await {
+            if hw.get_info().device_type != wgpu::DeviceType::Cpu {
+                return Some(hw);
+            }
+        }
+    }
+    if best.is_some() {
+        return best;
+    }
+    primary
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            force_fallback_adapter: true,
+            compatible_surface: None,
+        })
+        .await
+        .ok()
+}
+
 impl Compositor {
     /// The GPU this compositor renders on (name, graphics API, type, driver).
     #[must_use]
@@ -440,8 +522,15 @@ impl Compositor {
         &self.adapter
     }
 
-    /// Hand back a frame [`Self::composite_scene`] returned, for its memory to be used again:
-    /// a 4K frame is 33 MB, and a fresh allocation has every page faulted in by the OS.
+    /// Whether the chosen GPU adapter is a CPU software rasterizer.
+    #[must_use]
+    pub fn is_software(&self) -> bool {
+        self.is_software
+    }
+
+    /// Hand back a frame [`Self::composite_scene`] or [`ExportStream`] returned, for its
+    /// memory to be used again: a 4K frame is 33 MB, and a fresh allocation has every page
+    /// faulted in by the OS.
     pub fn recycle(&self, frame: Vec<u8>) {
         if let Ok(mut spare) = self.spare_frames.lock() {
             if spare.len() < SPARE_FRAMES {
@@ -457,12 +546,22 @@ impl Compositor {
     }
 
     async fn new_async() -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions::default())
-            .await
-            .ok()?;
-        let adapter_desc = describe_adapter(&adapter.get_info());
+        // Overlap OS font enumeration (`FontSystem::new`) with GPU adapter/device bring-up.
+        let font_thread = std::thread::spawn(|| {
+            let mut fs = FontSystem::new();
+            load_bundled_fonts(&mut fs);
+            fs
+        });
+        let adapter = match pick_adapter().await {
+            Some(a) => a,
+            None => {
+                let _ = font_thread.join();
+                return None;
+            }
+        };
+        let info = adapter.get_info();
+        let is_software = info.device_type == wgpu::DeviceType::Cpu;
+        let adapter_desc = describe_adapter(&info);
         // Everything the GPU can do on texture and buffer size: the defaults stop at 8192
         // pixels a side, under a framed 8K take or a very wide multi-monitor region.
         let most = adapter.limits();
@@ -789,19 +888,23 @@ impl Compositor {
             wgpu::MultisampleState::default(),
             None,
         );
-        let mut font_system = FontSystem::new();
-        load_bundled_fonts(&mut font_system);
+        let font_system = font_thread
+            .join()
+            .expect("bundled font system initialization panicked");
         let text = Mutex::new(TextState {
             font_system,
             swash_cache: SwashCache::new(),
             atlas: text_atlas,
             viewport,
             renderer: text_renderer,
+            label_cache: HashMap::new(),
+            caption_cache: None,
         });
 
         let backdrop = make_backdrop(&device, &queue, &BLANK_BACKDROP, (1, 1), 0);
         Some(Self {
             adapter: adapter_desc,
+            is_software,
             device,
             queue,
             pipeline,
@@ -941,20 +1044,33 @@ impl Compositor {
         })
     }
 
-    /// A vertex buffer holding `verts`, or `None` when there are none.
-    fn vertex_buffer(&self, verts: &[ShapeVertex]) -> Option<wgpu::Buffer> {
+    /// Reuse (or grow) a GPU vertex buffer slot for `verts`, returning its active byte range
+    /// when `verts` is non-empty.
+    fn upload_vertices(
+        &self,
+        slot: &mut Option<(wgpu::Buffer, u64)>,
+        label: &str,
+        verts: &[ShapeVertex],
+    ) -> Option<u64> {
         if verts.is_empty() {
             return None;
         }
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vuoom-shape-verts"),
-            size: std::mem::size_of_val(verts) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.queue
-            .write_buffer(&buf, 0, bytemuck::cast_slice(verts));
-        Some(buf)
+        let bytes: &[u8] = bytemuck::cast_slice(verts);
+        let needed = bytes.len() as u64;
+        if slot.as_ref().is_none_or(|(_, cap)| *cap < needed) {
+            let cap = needed.max(4096);
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: cap,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            *slot = Some((buf, cap));
+        }
+        if let Some((buf, _)) = slot.as_ref() {
+            self.queue.write_buffer(buf, 0, bytes);
+        }
+        Some(needed)
     }
 
     /// The composite pass's bind group: uniforms, the source frame, the sampler and the
@@ -1059,55 +1175,30 @@ impl Compositor {
         out
     }
 
-    /// Copy a `COPY_SRC` RGBA texture into the caller-owned (cached) readback buffer and return
-    /// tightly-packed RGBA8 bytes. Mirrors `read_back` but reuses `buffer` instead of
-    /// allocating one per call. `padded` must equal the buffer's `bytes_per_row`.
-    fn read_back_into(
+    fn take_spare_buffer(&self, len: usize) -> Vec<u8> {
+        let spare = self.spare_frames.lock().ok().and_then(|mut s| s.pop());
+        let mut out = spare.unwrap_or_default();
+        out.clear();
+        // A little spare room, so the preview can append its frame trailer in place.
+        out.reserve(len + READBACK_SPARE);
+        out
+    }
+
+    /// Copy tightly-packed RGBA8 bytes out of an already-mapped staging buffer into a
+    /// recycled frame buffer. Caller must ensure `buffer` is currently mapped and call
+    /// `buffer.unmap()` afterwards.
+    fn extract_mapped_rgba(
         &self,
-        texture: &wgpu::Texture,
         buffer: &wgpu::Buffer,
         padded: u32,
         width: u32,
         height: u32,
     ) -> Vec<u8> {
         let unpadded = width * 4;
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded),
-                    rows_per_image: Some(height),
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        self.queue.submit(Some(encoder.finish()));
-
-        let slice = buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::Wait);
-
-        let data = slice.get_mapped_range();
         let len = (unpadded * height) as usize;
-        let spare = self.spare_frames.lock().ok().and_then(|mut s| s.pop());
-        let mut out = spare.unwrap_or_default();
-        out.clear();
-        // A little spare room, so the preview can append its frame trailer in place.
-        out.reserve(len + READBACK_SPARE);
+        let mut out = self.take_spare_buffer(len);
+        let slice = buffer.slice(..);
+        let data = slice.get_mapped_range();
         if padded == unpadded {
             // No row padding (widths that are a multiple of 64): one straight copy.
             out.extend_from_slice(&data[..len]);
@@ -1118,7 +1209,6 @@ impl Compositor {
             }
         }
         drop(data);
-        buffer.unmap();
         out
     }
 
@@ -1193,12 +1283,18 @@ impl Compositor {
         let layer_bind_group = self.bind_sprite(&layer_ubuf, &layer_view, &self.sampler);
 
         let padded_bpr = (out_w * 4).div_ceil(256) * 256;
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("vuoom-readback"),
-            size: u64::from(padded_bpr) * u64::from(out_h),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let make_readback = |label| {
+            Arc::new(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: u64::from(padded_bpr) * u64::from(out_h),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }))
+        };
+        let readback = [
+            make_readback("vuoom-readback-0"),
+            make_readback("vuoom-readback-1"),
+        ];
 
         CompositeCache {
             src_w,
@@ -1212,6 +1308,8 @@ impl Compositor {
             backdrop_generation: backdrop.generation,
             shape_ubuf,
             shape_bind_group,
+            shape_vbuf: None,
+            layer_vbuf: None,
             target,
             target_view,
             _layer: layer,
@@ -1368,6 +1466,196 @@ impl Compositor {
         self.queue.submit(Some(encoder.finish()));
         self.read_back(&texture, width, height)
     }
+}
+
+fn is_plain_1to1(
+    src_w: u32,
+    src_h: u32,
+    out_w: u32,
+    out_h: u32,
+    scene: &Scene,
+    camera: Option<CameraImage<'_>>,
+) -> bool {
+    let l = &scene.layout;
+    let eps = 1e-6;
+    src_w == out_w
+        && src_h == out_h
+        && l.corner_radius_px <= 0.0
+        && l.src_rect.x.abs() < eps
+        && l.src_rect.y.abs() < eps
+        && (l.src_rect.w - 1.0).abs() < eps
+        && (l.src_rect.h - 1.0).abs() < eps
+        && l.dst_rect.x.abs() < eps
+        && l.dst_rect.y.abs() < eps
+        && (l.dst_rect.w - f64::from(out_w)).abs() < eps
+        && (l.dst_rect.h - f64::from(out_h)).abs() < eps
+        && scene.blur_from.is_none()
+        && (scene.camera.is_none() || camera.is_none())
+        && scene.cursor.is_none()
+        && scene.caption.is_none()
+        && scene.texts.is_empty()
+        && scene.arrows.is_empty()
+        && scene.highlights.is_empty()
+        && scene.spot_corners.is_empty()
+        && scene.strokes.is_empty()
+        && scene.ripples.is_empty()
+        && scene.key_chips.is_empty()
+        && scene.key_texts.is_empty()
+        && scene.masks.is_empty()
+        && scene.mosaics.is_empty()
+}
+
+struct PendingReadback {
+    buf: Arc<wgpu::Buffer>,
+    sub_idx: wgpu::SubmissionIndex,
+    /// `0` = pending, `1` = mapped ok, `2` = mapping failed.
+    status: Arc<std::sync::atomic::AtomicU8>,
+    padded_bpr: u32,
+    width: u32,
+    height: u32,
+}
+
+/// Pipelined GPU export helper using double-buffered readback staging buffers so
+/// rendering/copying frame `N + 1` on the GPU overlaps with encoding frame `N` on CPU.
+pub struct ExportStream<'a> {
+    compositor: &'a Compositor,
+    slot: usize,
+    pending: Option<PendingReadback>,
+    last_dims: Option<(u32, u32, u32, u32)>,
+}
+
+impl<'a> ExportStream<'a> {
+    /// Drain any in-flight GPU frame and emit it before flushing or closing.
+    pub fn finish<E>(mut self, emit: &mut dyn FnMut(Vec<u8>) -> Result<(), E>) -> Result<(), E> {
+        self.flush(emit)
+    }
+
+    /// Wait for the currently in-flight GPU frame (if any) and pass its RGBA bytes to `emit`.
+    pub fn flush<E>(&mut self, emit: &mut dyn FnMut(Vec<u8>) -> Result<(), E>) -> Result<(), E> {
+        if let Some(p) = self.pending.take() {
+            consume_pending(self.compositor, p, emit)?;
+        }
+        Ok(())
+    }
+
+    /// Push one frame through either the CPU fast path (when plain 1:1) or double-buffered GPU
+    /// compositing. Whenever a previously submitted frame finishes reading back, `emit` receives
+    /// its RGBA8 bytes in strict submission order.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push<E>(
+        &mut self,
+        source_bgra: &[u8],
+        source_id: Option<u64>,
+        src_w: u32,
+        src_h: u32,
+        out_w: u32,
+        out_h: u32,
+        scene: &Scene,
+        bg: BgFill,
+        camera: Option<CameraImage<'_>>,
+        emit: &mut dyn FnMut(Vec<u8>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if is_plain_1to1(src_w, src_h, out_w, out_h, scene, camera) {
+            self.flush(emit)?;
+            let rgba = self
+                .compositor
+                .fast_plain_bgra_to_rgba(source_bgra, out_w, out_h);
+            return emit(rgba);
+        }
+        if self
+            .last_dims
+            .is_some_and(|d| d != (src_w, src_h, out_w, out_h))
+        {
+            self.flush(emit)?;
+        }
+        self.last_dims = Some((src_w, src_h, out_w, out_h));
+
+        let prev = self.pending.take();
+        let next = self.compositor.submit_render_and_copy(
+            self.slot,
+            source_bgra,
+            source_id,
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+            scene,
+            bg,
+            camera,
+        );
+        self.pending = Some(next);
+        self.slot ^= 1;
+        if let Some(prev) = prev {
+            consume_pending(self.compositor, prev, emit)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for ExportStream<'_> {
+    fn drop(&mut self) {
+        if let Some(p) = self.pending.take() {
+            let _ = self.compositor.device.poll(wgpu::PollType::Wait);
+            p.buf.unmap();
+        }
+    }
+}
+
+fn consume_pending<E>(
+    compositor: &Compositor,
+    p: PendingReadback,
+    emit: &mut dyn FnMut(Vec<u8>) -> Result<(), E>,
+) -> Result<(), E> {
+    let _ = compositor
+        .device
+        .poll(wgpu::PollType::WaitForSubmissionIndex(p.sub_idx));
+    if p.status.load(Ordering::Acquire) == 0 {
+        let _ = compositor.device.poll(wgpu::PollType::Wait);
+    }
+    let ok = p.status.load(Ordering::Acquire) == 1;
+    let rgba = if ok {
+        compositor.extract_mapped_rgba(&p.buf, p.padded_bpr, p.width, p.height)
+    } else {
+        compositor.take_spare_buffer((p.width * p.height * 4) as usize)
+    };
+    p.buf.unmap();
+    emit(rgba)
+}
+
+impl Compositor {
+    /// Start a double-buffered GPU export stream overlapping frame `N + 1` GPU rendering +
+    /// readback with frame `N` CPU encoding.
+    #[must_use]
+    pub fn begin_export_stream(&self) -> ExportStream<'_> {
+        ExportStream {
+            compositor: self,
+            slot: 0,
+            pending: None,
+            last_dims: None,
+        }
+    }
+
+    /// Parallel CPU fast-path for unstyled 1:1 frames (zero GPU upload/shader/readback).
+    fn fast_plain_bgra_to_rgba(&self, source_bgra: &[u8], w: u32, h: u32) -> Vec<u8> {
+        let len = (w as usize) * (h as usize) * 4;
+        let mut out = self.take_spare_buffer(len);
+        out.resize(len, 0);
+        if source_bgra.len() >= len {
+            out.par_chunks_mut(65_536)
+                .zip(source_bgra[..len].par_chunks(65_536))
+                .for_each(|(dst, src)| {
+                    for (d, s) in dst
+                        .as_chunks_mut::<4>()
+                        .0
+                        .iter_mut()
+                        .zip(src.as_chunks::<4>().0)
+                    {
+                        *d = [s[2], s[1], s[0], s[3]];
+                    }
+                });
+        }
+        out
+    }
 
     /// Composite a frame and overlay the scene's shape annotations (highlight boxes and
     /// arrows). Text is drawn by the separate glyphon pass. Returns RGBA8 bytes.
@@ -1388,12 +1676,53 @@ impl Compositor {
         bg: BgFill,
         camera: Option<CameraImage<'_>>,
     ) -> Vec<u8> {
+        if is_plain_1to1(src_w, src_h, out_w, out_h, scene, camera) {
+            return self.fast_plain_bgra_to_rgba(source_bgra, out_w, out_h);
+        }
+        let pending = self.submit_render_and_copy(
+            0,
+            source_bgra,
+            source_id,
+            src_w,
+            src_h,
+            out_w,
+            out_h,
+            scene,
+            bg,
+            camera,
+        );
+        let _ = self.device.poll(wgpu::PollType::Wait);
+        let ok = pending.status.load(Ordering::Acquire) == 1;
+        let out = if ok {
+            self.extract_mapped_rgba(
+                &pending.buf,
+                pending.padded_bpr,
+                pending.width,
+                pending.height,
+            )
+        } else {
+            self.take_spare_buffer((out_w as usize) * (out_h as usize) * 4)
+        };
+        pending.buf.unmap();
+        out
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn submit_render_and_copy(
+        &self,
+        slot: usize,
+        source_bgra: &[u8],
+        source_id: Option<u64>,
+        src_w: u32,
+        src_h: u32,
+        out_w: u32,
+        out_h: u32,
+        scene: &Scene,
+        bg: BgFill,
+        camera: Option<CameraImage<'_>>,
+    ) -> PendingReadback {
         let layout = &scene.layout;
 
-        // Reuse the size-keyed GPU resources when the dimensions haven't changed (the common
-        // case for an export loop); rebuild them only when a dimension differs. The guard is
-        // held for the whole call, serializing composites, matching the pre-existing text
-        // Mutex, so the single cached source/target/readback are never used concurrently.
         let mut cache_guard = self.cache.lock().expect("composite cache poisoned");
         let backdrop = self.backdrop.lock().expect("backdrop poisoned");
         if !cache_guard
@@ -1403,16 +1732,13 @@ impl Compositor {
             *cache_guard = Some(self.build_cache(src_w, src_h, out_w, out_h, &backdrop));
         }
         let cache = cache_guard.as_mut().expect("cache just populated");
-        // A new backdrop picture since the bind group was made: bind it instead.
         if cache.backdrop_generation != backdrop.generation {
             cache.bind_group = self.bind_composite(&cache.ubuf, &cache.src_view, &backdrop.view);
             cache.backdrop_generation = backdrop.generation;
         }
         let uploaded = source_id.is_some() && cache.source_id == source_id;
         cache.source_id = source_id;
-        let cache = &*cache;
 
-        // Stream this frame's source pixels into the cached source texture.
         if !uploaded {
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -1442,6 +1768,19 @@ impl Compositor {
             MAX_TAPS
         };
         let (src, dst, shadow) = (layout.src_rect, layout.dst_rect, layout.shadow);
+        let blur = if scene.blur_from.is_some() && !self.is_software {
+            1.0
+        } else {
+            0.0
+        };
+        let taps = if self.is_software {
+            [1.0, 1.0]
+        } else {
+            [
+                area_taps(src.w, src_w, dst.w, max_taps),
+                area_taps(src.h, src_h, dst.h, max_taps),
+            ]
+        };
         let uniforms = Uniforms {
             out_size: [out_w as f32, out_h as f32],
             src_min: [layout.src_rect.x as f32, layout.src_rect.y as f32],
@@ -1456,7 +1795,7 @@ impl Compositor {
             _pad2: [0.0, 0.0],
             prev_min: [prev.x as f32, prev.y as f32],
             prev_size: [prev.w as f32, prev.h as f32],
-            blur: if scene.blur_from.is_some() { 1.0 } else { 0.0 },
+            blur,
             bg_image: if bg.image { 1.0 } else { 0.0 },
             bg_scale: cover_scale((out_w, out_h), (backdrop.width, backdrop.height)),
             shadow: [
@@ -1465,15 +1804,12 @@ impl Compositor {
                 shadow.blur as f32,
                 shadow.strength as f32,
             ],
-            taps: [
-                area_taps(src.w, src_w, dst.w, max_taps),
-                area_taps(src.h, src_h, dst.h, max_taps),
-            ],
+            taps,
             _pad3: [0.0, 0.0],
             mosaic: {
                 let mut rects = [[0.0; 4]; MAX_MOSAICS];
-                for (slot, rect) in rects.iter_mut().zip(&scene.mosaics) {
-                    *slot = *rect;
+                for (m_slot, rect) in rects.iter_mut().zip(&scene.mosaics) {
+                    *m_slot = *rect;
                 }
                 rects
             },
@@ -1487,8 +1823,6 @@ impl Compositor {
         let mut camera_guard = self.camera_cache.lock().expect("camera cache poisoned");
         let bubble = self.prepare_camera(&mut camera_guard, scene, camera, (out_w, out_h));
 
-        // Prepare text labels (glyphon), before the shapes: the caption's plate is sized to
-        // its measured text.
         let mut text_guard = self.text.lock().expect("text state poisoned");
         let TextState {
             font_system,
@@ -1496,6 +1830,8 @@ impl Compositor {
             atlas,
             viewport,
             renderer,
+            label_cache,
+            caption_cache,
         } = &mut *text_guard;
         viewport.update(
             &self.queue,
@@ -1504,33 +1840,61 @@ impl Compositor {
                 height: out_h,
             },
         );
-        // Annotation labels + keystroke-overlay labels share one glyph pass.
         let labels: Vec<&crate::scene::ResolvedText> =
             scene.texts.iter().chain(&scene.key_texts).collect();
-        let mut text_buffers = Vec::with_capacity(labels.len());
-        for label in &labels {
-            let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
-            let mut buf = TextBuffer::new(font_system, metrics);
-            let family = if label.font.is_empty() {
-                Family::SansSerif
-            } else {
-                Family::Name(label.font.as_str())
-            };
-            let mut attrs = Attrs::new().family(family);
-            if label.bold {
-                attrs = attrs.weight(Weight::BOLD);
-            }
-            if label.italic {
-                attrs = attrs.style(Style::Italic);
-            }
-            buf.set_text(font_system, &label.text, &attrs, Shaping::Advanced);
-            text_buffers.push(buf);
+        let label_keys: Vec<LabelKey> = labels
+            .iter()
+            .map(|label| LabelKey {
+                text: label.text.clone(),
+                font: label.font.clone(),
+                font_px_bits: (label.font_px as f32).to_bits(),
+                bold: label.bold,
+                italic: label.italic,
+            })
+            .collect();
+        if label_cache.len() > MAX_LABEL_CACHE
+            && label_keys.iter().any(|k| !label_cache.contains_key(k))
+        {
+            label_cache.clear();
         }
-        let caption = scene
-            .caption
-            .as_ref()
-            .map(|c| shape_caption(font_system, c));
-        let mut verts = build_shape_vertices(scene, caption.as_ref().map(|c| &c.plate));
+        for (label, key) in labels.iter().zip(&label_keys) {
+            if !label_cache.contains_key(key) {
+                let metrics = Metrics::new(label.font_px as f32, label.font_px as f32 * 1.25);
+                let mut buf = TextBuffer::new(font_system, metrics);
+                let family = if label.font.is_empty() {
+                    Family::SansSerif
+                } else {
+                    Family::Name(label.font.as_str())
+                };
+                let mut attrs = Attrs::new().family(family);
+                if label.bold {
+                    attrs = attrs.weight(Weight::BOLD);
+                }
+                if label.italic {
+                    attrs = attrs.style(Style::Italic);
+                }
+                buf.set_text(font_system, &label.text, &attrs, Shaping::Advanced);
+                label_cache.insert(key.clone(), buf);
+            }
+        }
+        let caption_plate = if let Some(c) = scene.caption.as_ref() {
+            let cap_key = CaptionKey {
+                text: c.text.clone(),
+                font_px: c.font_px,
+                max_w: c.max_w,
+                center_x: c.center_x,
+                edge_y: c.edge_y,
+                from_top: c.from_top,
+            };
+            if caption_cache.as_ref().is_none_or(|(k, _)| k != &cap_key) {
+                *caption_cache = Some((cap_key, shape_caption(font_system, c)));
+            }
+            caption_cache.as_ref().map(|(_, ct)| ct.plate)
+        } else {
+            None
+        };
+
+        let mut verts = build_shape_vertices(scene, caption_plate.as_ref());
         let shape_uniforms = ShapeUniforms {
             out_size: [out_w as f32, out_h as f32],
             _pad: [0.0, 0.0],
@@ -1538,9 +1902,6 @@ impl Compositor {
         self.queue
             .write_buffer(&cache.shape_ubuf, 0, bytemuck::bytes_of(&shape_uniforms));
 
-        // The pointer, over everything it points at: the user's picture, or Vuoom's drawn
-        // pointer (which also stands in for a picture that couldn't be loaded). A drawn
-        // pointer shown see-through goes to its own layer first and is faded on as one.
         let pointer_guard = self.pointer.lock().expect("pointer poisoned");
         let mut picture = None;
         let mut layer_verts = Vec::new();
@@ -1579,49 +1940,53 @@ impl Compositor {
                 }
             }
         }
-        // Vertices vary in count per frame, so these buffers stay per-frame.
-        let shape_vbuf = self.vertex_buffer(&verts);
-        let layer_vbuf = self.vertex_buffer(&layer_verts);
 
-        let mut text_areas: Vec<TextArea> = text_buffers
+        let shape_bytes = self.upload_vertices(&mut cache.shape_vbuf, "vuoom-shape-verts", &verts);
+        let layer_bytes =
+            self.upload_vertices(&mut cache.layer_vbuf, "vuoom-layer-verts", &layer_verts);
+
+        let mut text_areas: Vec<TextArea> = label_keys
             .iter()
             .zip(&labels)
-            .map(|(buf, label)| TextArea {
-                buffer: buf,
-                left: label.x as f32,
-                top: label.y as f32,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: out_w as i32,
-                    bottom: out_h as i32,
-                },
-                // With its alpha: a label's fade in and out live there.
-                default_color: GlyphColor::rgba(
-                    (label.color.r * 255.0) as u8,
-                    (label.color.g * 255.0) as u8,
-                    (label.color.b * 255.0) as u8,
-                    (label.color.a * 255.0) as u8,
-                ),
-                custom_glyphs: &[],
+            .filter_map(|(key, label)| {
+                label_cache.get(key).map(|buf| TextArea {
+                    buffer: buf,
+                    left: label.x as f32,
+                    top: label.y as f32,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: out_w as i32,
+                        bottom: out_h as i32,
+                    },
+                    default_color: GlyphColor::rgba(
+                        (label.color.r * 255.0) as u8,
+                        (label.color.g * 255.0) as u8,
+                        (label.color.b * 255.0) as u8,
+                        (label.color.a * 255.0) as u8,
+                    ),
+                    custom_glyphs: &[],
+                })
             })
             .collect();
-        if let Some(c) = &caption {
-            text_areas.push(TextArea {
-                buffer: &c.buffer,
-                left: c.left,
-                top: c.top,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: 0,
-                    top: 0,
-                    right: out_w as i32,
-                    bottom: out_h as i32,
-                },
-                default_color: GlyphColor::rgb(255, 255, 255),
-                custom_glyphs: &[],
-            });
+        if scene.caption.is_some() {
+            if let Some((_, c)) = caption_cache.as_ref() {
+                text_areas.push(TextArea {
+                    buffer: &c.buffer,
+                    left: c.left,
+                    top: c.top,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: out_w as i32,
+                        bottom: out_h as i32,
+                    },
+                    default_color: GlyphColor::rgb(255, 255, 255),
+                    custom_glyphs: &[],
+                });
+            }
         }
         let _ = renderer.prepare(
             &self.device,
@@ -1636,7 +2001,7 @@ impl Compositor {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        if let Some(vbuf) = &layer_vbuf {
+        if let (Some(bytes), Some((vbuf, _))) = (layer_bytes, &cache.layer_vbuf) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("vuoom-pointer-layer"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1653,7 +2018,7 @@ impl Compositor {
             });
             pass.set_pipeline(&self.shape_pipeline);
             pass.set_bind_group(0, &cache.shape_bind_group, &[]);
-            pass.set_vertex_buffer(0, vbuf.slice(..));
+            pass.set_vertex_buffer(0, vbuf.slice(0..bytes));
             pass.draw(0..layer_verts.len() as u32, 0..1);
         }
         {
@@ -1674,22 +2039,20 @@ impl Compositor {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &cache.bind_group, &[]);
             pass.draw(0..3, 0..1);
-            // The webcam bubble over the recording, under annotations and the pointer.
             if let Some(cam) = camera_guard.as_ref().filter(|_| bubble) {
                 pass.set_pipeline(&self.camera_pipeline);
                 pass.set_bind_group(0, &cam.bind_group, &[]);
                 pass.draw(0..6, 0..1);
             }
-            if let Some(vbuf) = &shape_vbuf {
+            if let (Some(bytes), Some((vbuf, _))) = (shape_bytes, &cache.shape_vbuf) {
                 pass.set_pipeline(&self.shape_pipeline);
                 pass.set_bind_group(0, &cache.shape_bind_group, &[]);
-                pass.set_vertex_buffer(0, vbuf.slice(..));
+                pass.set_vertex_buffer(0, vbuf.slice(0..bytes));
                 pass.draw(0..verts.len() as u32, 0..1);
             }
-            // The pointer picture, or the see-through pointer's layer.
             let sprite = match picture {
                 Some(pic) => Some(&pic.bind_group),
-                None => layer_vbuf.as_ref().map(|_| &cache.layer_bind_group),
+                None => layer_bytes.map(|_| &cache.layer_bind_group),
             };
             if let Some(bind_group) = sprite {
                 pass.set_pipeline(&self.sprite_pipeline);
@@ -1698,16 +2061,45 @@ impl Compositor {
             }
             let _ = renderer.render(atlas, viewport, &mut pass);
         }
-        self.queue.submit(Some(encoder.finish()));
-        // Glyphs this frame didn't use can go, or the atlas grows through a long export.
+
+        let buf = Arc::clone(&cache.readback[slot & 1]);
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &cache.target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(cache.padded_bpr),
+                    rows_per_image: Some(out_h),
+                },
+            },
+            wgpu::Extent3d {
+                width: out_w,
+                height: out_h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let sub_idx = self.queue.submit(Some(encoder.finish()));
         atlas.trim();
-        self.read_back_into(
-            &cache.target,
-            &cache.readback,
-            cache.padded_bpr,
-            out_w,
-            out_h,
-        )
+
+        let status = Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let status_cb = Arc::clone(&status);
+        buf.slice(..).map_async(wgpu::MapMode::Read, move |res| {
+            status_cb.store(if res.is_ok() { 1 } else { 2 }, Ordering::Release);
+        });
+        PendingReadback {
+            buf,
+            sub_idx,
+            status,
+            padded_bpr: cache.padded_bpr,
+            width: out_w,
+            height: out_h,
+        }
     }
 }
 
@@ -2015,5 +2407,131 @@ mod tests {
         compositor.set_pointer_image(None);
         let again = center_pixel(&compositor, cursor_at_center(PointerLook::Image, 1.0));
         assert_eq!(again, fallback);
+    }
+
+    #[test]
+    fn export_stream_matches_composite_scene_for_plain_and_styled_frames() {
+        let Some(compositor) = Compositor::new() else {
+            eprintln!("no GPU adapter (CI without a GPU), skipping");
+            return;
+        };
+        let src_a = [10u8, 20, 30, 255].repeat(8 * 8);
+        let src_b = [40u8, 80, 120, 255].repeat(8 * 8);
+        let plain_scene = Scene {
+            layout: CompositeLayout {
+                src_rect: NormRect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 1.0,
+                    h: 1.0,
+                },
+                dst_rect: PxRect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 8.0,
+                    h: 8.0,
+                },
+                corner_radius_px: 0.0,
+                shadow: crate::layout::PxShadow::default(),
+            },
+            texts: Vec::new(),
+            arrows: Vec::new(),
+            highlights: Vec::new(),
+            spot_corners: Vec::new(),
+            strokes: Vec::new(),
+            ripples: Vec::new(),
+            key_chips: Vec::new(),
+            key_texts: Vec::new(),
+            masks: Vec::new(),
+            mosaics: Vec::new(),
+            cursor: None,
+            camera: None,
+            caption: None,
+            blur_from: None,
+        };
+        let styled_scene = Scene {
+            layout: CompositeLayout {
+                corner_radius_px: 2.0,
+                ..plain_scene.layout
+            },
+            ..plain_scene.clone()
+        };
+        let bg = BgFill::solid([0.2, 0.4, 0.6, 1.0]);
+
+        let expected = vec![
+            compositor.composite_scene(&src_a, None, 8, 8, 8, 8, &plain_scene, bg, None),
+            compositor.composite_scene(&src_a, None, 8, 8, 8, 8, &styled_scene, bg, None),
+            compositor.composite_scene(&src_b, None, 8, 8, 8, 8, &styled_scene, bg, None),
+        ];
+
+        let mut actual = Vec::new();
+        let mut stream = compositor.begin_export_stream();
+        stream
+            .push(&src_a, None, 8, 8, 8, 8, &plain_scene, bg, None, &mut |f| {
+                actual.push(f);
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+        stream
+            .push(
+                &src_a,
+                None,
+                8,
+                8,
+                8,
+                8,
+                &styled_scene,
+                bg,
+                None,
+                &mut |f| {
+                    actual.push(f);
+                    Ok::<(), ()>(())
+                },
+            )
+            .unwrap();
+        stream
+            .push(
+                &src_b,
+                None,
+                8,
+                8,
+                8,
+                8,
+                &styled_scene,
+                bg,
+                None,
+                &mut |f| {
+                    actual.push(f);
+                    Ok::<(), ()>(())
+                },
+            )
+            .unwrap();
+        stream
+            .finish(&mut |f| {
+                actual.push(f);
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+        assert_eq!(actual, expected);
+
+        // Early drop while a GPU frame is still in flight leaves staging buffers unmapped.
+        let mut aborted = compositor.begin_export_stream();
+        aborted
+            .push(
+                &src_b,
+                None,
+                8,
+                8,
+                8,
+                8,
+                &styled_scene,
+                bg,
+                None,
+                &mut |_| Ok::<(), ()>(()),
+            )
+            .unwrap();
+        drop(aborted);
+        let after = compositor.composite_scene(&src_a, None, 8, 8, 8, 8, &styled_scene, bg, None);
+        assert_eq!(after.len(), 8 * 8 * 4);
     }
 }

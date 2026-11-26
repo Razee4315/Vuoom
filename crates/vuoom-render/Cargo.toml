@@ -10,6 +10,7 @@ description = "wgpu compositor (DX12): zoom/pan + background + rounded corners (
 glam.workspace = true
 vuoom-zoom.workspace = true
 vuoom-project.workspace = true
+rayon = "1"
 wgpu = "25"
 glyphon = "0.9"
 bytemuck.workspace = true

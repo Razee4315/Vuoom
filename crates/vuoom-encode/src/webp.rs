@@ -8,6 +8,7 @@ use crate::error::EncodeError;
 use crate::image::RgbaImage;
 use crate::native::downscale_rgba;
 use crate::settings::WebpSettings;
+use crate::StreamFrame;
 use std::ffi::CStr;
 use std::fs::File;
 use std::io::Write;
@@ -223,12 +224,20 @@ fn build_config(settings: &WebpSettings) -> Result<libwebp_sys::WebPConfig, Enco
     }
     // SAFETY: `WebPConfigInitInternal` initialized the struct.
     let mut cfg = unsafe { cfg.assume_init() };
+    // Clamp VP8L lossless method <= 2 so lossless exports stay fast (method 4+ can take
+    // seconds per 1080p frame on low-end CPUs).
+    let method = if settings.lossless {
+        settings.method.min(2)
+    } else {
+        settings.method.min(6)
+    };
     cfg.lossless = i32::from(settings.lossless);
     cfg.quality = quality;
-    cfg.method = i32::from(settings.method.min(6));
+    cfg.method = i32::from(method);
     cfg.image_hint = libwebp_sys::WebPImageHint::WEBP_HINT_GRAPH;
     cfg.thread_level = 1;
-    cfg.use_sharp_yuv = i32::from(!settings.lossless);
+    // Iterative sharp YUV adds a 4-8x cost on every frame; only enable on slow HQ presets.
+    cfg.use_sharp_yuv = i32::from(!settings.lossless && method >= 5 && settings.quality >= 90);
     // SAFETY: `cfg` is initialized.
     if unsafe { libwebp_sys::WebPValidateConfig(&cfg) } == 0 {
         return Err(EncodeError::Webp("invalid WebP encoder config".into()));
@@ -278,7 +287,7 @@ pub fn encode_webp_to_vec(
     }
     encode_webp_stream_to_vec(
         frames.len(),
-        |i| Ok(frames[i].clone()),
+        |i| Ok(StreamFrame::Image(frames[i].clone())),
         settings,
         &|_, _| {},
     )
@@ -310,13 +319,39 @@ pub fn export_webp(
 /// dimensions, or a write/encode failure.
 pub fn export_webp_streaming<F>(
     count: usize,
-    frame: F,
+    mut frame: F,
     settings: &WebpSettings,
     out: &Path,
     progress: &dyn Fn(usize, usize),
 ) -> Result<(), EncodeError>
 where
     F: FnMut(usize) -> Result<RgbaImage, String>,
+{
+    export_webp_stream_dedup(
+        count,
+        |i| frame(i).map(StreamFrame::Image),
+        settings,
+        out,
+        progress,
+    )
+}
+
+/// Deduplicating streaming WebP encoder: frame 0 must yield [`StreamFrame::Image`], while any
+/// later [`StreamFrame::Repeat`] extends the previous frame's timestamp without importing or
+/// encoding duplicate pixels through `libwebp`.
+///
+/// # Errors
+/// Returns [`EncodeError`] for zero frames, callback errors, mismatched/zero-size dimensions,
+/// or a write/encode failure.
+pub fn export_webp_stream_dedup<F>(
+    count: usize,
+    frame: F,
+    settings: &WebpSettings,
+    out: &Path,
+    progress: &dyn Fn(usize, usize),
+) -> Result<(), EncodeError>
+where
+    F: FnMut(usize) -> Result<StreamFrame, String>,
 {
     let bytes = encode_webp_stream_to_vec(count, frame, settings, progress)?;
     let mut file = File::create(out)?;
@@ -332,7 +367,7 @@ fn encode_webp_stream_to_vec<F>(
     progress: &dyn Fn(usize, usize),
 ) -> Result<Vec<u8>, EncodeError>
 where
-    F: FnMut(usize) -> Result<RgbaImage, String>,
+    F: FnMut(usize) -> Result<StreamFrame, String>,
 {
     if count == 0 {
         return Err(EncodeError::NoFrames);
@@ -347,7 +382,12 @@ where
     let cfg = build_config(settings)?;
     let total_work = count + 1;
 
-    let first = scale(frame(0).map_err(EncodeError::Webp)?);
+    let first = match frame(0).map_err(EncodeError::Webp)? {
+        StreamFrame::Image(img) => scale(img),
+        StreamFrame::Repeat => {
+            return Err(EncodeError::Webp("first frame cannot be repeat".into()))
+        }
+    };
     let (w, h) = (first.width, first.height);
     validate_dims(w, h)?;
 
@@ -360,19 +400,31 @@ where
     progress(1, total_work);
 
     for i in 1..count {
-        let img = scale(frame(i).map_err(EncodeError::Webp)?);
-        if img.width != w || img.height != h {
-            return Err(EncodeError::Webp("frame dimensions differ".into()));
+        match frame(i).map_err(EncodeError::Webp)? {
+            StreamFrame::Repeat => {
+                // Skip encoding completely: the next distinct frame's timestamp (or final
+                // flush `end_ts`) extends this held frame's duration automatically.
+            }
+            StreamFrame::Image(raw) => {
+                let img = scale(raw);
+                if img.width != w || img.height != h {
+                    return Err(EncodeError::Webp("frame dimensions differ".into()));
+                }
+                let ts = frame_timestamp_ms(i, settings.fps, prev_ts);
+                let mut pic = OwnedPicture::from_rgba(&img)?;
+                drop(img);
+                encoder.add_frame(&mut pic, ts, &cfg)?;
+                prev_ts = ts;
+            }
         }
-        let ts = frame_timestamp_ms(i, settings.fps, prev_ts);
-        let mut pic = OwnedPicture::from_rgba(&img)?;
-        drop(img);
-        encoder.add_frame(&mut pic, ts, &cfg)?;
-        prev_ts = ts;
         progress(i + 1, total_work);
     }
 
-    let end_ts = frame_timestamp_ms(count, settings.fps, prev_ts);
+    // Ensure end_ts honors all trailing Repeat frames (at full `count` timeline end).
+    let raw_end = ((count as u64 * 1000) + u64::from(settings.fps.max(1)) / 2)
+        / u64::from(settings.fps.max(1));
+    let min_end = prev_ts.saturating_add(1);
+    let end_ts = i32::try_from(raw_end).unwrap_or(i32::MAX).max(min_end);
     encoder.assemble(end_ts)
 }
 
@@ -631,5 +683,35 @@ mod tests {
         );
         assert!(matches!(err, Err(EncodeError::Webp(ref s)) if s.contains("export cancelled")));
         assert!(!canceled.exists());
+    }
+
+    #[test]
+    fn stream_dedup_preserves_timeline_durations() {
+        let a = solid(16, 16, [20, 40, 200, 255]);
+        let b = solid(16, 16, [220, 60, 40, 255]);
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("dedup.webp");
+        let settings = WebpSettings {
+            fps: 10, // 100ms per frame -> 500ms total across 5 frames
+            width: None,
+            ..WebpSettings::balanced()
+        };
+        export_webp_stream_dedup(
+            5,
+            |i| match i {
+                0 => Ok(StreamFrame::Image(a.clone())),
+                1 | 2 | 4 => Ok(StreamFrame::Repeat),
+                3 => Ok(StreamFrame::Image(b.clone())),
+                _ => unreachable!(),
+            },
+            &settings,
+            &out,
+            &|_, _| {},
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let (info, timestamps) = decode_webp(&bytes);
+        assert_eq!(info.frame_count, 2);
+        assert_eq!(timestamps, vec![300, 500]);
     }
 }

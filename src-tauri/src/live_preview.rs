@@ -54,15 +54,20 @@ pub struct PreviewFrame {
 pub fn sample(frame: &CapturedFrame) -> PreviewFrame {
     let (w, h) = (frame.width, frame.height);
     let step = w.div_ceil(TAP_MAX_WIDTH).max(1) as usize;
-    let (sw, sh) = (w as usize / step, h as usize / step);
-    let mut bgra = Vec::with_capacity(sw * sh * 4);
-    for y in 0..sh {
-        let row = y * step * w as usize * 4;
-        for x in 0..sw {
-            let i = row + x * step * 4;
-            bgra.extend_from_slice(&frame.bgra[i..i + 4]);
+    let (sw, sh, bgra) = if step == 1 {
+        (w as usize, h as usize, frame.bgra.clone())
+    } else {
+        let (sw, sh) = (w as usize / step, h as usize / step);
+        let mut bgra = Vec::with_capacity(sw * sh * 4);
+        for y in 0..sh {
+            let row = y * step * w as usize * 4;
+            for x in 0..sw {
+                let i = row + x * step * 4;
+                bgra.extend_from_slice(&frame.bgra[i..i + 4]);
+            }
         }
-    }
+        (sw, sh, bgra)
+    };
     PreviewFrame {
         frame: CapturedFrame {
             width: sw as u32,

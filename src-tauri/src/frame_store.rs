@@ -904,6 +904,8 @@ struct ReadState {
     /// One-slot cache: scrubbing hits the same/neighboring frame repeatedly, and sequential
     /// playback/export decodes frame `i` as a cheap delta on top of cached frame `i - 1`.
     cache: Option<(usize, StoredFrame)>,
+    /// Reusable compressed-payload read buffer so sequential decoding avoids per-frame allocs.
+    scratch: Vec<u8>,
 }
 
 /// Read side of the store: random access by frame number.
@@ -946,7 +948,11 @@ impl FrameStore {
         }
         Ok(Self {
             index,
-            read: Mutex::new(ReadState { file, cache: None }),
+            read: Mutex::new(ReadState {
+                file,
+                cache: None,
+                scratch: Vec::new(),
+            }),
             uid: NEXT_UID.fetch_add(1, Ordering::Relaxed),
         })
     }
@@ -962,6 +968,12 @@ impl FrameStore {
     /// The per-frame metadata (for time lookups without touching the disk).
     pub fn recs(&self) -> &[FrameRec] {
         &self.index
+    }
+
+    /// Content identifier shared only by records backed by identical pixels (`None` if out of
+    /// bounds). Lock-free and zero-decode so exporters can skip duplicate frames upfront.
+    pub fn pixels_id_at(&self, i: usize) -> Option<u64> {
+        self.index.get(i).map(|rec| (self.uid << 44) ^ rec.offset)
     }
 
     /// Frame `i`'s record as a frame with the pixels `bgra`.
@@ -1022,7 +1034,7 @@ impl FrameStore {
             Some((_, f)) => Arc::try_unwrap(f.bgra).unwrap_or_else(|shared| (*shared).clone()),
             None => self.decode_anchor(&mut rs.file, start)?,
         };
-        let mut scratch = Vec::new();
+        let mut scratch = std::mem::take(&mut rs.scratch);
         for (k, &rec) in replay.iter().enumerate() {
             if rec.flags & FLAG_DUP != 0 {
                 continue;
@@ -1033,11 +1045,13 @@ impl FrameStore {
                 continue;
             }
             if buf.len() != rec.w as usize * rec.h as usize * 4 {
+                rs.scratch = scratch;
                 return Err("frame delta dimension mismatch".into());
             }
             read_payload(&mut rs.file, &rec, &mut scratch)?;
             decode_frame(&scratch, rec.w, rec.h, &mut buf, true)?;
         }
+        rs.scratch = scratch;
         let frame = self.stored(i, Arc::new(buf));
         rs.cache = Some((i, frame.clone()));
         Ok(frame)

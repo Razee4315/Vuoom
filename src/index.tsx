@@ -1,5 +1,4 @@
 /* @refresh reload */
-import "@fontsource-variable/inter";
 import { render } from "solid-js/web";
 import App from "./App";
 import { isMock } from "./bridge";
@@ -19,7 +18,7 @@ const root = document.getElementById("root") as HTMLElement;
 const showMountFailure = (e: unknown) => {
   console.error("Vuoom failed to mount:", e);
   const pre = document.createElement("pre");
-  pre.style.cssText = "color:#e5484d;padding:24px;white-space:pre-wrap;font:12px monospace";
+  pre.style.cssText = "color:#ff9497;padding:24px;white-space:pre-wrap;font:12px monospace";
   pre.textContent = `Vuoom failed to mount: ${String((e as Error)?.stack ?? e)}`;
   root.replaceChildren(pre);
   document.getElementById("splash")?.remove();

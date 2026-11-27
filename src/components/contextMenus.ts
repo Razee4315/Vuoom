@@ -21,7 +21,7 @@ function annotationItems(ed: Editor): MenuItem[] {
       if (r) ed.editRange(ed.playhead(), Math.min(ed.duration(), ed.playhead() + (r.end - r.start)));
     } },
     { separator: true },
-    { label: "Delete", icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelection() },
+    { label: t("Delete"), icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelection() },
   ];
 }
 

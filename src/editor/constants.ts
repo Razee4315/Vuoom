@@ -12,7 +12,9 @@ export const CORNER_CURSORS = ["nwse-resize", "nesw-resize", "nesw-resize", "nws
 /// The default label face. Inter has no Chinese, so a Chinese interface asks for the system's
 /// Chinese face first, as the export's system fallback does.
 const defaultFontCss = () =>
-  locale() === "zh-CN" ? '"Microsoft YaHei UI", "Microsoft YaHei", Inter, sans-serif' : "Inter, sans-serif";
+  locale() === "zh-CN"
+    ? '"Microsoft YaHei UI", "Microsoft YaHei", "Inter Variable", Inter, sans-serif'
+    : '"Inter Variable", Inter, sans-serif';
 
 /// Bundled text fonts. `id` is the family name sent to the renderer (empty = default sans);
 /// `css` styles the on-canvas preview + the in-typeface picker. Mirrors the @font-face set

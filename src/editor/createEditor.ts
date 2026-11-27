@@ -8,7 +8,16 @@ import { batch, createSignal, createEffect, onMount, onCleanup, untrack } from "
 import { invoke, isMock, open, openUrl, ask, check, markCleanExit, relaunch, type Update } from "../bridge";
 import { locale, t } from "../i18n";
 import { pickSavePath } from "../saveDir";
-import { applyTheme, initialTheme } from "../themes";
+import {
+  applyTheme,
+  hasThemeQueryOverride,
+  initialTheme,
+  previewTheme,
+  resolveTheme,
+  type ThemePrefId,
+  watchSystemTheme,
+  watchWindowFocus,
+} from "../themes";
 import { createPreviewClient } from "../preview";
 import { createAudio } from "./audio";
 import { createCaptions } from "./captions";
@@ -119,7 +128,19 @@ export function createEditor() {
   // `null` for a take that has never been saved.
   const [projectDir, setProjectDir] = createSignal<string | null>(null);
   const [editingText, setEditingText] = createSignal<number | null>(null);
-  const [theme, setTheme] = createSignal(initialTheme());
+  const [theme, setTheme] = createSignal<ThemePrefId>(initialTheme());
+  const [resolvedTheme, setResolvedTheme] = createSignal(resolveTheme(theme()));
+  createEffect(() => {
+    const pref = theme();
+    setResolvedTheme(resolveTheme(pref));
+    if (pref === "system") {
+      const stop = watchSystemTheme((r) => {
+        setResolvedTheme(r);
+        previewTheme("system");
+      });
+      onCleanup(stop);
+    }
+  });
   const [hasClip, setHasClip] = createSignal(false);
   // True once the loaded clip has edits its project file doesn't hold (annotations, zooms,
   // trim, cuts, speed, frame, click/key overlays). Shown as the dot by the project name.
@@ -479,6 +500,11 @@ export function createEditor() {
     const el = e.target as HTMLElement;
     if (!el.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
   };
+  const onDragStart = (e: DragEvent) => {
+    const el = e.target as HTMLElement | null;
+    if (!el?.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
+  };
+  let unwatchFocus: (() => void) | undefined;
 
   // Desktop-app hardening: this is a native app, not a website. Swallow the WebView2
   // browser chrome accelerators (Ctrl+J downloads, Ctrl+F find, Ctrl+R reload, F5, zoom
@@ -565,8 +591,10 @@ export function createEditor() {
     const browserChord =
       (mod(e) && !e.shiftKey && !e.altKey && BROWSER_CODES.has(e.code)) ||
       (mod(e) && !e.shiftKey && e.code === "KeyR") ||
+      (mod(e) && e.shiftKey && e.code === "KeyR" && (modalOpen || recordStep() !== "idle")) ||
       (mod(e) && e.shiftKey && (e.code === "KeyI" || e.code === "KeyJ" || e.code === "KeyC") && !inField) ||
       (e.altKey && (e.code === "ArrowLeft" || e.code === "ArrowRight") && !inField) ||
+      (e.code === "F12" && !document.querySelector(".hotkey-btn.on")) ||
       e.code === "F3" || e.code === "F5" || e.code === "F7" || e.code === "F11";
     if (browserChord) {
       e.preventDefault();
@@ -579,11 +607,13 @@ export function createEditor() {
   };
 
   onMount(async () => {
-    applyTheme(theme());
+    applyTheme(theme(), !hasThemeQueryOverride());
     document.addEventListener("contextmenu", onContextMenu);
+    document.addEventListener("dragstart", onDragStart);
     window.addEventListener("keydown", onGlobalKey, true);
     window.addEventListener("wheel", onWheelGuard, { passive: false });
     window.addEventListener("keydown", onKey);
+    unwatchFocus = watchWindowFocus();
     preview.onAspectChange((a) => setFrameAspect(a));
     await connectEngine();
     loadRecents();
@@ -804,9 +834,11 @@ export function createEditor() {
 
   onCleanup(() => {
     document.removeEventListener("contextmenu", onContextMenu);
+    document.removeEventListener("dragstart", onDragStart);
     window.removeEventListener("keydown", onGlobalKey, true);
     window.removeEventListener("wheel", onWheelGuard);
     window.removeEventListener("keydown", onKey);
+    unwatchFocus?.();
     preview.disconnect();
   });
 
@@ -4250,7 +4282,7 @@ export function createEditor() {
   const clearStorage = async () => {
     const ok = await ask(
       t("Delete saved recovery data? Unsaved takes from previous sessions can no longer be recovered."),
-      { title: t("Clear recovery storage?"), kind: "warning", okLabel: "Delete", cancelLabel: t("Cancel") },
+      { title: t("Clear recovery storage?"), kind: "warning", okLabel: t("Delete"), cancelLabel: t("Cancel") },
     );
     if (!ok) return;
     setClearingStorage(true);
@@ -4417,6 +4449,7 @@ export function createEditor() {
     setProjectName,
     editingText,
     theme,
+    resolvedTheme,
     setTheme,
     hasClip,
     dirty,

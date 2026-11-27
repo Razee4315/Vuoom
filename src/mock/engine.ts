@@ -1249,7 +1249,7 @@ function paintDesktop(ctx: CanvasRenderingContext2D, w: number, h: number, t: nu
   ctx.fillStyle = "#12141c";
   ctx.fillRect(0, h - 26, w, 26);
   ctx.fillStyle = "#5b627a";
-  ctx.font = "11px Inter, sans-serif";
+  ctx.font = '11px "Inter Variable", Inter, sans-serif';
   ctx.textAlign = "right";
   const secs = Math.floor(t);
   const mm = String(Math.floor(secs / 60)).padStart(2, "0");

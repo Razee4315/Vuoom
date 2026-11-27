@@ -1,230 +1,311 @@
-/* ============================================================
-   Vuoom design tokens (v3).
+@layer tokens, base, components, screens, motion;
 
-   - Every color, radius, shadow and duration comes from here; components never
-     hardcode a themeable value.
-   - Surfaces climb an elevation ramp: backdrop -> panel -> raised -> overlay.
-   - Record red is the only saturated accent. Selection is ink (white on dark,
-     black on light): black-and-white first, no purple anywhere.
-   - Track colors are the one exception to "monochrome": each timeline track type
-     owns a hue so a glance tells zoom from note from speed from cut.
+/* ============================================================
+   Vuoom Design Tokens — Direction A: Tungsten Darkroom & Daylight Archival Studio
+
+   - Zero purple anywhere. Record crimson (#c62f38) is strictly reserved for recording/stop fills.
+   - Chromatic warmth lives in UI chrome; --stage-bg stays strictly achromatic neutral.
+   - All text, semantic foreground, track accent, and interactive line tiers satisfy WCAG 2.2 AA
+     across all six elevation steps (--backdrop through --active).
+   - Palette selectors target both :root and scoped [data-theme] containers so live thumbnails
+     render true palette tokens without inheritance leaks.
    ============================================================ */
 
-:root,
-:root[data-theme="mono-dark"] {
-  color-scheme: dark;
-  --backdrop: #08080a;
-  --panel: #111114;
-  --panel-2: #16161a;
-  --raised: #1c1c21;
-  --hover: #24242a;
-  --active: #2c2c33;
-  --line: #222228;
-  --line-2: #2e2e36;
-  --line-strong: #3b3b45;
-  --text: #f5f5f6;
-  --text-2: #c9c9cf;
-  --muted: #8b8b95;
-  --faint: #7b7b85;
-  --ink: #f5f5f6;
-  --ink-text: #0e0e11;
-  --stage-a: #19191d;
-  --stage-b: #0d0d10;
-  --overlay: rgba(4, 4, 6, 0.66);
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.35);
-  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.55);
-  --glass: rgba(22, 22, 26, 0.82);
-}
+@layer tokens {
+  :root,
+  [data-theme="tungsten"],
+  [data-theme="mono-dark"],
+  [data-theme="graphite"],
+  [data-theme="midnight"] {
+    color-scheme: dark;
+    --record-text: #ff9497;
+    --ok: #75d3a0;
+    --warn: #f4c36f;
 
-:root[data-theme="mono-light"] {
-  color-scheme: light;
-  --backdrop: #ececf0;
-  --panel: #ffffff;
-  --panel-2: #fafafb;
-  --raised: #f4f4f6;
-  --hover: #ececf0;
-  --active: #e2e2e8;
-  --line: #e6e6eb;
-  --line-2: #dadae1;
-  --line-strong: #c4c4cd;
-  --text: #141417;
-  --text-2: #3e3e46;
-  --muted: #6d6d77;
-  --faint: #757580;
-  --ink: #141417;
-  --ink-text: #ffffff;
-  --stage-a: #e1e1e7;
-  --stage-b: #d4d4dc;
-  --overlay: rgba(20, 20, 28, 0.32);
-  --shadow-panel: 0 1px 2px rgba(20, 20, 28, 0.06), 0 8px 24px rgba(20, 20, 28, 0.06);
-  --shadow-pop: 0 16px 44px rgba(20, 20, 28, 0.18), 0 0 0 1px rgba(20, 20, 28, 0.06);
-  --shadow-stage: 0 18px 50px rgba(20, 20, 28, 0.2);
-  --glass: rgba(255, 255, 255, 0.86);
-}
+    /* Track hues (dark palettes) */
+    --t-zoom: #ff9386;
+    --t-note: #93bfff;
+    --t-speed: #f4bc6b;
+    --t-cut: #eaa4a8;
+    --t-audio: #71d2c5;
+    --t-box: #ffda82;
+    --t-caption: #b7d996;
 
-:root[data-theme="graphite"] {
-  color-scheme: dark;
-  --backdrop: #0f1215;
-  --panel: #171b1f;
-  --panel-2: #1b2025;
-  --raised: #21272d;
-  --hover: #293037;
-  --active: #323a42;
-  --line: #262d33;
-  --line-2: #313940;
-  --line-strong: #3f4850;
-  --text: #eaedf0;
-  --text-2: #c2c8cd;
-  --muted: #8b959e;
-  --faint: #7a848d;
-  --ink: #eaedf0;
-  --ink-text: #14181b;
-  --stage-a: #1e2429;
-  --stage-b: #121619;
-  --overlay: rgba(6, 8, 10, 0.62);
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.32);
-  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.5);
-  --glass: rgba(27, 32, 37, 0.84);
-}
-
-:root[data-theme="paper"] {
-  color-scheme: light;
-  --backdrop: #e9e5dc;
-  --panel: #f7f5f0;
-  --panel-2: #f3f0e9;
-  --raised: #efebe2;
-  --hover: #e7e2d6;
-  --active: #ddd7c8;
-  --line: #e0dacd;
-  --line-2: #d4cdbe;
-  --line-strong: #bfb7a5;
-  --text: #28261f;
-  --text-2: #4a473d;
-  --muted: #6f6b5e;
-  --faint: #757061;
-  --ink: #28261f;
-  --ink-text: #f7f5f0;
-  --stage-a: #ddd7ca;
-  --stage-b: #d1cab9;
-  --overlay: rgba(40, 38, 31, 0.3);
-  --shadow-panel: 0 1px 2px rgba(40, 38, 31, 0.06), 0 8px 24px rgba(40, 38, 31, 0.07);
-  --shadow-pop: 0 16px 44px rgba(40, 38, 31, 0.2), 0 0 0 1px rgba(40, 38, 31, 0.06);
-  --shadow-stage: 0 18px 50px rgba(40, 38, 31, 0.22);
-  --glass: rgba(247, 245, 240, 0.88);
-}
-
-:root[data-theme="midnight"] {
-  color-scheme: dark;
-  --backdrop: #060910;
-  --panel: #0d121b;
-  --panel-2: #111722;
-  --raised: #161e2b;
-  --hover: #1d2737;
-  --active: #253145;
-  --line: #1a2231;
-  --line-2: #243044;
-  --line-strong: #324058;
-  --text: #e8edf5;
-  --text-2: #b8c2d1;
-  --muted: #8490a3;
-  --faint: #727d90;
-  --ink: #e8edf5;
-  --ink-text: #0a0f17;
-  --stage-a: #121a27;
-  --stage-b: #090d14;
-  --overlay: rgba(3, 5, 9, 0.66);
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.4);
-  --shadow-pop: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-stage: 0 28px 80px rgba(0, 0, 0, 0.6);
-  --glass: rgba(17, 23, 34, 0.84);
-}
-
-:root {
-  /* Record red: the one saturated accent. */
-  --record: #e5484d;
-  --record-hover: #f25f63;
-  --record-soft: rgba(229, 72, 77, 0.14);
-  --record-ring: rgba(229, 72, 77, 0.35);
-  --ok: #3fb66b;
-  --ok-soft: rgba(63, 182, 107, 0.14);
-  --warn: #f0b429;
-  --warn-soft: rgba(240, 180, 41, 0.14);
-
-  /* Track hues (timeline + canvas creation drafts). */
-  --t-zoom: #ef6b61;
-  --t-note: #6ea8ff;
-  --t-speed: #f0b429;
-  --t-cut: #9a4a4f;
-  --t-audio: #2fbfa8;
-  --t-box: #ffd23f;
-  --t-caption: #9bd46a;
-
-  /* Selection = ink. */
-  --sel: var(--ink);
-  --focus: 0 0 0 2px var(--panel), 0 0 0 4px color-mix(in srgb, var(--ink) 55%, transparent);
-
-  --r-xs: 5px;
-  --r-sm: 7px;
-  --r: 9px;
-  --r-md: 11px;
-  --r-lg: 14px;
-  --r-xl: 20px;
-  --r-full: 999px;
-
-  --fs-2xl: 28px;
-  --fs-xl: 20px;
-  --fs-lg: 15px;
-  --fs-md: 13px;
-  --fs-sm: 12px;
-  --fs-xs: 11px;
-  --fs-2xs: 11px;
-
-  --dur-1: 0.12s;
-  --dur-2: 0.2s;
-  --dur-3: 0.32s;
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --spring: cubic-bezier(0.3, 1.35, 0.45, 1);
-
-  --titlebar-h: 44px;
-  --status-h: 26px;
-  --gutter: 8px;
-
-  font-family: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-feature-settings: "cv11", "ss01", "tnum" 0;
-  color: var(--text);
-}
-
-/* Inter has no Chinese: lead with the system's Chinese UI face. On :root, not every element
-   :lang() matches, so kbd and monospace rules keep their own stacks. */
-:root:lang(zh-CN),
-:lang(zh-CN) .sel-root,
-:lang(zh-CN) .rec-panel-root {
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-
-:root[data-motion="reduced"] {
-  --dur-1: 0s;
-  --dur-2: 0s;
-  --dur-3: 0s;
-}
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-1: 0s;
-    --dur-2: 0s;
-    --dur-3: 0s;
+    --stage-bg: #181818;
+    --stage-dot: #303030;
+    --overlay: rgba(8, 7, 6, 0.72);
+    --shadow-raised: inset 0 1px 0 var(--rim);
+    --shadow-panel: inset 0 1px 0 var(--rim), 0 2px 8px rgba(0, 0, 0, 0.16);
+    --shadow-pop: inset 0 1px 0 var(--rim), 0 4px 12px rgba(0, 0, 0, 0.24);
+    --shadow-stage: 0 12px 32px rgba(0, 0, 0, 0.32);
   }
-}
 
-/* The shared accents, darkened until they read on a light panel. */
-:root[data-theme="mono-dark"] {
-  --ok: #11883d;
-  --warn: #a56900;
-  --record: #d83b40;
-}
-:root[data-theme="graphite"] {
-  --ok: #0b8237;
-  --warn: #9f6300;
-  --record: #d13439;
+  [data-theme="daylight"],
+  [data-theme="paper"],
+  [data-theme="mono-light"] {
+    color-scheme: light;
+    --record-text: #9d2733;
+    --ok: #165d38;
+    --warn: #754800;
+
+    /* Track hues (light palettes) */
+    --t-zoom: #a13b33;
+    --t-note: #285598;
+    --t-speed: #78500a;
+    --t-cut: #863d46;
+    --t-audio: #156156;
+    --t-box: #6d5300;
+    --t-caption: #426523;
+
+    --stage-bg: #d8d8d8;
+    --stage-dot: #c3c3c3;
+    --overlay: rgba(24, 20, 16, 0.38);
+    --shadow-raised: inset 0 1px 0 var(--rim);
+    --shadow-panel: inset 0 1px 0 var(--rim), 0 1px 2px rgba(20, 16, 12, 0.08);
+    --shadow-pop: inset 0 1px 0 var(--rim), 0 4px 12px rgba(20, 16, 12, 0.14);
+    --shadow-stage: 0 8px 24px rgba(20, 16, 12, 0.14);
+  }
+
+  /* ── Palette 1: Tungsten Darkroom (default dark) ────────────────────────── */
+  :root,
+  [data-theme="tungsten"] {
+    --backdrop: #110f0e;
+    --panel: #171412;
+    --panel-2: #1d1916;
+    --raised: #221e1a;
+    --hover: #2b2520;
+    --active: #342c26;
+    --line: #82766a;
+    --line-2: #978a7d;
+    --line-strong: #b4a392;
+    --rim: rgba(255, 229, 189, 0.22);
+    --text: #f6efe5;
+    --text-2: #dacec1;
+    --muted: #bbaea1;
+    --faint: #ab9f93;
+    --ink: #f6efe5;
+    --ink-text: #171412;
+    --accent: #e4ad73;
+    --focus-ring: #ffc680;
+  }
+
+  /* ── Palette 2: Daylight Archival Studio (+ legacy "paper" alias) ───────── */
+  [data-theme="daylight"],
+  [data-theme="paper"] {
+    --backdrop: #f4f0e8;
+    --panel: #fffcf5;
+    --panel-2: #f7f3eb;
+    --raised: #ffffff;
+    --hover: #efe9de;
+    --active: #e6dfd3;
+    --line: #81766a;
+    --line-2: #73685d;
+    --line-strong: #5f554a;
+    --rim: rgba(255, 255, 255, 0.92);
+    --text: #27221d;
+    --text-2: #453d35;
+    --muted: #5f5449;
+    --faint: #685c50;
+    --ink: #312a24;
+    --ink-text: #fffcf5;
+    --accent: #77430f;
+    --focus-ring: #76420f;
+  }
+
+  /* ── Palette 3: Mono Dark ──────────────────────────────────────────────── */
+  [data-theme="mono-dark"] {
+    --backdrop: #0b0b0b;
+    --panel: #121212;
+    --panel-2: #191919;
+    --raised: #212121;
+    --hover: #292929;
+    --active: #323232;
+    --line: #808080;
+    --line-2: #909090;
+    --line-strong: #a6a6a6;
+    --rim: rgba(255, 255, 255, 0.14);
+    --text: #f5f5f5;
+    --text-2: #d6d6d6;
+    --muted: #b8b8b8;
+    --faint: #a5a5a5;
+    --ink: #f5f5f5;
+    --ink-text: #121212;
+    --accent: #f5f5f5;
+    --focus-ring: #f5f5f5;
+  }
+
+  /* ── Palette 4: Mono Light ─────────────────────────────────────────────── */
+  [data-theme="mono-light"] {
+    --backdrop: #f1f1f1;
+    --panel: #ffffff;
+    --panel-2: #f8f8f8;
+    --raised: #fcfcfc;
+    --hover: #eaeaea;
+    --active: #e1e1e1;
+    --line: #7c7c7c;
+    --line-2: #6d6d6d;
+    --line-strong: #5c5c5c;
+    --rim: rgba(255, 255, 255, 0.92);
+    --text: #151515;
+    --text-2: #393939;
+    --muted: #555555;
+    --faint: #606060;
+    --ink: #222222;
+    --ink-text: #ffffff;
+    --accent: #151515;
+    --focus-ring: #151515;
+  }
+
+  /* ── Palette 5: Graphite ───────────────────────────────────────────────── */
+  [data-theme="graphite"] {
+    --backdrop: #111518;
+    --panel: #181d21;
+    --panel-2: #1d2328;
+    --raised: #232a30;
+    --hover: #293239;
+    --active: #303940;
+    --line: #8798a3;
+    --line-2: #98a8b2;
+    --line-strong: #b0bfc8;
+    --rim: rgba(255, 255, 255, 0.14);
+    --text: #eaf0f4;
+    --text-2: #d1dce3;
+    --muted: #b5c3cc;
+    --faint: #a8b6c0;
+    --ink: #eaf0f4;
+    --ink-text: #181d21;
+    --accent: #eaf0f4;
+    --focus-ring: #eaf0f4;
+  }
+
+  /* ── Palette 6: Midnight ───────────────────────────────────────────────── */
+  [data-theme="midnight"] {
+    --backdrop: #090f17;
+    --panel: #101823;
+    --panel-2: #17202b;
+    --raised: #1c2734;
+    --hover: #23303e;
+    --active: #293746;
+    --line: #8294a5;
+    --line-2: #94a5b5;
+    --line-strong: #aabaca;
+    --rim: rgba(255, 255, 255, 0.14);
+    --text: #eaf1f7;
+    --text-2: #cfdbe6;
+    --muted: #b4c3d2;
+    --faint: #a7b7c7;
+    --ink: #eaf1f7;
+    --ink-text: #101823;
+    --accent: #eaf1f7;
+    --focus-ring: #eaf1f7;
+  }
+
+  /* Recompute derived theme tokens per scoped container as well as :root. */
+  :root,
+  [data-theme] {
+    --hairline: color-mix(in srgb, var(--line) 28%, transparent);
+    --stage-a: var(--stage-bg);
+    --stage-b: var(--stage-bg);
+    --glass: var(--panel-2);
+    --sel: var(--ink);
+    --focus: 0 0 0 2px var(--panel), 0 0 0 4px var(--focus-ring);
+
+    --record: #c62f38;
+    --record-hover: #d13740;
+    --record-pressed: #af2630;
+    --on-record: #ffffff;
+    --record-soft: color-mix(in srgb, var(--record-text) 14%, transparent);
+    --record-ring: color-mix(in srgb, var(--record-text) 35%, transparent);
+    --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
+    --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+
+  /* ── Global scale, typography, spacing, radii & motion tokens ──────────── */
+  :root {
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 24px;
+    --s-6: 32px;
+    --s-7: 48px;
+
+    --r-xs: 4px;
+    --r-sm: 6px;
+    --r: 8px;
+    --r-md: 8px;
+    --r-lg: 12px;
+    --r-xl: 12px;
+    --r-full: 999px;
+
+    --fw-regular: 400;
+    --fw-medium: 500;
+    --fw-semibold: 600;
+    --fw-bold: 700;
+
+    --fs-2xs: 12px;
+    --fs-xs: 12px;
+    --fs-sm: 13px;
+    --fs-md: 14px;
+    --fs-lg: 16px;
+    --fs-xl: 20px;
+    --fs-2xl: 28px;
+
+    --dur-instant: 80ms;
+    --dur-fast: 140ms;
+    --dur-normal: 200ms;
+    --dur-slow: 280ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+    /* Legacy duration/easing aliases mapped onto the new scale */
+    --dur-1: var(--dur-fast);
+    --dur-2: var(--dur-normal);
+    --dur-3: var(--dur-slow);
+    --ease: var(--ease-standard);
+    --spring: var(--ease-enter);
+
+    --titlebar-h: 44px;
+    --status-h: 28px;
+    --gutter: 8px;
+
+    font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    font-feature-settings: "cv11", "ss01", "tnum" 0;
+    color: var(--text);
+  }
+
+  /* Inter has no CJK glyphs: lead with the system's Chinese UI face. */
+  :root:lang(zh-CN),
+  :lang(zh-CN) .sel-root,
+  :lang(zh-CN) .rec-panel-root {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  /* Inactive-window dimming: drop decorative top specular rim highlights cleanly. */
+  :root[data-window-focused="false"] {
+    --rim: transparent;
+  }
+
+  /* Deterministic reduced motion: in-app toggle AND OS preference. */
+  :root[data-motion="reduced"] {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-normal: 0ms;
+    --dur-slow: 0ms;
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --dur-instant: 0ms;
+      --dur-fast: 0ms;
+      --dur-normal: 0ms;
+      --dur-slow: 0ms;
+      --dur-1: 0ms;
+      --dur-2: 0ms;
+      --dur-3: 0ms;
+    }
+  }
 }

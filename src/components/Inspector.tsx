@@ -1568,9 +1568,11 @@ function ClipPanel() {
                         >
                           <img src={pic().preview} alt="" draggable={false} />
                           <span
-                            class="ptr-hotspot-mark"
-                            style={{ left: `${img().hotspot[0] * 100}%`, top: `${img().hotspot[1] * 100}%` }}
-                          />
+                            class="ptr-hotspot-track"
+                            style={{ transform: `translate(${img().hotspot[0] * 100}%, ${img().hotspot[1] * 100}%)` }}
+                          >
+                            <span class="ptr-hotspot-mark" />
+                          </span>
                         </button>
                       )}
                     </Show>
@@ -1956,8 +1958,16 @@ function CaptionsSection() {
       >
         {(j) => (
           <div class="cap-job" role="status">
-            <div class="cap-bar" classList={{ busy: j().step === "start" }}>
-              <i style={{ width: `${jobFraction(j()) * 100}%` }} />
+            <div
+              class="cap-bar"
+              classList={{ busy: j().step === "start" }}
+              role="progressbar"
+              aria-label={jobLabel(j())}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={j().step === "start" ? undefined : Math.round(jobFraction(j()) * 100)}
+            >
+              <i style={{ "--progress": String(jobFraction(j())) }} />
             </div>
             <p class="note">{jobLabel(j())}</p>
             <button type="button" class="btn block" onClick={c.cancel}>

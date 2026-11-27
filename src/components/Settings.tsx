@@ -40,11 +40,13 @@ const TABS = (): { id: Tab; label: string; icon: IconName }[] => [
 
 // Swatch colors for the theme cards (backdrop, panel, text).
 const THEME_ART: Record<string, [string, string, string]> = {
-  "mono-dark": ["#08080a", "#16161a", "#f5f5f6"],
-  "mono-light": ["#ececf0", "#ffffff", "#141417"],
-  graphite: ["#0f1215", "#1b2025", "#eaedf0"],
-  paper: ["#e9e5dc", "#f7f5f0", "#28261f"],
-  midnight: ["#060910", "#111722", "#e8edf5"],
+  system: ["#110f0e", "#fffcf5", "#c62f38"],
+  tungsten: ["#110f0e", "#171412", "#f6efe5"],
+  daylight: ["#f4f0e8", "#fffcf5", "#27221d"],
+  "mono-dark": ["#0b0b0b", "#121212", "#f5f5f5"],
+  "mono-light": ["#f1f1f1", "#ffffff", "#151515"],
+  graphite: ["#111518", "#181d21", "#eaf0f4"],
+  midnight: ["#090f17", "#101823", "#eaf1f7"],
 };
 
 /** One rebindable hotkey: shows the chord; click it, then press the new one. */

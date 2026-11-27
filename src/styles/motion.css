@@ -1,107 +1,168 @@
-/* Motion: small, quick movements that make the interface feel alive and answer every
-   action. Every duration comes from the --dur-* tokens, which drop to 0 when the system
-   asks for reduced motion (see tokens.css), so all of this switches off with it. */
+/* Motion layer: compositor-only micro-interactions, delayed skeletons, and deterministic
+   reduced-motion shutdown matching MOTION.md. Being the highest cascade layer (@layer motion),
+   all rules here take precedence over components and screens without !important overrides. */
 
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
+@layer motion {
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
-}
-@keyframes pop {
-  0% {
-    transform: scale(0.8);
+  @keyframes pop {
+    0% {
+      transform: scale(0.86);
+    }
+    60% {
+      transform: scale(1.06);
+    }
   }
-  60% {
-    transform: scale(1.12);
+  @keyframes grow-x {
+    from {
+      opacity: 0;
+      transform: scaleX(0.6);
+    }
   }
-}
-@keyframes float {
-  50% {
-    transform: translateY(-4px);
+  @keyframes skeleton-show {
+    0%,
+    56% {
+      opacity: 0;
+    }
+    100% {
+      opacity: 1;
+    }
   }
-}
-@keyframes grow-x {
-  from {
-    opacity: 0;
-    transform: scaleX(0.6);
+
+  /* Pure-CSS 180ms-delayed skeleton reveal (0 timers, 0 continuous shimmer loops). */
+  .skeleton {
+    border-radius: var(--r-sm);
+    background: var(--raised);
+    animation: skeleton-show 320ms var(--ease-enter) both;
   }
-}
 
-/* Inspector: a panel fades up as it opens or its tab changes; section contents settle in
-   as a section unfolds. */
-.insp-scroll > .insp-title,
-.insp-scroll > .insp-empty,
-.insp-scroll > .clip-search,
-.insp-scroll > .sect {
-  animation: fade-up var(--dur-3) var(--ease) both;
-}
-.insp-scroll > .sect:nth-of-type(2) {
-  animation-delay: 20ms;
-}
-.insp-scroll > .sect:nth-of-type(3) {
-  animation-delay: 40ms;
-}
-.insp-scroll > .sect:nth-of-type(4) {
-  animation-delay: 60ms;
-}
-.insp-scroll > .sect:nth-of-type(n + 5) {
-  animation-delay: 80ms;
-}
-.sect-body > * {
-  transition:
-    opacity var(--dur-3) var(--ease),
-    transform var(--dur-3) var(--ease);
-}
-.sect:not(.open) .sect-body > * {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-.sect-head .badge {
-  animation: fade-in var(--dur-2) var(--ease);
-}
-.sect-toggle .sect-icon {
-  transition: color var(--dur-2) var(--ease);
-}
-.sect-toggle:hover .sect-icon,
-.sect.open .sect-icon {
-  color: var(--text-2);
-}
-.insp-empty-icon {
-  animation: float 3.2s ease-in-out infinite;
-}
-.insp-tab {
-  transition:
-    background var(--dur-2) var(--ease),
-    color var(--dur-2) var(--ease);
-}
+  /* Inspector: panel sections settle with compositor-only opacity/translateY. */
+  .insp-scroll > .insp-title,
+  .insp-scroll > .insp-empty,
+  .insp-scroll > .clip-search,
+  .insp-scroll > .sect {
+    animation: fade-up var(--dur-normal) var(--ease-enter) both;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    :root:not([data-motion="reduced"]) .insp-scroll > .sect:nth-of-type(2) {
+      animation-delay: 20ms;
+    }
+    :root:not([data-motion="reduced"]) .insp-scroll > .sect:nth-of-type(3) {
+      animation-delay: 40ms;
+    }
+    :root:not([data-motion="reduced"]) .insp-scroll > .sect:nth-of-type(4) {
+      animation-delay: 60ms;
+    }
+    :root:not([data-motion="reduced"]) .insp-scroll > .sect:nth-of-type(n + 5) {
+      animation-delay: 80ms;
+    }
+  }
+  .sect.open .sect-body {
+    animation: fade-up var(--dur-normal) var(--ease-enter) both;
+  }
+  .sect-head .badge {
+    animation: fade-in var(--dur-fast) var(--ease-standard);
+  }
+  .sect-toggle .sect-icon {
+    transition: color var(--dur-fast) var(--ease-standard);
+  }
+  .sect-toggle:hover .sect-icon,
+  .sect.open .sect-icon {
+    color: var(--text-2);
+  }
+  .insp-tab {
+    transition:
+      background var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
+  }
 
-/* Tool rail: the picked tool's icon pops as it lights up. */
-.rail-tool svg {
-  transition: transform var(--dur-2) var(--spring);
-}
-.rail-tool:hover:not(.on) svg {
-  transform: translateY(-1px) scale(1.08);
-}
-.rail-tool.on svg {
-  animation: pop var(--dur-3) var(--spring);
-}
+  /* Tool rail: active tool icon settles cleanly on selection. */
+  .rail-tool svg {
+    transition: transform var(--dur-fast) var(--ease-standard);
+  }
+  .rail-tool:hover:not(.on) svg {
+    transform: translateY(-1px) scale(1.06);
+  }
+  .rail-tool.on svg {
+    animation: pop var(--dur-normal) var(--ease-enter);
+  }
 
-/* Icon buttons answer a press with a quick squeeze. */
-.ibtn svg {
-  transition: transform var(--dur-2) var(--spring);
-}
-.ibtn:hover:not(:disabled) svg {
-  transform: scale(1.08);
-}
+  /* Icon buttons: crisp hover feedback. */
+  .ibtn svg {
+    transition: transform var(--dur-fast) var(--ease-standard);
+  }
+  .ibtn:hover:not(:disabled) svg {
+    transform: scale(1.06);
+  }
 
-/* Timeline: a new bar grows in from its start. */
-.tl-ann {
-  transform-origin: left center;
-  animation: grow-x var(--dur-3) var(--spring);
-}
+  /* Timeline: a new annotation bar grows in from its start. */
+  .tl-ann {
+    transform-origin: left center;
+    animation: grow-x var(--dur-normal) var(--ease-enter);
+  }
 
-/* Switches and sliders: the knob springs. */
-.slider input[type="range"]:active::-webkit-slider-thumb {
-  transform: scale(1.25);
+  /* Sliders: thumb response on press. */
+  .slider input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.18);
+  }
+
+  /* Deterministic reduced motion: in-app toggle AND OS preference silence active loops,
+     press/hover bursts, and transition delays. */
+  :root[data-motion="reduced"] .spinner,
+  :root[data-motion="reduced"] .sb-dot.busy,
+  :root[data-motion="reduced"] .live-dot,
+  :root[data-motion="reduced"] .rec-ring-arc,
+  :root[data-motion="reduced"] .cap-bar.busy > i,
+  :root[data-motion="reduced"] .cam-bubble.empty > svg {
+    animation: none;
+    transition: none;
+  }
+  :root[data-motion="reduced"] .btn:active:not(:disabled),
+  :root[data-motion="reduced"] .ibtn:active:not(:disabled),
+  :root[data-motion="reduced"] .swatch:hover,
+  :root[data-motion="reduced"] .swatch:active,
+  :root[data-motion="reduced"] .rail-tool:active,
+  :root[data-motion="reduced"] .rail-tool:hover:not(.on) svg,
+  :root[data-motion="reduced"] .ibtn:hover:not(:disabled) svg,
+  :root[data-motion="reduced"] .source-card:hover,
+  :root[data-motion="reduced"] .source-card:hover .source-card-icon,
+  :root[data-motion="reduced"] .source-card:hover .source-card-go,
+  :root[data-motion="reduced"] .recent-open:hover {
+    transform: none;
+  }
+  :root[data-motion="reduced"] .skeleton {
+    animation: skeleton-show 180ms steps(1, end) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner,
+    .sb-dot.busy,
+    .live-dot,
+    .rec-ring-arc,
+    .cap-bar.busy > i,
+    .cam-bubble.empty > svg {
+      animation: none;
+      transition: none;
+    }
+    .btn:active:not(:disabled),
+    .ibtn:active:not(:disabled),
+    .swatch:hover,
+    .swatch:active,
+    .rail-tool:active,
+    .rail-tool:hover:not(.on) svg,
+    .ibtn:hover:not(:disabled) svg,
+    .source-card:hover,
+    .source-card:hover .source-card-icon,
+    .source-card:hover .source-card-go,
+    .recent-open:hover {
+      transform: none;
+    }
+    .skeleton {
+      animation: skeleton-show 180ms steps(1, end) both;
+    }
+  }
 }

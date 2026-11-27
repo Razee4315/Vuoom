@@ -84,3 +84,44 @@ All autonomous technical and workflow decisions made during the Vuoom optimizati
 - **Context**: GitHub Actions retired `macos-14` runners on 2026-11-02, causing `CI` (`macos`) and `Release` (`release (macos-14)`) to cancel immediately with `The configuration 'macos-14-arm64-us-default' is not supported`. The initial `v2.2.0` run (`45183174930`) therefore uploaded Windows-only assets to an untagged `v2.2.0` draft.
 - **Decision**: Updated `.github/workflows/ci.yml` and `.github/workflows/release.yml` from `macos-14` to `macos-15`, deleted the partial untagged `v2.2.0` draft before pushing, and re-ran `CI` (`45186750099`) and `Release` (`45186749194`) on `main`.
 - **Rationale**: Restores cross-platform Apple Silicon CI verification and bundles both Windows and macOS Apple Silicon artifacts + unified `latest.json` cleanly into Draft `Vuoom v2.2.0`.
+
+---
+
+### D-014 — UI Redesign Track Branching, Rollback Tag & CI-Only Build Verification
+- **Date**: 2026-11-27
+- **Context**: Following `v2.4.0` (`2c2db09`), Track 2 UI Redesign begins on a low-spec local Windows machine where full Rust/Tauri release builds and heavy test suites must not run locally.
+- **Decision**: Created and pushed rollback tag `pre-ui-redesign-2026-11-27` on `main` (`2c2db09`), created dedicated track branch `ui/redesign`, updated `.github/workflows/ci.yml` to run on `ui/**` pushes and upload `vuoom-windows-x64` (`target/release/vuoom.exe` built via `pnpm tauri build --no-bundle --config "$env:RUNNER_TEMP\no_updater.json"`), and verify every UI chunk locally by downloading the compiled CI artifact and inspecting live via WebView2 CDP. Verified chunks merge cleanly to `main` (`--no-ff` with `[skip ci]` on intermediate chunks until Phase U6 bumps to `2.5.0`, preventing `release.yml`'s `check-and-bump` bot from auto-cutting `v2.4.1` mid-redesign).
+- **Rationale**: Guarantees full rollback isolation from `v2.4.0` performance work, zero local compile strain, and authentic packaged-binary visual/telemetry verification on every milestone.
+
+### D-015 — Design Direction Choice: Direction A — Tungsten Darkroom & Daylight Archival Studio (Co-Designed with GPT-6.2 Astra)
+- **Date**: 2026-11-27
+- **Context**: `UI_AUDIT.md` exposed inverted dark/light contrast overrides (`tokens.css:220-230`), light-mode startup splash flash (`index.html`), missing `"System"` OS sync, vertical clipping in `ToolRail`, sparse layouts in `Home` and `Inspector`, and misalignment/wrapping issues in `ExportDialog` and `Settings`. Evaluated three directions with Codex **GPT-6.2 Astra**:
+  - **Direction A — Tungsten Darkroom & Daylight Archival Studio**: Smoked obsidian & warm archival paper chrome matching Vuoom's redesigned website, 1px specular `--rim` on raised groups/islands, warm tungsten focus/precision highlights, neutral matte video Stage (`#181818` / `#D8D8D8`) so footage color stays perceptually neutral, and `"System"` auto-resolution by default.
+  - **Direction B — Precision Mono Pro**: Achromatic cool-gray high density evolved directly from `mono-dark`/`mono-light`. Strong studio density, but lacks brand continuity and leaves Home feeling sterile.
+  - **Direction C — Soft Native Calm**: Airy whitespace and `10–14px` radii inspired by Cap.so / Screen Studio / Things 3. Welcoming on Home, but wastes scarce viewport area at `880×560`.
+- **Decision**: **Adopt Direction A (Tungsten Darkroom & Daylight Archival Studio)** as Vuoom's flagship `"system"`-resolved desktop appearance, while preserving calibrated `"mono-dark"`, `"mono-light"`, `"graphite"`, and `"midnight"` fixed appearances (and keeping legacy `"paper"` seamlessly mapped to `"daylight"`). Reserve Record Crimson (`#C62F38` fill / `#FF9497` & `#9D2733` text) exclusively for capture actions, ink for ordinary selection, and distinct timeline track hues for editing layers. Zero purple anywhere.
+- **Rationale**: Unifies desktop and web product identity, avoids warm color cast on the video Stage via neutral matte framing, and pairs Direction C's calm onboarding ergonomics with Direction B's dense keyboard-first editor precision.
+
+### D-016 — WCAG 2.2 AA Token Split, Zero-Flicker System Theme & Inter Latin Subsetting
+- **Date**: 2026-11-27
+- **Context**: Live `v2.4.0` contrast checks proved white text on `#E5484D` (`3.91:1` rest, `3.19:1` hover) and `--ok`/`--warn` on light themes (`1.48–2.59:1`) fail WCAG 2.2 AA. Meanwhile `@fontsource-variable/inter` bundles 7 language subsets (`218.5 KB`) while `constants.ts` requests `"Inter"` instead of `"Inter Variable"`.
+- **Decision**:
+  1. Separate crimson button fill (`--record: #C62F38`, hover `#D13740`, pressed `#AF2630`, `--on-record: #FFFFFF` -> `5.43:1` / `4.85:1` / `6.68:1` AA) from crimson text (`--record-text: #FF9497` dark / `#9D2733` light), and ensure all 4 text tiers (`--text`..`--faint`) pass `>= 4.5:1` (`4.81:1` minimum across all 6 themes) and all 3 line tiers pass `>= 3.0:1`.
+  2. Split chosen theme preference (`system` default in `localStorage['vuoom-theme']`) from resolved palette, resolving synchronously in `index.html` `<head>` before splash paint and syncing via a single cleaned-up `matchMedia('(prefers-color-scheme: dark)')` listener.
+  3. Subsetting `@fontsource-variable/inter` to Latin only (with Chinese system fallbacks `PingFang SC` / `Microsoft YaHei UI`), while resolving `"Inter Variable"` properly in canvas/export font lookup without altering existing document line wrapping or glyph metrics.
+- **Rationale**: Achieves strict WCAG 2.2 AA compliance across all themes, eliminates light-mode startup flashes, and trims unused font payload from `dist/`.
+
+### D-017 — Structural Layout Architecture: Full-Height ToolRail, 2-Column Home & Opaque Islands
+- **Date**: 2026-11-27
+- **Context**: In `v2.4.0`, `ToolRail` sits inside `.upper` beside `Stage`, causing bottom tools (`Spotlight`, `Mask`, collapse chevron) to clip off-screen whenever `Timeline` opens (`1280×800` and `880×560`). Home leaves empty vertical voids at `1280×800` yet scrolls at `880×560`. Nine `backdrop-filter: blur()` rules and `100vmax` drag spread shadows tax GPU compositing over live video canvases.
+- **Decision**:
+  1. Promote `ToolRail` to a full-height left column in a 3-column workspace grid (`ToolRail | center(Stage + Timeline) | Inspector`) so all 11 tools + collapse control fit in `416px` inside `488px` at minimum `880×560` height without scrolling or clipping.
+  2. Redesign Home into a balanced top-aligned 2-column workspace (`384px` / `312px` capture column + recent-projects / contact-sheet column) that fits at `1280×800` and `880×560` with zero page scroll when empty.
+  3. Replace all `backdrop-filter` blurs over live canvases/modals and `100vmax` spread box-shadows with opaque elevated `.island` surfaces (`inset 0 1px 0 var(--rim)`) and 4 bounded dim panes for `CropEditor` and `RecordOverlay`.
+- **Rationale**: Eliminates layout clipping permanently, improves viewport utility without adding scrollbars, and reduces GPU/WebView2 compositing overhead.
+
+### D-018 — Motion Discipline & Commissioned Custom SVG Assets (`GPT-6.2 Astra`)
+- **Date**: 2026-11-27
+- **Context**: `.insp-empty-icon` ran an infinite `3.2s float` animation and `.meter-fill` animated `width` every `70ms`, while hardcoded durations bypassed `prefers-reduced-motion`. Empty states used generic fallback glyphs.
+- **Decision**: Use pure CSS transitions/keyframes + Web Animations API with zero external animation packages (`0 B` bundle tax), enforce compositor-only `transform`/`opacity` animations with zero infinite idle loops and full `prefers-reduced-motion` / `data-motion="reduced"` compliance (`MOTION.md`), and commission 4 theme-reactive custom SVG illustrations (`src/components/StudioArt.tsx`, combined ceiling `<= 9 KB`) from **Codex GPT-6.2 Astra**.
+- **Rationale**: Preserves 60fps under 6x CPU throttling and sub-0.5% idle CPU while delivering cohesive studio visual polish.

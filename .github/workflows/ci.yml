@@ -5,7 +5,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'ui/**']
     paths-ignore:
       - 'website/**'
       - '.github/workflows/pages.yml'
@@ -49,6 +49,16 @@ jobs:
 
       - name: Type-check, lint, build
         run: pnpm run typecheck && pnpm run lint && node scripts/check-i18n.mjs && pnpm run build
+
+      - name: Report dist bundle sizes
+        run: |
+          node -e '
+          const fs = require("fs"), path = require("path"), zlib = require("zlib");
+          const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
+          let raw = 0, gz = 0;
+          for (const f of walk("dist")) { const b = fs.readFileSync(f); raw += b.length; gz += zlib.gzipSync(b, { level: 9 }).length; }
+          console.log(`dist/ (standalone): ${raw} B (${(raw / 1024).toFixed(1)} KB) raw / ${gz} B (${(gz / 1024).toFixed(1)} KB) gzip`);
+          '
 
   ci:
     runs-on: windows-latest # Windows build: WGC/DXGI capture, Media Foundation, wgpu DX12
@@ -96,6 +106,28 @@ jobs:
 
       - name: Rust tests
         run: cargo test --workspace
+
+      - name: Build Windows preview executable (ui/**)
+        if: startsWith(github.ref, 'refs/heads/ui/')
+        shell: pwsh
+        env:
+          TAURI_ENV_PLATFORM: windows
+          GGML_NATIVE: "OFF"
+        run: |
+          $cfg = Join-Path $env:RUNNER_TEMP "no_updater.json"
+          '{"bundle":{"createUpdaterArtifacts":false}}' | Set-Content -Path $cfg -Encoding utf8
+          pnpm tauri build --no-bundle --config $cfg
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const fs=require('fs'),p=require('path'),z=require('zlib');const w=d=>fs.readdirSync(d,{withFileTypes:true}).flatMap(e=>e.isDirectory()?w(p.join(d,e.name)):[p.join(d,e.name)]);let r=0,g=0;for(const f of w('dist')){const b=fs.readFileSync(f);r+=b.length;g+=z.gzipSync(b,{level:9}).length;}const exe=fs.statSync('target/release/vuoom.exe').size;console.log('packaged dist/:',r,'B raw /',g,'B gz | vuoom.exe:',exe,'B');"
+
+      - name: Upload Windows preview executable (ui/**)
+        if: startsWith(github.ref, 'refs/heads/ui/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: vuoom-windows-x64
+          path: target/release/vuoom.exe
+          retention-days: 7
+          if-no-files-found: error
 
   # ─── macOS build (Apple Silicon): ScreenCaptureKit, AVFoundation, wgpu Metal ─
   # The same checks as the Windows job, so neither platform's code can rot unseen. The

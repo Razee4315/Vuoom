@@ -5,7 +5,7 @@ import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { t } from "../i18n";
 import { Icon } from "../icons";
-import { Seg } from "../ui";
+import { IconButton, Seg } from "../ui";
 
 export default function SourcePicker() {
   const ed = useEditor();
@@ -22,9 +22,7 @@ export default function SourcePicker() {
             <h2>{t("What should Vuoom record?")}</h2>
             <p class="muted small">{t("Pick a display to frame a region on it, or one app window.")}</p>
           </div>
-          <button type="button" class="ibtn" aria-label={t("Close")} onClick={close}>
-            <Icon name="close" size={14} />
-          </button>
+          <IconButton icon="close" size={14} tip={t("Close")} onClick={close} />
         </header>
         <Show when={ed.sources().windows.length > 0 && ed.sources().displays.length > 0}>
           <Seg

@@ -21,7 +21,7 @@ import { layout, type Persisted, prefs, resetLayout } from "../prefs";
 import { chooseSaveDir, openSaveDir, useSaveDir } from "../saveDir";
 import { SHORTCUTS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
-import { Field, Kbd, Seg, Switch } from "../ui";
+import { Field, IconButton, Kbd, Seg, Switch } from "../ui";
 import { AudioPicker } from "./AudioControls";
 import { CameraPicker } from "./CameraControls";
 import { CURSOR_MODES } from "../cursorMode";
@@ -164,9 +164,7 @@ export default function Settings() {
           </For>
         </nav>
         <div class="settings-body">
-          <button type="button" class="ibtn settings-close" aria-label={t("Close settings")} onClick={close}>
-            <Icon name="close" size={14} />
-          </button>
+          <IconButton icon="close" size={14} class="settings-close" tip={t("Close settings")} onClick={close} />
 
           <Show when={tab() === "general"}>
             <h3>{t("Theme")}</h3>

@@ -14,6 +14,7 @@ import Titlebar from "./components/Titlebar";
 import ToolRail from "./components/ToolRail";
 import Welcome from "./components/Welcome";
 import WindowPicker from "./components/WindowPicker";
+import { lockAppInert } from "./dialog";
 import { EditorContext } from "./editor/context";
 import { createEditor } from "./editor/createEditor";
 import { ExportDialog } from "./ExportDialog";
@@ -22,7 +23,7 @@ import { t } from "./i18n";
 import { Icon } from "./icons";
 import { layout, prefs, resetLayout } from "./prefs";
 import RecordOverlay from "./RecordOverlay";
-import { ContextMenuHost, ToastHost, TooltipLayer } from "./ui";
+import { ContextMenuHost, IconButton, ToastHost, TooltipLayer } from "./ui";
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/shell.css";
@@ -67,6 +68,11 @@ export default function App() {
   createEffect(() => {
     document.documentElement.dataset.motion = prefs.reduceMotion() ? "reduced" : "";
   });
+  createEffect(() => {
+    if (!ed.busy()) return;
+    const unlock = lockAppInert();
+    onCleanup(unlock);
+  });
 
   // Workspace-level shortcuts: the palette, settings, and panel toggles.
   const onKey = (e: KeyboardEvent) => {
@@ -106,9 +112,7 @@ export default function App() {
           <div class="banner" role="alert">
             <Icon name="warning" size={14} />
             <span>{gpuFailedMsg()}</span>
-            <button type="button" class="ibtn sm" aria-label={t("Dismiss")} onClick={() => ed.setGpuLost(false)}>
-              <Icon name="close" size={12} />
-            </button>
+            <IconButton icon="close" size={12} class="sm" tip={t("Dismiss")} onClick={() => ed.setGpuLost(false)} />
           </div>
         </Show>
         <Show when={ed.hasClip()} fallback={<Home />}>
@@ -167,8 +171,10 @@ export default function App() {
       <Show when={ed.busy()}>
         {(message) => (
           <div class="busy-veil" role="status" aria-live="polite">
-            <span class="spinner" aria-hidden="true" />
-            <span>{message()}</span>
+            <div class="busy-card">
+              <span class="spinner" aria-hidden="true" />
+              <span>{message()}</span>
+            </div>
           </div>
         )}
       </Show>

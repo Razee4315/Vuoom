@@ -43,7 +43,6 @@ const P: Record<string, string> = {
   sparkle:
     "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z",
   clicks: "M12 14.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8zM12 18.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4",
-  keys: "M2.5 6h19v12h-19zM6.5 10h0M10.3 10h0M14.1 10h0M17.7 10h0M7.5 14h9",
   frame: "M3 6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3zM7.5 8.5h9v7h-9z",
   crop: "M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2",
   layers: "M12 2l10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5",
@@ -58,8 +57,8 @@ const P: Record<string, string> = {
   trash: "M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3",
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   duplicate: "M8 8h12v12H8zM4 16V4h12M14 11v6M11 14h6",
-  bringForward: "M4 10h10v10H4zM10 4h10v10",
-  sendBackward: "M10 4h10v10H10zM4 10h10v10H4z",
+  bringForward: "M4 11h9v9H4zM11 4h9v9h-5M15 8l-2-2-2 2M13 6v5",
+  sendBackward: "M11 4h9v9h-9zM4 11h5v9h9v-5M11 16l2 2 2-2M13 18v-5",
   eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   eyeOff: "M3 3l18 18M10.6 5.1A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2",
   magnet: "M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3zM6 7h4M14 7h4",

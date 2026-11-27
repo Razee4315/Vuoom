@@ -86,7 +86,7 @@ export default function CommandPalette() {
     { id: "caption-add", label: t("Add caption at playhead"), group: t("Captions"), icon: "plus", run: () => void ed.addCaptionAtPlayhead(), when: clip },
     { id: "caption-srt", label: t("Save captions as .srt…"), group: t("Captions"), icon: "download", run: () => void ed.captions.saveSrt(), when: () => ed.captions.list().length > 0 },
     { id: "clicks", label: t("Toggle click ripples"), group: t("Edit"), icon: "clicks", run: () => ed.toggleClicks(), when: clip },
-    { id: "keys", label: t("Toggle keystroke overlay"), group: t("Edit"), icon: "keys", run: () => ed.toggleKeys(), when: clip },
+    { id: "keys", label: t("Toggle keystroke overlay"), group: t("Edit"), icon: "keyboard", run: () => ed.toggleKeys(), when: clip },
     { id: "undo", label: t("Undo"), group: t("Edit"), icon: "undo", kbd: "Ctrl+Z", run: () => void ed.doUndo(), when: clip },
     { id: "redo", label: t("Redo"), group: t("Edit"), icon: "redo", kbd: "Ctrl+Y", run: () => void ed.doRedo(), when: clip },
     ...TOOLS().map(

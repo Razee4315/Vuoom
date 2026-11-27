@@ -1,17 +1,16 @@
-// The home screen shown while no clip is loaded. Kept calm on purpose: pick what to record,
-// the sound and camera next to it, and the rarer choices (frame rate, zoom, countdown)
-// folded behind Options. A crashed session and recent projects show only when they exist.
+// Home: top-aligned 2-column studio launcher with left capture deck and right library/recovery pane.
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useEditor } from "../editor/context";
+import { RECORD_KEYS, stopKeys, zoomKeys } from "../hotkeys";
 import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
-import { RECORD_KEYS, stopKeys, zoomKeys } from "../hotkeys";
 import { prefs } from "../prefs";
-import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES, type Choice } from "../recordOptions";
-import { Kbd, Rich, Seg } from "../ui";
-import { AudioPicker } from "./AudioControls";
-import { CameraPicker } from "./CameraControls";
+import { type Choice, COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "../recordOptions";
+import { Banner, EmptyState, IconButton, Kbd, Rich, Seg } from "../ui";
+import { AudioPicker, audioLoadError, retryAudioDevices } from "./AudioControls";
+import { CameraPicker, cameraLoadError, retryCameras } from "./CameraControls";
 import PermissionsCard from "./Permissions";
+import { ContactSheetArt } from "./StudioArt";
 
 const SOURCES = (): { mode: "region" | "full" | "window"; icon: IconName; title: string; sub: string }[] => [
   { mode: "region", icon: "region", title: t("Region"), sub: t("Any area you drag out") },
@@ -28,56 +27,61 @@ export default function Home() {
     const q = ed.recentSearch().trim().toLowerCase();
     return q ? ed.recents().filter((r) => r.name.toLowerCase().includes(q)) : ed.recents();
   });
-  // One line that says how the next take is set up, so the options can stay folded.
+
   const summary = () => {
     const strength = labelOf(ZOOM_CHOICES(), prefs.recordZoom());
     const zoom =
-      prefs.recordZoom() <= 1 ? t("No zoom") : prefs.recordAutoZoom() ? t("Auto zoom {strength}", { strength }) : t("{strength} zoom", { strength });
-    const count = prefs.countdown() > 0 ? t("{countdown}s countdown", { countdown: prefs.countdown() }) : t("No countdown");
+      prefs.recordZoom() <= 1
+        ? t("No zoom")
+        : prefs.recordAutoZoom()
+          ? t("Auto zoom {strength}", { strength })
+          : t("{strength} zoom", { strength });
+    const count =
+      prefs.countdown() > 0 ? t("{countdown}s countdown", { countdown: prefs.countdown() }) : t("No countdown");
     return `${labelOf(FPS_CHOICES(), prefs.captureFps())} · ${zoom} · ${count}`;
   };
 
   return (
     <main class="home">
-      <div class="home-inner">
-        <section class="home-hero">
-          <h1 class="home-title">{t("Record something worth showing.")}</h1>
-          <p class="home-sub">
-            <Show
-              when={prefs.recordAutoZoom() && prefs.recordZoom() > 1}
-              fallback={
+      <div class="home-grid">
+        <section class="home-capture" aria-label={t("Record")}>
+          <header class="home-hero">
+            <h1 class="home-title">{t("Record something worth showing.")}</h1>
+            <p class="home-sub">
+              <Show
+                when={prefs.recordAutoZoom() && prefs.recordZoom() > 1}
+                fallback={
+                  <Rich
+                    text={t("Choose what to capture. Press {keys} while you record to zoom in.")}
+                    parts={{ keys: () => <Kbd keys={zoomKeys()} /> }}
+                  />
+                }
+              >
                 <Rich
-                  text={t("Choose what to capture. Press {keys} while you record to zoom in.")}
+                  text={t("Choose what to capture. Vuoom zooms in where you click, or press {keys} to zoom yourself.")}
                   parts={{ keys: () => <Kbd keys={zoomKeys()} /> }}
                 />
-              }
-            >
-              <Rich
-                text={t("Choose what to capture. Vuoom zooms in where you click, or press {keys} to zoom yourself.")}
-                parts={{ keys: () => <Kbd keys={zoomKeys()} /> }}
-              />
-            </Show>
-          </p>
+              </Show>
+            </p>
+          </header>
 
-          <PermissionsCard />
-
-          <div class="source-cards">
+          <div class="home-modes">
             <For each={SOURCES()}>
               {(s) => (
                 <button
                   type="button"
-                  class="source-card"
+                  class="home-mode"
                   classList={{ primary: s.mode === ed.recordMode() }}
                   onClick={() => void ed.startRecord(s.mode)}
                 >
-                  <span class="source-card-icon">
-                    <Icon name={s.icon} size={22} />
+                  <span class="home-mode-icon">
+                    <Icon name={s.icon} size={20} />
                   </span>
-                  <span class="source-card-text">
+                  <span class="home-mode-text">
                     <strong>{s.title}</strong>
                     <small>{s.sub}</small>
                   </span>
-                  <span class="source-card-go" aria-hidden="true">
+                  <span class="home-mode-go" aria-hidden="true">
                     <span class="rec-dot" />
                   </span>
                 </button>
@@ -85,7 +89,7 @@ export default function Home() {
             </For>
           </div>
 
-          <div class="home-bar">
+          <div class="home-setup">
             <AudioPicker />
             <CameraPicker />
             <button
@@ -93,10 +97,11 @@ export default function Home() {
               class="home-more"
               classList={{ on: more() }}
               aria-expanded={more()}
+              data-tip={summary()}
               onClick={() => setMore(!more())}
             >
               <Icon name="sliders" size={14} />
-              <span>{summary()}</span>
+              <span>{t("Options")}</span>
               <Icon name="chevronDown" size={12} class="home-more-chev" />
             </button>
           </div>
@@ -106,6 +111,7 @@ export default function Home() {
               <div class="home-opt">
                 <span>{t("Frame rate")}</span>
                 <Seg
+                  full
                   label={t("Frame rate")}
                   value={prefs.captureFps()}
                   onChange={(v) => prefs.captureFps.set(v)}
@@ -115,6 +121,7 @@ export default function Home() {
               <div class="home-opt">
                 <span>{t("Zooms")}</span>
                 <Seg
+                  full
                   label={t("How zooms are made")}
                   value={prefs.recordAutoZoom() ? "auto" : "hotkey"}
                   onChange={(v) => prefs.recordAutoZoom.set(v === "auto")}
@@ -127,6 +134,7 @@ export default function Home() {
               <div class="home-opt">
                 <span>{t("Zoom strength")}</span>
                 <Seg
+                  full
                   label={t("Zoom strength")}
                   value={prefs.recordZoom()}
                   onChange={(v) => prefs.recordZoom.set(v)}
@@ -136,6 +144,7 @@ export default function Home() {
               <div class="home-opt">
                 <span>{t("Countdown")}</span>
                 <Seg
+                  full
                   label={t("Countdown")}
                   value={prefs.countdown()}
                   onChange={(v) => prefs.countdown.set(v)}
@@ -144,41 +153,72 @@ export default function Home() {
               </div>
             </div>
           </Show>
+
+          <Show when={audioLoadError() || cameraLoadError()}>
+            <Banner
+              kind="error"
+              action={
+                <button
+                  type="button"
+                  class="btn sm"
+                  onClick={() => {
+                    void retryAudioDevices();
+                    void retryCameras();
+                  }}
+                >
+                  {t("Try again")}
+                </button>
+              }
+            >
+              {t("Couldn't read audio or camera devices.")}
+            </Banner>
+          </Show>
+
+          <footer class="home-keys">
+            <Kbd keys={RECORD_KEYS} /> {t("record")} <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> {t("stop")}
+          </footer>
         </section>
 
-        <Show when={ed.recoverable() !== null}>
-          <button type="button" class="recover-card" onClick={() => void ed.onRecover()}>
-            <span class="recover-icon">
-              <Icon name="history" size={18} />
-            </span>
-            <span class="recover-text">
-              <strong>{t("Your last take wasn't saved")}</strong>
-              <small>{t("{seconds}s with the edits you made. Pick it back up.", { seconds: ed.recoverable()!.toFixed(1) })}</small>
-            </span>
-            <span class="btn sm">{t("Recover")}</span>
-          </button>
-        </Show>
+        <section class="home-library" aria-label={t("Recent projects")}>
+          <PermissionsCard />
 
-        <Show
-          when={ed.recents().length > 0}
-          fallback={
-            <div class="home-foot">
-              <button type="button" class="btn ghost sm" onClick={() => void ed.onOpenProject()}>
-                <Icon name="folder" size={14} /> {t("Open a saved project")}
-              </button>
-              <button type="button" class="btn ghost sm" onClick={() => void ed.trySample()}>
-                <Icon name="wand" size={14} /> {t("Try a sample clip")}
-              </button>
-              <span class="home-keys">
-                <Kbd keys={RECORD_KEYS} /> {t("record")} <span class="home-keys-sep" /> <Kbd keys={stopKeys()} /> {t("stop")}
+          <Show when={ed.recoverable() !== null}>
+            <button type="button" class="recover-card" onClick={() => void ed.onRecover()}>
+              <span class="recover-icon">
+                <Icon name="history" size={18} />
               </span>
-            </div>
-          }
-        >
-          <section class="home-recents">
+              <span class="recover-text">
+                <strong>{t("Your last take wasn't saved")}</strong>
+                <small>{t("{seconds}s with the edits you made. Pick it back up.", { seconds: ed.recoverable()!.toFixed(1) })}</small>
+              </span>
+              <span class="btn sm">{t("Recover")}</span>
+            </button>
+          </Show>
+
+          <Show
+            when={ed.recents().length > 0}
+            fallback={
+              <EmptyState
+                class="home-empty"
+                art={<ContactSheetArt />}
+                title={t("No recent recordings yet")}
+                description={t("Start a capture on the left, open an existing project, or try a sample clip.")}
+                actions={
+                  <>
+                    <button type="button" class="btn sm" onClick={() => void ed.onOpenProject()}>
+                      <Icon name="folder" size={14} /> {t("Open project")}
+                    </button>
+                    <button type="button" class="btn sm ghost" onClick={() => void ed.trySample()}>
+                      <Icon name="wand" size={14} /> {t("Try a sample clip")}
+                    </button>
+                  </>
+                }
+              />
+            }
+          >
             <header class="home-recents-head">
               <h2>{t("Recent projects")}</h2>
-              <Show when={ed.recents().length > 3}>
+              <Show when={ed.recents().length > 2}>
                 <div class="input-wrap home-search">
                   <Icon name="search" size={14} />
                   <input
@@ -189,6 +229,15 @@ export default function Home() {
                     value={ed.recentSearch()}
                     onInput={(e) => ed.setRecentSearch(e.currentTarget.value)}
                   />
+                  <Show when={ed.recentSearch().trim().length > 0}>
+                    <IconButton
+                      icon="close"
+                      size={12}
+                      class="sm home-search-clear"
+                      tip={t("Clear search")}
+                      onClick={() => ed.setRecentSearch("")}
+                    />
+                  </Show>
                 </div>
               </Show>
               <button type="button" class="btn sm ghost" onClick={() => void ed.onOpenProject()}>
@@ -201,7 +250,9 @@ export default function Home() {
             <div class="recents-grid">
               <For
                 each={filtered()}
-                fallback={<div class="recents-empty">{t('No projects match "{query}".', { query: ed.recentSearch() })}</div>}
+                fallback={
+                  <div class="recents-empty">{t('No projects match "{query}".', { query: ed.recentSearch() })}</div>
+                }
               >
                 {(r) => (
                   <div class="recent">
@@ -216,21 +267,19 @@ export default function Home() {
                         <small>{ed.fmtAgo(r.ts)}</small>
                       </div>
                     </button>
-                    <button
-                      type="button"
+                    <IconButton
+                      icon="close"
+                      size={12}
                       class="recent-remove"
-                      aria-label={t("Remove {name} from recents", { name: r.name })}
-                      data-tip={t("Remove from recents")}
+                      tip={t("Remove {name} from recents", { name: r.name })}
                       onClick={() => ed.removeRecent(r.dir)}
-                    >
-                      <Icon name="close" size={10} stroke={2.4} />
-                    </button>
+                    />
                   </div>
                 )}
               </For>
             </div>
-          </section>
-        </Show>
+          </Show>
+        </section>
       </div>
     </main>
   );

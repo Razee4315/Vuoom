@@ -1,5 +1,5 @@
-// The status bar: the latest engine/status message on the left, clip facts and the
-// capture settings for the next take on the right.
+// The status bar: semantic status indicator on the left, tabular clip facts and next-take
+// capture defaults on the right.
 import { Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { t } from "../i18n";
@@ -10,18 +10,25 @@ import { Menu } from "../ui";
 
 export default function StatusBar() {
   const ed = useEditor();
+  const isError = () => ed.statusKind() === "error";
+  const isBusy = () => ed.statusKind() === "busy" || ed.playing();
   return (
     <footer class="statusbar">
-      <span class="sb-status" role="status" aria-live="polite">
-        <span class="sb-dot" classList={{ busy: ed.playing() }} />
-        {ed.status()}
+      <span class="sb-status" classList={{ error: isError() }} role="status" aria-live="polite">
+        <Show
+          when={isError()}
+          fallback={<span class="sb-dot" classList={{ busy: isBusy() }} aria-hidden="true" />}
+        >
+          <Icon name="warning" size={12} class="sb-err-icon" />
+        </Show>
+        <span>{ed.status()}</span>
       </span>
       <span class="grow" />
       <Show when={ed.hasClip()}>
-        <span class="sb-item" data-tip={t("Recorded length")}>
+        <span class="sb-item tabular" data-tip={t("Recorded length")}>
           <Icon name="film" size={12} /> {ed.duration().toFixed(1)}s
         </span>
-        <span class="sb-item" data-tip={t("Zoom blocks")}>
+        <span class="sb-item tabular" data-tip={t("Zoom blocks")}>
           <Icon name="zoomIn" size={12} /> {ed.zooms().length}
         </span>
       </Show>
@@ -38,7 +45,7 @@ export default function StatusBar() {
         trigger={(m) => (
           <button
             type="button"
-            class="sb-item sb-btn"
+            class="sb-item sb-btn tabular"
             classList={{ on: m.open }}
             ref={m.ref}
             data-tip={t("Frame rate for the next recording")}

@@ -1,18 +1,18 @@
-// The window's title bar: brand + record, the File / View menus, the project name,
-// history, the command palette, panel toggles, Export, and the window controls. The empty
-// space is a Tauri drag region so the frameless window stays movable.
+// The window's title bar: uniform 28px studio controls, rename with Esc revert, truthful
+// history states, >=48px drag track, and a compact Workspace overflow menu below 960px.
 import { Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { t } from "../i18n";
 import { Icon } from "../icons";
 import { LogoMark } from "../Logo";
+import { isMac, keyText } from "../platform";
 import { layout, resetLayout } from "../prefs";
 import { IconButton, Menu, type MenuItem } from "../ui";
 import WindowControls from "../WindowControls";
-import { isMac, keyText } from "../platform";
 
 export default function Titlebar() {
   const ed = useEditor();
+  let nameBeforeEdit = "";
 
   const fileItems = (): MenuItem[] => [
     { label: t("New recording"), icon: "region", kbd: "Ctrl+Shift+R", onSelect: () => void ed.startRecord() },
@@ -113,6 +113,44 @@ export default function Titlebar() {
     { label: t("Keyboard shortcuts"), icon: "keyboard", kbd: "?", onSelect: () => ed.setSettingsTab("shortcuts") },
   ];
 
+  const workspaceItems = (): MenuItem[] => [
+    ...(ed.hasClip()
+      ? ([
+          {
+            label: t("Tools"),
+            kbd: "Ctrl+1",
+            checked: layout.railOpen(),
+            onSelect: () => layout.railOpen.set(!layout.railOpen()),
+          },
+          {
+            label: t("Timeline"),
+            kbd: "Ctrl+3",
+            checked: layout.timelineOpen(),
+            onSelect: () => layout.timelineOpen.set(!layout.timelineOpen()),
+          },
+          {
+            label: t("Inspector"),
+            kbd: "Ctrl+2",
+            checked: layout.inspectorOpen(),
+            onSelect: () => layout.inspectorOpen.set(!layout.inspectorOpen()),
+          },
+          { separator: true },
+        ] as MenuItem[])
+      : []),
+    { label: t("Settings"), icon: "settings", kbd: "Ctrl+,", onSelect: () => ed.setSettingsTab("general") },
+    ...(ed.update()
+      ? ([
+          { separator: true },
+          {
+            label: ed.updating() ? t("Updating…") : t("Install v{version} and restart", { version: ed.update()!.version }),
+            icon: "download",
+            disabled: ed.updating(),
+            onSelect: () => void ed.runUpdate(),
+          },
+        ] as MenuItem[])
+      : []),
+  ];
+
   return (
     <header class="titlebar" data-tauri-drag-region="">
       <div class="tb-brand" data-tauri-drag-region="">
@@ -157,17 +195,28 @@ export default function Titlebar() {
             aria-label={t("Project name")}
             data-tip={t("Rename project")}
             onInput={(e) => ed.setProjectName(e.currentTarget.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onFocus={(e) => {
+              nameBeforeEdit = ed.projectName();
+              e.currentTarget.select();
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                ed.setProjectName(nameBeforeEdit);
+                e.currentTarget.blur();
+              } else if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
             }}
             onBlur={(e) => {
-              if (!e.currentTarget.value.trim()) ed.setProjectName(t("Untitled"));
+              if (!e.currentTarget.value.trim()) ed.setProjectName(nameBeforeEdit.trim() || t("Untitled"));
             }}
           />
-          <Show when={ed.dirty()}>
-            <span class="tb-dirty" data-tip={t("Unsaved changes")} data-kbd="Ctrl+S" />
-          </Show>
+          <span class="tb-dirty-slot">
+            <Show when={ed.dirty()}>
+              <span class="tb-dirty" data-tip={t("Unsaved changes")} data-kbd="Ctrl+S" />
+            </Show>
+          </span>
         </div>
       </Show>
 
@@ -176,6 +225,7 @@ export default function Titlebar() {
       <button
         type="button"
         class="tb-search"
+        aria-label={t("Search actions")}
         data-tip={t("Search every action")}
         data-kbd="Ctrl+K"
         onClick={() => ed.setShowPalette(true)}
@@ -186,12 +236,12 @@ export default function Titlebar() {
       </button>
 
       <div class="tb-group">
-        <IconButton icon="undo" tip={t("Undo")} kbd="Ctrl+Z" disabled={!ed.hasClip()} onClick={() => void ed.doUndo()} />
-        <IconButton icon="redo" tip={t("Redo")} kbd="Ctrl+Y" disabled={!ed.hasClip()} onClick={() => void ed.doRedo()} />
+        <IconButton icon="undo" tip={t("Undo")} kbd="Ctrl+Z" disabled={!ed.canUndo()} onClick={() => void ed.doUndo()} />
+        <IconButton icon="redo" tip={t("Redo")} kbd="Ctrl+Y" disabled={!ed.canRedo()} onClick={() => void ed.doRedo()} />
       </div>
 
       <Show when={ed.hasClip()}>
-        <div class="tb-group">
+        <div class="tb-group tb-panels">
           <IconButton
             icon="panelLeft"
             tip={t("Tools")}
@@ -216,7 +266,13 @@ export default function Titlebar() {
         </div>
       </Show>
 
-      <IconButton icon="settings" tip={t("Settings")} kbd="Ctrl+," onClick={() => ed.setSettingsTab("general")} />
+      <IconButton
+        class="tb-settings-btn"
+        icon="settings"
+        tip={t("Settings")}
+        kbd="Ctrl+,"
+        onClick={() => ed.setSettingsTab("general")}
+      />
 
       <Show when={ed.update()}>
         <button
@@ -230,6 +286,24 @@ export default function Titlebar() {
           {ed.updating() ? t("Updating…") : t("Update")}
         </button>
       </Show>
+
+      <Menu
+        align="end"
+        items={workspaceItems}
+        trigger={(m) => (
+          <button
+            type="button"
+            class="ibtn tb-overflow"
+            classList={{ on: m.open }}
+            ref={m.ref}
+            aria-label={t("Workspace")}
+            data-tip={t("Workspace")}
+            onClick={m.toggle}
+          >
+            <Icon name="more" size={16} />
+          </button>
+        )}
+      />
 
       <button
         type="button"

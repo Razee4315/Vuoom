@@ -17,14 +17,22 @@ export const BUBBLE_SIZE = 0.28;
 export const BUBBLE_MARGIN = 0.035;
 
 let camerasCache: Promise<CameraDevice[]> | null = null;
+const [cameraLoadError, setCameraLoadError] = createSignal(false);
+export { cameraLoadError };
 
 /** Connected cameras (cached; `refresh` re-reads the system). */
 export function loadCameras(refresh = false): Promise<CameraDevice[]> {
   if (!camerasCache || refresh) {
-    camerasCache = invoke<CameraDevice[]>("list_cameras").catch(() => []);
+    setCameraLoadError(false);
+    camerasCache = invoke<CameraDevice[]>("list_cameras").catch(() => {
+      setCameraLoadError(true);
+      return [];
+    });
   }
   return camerasCache;
 }
+
+export const retryCameras = (): Promise<CameraDevice[]> => loadCameras(true);
 
 /** A signal holding the camera list, loaded on mount. */
 export function createCameras() {

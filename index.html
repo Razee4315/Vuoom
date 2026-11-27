@@ -3,17 +3,68 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0e0e0f" />
+    <meta name="theme-color" content="#110f0e" />
     <title>Vuoom</title>
-    <!-- Anti-flash: paint the dark default background + a loader before the app CSS/JS load,
-         so the launch window shows a branded splash instead of a black flash. -->
+    <!-- Synchronous theme init: resolves system/persisted/?theme= before first paint so light
+         mode and dark mode launch on their matching studio backdrop with zero flash. -->
+    <script>
+      (() => {
+        var BACKDROPS = {
+          tungsten: "#110f0e",
+          daylight: "#f4f0e8",
+          "mono-dark": "#0b0b0b",
+          "mono-light": "#f1f1f1",
+          graphite: "#111518",
+          midnight: "#090f17",
+        };
+        var INKS = {
+          tungsten: "#f6efe5",
+          daylight: "#27221d",
+          "mono-dark": "#f5f5f5",
+          "mono-light": "#151515",
+          graphite: "#eaf0f4",
+          midnight: "#eaf1f7",
+        };
+        var pref = "system";
+        try {
+          var q = new URLSearchParams(window.location.search).get("theme");
+          if (q) pref = q;
+          else pref = localStorage.getItem("vuoom-theme") || "system";
+        } catch (e) {}
+        if (pref === "paper") pref = "daylight";
+        var resolved = pref;
+        if (pref === "system" || !BACKDROPS[pref]) {
+          var dark = true;
+          try {
+            dark = !window.matchMedia || window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (e) {}
+          resolved = dark ? "tungsten" : "daylight";
+        }
+        var bg = BACKDROPS[resolved] || "#110f0e";
+        var ink = INKS[resolved] || "#f6efe5";
+        var isLight = resolved === "daylight" || resolved === "mono-light";
+        var root = document.documentElement;
+        root.dataset.theme = resolved;
+        root.style.colorScheme = isLight ? "light" : "dark";
+        root.style.setProperty("--splash-bg", bg);
+        root.style.setProperty("--splash-ink", ink);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", bg);
+      })();
+    </script>
     <style>
+      @media (prefers-color-scheme: light) {
+        :root:not([data-theme]) {
+          --splash-bg: #f4f0e8;
+          --splash-ink: #27221d;
+        }
+      }
       html,
       body,
       #root {
         margin: 0;
         height: 100%;
-        background: #0e0e0f;
+        background: var(--splash-bg, #110f0e);
       }
       #splash {
         position: fixed;
@@ -24,8 +75,8 @@
         align-items: center;
         justify-content: center;
         gap: 22px;
-        background: #0e0e0f;
-        transition: opacity 0.25s ease;
+        background: var(--splash-bg, #110f0e);
+        transition: opacity 0.14s cubic-bezier(0.3, 0, 1, 1);
       }
       #splash.hide {
         opacity: 0;
@@ -36,12 +87,18 @@
         height: 64px;
         animation: splash-breathe 1.8s ease-in-out infinite;
       }
+      #splash svg path {
+        stroke: var(--splash-ink, #f6efe5);
+      }
       @keyframes splash-breathe {
         50% {
           opacity: 0.6;
         }
       }
       @media (prefers-reduced-motion: reduce) {
+        #splash {
+          transition: none;
+        }
         #splash svg {
           animation: none;
         }
@@ -55,7 +112,7 @@
       <svg viewBox="0 0 32 32" fill="none" aria-label="Vuoom">
         <path
           d="M6.5 8 L16 25.5 L25.5 8"
-          stroke="#ffffff"
+          stroke="#f6efe5"
           stroke-width="5"
           stroke-linecap="round"
           stroke-linejoin="round"

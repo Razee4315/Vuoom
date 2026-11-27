@@ -210,7 +210,7 @@ export function LevelMeter(props: { level: number; class?: string }): JSX.Elemen
       classList={{ hot: props.level > 0.5, clip: props.level > 0.95 }}
       aria-hidden="true"
     >
-      <span class="meter-fill" style={{ width: `${pct()}%` }} />
+      <span class="meter-fill" style={{ "--level": String(pct() / 100) }} />
     </span>
   );
 }

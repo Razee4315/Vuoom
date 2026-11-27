@@ -4,7 +4,7 @@ import { t } from "./i18n";
 import { pickSavePath } from "./saveDir";
 import { Icon } from "./icons";
 import { type ExportFormat, prefs } from "./prefs";
-import { Field, Slider, Switch, toast } from "./ui";
+import { Field, IconButton, Slider, Switch, toast } from "./ui";
 import { dialogA11y } from "./dialog";
 import { fmtBytes, friendlyError, timeLeft } from "./format";
 import { outputDuration } from "./geometry";
@@ -442,9 +442,7 @@ export function ExportDialog(props: {
               </h2>
               <p class="muted small">{t("Zooms, annotations, speed-ups and cuts are baked into the file.")}</p>
             </div>
-            <button type="button" class="ibtn" aria-label={t("Close")} onClick={props.onClose}>
-              <Icon name="close" size={14} />
-            </button>
+            <IconButton icon="close" size={14} tip={t("Close")} onClick={props.onClose} />
           </header>
 
           <div class="export-formats">

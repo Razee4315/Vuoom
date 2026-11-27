@@ -782,15 +782,26 @@
   .busy-veil {
     position: fixed;
     inset: 0;
-    z-index: 60;
+    z-index: 600;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    padding: 24px;
     background: var(--overlay);
+    animation: fade-in var(--dur-fast) var(--ease-standard);
+  }
+  .busy-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-radius: var(--r-lg);
+    background: var(--panel);
+    border: 1px solid var(--line-2);
+    box-shadow: var(--shadow-pop);
     color: var(--text);
     font-size: var(--fs-md);
-    animation: fade-in var(--dur-fast) var(--ease-standard);
+    font-weight: 500;
   }
   .spinner {
     width: 18px;

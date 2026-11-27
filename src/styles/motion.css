@@ -123,6 +123,8 @@
   }
   :root[data-motion="reduced"] .btn:active:not(:disabled),
   :root[data-motion="reduced"] .ibtn:active:not(:disabled),
+  :root[data-motion="reduced"] .choice-card:active:not(:disabled),
+  :root[data-motion="reduced"] .action-card:active:not(:disabled),
   :root[data-motion="reduced"] .swatch:hover,
   :root[data-motion="reduced"] .swatch:active,
   :root[data-motion="reduced"] .rail-tool:active,
@@ -150,6 +152,8 @@
     }
     .btn:active:not(:disabled),
     .ibtn:active:not(:disabled),
+    .choice-card:active:not(:disabled),
+    .action-card:active:not(:disabled),
     .swatch:hover,
     .swatch:active,
     .rail-tool:active,

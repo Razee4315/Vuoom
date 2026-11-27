@@ -1,26 +1,90 @@
-// Shared UI primitives: the component grammar every Vuoom screen is built from.
-// Buttons, segmented controls, switches, sliders, collapsible sections, menus, keyboard
-// chips, a global tooltip layer, and the toast stack for action feedback.
+// Shared UI primitives: the consolidated component grammar every Vuoom screen builds from.
+// Actions, segmented controls, switches, sliders, sections, fields, roving focus helpers,
+// modals, floating islands, banners, empty states, skeletons, choice/action cards, menus, tooltips, toasts.
 
-import { keyCaps, keyText } from "./platform";
-import {
-  createEffect,
-  createSignal,
-  For,
-  onCleanup,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
+import { dialogA11y } from "./dialog";
 import { t } from "./i18n";
 import { Icon, type IconName } from "./icons";
+import { keyCaps, keyText } from "./platform";
 import { sectionOpen, toggleSection } from "./prefs";
 
-// ── buttons ────────────────────────────────────────────────────────────────────
+// ── focus & presence helpers ───────────────────────────────────────────────────
 
-/** Icon-only button. `tip` becomes the accessible name and the hover tooltip, `kbd` the
- *  shortcut shown beside it. */
+/** Keyboard arrow/Home/End navigation across focusable children inside a composite control. */
+export function createRovingTabindex(
+  container: () => HTMLElement | undefined,
+  selector: string,
+  opts?: { orientation?: "horizontal" | "vertical" | "both"; loop?: boolean },
+): (e: KeyboardEvent) => void {
+  const orientation = opts?.orientation ?? "horizontal";
+  const loop = opts?.loop ?? true;
+  return (e: KeyboardEvent) => {
+    const forward =
+      (orientation !== "vertical" && e.key === "ArrowRight") ||
+      (orientation !== "horizontal" && e.key === "ArrowDown");
+    const backward =
+      (orientation !== "vertical" && e.key === "ArrowLeft") ||
+      (orientation !== "horizontal" && e.key === "ArrowUp");
+    const toStart = e.key === "Home";
+    const toEnd = e.key === "End";
+    if (!forward && !backward && !toStart && !toEnd) return;
+    const root = container();
+    if (!root) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>(selector)).filter(
+      (n) => !n.hasAttribute("disabled") && n.getAttribute("aria-disabled") !== "true" && n.offsetParent !== null,
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    const cur = items.indexOf(document.activeElement as HTMLElement);
+    let nextIdx = 0;
+    if (toStart) nextIdx = 0;
+    else if (toEnd) nextIdx = items.length - 1;
+    else if (forward) nextIdx = cur < 0 ? 0 : loop ? (cur + 1) % items.length : Math.min(items.length - 1, cur + 1);
+    else nextIdx = cur < 0 ? items.length - 1 : loop ? (cur - 1 + items.length) % items.length : Math.max(0, cur - 1);
+    items[nextIdx].focus();
+  };
+}
+
+/** Interruptible mount/exit helper: keeps exiting surfaces mounted for `exitMs` unless reduced motion is active. */
+export function createPresence(
+  when: () => boolean,
+  exitMs = 140,
+): { mounted: () => boolean; exiting: () => boolean } {
+  const [mounted, setMounted] = createSignal(when());
+  const [exiting, setExiting] = createSignal(false);
+  let timer: number | undefined;
+  createEffect(() => {
+    clearTimeout(timer);
+    if (when()) {
+      setExiting(false);
+      setMounted(true);
+      return;
+    }
+    if (!mounted()) return;
+    const reduced =
+      document.documentElement.dataset.motion === "reduced" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const wait = reduced ? 0 : exitMs;
+    if (wait <= 0) {
+      setExiting(false);
+      setMounted(false);
+      return;
+    }
+    setExiting(true);
+    timer = window.setTimeout(() => {
+      setExiting(false);
+      setMounted(false);
+    }, wait);
+  });
+  onCleanup(() => clearTimeout(timer));
+  return { mounted, exiting };
+}
+
+// ── buttons & pickers ──────────────────────────────────────────────────────────
+
+/** Icon-only button. `tip` becomes the accessible name and hover tooltip, `kbd` the shortcut badge. */
 export function IconButton(props: {
   icon: IconName;
   tip: string;
@@ -50,6 +114,36 @@ export function IconButton(props: {
   );
 }
 
+/** Shared trigger chrome for dropdown pickers (Audio, Camera, Workspace). */
+export function PickerTrigger(props: {
+  icon: IconName;
+  label: JSX.Element;
+  open?: boolean;
+  off?: boolean;
+  tip?: string;
+  onClick?: (e: MouseEvent) => void;
+  ref?: (el: HTMLButtonElement) => void;
+  class?: string;
+  children?: JSX.Element;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      ref={props.ref}
+      class={`audio-picker picker-trigger ${props.class ?? ""}`}
+      classList={{ on: !!props.open, off: !!props.off }}
+      aria-expanded={props.open}
+      data-tip={props.tip}
+      onClick={(e) => props.onClick?.(e)}
+    >
+      <Icon name={props.icon} size={14} />
+      <span>{props.label}</span>
+      {props.children}
+      <Icon name="chevronDown" size={12} />
+    </button>
+  );
+}
+
 // ── segmented control ─────────────────────────────────────────────────────────
 
 /** A group of exclusive options rendered as one pill switcher with a sliding thumb. */
@@ -72,21 +166,27 @@ export function Seg<T extends string | number>(props: {
       role="group"
       aria-label={props.label}
       onKeyDown={(e) => {
-        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-        if (!step || props.disabled) return;
-        e.preventDefault();
+        if (props.disabled || props.options.length === 0) return;
         const n = props.options.length;
-        props.onChange(props.options[(idx() + step + n) % n].value);
-        (e.currentTarget.querySelector(".seg-btn.on") as HTMLElement | null)?.focus();
+        let nextIdx: number | null = null;
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (step !== undefined) nextIdx = (idx() + step + n) % n;
+        else if (e.key === "Home") nextIdx = 0;
+        else if (e.key === "End") nextIdx = n - 1;
+        if (nextIdx === null) return;
+        e.preventDefault();
+        const container = e.currentTarget;
+        props.onChange(props.options[nextIdx].value);
+        queueMicrotask(() => container.querySelector<HTMLElement>(".seg-btn.on")?.focus());
       }}
     >
       <span class="seg-thumb" aria-hidden="true" />
       <For each={props.options}>
-        {(o) => (
+        {(o, i) => (
           <button
             type="button"
             aria-pressed={props.value === o.value}
-            tabindex={props.value === o.value ? 0 : -1}
+            tabindex={idx() === i() ? 0 : -1}
             data-tip={o.tip}
             disabled={props.disabled}
             classList={{ "seg-btn": true, on: props.value === o.value }}
@@ -100,7 +200,7 @@ export function Seg<T extends string | number>(props: {
   );
 }
 
-// ── switch ─────────────────────────────────────────────────────────────────────
+// ── switch & slider ───────────────────────────────────────────────────────────
 
 export function Switch(props: {
   checked: boolean;
@@ -122,8 +222,6 @@ export function Switch(props: {
     </button>
   );
 }
-
-// ── slider ─────────────────────────────────────────────────────────────────────
 
 /** A range slider with a filled track and an inline value readout. */
 export function Slider(props: {
@@ -159,18 +257,14 @@ export function Slider(props: {
   );
 }
 
-// ── inspector layout ───────────────────────────────────────────────────────────
+// ── inspector & form layout ───────────────────────────────────────────────────
 
 /** What the inspector's settings search is looking for (lowercase, trimmed). */
 const [sectionQuery, setSectionQueryRaw] = createSignal("");
 export { sectionQuery };
 export const setSectionQuery = (q: string) => setSectionQueryRaw(q.trim().toLowerCase());
 
-/**
- * A collapsible, titled group. Its open state persists per `id`. While the settings search
- * has a query, a section shows only if its title, `keywords` or any of its words match,
- * and then it opens by itself.
- */
+/** A collapsible, titled group whose open state persists per `id`. */
 export function Section(props: {
   id: string;
   title: string;
@@ -216,28 +310,256 @@ export function Section(props: {
   );
 }
 
-/** One labelled property row: label on the left, control on the right (or stacked). */
+/** One labelled property row: associated label (when `forId` provided), optional description/error, and control. */
 export function Field(props: {
   label: string;
+  forId?: string;
   hint?: string;
+  description?: string;
+  error?: string;
   stack?: boolean;
   children: JSX.Element;
 }): JSX.Element {
   return (
     <div class="field" classList={{ stack: !!props.stack }}>
-      <span class="field-label" data-tip={props.hint}>
-        {props.label}
-      </span>
+      <Show
+        when={props.forId}
+        fallback={
+          <span class="field-label" data-tip={props.hint}>
+            {props.label}
+          </span>
+        }
+      >
+        <label class="field-label" for={props.forId} data-tip={props.hint}>
+          {props.label}
+        </label>
+      </Show>
       <div class="field-control">{props.children}</div>
+      <Show when={props.description}>
+        <p class="field-desc">{props.description}</p>
+      </Show>
+      <Show when={props.error}>
+        <p class="field-error" role="alert">
+          {props.error}
+        </p>
+      </Show>
     </div>
   );
 }
 
-/** Keyboard chip(s). A string like "Ctrl+Shift+R" renders one chip per key. */
-/**
- * A translated sentence with elements inside it: each {name} left in `text` is replaced by
- * `parts.name`, so the sentence stays whole and each language places the element itself.
- */
+// ── containers, cards, feedback ───────────────────────────────────────────────
+
+/** Accessible modal shell sharing .modal-backdrop, .modal, and hardened dialogA11y(). */
+export function Modal(props: {
+  label: string;
+  onClose: () => void;
+  class?: string;
+  backdropClass?: string;
+  initialFocus?: () => HTMLElement | null;
+  closeOnBackdrop?: boolean;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <div
+      class={`modal-backdrop ${props.backdropClass ?? ""}`}
+      onClick={(e) => {
+        if (props.closeOnBackdrop !== false && e.target === e.currentTarget) props.onClose();
+      }}
+    >
+      <div
+        class={`modal ${props.class ?? ""}`}
+        ref={(el) => dialogA11y(el, props.label, props.onClose, { initialFocus: props.initialFocus })}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+export function ModalHeader(props: {
+  title: string;
+  subtitle?: string;
+  onClose?: () => void;
+  closeLabel?: string;
+  aside?: JSX.Element;
+}): JSX.Element {
+  return (
+    <header class="modal-head">
+      <div>
+        <h2>{props.title}</h2>
+        <Show when={props.subtitle}>
+          <p class="muted small">{props.subtitle}</p>
+        </Show>
+      </div>
+      {props.aside}
+      <Show when={props.onClose}>
+        <IconButton icon="close" size={14} tip={props.closeLabel ?? t("Close")} onClick={props.onClose} />
+      </Show>
+    </header>
+  );
+}
+
+export function ModalBody(props: { class?: string; children: JSX.Element }): JSX.Element {
+  return <div class={`modal-body ${props.class ?? ""}`}>{props.children}</div>;
+}
+
+export function ModalFooter(props: { class?: string; children: JSX.Element }): JSX.Element {
+  return <footer class={`modal-actions ${props.class ?? ""}`}>{props.children}</footer>;
+}
+
+/** Opaque floating surface (Stage hint pills, Crop bar, HUDs) using tier-2 elevation. */
+export function Island(props: {
+  class?: string;
+  role?: "toolbar" | "region" | "status" | "group";
+  label?: string;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <Show
+      when={props.role || props.label}
+      fallback={<div class={`island ${props.class ?? ""}`}>{props.children}</div>}
+    >
+      <section class={`island ${props.class ?? ""}`} role={props.role ?? "region"} aria-label={props.label}>
+        {props.children}
+      </section>
+    </Show>
+  );
+}
+
+/** Structured empty state with optional custom geometric SVG art, title, 1-line guidance, and actions. */
+export function EmptyState(props: {
+  art?: JSX.Element;
+  title: string;
+  description?: string;
+  actions?: JSX.Element;
+  class?: string;
+}): JSX.Element {
+  return (
+    <div class={`empty-state ${props.class ?? ""}`}>
+      <Show when={props.art}>
+        <div class="empty-art">{props.art}</div>
+      </Show>
+      <strong>{props.title}</strong>
+      <Show when={props.description}>
+        <p class="note">{props.description}</p>
+      </Show>
+      <Show when={props.actions}>
+        <div class="empty-actions">{props.actions}</div>
+      </Show>
+    </div>
+  );
+}
+
+/** Inline notice banner for GPU warnings, device enumeration errors, and recovery prompts. */
+export function Banner(props: {
+  kind?: "info" | "warn" | "error" | "ok";
+  icon?: IconName;
+  role?: "status" | "alert";
+  action?: JSX.Element;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+  class?: string;
+  children: JSX.Element;
+}): JSX.Element {
+  const defaultIcon: Record<NonNullable<typeof props.kind>, IconName> = {
+    info: "info",
+    warn: "warning",
+    error: "warning",
+    ok: "check",
+  };
+  const kind = () => props.kind ?? "warn";
+  return (
+    <div class={`ui-banner ${kind()} ${props.class ?? ""}`} role={props.role ?? (kind() === "error" ? "alert" : "status")}>
+      <Icon name={props.icon ?? defaultIcon[kind()]} size={15} class="ui-banner-icon" />
+      <div class="ui-banner-body">{props.children}</div>
+      {props.action}
+      <Show when={props.onDismiss}>
+        <IconButton icon="close" size={12} class="sm" tip={props.dismissLabel ?? t("Dismiss")} onClick={props.onDismiss} />
+      </Show>
+    </div>
+  );
+}
+
+/** Pure-CSS 180ms-delayed skeleton block for async loads (0 timers, 0 continuous shimmer). */
+export function Skeleton(props: { width?: string; height?: string; radius?: string; class?: string }): JSX.Element {
+  return (
+    <div
+      class={`skeleton ${props.class ?? ""}`}
+      aria-hidden="true"
+      style={{ width: props.width, height: props.height ?? "14px", "border-radius": props.radius }}
+    />
+  );
+}
+
+/** Selectable option card (format choices, theme presets, source modes). */
+export function ChoiceCard(props: {
+  selected?: boolean;
+  icon?: JSX.Element;
+  title: string;
+  subtitle?: string;
+  disabled?: boolean;
+  onClick: () => void;
+  class?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      class={`choice-card ${props.class ?? ""}`}
+      classList={{ on: !!props.selected }}
+      aria-pressed={!!props.selected}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      <Show when={props.icon}>
+        <span class="choice-card-icon">{props.icon}</span>
+      </Show>
+      <span class="choice-card-text">
+        <strong>{props.title}</strong>
+        <Show when={props.subtitle}>
+          <small>{props.subtitle}</small>
+        </Show>
+      </span>
+    </button>
+  );
+}
+
+/** Command / capture launcher card with leading icon, copy, and trailing affordance. */
+export function ActionCard(props: {
+  icon?: JSX.Element;
+  title: string;
+  subtitle?: string;
+  trailing?: JSX.Element;
+  primary?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  class?: string;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      class={`action-card ${props.class ?? ""}`}
+      classList={{ primary: !!props.primary }}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      <Show when={props.icon}>
+        <span class="action-card-icon">{props.icon}</span>
+      </Show>
+      <span class="action-card-text">
+        <strong>{props.title}</strong>
+        <Show when={props.subtitle}>
+          <small>{props.subtitle}</small>
+        </Show>
+      </span>
+      <Show when={props.trailing}>
+        <span class="action-card-end">{props.trailing}</span>
+      </Show>
+    </button>
+  );
+}
+
+/** Translated sentence with inline JSX parts replacing {name} placeholders. */
 export function Rich(props: { text: string; parts: Record<string, () => JSX.Element> }): JSX.Element {
   return (
     <>
@@ -249,6 +571,7 @@ export function Rich(props: { text: string; parts: Record<string, () => JSX.Elem
   );
 }
 
+/** Keyboard chip(s): "Ctrl+Shift+R" renders one keycap per key. */
 export function Kbd(props: { keys: string }): JSX.Element {
   return (
     <span class="kbds">
@@ -272,8 +595,7 @@ export type MenuItem =
   | { separator: true }
   | { heading: string };
 
-/** The popup half of a menu: positioned list, keyboard navigation, dismissal. Shared by
- *  dropdown menus and right-click context menus. */
+/** Positioned popup list with full keyboard navigation shared by dropdown & context menus. */
 function MenuPopup(props: {
   items: MenuItem[];
   x: number;
@@ -282,16 +604,14 @@ function MenuPopup(props: {
   class?: string;
   onClose: (refocus: boolean) => void;
   keepOpenOn?: () => HTMLElement | undefined;
-  /** Top edge of the trigger: when the menu would overflow the bottom, it opens above it. */
   flipAbove?: number;
 }): JSX.Element {
   let menuEl: HTMLDivElement | undefined;
-  // Keep the popup on screen: flip left/up when it would overflow the viewport.
   const [shift, setShift] = createSignal({ x: 0, y: 0 });
   onMount(() => {
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (menuEl?.contains(t) || props.keepOpenOn?.()?.contains(t)) return;
+      const target = e.target as Node;
+      if (menuEl?.contains(target) || props.keepOpenOn?.()?.contains(target)) return;
       props.onClose(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -299,14 +619,28 @@ function MenuPopup(props: {
         e.preventDefault();
         e.stopPropagation();
         props.onClose(true);
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        return;
+      }
+      if (e.key === "Tab") {
+        props.onClose(false);
+        return;
+      }
+      const items = [...(menuEl?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? [])];
+      if (!items.length) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
-        const items = [...(menuEl?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? [])];
-        if (!items.length) return;
         const i = items.indexOf(document.activeElement as HTMLButtonElement);
         const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
         items[next].focus();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        e.stopPropagation();
+        items[0].focus();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        e.stopPropagation();
+        items[items.length - 1].focus();
       }
     };
     const close = () => props.onClose(false);
@@ -316,7 +650,6 @@ function MenuPopup(props: {
     window.addEventListener("blur", close);
     queueMicrotask(() => {
       if (!menuEl) return;
-      // Layout sizes, not the bounding box: the pop-in animation transforms the popup.
       const w = menuEl.offsetWidth;
       const h = menuEl.offsetHeight;
       const left = props.align === "end" ? props.x - w : props.x;
@@ -350,8 +683,13 @@ function MenuPopup(props: {
       >
         <For each={props.items}>
           {(it) => {
-            if ("separator" in it) return <div class="menu-sep" />;
-            if ("heading" in it) return <div class="menu-heading">{it.heading}</div>;
+            if ("separator" in it) return <hr class="menu-sep" />;
+            if ("heading" in it)
+              return (
+                <div class="menu-heading" role="presentation">
+                  {it.heading}
+                </div>
+              );
             return (
               <button
                 type="button"
@@ -393,8 +731,7 @@ function MenuPopup(props: {
   );
 }
 
-/** A dropdown menu anchored to its trigger. Closes on selection, outside click, or Esc;
- *  arrow keys move between items. */
+/** A dropdown menu anchored to its trigger. Closes on selection, Tab, outside click, or Esc. */
 export function Menu(props: {
   trigger: (p: { open: boolean; toggle: () => void; ref: (el: HTMLElement) => void }) => JSX.Element;
   items: () => MenuItem[];
@@ -404,7 +741,6 @@ export function Menu(props: {
   const [open, setOpen] = createSignal(false);
   const [pos, setPos] = createSignal({ x: 0, y: 0, top: 0 });
   let anchor: HTMLElement | undefined;
-  // The trigger is the caller's own button: say what it opens, and whether it is open.
   createEffect(() => {
     anchor?.setAttribute("aria-haspopup", "menu");
     anchor?.setAttribute("aria-expanded", String(open()));
@@ -439,8 +775,6 @@ export function Menu(props: {
 }
 
 // ── context menus ──────────────────────────────────────────────────────────────
-// One right-click menu for the whole app. Components call `openContextMenu(e, items)`
-// from their `onContextMenu`; <ContextMenuHost/> renders it at the pointer.
 
 const [ctxMenu, setCtxMenu] = createSignal<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
@@ -460,9 +794,6 @@ export function ContextMenuHost(): JSX.Element {
 }
 
 // ── tooltips ───────────────────────────────────────────────────────────────────
-// One tooltip layer for the whole app: any element with `data-tip` (and optionally
-// `data-kbd`) gets a styled tooltip after a short hover delay. No per-button wiring, no
-// native `title` lag, and the shortcut is always shown next to the action.
 
 export function TooltipLayer(): JSX.Element {
   const [tip, setTip] = createSignal<{ text: string; kbd?: string; x: number; y: number; below: boolean } | null>(null);
@@ -475,7 +806,6 @@ export function TooltipLayer(): JSX.Element {
   };
   const show = (el: HTMLElement) => {
     if (current !== el || !el.isConnected || !el.dataset.tip) return;
-    // Skip custom floating tooltips inside the 68px Mini Bar so they never clip.
     if (window.innerHeight < 110) return;
     const r = el.getBoundingClientRect();
     const below = r.top < 64;
@@ -497,7 +827,6 @@ export function TooltipLayer(): JSX.Element {
       if (!el?.dataset.tip) return;
       timer = window.setTimeout(() => show(el), 420);
     };
-    // Keyboard users get the same tip (and its shortcut) when focus lands on a control.
     const focusIn = (e: FocusEvent) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
       if (!el?.matches(":focus-visible")) return;
@@ -522,16 +851,16 @@ export function TooltipLayer(): JSX.Element {
   });
   return (
     <Show when={tip()}>
-      {(t) => (
+      {(item) => (
         <div
           class="tooltip"
-          classList={{ below: t().below }}
+          classList={{ below: item().below }}
           role="tooltip"
-          style={{ left: `${t().x}px`, top: `${t().y}px` }}
+          style={{ left: `${item().x}px`, top: `${item().y}px` }}
         >
-          <span>{t().text}</span>
-          <Show when={t().kbd}>
-            <span class="tooltip-kbd">{keyText(t().kbd ?? "")}</span>
+          <span>{item().text}</span>
+          <Show when={item().kbd}>
+            <span class="tooltip-kbd">{keyText(item().kbd ?? "")}</span>
           </Show>
         </div>
       )}
@@ -540,6 +869,7 @@ export function TooltipLayer(): JSX.Element {
 }
 
 // ── toasts ─────────────────────────────────────────────────────────────────────
+
 export type ToastKind = "info" | "success" | "error";
 export interface Toast {
   id: number;
@@ -560,9 +890,7 @@ function scheduleDismiss(id: number, ttl: number) {
   );
 }
 
-/** Push a toast. Auto-dismisses after `ttl` ms (errors stay a little longer); hovering a
- *  toast pauses the timer, and every toast has a real, focusable dismiss button. An
- *  optional action (e.g. "Undo", "Show in folder") renders as a button in the toast. */
+/** Push a toast. Pauses dismiss timer while hovered or focused. */
 export function toast(
   text: string,
   kind: ToastKind = "info",
@@ -577,12 +905,12 @@ export function toast(
 export function dismissToast(id: number): void {
   clearTimeout(toastTimers.get(id));
   toastTimers.delete(id);
-  setToasts((prev) => prev.filter((t) => t.id !== id));
+  setToasts((prev) => prev.filter((item) => item.id !== id));
 }
 
 const TOAST_ICON: Record<ToastKind, IconName> = { success: "check", error: "warning", info: "info" };
 
-/** Renders the toast stack. Mount once, near the end of the app tree. */
+/** Renders the toast stack off-canvas in the bottom-right chrome zone. */
 export function ToastHost(): JSX.Element {
   return (
     <div class="toasts" role="status" aria-live="polite">
@@ -593,6 +921,10 @@ export function ToastHost(): JSX.Element {
             classList={{ [item.kind]: true }}
             onPointerEnter={() => clearTimeout(toastTimers.get(item.id))}
             onPointerLeave={() => scheduleDismiss(item.id, 2000)}
+            onFocusIn={() => clearTimeout(toastTimers.get(item.id))}
+            onFocusOut={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) scheduleDismiss(item.id, 2000);
+            }}
           >
             <span class="toast-icon">
               <Icon name={TOAST_ICON[item.kind]} size={14} stroke={2.2} />

@@ -252,40 +252,74 @@ export function ExportDialog(props: {
   };
 
   // E2: fit GIF or WebP into an explicit byte budget by probing the engine's estimator for
-  // the largest width that fits (then relaxing quality if nothing fits). Frontend-only.
+  // the largest width that fits (then relaxing quality if nothing fits). Abortable so
+  // input changes, format swaps, export start, or dialog unmount never emit stale updates.
+  let fitAbort: AbortController | null = null;
+  const cancelFit = () => {
+    if (fitAbort) {
+      fitAbort.abort();
+      fitAbort = null;
+    }
+    setFitting(false);
+  };
+  onCleanup(cancelFit);
+  createEffect(
+    on([format, fps, width, quality, () => prefs.gifDither(), () => prefs.webpLossless()], () => {
+      if (fitAbort) cancelFit();
+    }, { defer: true }),
+  );
+
   const fitToBudget = async () => {
     const mb = Number(budgetMb());
     const f = format();
     if (!Number.isFinite(mb) || mb <= 0 || (f !== "gif" && f !== "webp")) return;
+    cancelFit();
+    const ctrl = new AbortController();
+    fitAbort = ctrl;
+    const snapFps = fps();
+    const snapWidth = outWidth();
+    const snapQuality = quality();
+    const snapLossless = prefs.webpLossless();
+    const snapDither = prefs.gifDither();
     setFitting(true);
     try {
       const budget = mb * 1024 * 1024;
-      const widths = [outWidth(), 1280, 1000, 900, 800, 700, 600, 500, 400]
-        .filter((w, i, arr) => w <= Math.max(outWidth(), 400) && arr.indexOf(w) === i)
+      const widths = [snapWidth, 1280, 1000, 900, 800, 700, 600, 500, 400]
+        .filter((w, i, arr) => w <= Math.max(snapWidth, 400) && arr.indexOf(w) === i)
         .sort((a, b) => b - a);
-      const qualities = [quality(), 75, 65, 55, 45];
+      const qualities = [snapQuality, 75, 65, 55, 45];
       const cmd = f === "webp" ? "estimate_webp" : "estimate_gif";
       for (const q of qualities) {
         for (const w of widths) {
+          if (ctrl.signal.aborted) return;
           const est = await invoke<number>(
             cmd,
             f === "webp"
-              ? { fps: fps(), width: w, quality: q, lossless: prefs.webpLossless() }
-              : { fps: fps(), width: w, quality: q, dither: prefs.gifDither() },
+              ? { fps: snapFps, width: w, quality: q, lossless: snapLossless }
+              : { fps: snapFps, width: w, quality: q, dither: snapDither },
           ).catch(() => Number.POSITIVE_INFINITY);
+          if (ctrl.signal.aborted) return;
           if (est > 0 && est <= budget) {
-            setWidth(w);
-            setQuality(q);
-            setPreset("custom");
-            setFitting(false);
+            fitAbort = null;
+            batch(() => {
+              setWidth(w);
+              setQuality(q);
+              setPreset("custom");
+              setFitting(false);
+            });
             toast(t("Fitted to about {est} at {w}px", { est: fmtBytes(est), w }), "success");
             return;
           }
         }
       }
-      toast(t("Could not reach that size. Try a lower frame rate."), "error");
+      if (!ctrl.signal.aborted) {
+        toast(t("Could not reach that size. Try a lower frame rate."), "error");
+      }
     } finally {
-      setFitting(false);
+      if (fitAbort === ctrl) {
+        fitAbort = null;
+        setFitting(false);
+      }
     }
   };
 
@@ -295,6 +329,7 @@ export function ExportDialog(props: {
     // Starts from the settings or from a failure's Try again; a second click finds the
     // phase already moved on to "starting".
     if (phase() !== "configure" && phase() !== "error") return;
+    cancelFit();
     const f = format();
     const label = formatLabel(f);
     const safe = props.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "vuoom";
@@ -458,7 +493,7 @@ export function ExportDialog(props: {
               </span>
               <span>
                 <strong>GIF</strong>
-                <small>{t("Loops anywhere: READMEs, docs, chat")}</small>
+                <small>{t("Animated image")}</small>
               </span>
             </button>
             <button
@@ -473,7 +508,7 @@ export function ExportDialog(props: {
               </span>
               <span>
                 <strong>WebP</strong>
-                <small>{t("Much smaller than GIF, full color")}</small>
+                <small>{t("Compact animated image")}</small>
               </span>
             </button>
             <button
@@ -488,46 +523,55 @@ export function ExportDialog(props: {
               </span>
               <span>
                 <strong>{t("MP4 video")}</strong>
-                <small>{t("Smaller and smoother: Slack, X, YouTube")}</small>
+                <small>{t("Video with audio")}</small>
               </span>
             </button>
           </div>
 
           <div class="export-presets">
-            <button
-              type="button"
-              class="export-preset"
-              classList={{ on: preset() === "readme" }}
-              aria-pressed={preset() === "readme"}
-              onClick={() => applyPreset("readme")}
-            >
-              {t("Balanced")}
-              <small>
-                {presetValues("readme").fps} fps · {presetValues("readme").width}px
-              </small>
-            </button>
-            <button
-              type="button"
-              class="export-preset"
-              classList={{ on: preset() === "hq" }}
-              aria-pressed={preset() === "hq"}
-              onClick={() => applyPreset("hq")}
-            >
-              {t("High quality")}
-              <small>
-                {presetValues("hq").fps} fps · {presetValues("hq").width}px
-              </small>
-            </button>
-            <button
-              type="button"
-              class="export-preset"
-              classList={{ on: preset() === "custom" }}
-              aria-pressed={preset() === "custom"}
-              onClick={() => applyPreset("custom")}
-            >
-              {t("Custom")}
-              <small>{t("Tune every setting")}</small>
-            </button>
+            {(() => {
+              const bal = () => presetValues("readme");
+              const hq = () => presetValues("hq");
+              const sameDims = () => bal().fps === hq().fps && bal().width === hq().width;
+              return (
+                <>
+                  <button
+                    type="button"
+                    class="export-preset"
+                    classList={{ on: preset() === "readme" }}
+                    aria-pressed={preset() === "readme"}
+                    onClick={() => applyPreset("readme")}
+                  >
+                    {t("Balanced")}
+                    <small>
+                      {sameDims() ? t("Quality {q}", { q: bal().quality }) : `${bal().fps} fps · ${bal().width}px`}
+                    </small>
+                  </button>
+                  <button
+                    type="button"
+                    class="export-preset"
+                    classList={{ on: preset() === "hq" }}
+                    aria-pressed={preset() === "hq"}
+                    onClick={() => applyPreset("hq")}
+                  >
+                    {t("High quality")}
+                    <small>
+                      {sameDims() ? t("Quality {q}", { q: hq().quality }) : `${hq().fps} fps · ${hq().width}px`}
+                    </small>
+                  </button>
+                  <button
+                    type="button"
+                    class="export-preset"
+                    classList={{ on: preset() === "custom" }}
+                    aria-pressed={preset() === "custom"}
+                    onClick={() => applyPreset("custom")}
+                  >
+                    {t("Custom")}
+                    <small>{t("Tune every setting")}</small>
+                  </button>
+                </>
+              );
+            })()}
           </div>
 
           <div class="export-controls">
@@ -616,22 +660,26 @@ export function ExportDialog(props: {
             </Show>
             <Show when={format() === "gif" || format() === "webp"}>
               <div class="export-fit">
-                <Icon name="target" size={14} />
-                <span>{t("Fit under")}</span>
-                <input
-                  class="input"
-                  type="number"
-                  min="0.2"
-                  step="0.5"
-                  placeholder="MB"
-                  aria-label={t("Size budget in MB")}
-                  value={budgetMb()}
-                  onInput={(e) => setBudgetMb(e.currentTarget.value)}
-                />
-                <span>MB</span>
+                <span class="export-fit-label">
+                  <Icon name="target" size={14} />
+                  {t("Fit under")}
+                </span>
+                <div class="export-fit-input">
+                  <input
+                    class="input"
+                    type="number"
+                    min="0.2"
+                    step="0.5"
+                    placeholder="MB"
+                    aria-label={t("Size budget in MB")}
+                    value={budgetMb()}
+                    onInput={(e) => setBudgetMb(e.currentTarget.value)}
+                  />
+                  <span class="export-fit-unit">MB</span>
+                </div>
                 <button
                   type="button"
-                  class="btn sm"
+                  class="btn sm export-fit-btn"
                   disabled={!Number(budgetMb()) || fitting()}
                   data-tip={t("Find the largest width and quality that stay under the budget")}
                   onClick={() => void fitToBudget()}
@@ -645,12 +693,14 @@ export function ExportDialog(props: {
           <div class="export-summary">
             <div>
               <small>{t("Estimated size")}</small>
-              <span class="export-size">{sizeText()}</span>
+              <span class="export-size" role="status" aria-live="polite">
+                {sizeText()}
+              </span>
             </div>
             <div>
               <small>{t("Output")}</small>
-              <span>
-                {outWidth()} × {height()} · {outDur().toFixed(1)}s
+              <span class="export-output">
+                {outWidth()} × {height()} · {fps()} fps · {outDur().toFixed(1)}s
               </span>
             </div>
           </div>
@@ -666,9 +716,10 @@ export function ExportDialog(props: {
         </Show>
 
         <Show when={phase() === "starting"}>
-          <div class="export-progress">
+          <div class="export-progress" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true" />
             <h2 data-phase-title tabindex="-1">
-              {t("Choose where to save")}
+              {t("Choosing save location…")}
             </h2>
             <p class="muted small">{t("Pick a folder and a name for the {format}.", { format: formatLabel() })}</p>
           </div>
@@ -690,7 +741,7 @@ export function ExportDialog(props: {
             <h2 data-phase-title tabindex="-1">
               {t("Exporting {format}", { format: formatLabel() })}
             </h2>
-            <p class="muted small">
+            <p class="muted small" role="status" aria-live="polite">
               {timeLeft(progress(), startedAt(), now()) || t("Rendering every frame with your zooms and annotations.")}
             </p>
             <button type="button" class="btn ghost" onClick={cancelExport}>
@@ -703,7 +754,9 @@ export function ExportDialog(props: {
           <h2 data-phase-title tabindex="-1">
             {t("Export failed")}
           </h2>
-          <p class="export-error">{errMsg()}</p>
+          <p class="export-error" role="alert">
+            {errMsg()}
+          </p>
           <div class="modal-actions">
             <button type="button" class="btn ghost" onClick={() => setPhase("configure")}>
               {t("Back to settings")}
@@ -740,12 +793,11 @@ export function ExportDialog(props: {
             </div>
             <Show when={props.hasCaptions}>
               <button type="button" class="btn ghost" disabled={!!srtSaved()} onClick={() => void saveSrt()}>
-                <Icon name={srtSaved() ? "check" : "captions"} size={14} />
-                {" "}
+                <Icon name={srtSaved() ? "check" : "captions"} size={14} />{" "}
                 {srtSaved() ? t("Saved {path}", { path: srtSaved() }) : t("Save captions next to it (.srt)")}
               </button>
             </Show>
-            <p class="muted small">
+            <p class="muted small" role="status" aria-live="polite">
               {copied() ||
                 (format() === "gif"
                   ? t("Copy, then paste the GIF into Slack, Discord or a GitHub comment.")

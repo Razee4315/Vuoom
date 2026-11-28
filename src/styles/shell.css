@@ -252,15 +252,13 @@
   .center {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: var(--gutter);
   }
-  .upper {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    gap: var(--gutter);
+  .center > .timeline {
+    max-height: calc(100% - 180px - var(--gutter) * 2);
   }
 
   /* Resize handles: a wide invisible hit strip over the gutter with a line that lights up. */
@@ -309,11 +307,11 @@
   }
   body.resizing-x,
   body.resizing-x * {
-    cursor: col-resize !important;
+    cursor: col-resize;
   }
   body.resizing-y,
   body.resizing-y * {
-    cursor: row-resize !important;
+    cursor: row-resize;
   }
 
   /* ── tool rail ─────────────────────────────────────────────────────────── */
@@ -323,8 +321,10 @@
     flex-direction: column;
     align-items: stretch;
     gap: 2px;
-    width: 64px;
+    width: 104px;
     flex: none;
+    min-height: 0;
+    margin-bottom: var(--gutter);
     padding: 6px;
     border-radius: var(--r-lg);
     background: var(--panel);
@@ -335,19 +335,21 @@
     scrollbar-width: none;
   }
   .rail.compact {
-    width: 46px;
+    width: 48px;
   }
   .rail-tool {
     position: relative;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    gap: 3px;
-    flex: 0 1 50px;
-    min-height: 38px;
+    justify-content: flex-start;
+    gap: 8px;
+    flex: 0 1 32px;
+    height: 32px;
+    min-height: 30px;
+    padding: 0 8px;
     border: 0;
-    border-radius: var(--r);
+    border-radius: var(--r-sm);
     background: transparent;
     color: var(--muted);
     transition:
@@ -355,68 +357,86 @@
       color var(--dur-fast) var(--ease-standard),
       transform var(--dur-instant) var(--ease-standard);
   }
+  .rail-tool > svg {
+    flex: none;
+  }
   .rail.compact .rail-tool {
-    flex-basis: 34px;
+    width: 32px;
+    height: 32px;
     min-height: 30px;
+    flex-basis: 32px;
+    padding: 0;
+    justify-content: center;
+    align-self: center;
   }
   .rail.compact .rail-label {
     display: none;
   }
-  /* Short windows: icons only (names stay in the tooltips), so the whole rail fits. */
-  @media (max-height: 780px) {
-    .rail .rail-tool {
-      flex-basis: 34px;
-      min-height: 30px;
-    }
-    .rail .rail-label {
-      display: none;
-    }
-  }
-  .rail-tool:hover {
+  .rail-tool:hover:not(:disabled) {
     background: var(--hover);
     color: var(--text);
   }
-  .rail-tool:active {
-    transform: scale(0.96);
+  .rail-tool:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .rail-tool:disabled {
+    opacity: 0.4;
   }
   .rail-tool.on {
     background: var(--ink);
     color: var(--ink-text);
   }
   .rail-label {
-    font-size: var(--fs-2xs);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    letter-spacing: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
   .rail-lockdot {
     position: absolute;
-    top: 6px;
-    right: 7px;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--record);
-    box-shadow: 0 0 0 2px var(--ink);
+    box-shadow: 0 0 0 1.5px var(--panel);
+  }
+  .rail-tool.on .rail-lockdot {
+    box-shadow: 0 0 0 1.5px var(--ink);
+  }
+  .rail.compact .rail-lockdot {
+    top: 4px;
+    right: 4px;
+    transform: none;
   }
   .rail-sep {
     height: 1px;
-    margin: 4px 8px;
+    margin: 4px 6px;
     flex: none;
     background: var(--hairline);
   }
   .rail-spacer {
-    flex: 1;
-    min-height: 6px;
-  }
-  .rail-lock.on {
-    background: var(--record-soft);
-    color: var(--record-text);
+    flex: 1 1 0;
+    min-height: 0;
   }
   .rail-tool.rail-collapse {
-    flex: 0 0 26px;
-    min-height: 26px;
-    height: 26px;
+    flex: 0 0 28px;
+    min-height: 28px;
+    height: 28px;
+    padding: 0;
+    justify-content: center;
     color: var(--faint);
+  }
+  .rail.compact .rail-tool.rail-collapse {
+    width: 32px;
+    height: 28px;
+    min-height: 28px;
+    flex-basis: 28px;
   }
 
   /* ── status bar ────────────────────────────────────────────────────────── */
@@ -480,19 +500,6 @@
   @keyframes pulse {
     50% {
       opacity: 0.35;
-    }
-  }
-
-  /* Short windows: the rail drops its labels so every tool stays reachable. */
-  @media (max-height: 820px) {
-    .rail {
-      width: 46px;
-    }
-    .rail .rail-tool {
-      height: 34px;
-    }
-    .rail .rail-label {
-      display: none;
     }
   }
 

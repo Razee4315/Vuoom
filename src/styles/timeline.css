@@ -4,10 +4,10 @@
   .timeline {
     container: timeline / inline-size;
     --ruler-h: 26px;
-    --zoom-h: 40px;
+    --zoom-h: 36px;
     --lane-h: 28px;
-    --fx-h: 34px;
-    --film-h: 36px;
+    --fx-h: 32px;
+    --film-h: 34px;
     --audio-h: 30px;
     --caption-h: 32px;
     --heads-w: 104px;
@@ -16,10 +16,12 @@
     flex-direction: column;
     flex: none;
     min-height: 0;
+    max-height: min(560px, max(132px, calc(100vh - 280px)));
     margin-bottom: var(--gutter);
   }
   .timeline.collapsed {
     height: auto;
+    max-height: none;
   }
 
   /* Three columns with a truly centered middle: the insert buttons never move while the
@@ -28,8 +30,8 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    gap: 10px;
-    height: 46px;
+    gap: 8px;
+    height: 40px;
     padding: 0 8px;
     flex: none;
     border-bottom: 1px solid var(--hairline);
@@ -47,8 +49,8 @@
   .tl-play {
     display: grid;
     place-items: center;
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     margin: 0 3px;
     border: 0;
     border-radius: 50%;
@@ -57,13 +59,13 @@
     transition: transform var(--dur-instant) var(--ease-standard);
   }
   .tl-play:hover {
-    transform: scale(1.06);
+    transform: scale(1.05);
   }
   .tl-play:active {
-    transform: scale(0.95);
+    transform: scale(0.96);
   }
   .tl-rate {
-    height: 26px;
+    height: 28px;
     min-width: 38px;
     padding: 0 7px;
     border: 0;
@@ -116,8 +118,15 @@
   }
   .tl-insert {
     display: flex;
-    gap: 4px;
+    align-items: center;
     justify-self: center;
+  }
+  .tl-insert-inline {
+    display: flex;
+    gap: 4px;
+  }
+  .tl-insert-compact {
+    display: none;
   }
   .tl-ins {
     display: inline-flex;
@@ -137,12 +146,13 @@
       color var(--dur-fast) var(--ease-standard);
   }
   .tl-ins svg {
-    color: var(--c);
+    color: var(--c, var(--text-2));
   }
-  .tl-ins:hover {
+  .tl-ins:hover,
+  .tl-ins.on {
     color: var(--text);
-    border-color: color-mix(in srgb, var(--c) 55%, transparent);
-    background: color-mix(in srgb, var(--c) 12%, var(--raised));
+    border-color: color-mix(in srgb, var(--c, var(--line-strong)) 55%, transparent);
+    background: color-mix(in srgb, var(--c, var(--hover)) 12%, var(--raised));
   }
   .tl-ins.zoom {
     --c: var(--t-zoom);
@@ -159,6 +169,14 @@
     gap: 2px;
     justify-self: end;
   }
+  .tl-view-inline {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .tl-view-compact {
+    display: none;
+  }
   .tl-sep {
     width: 1px;
     height: 18px;
@@ -166,7 +184,7 @@
     background: var(--hairline);
   }
   .tl-fit {
-    height: 26px;
+    height: 28px;
     padding: 0 9px;
     border: 0;
     border-radius: var(--r-sm);
@@ -183,17 +201,28 @@
     color: var(--text);
     background: var(--active);
   }
-  @container timeline (max-width: 980px) {
-    .tl-ins {
-      font-size: 0;
+  @container timeline (max-width: 960px) {
+    .tl-insert-inline .tl-ins span {
+      display: none;
+    }
+    .tl-insert-inline .tl-ins {
       gap: 0;
       padding: 0 8px;
     }
   }
   @container timeline (max-width: 760px) {
+    .tl-insert-inline,
+    .tl-view-inline,
     .tl-time-out,
     .tl-rate {
       display: none;
+    }
+    .tl-insert-compact,
+    .tl-view-compact {
+      display: flex;
+    }
+    .tl-time {
+      margin-left: 4px;
     }
   }
 
@@ -447,10 +476,9 @@
     position: absolute;
     display: flex;
     align-items: center;
-    gap: 5px;
-    min-width: 6px;
-    padding: 0 9px;
-    overflow: hidden;
+    min-width: 12px;
+    padding: 0;
+    overflow: visible;
     border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
     border-radius: 7px;
     background: color-mix(in srgb, var(--c) 22%, var(--panel));
@@ -458,16 +486,12 @@
     font-size: var(--fs-xs);
     font-weight: 600;
     white-space: nowrap;
-    cursor: grab;
     transition:
       background var(--dur-fast) var(--ease-standard),
       opacity var(--dur-fast) var(--ease-standard);
   }
   .tl-seg:hover {
     background: color-mix(in srgb, var(--c) 32%, var(--panel));
-  }
-  .tl-seg:active {
-    cursor: grabbing;
   }
   .tl-seg.selected {
     background: color-mix(in srgb, var(--c) 38%, var(--panel));
@@ -495,11 +519,11 @@
 
   .tl-zoom {
     --c: var(--t-zoom);
-    top: 5px;
-    bottom: 5px;
+    top: 4px;
+    bottom: 4px;
   }
   .tl-ann {
-    height: calc(var(--lane-h) - 6px);
+    height: calc(var(--lane-h) - 4px);
   }
   .tl-text {
     --c: var(--t-note);
@@ -515,8 +539,8 @@
   }
   .tl-speed,
   .tl-cut {
-    top: 5px;
-    bottom: 5px;
+    top: 4px;
+    bottom: 4px;
     padding: 0;
   }
   .tl-speed {
@@ -538,12 +562,25 @@
     flex: 1;
     min-width: 0;
     height: 100%;
-    padding: 0 6px;
+    padding: 0 8px;
     border: 0;
+    border-radius: inherit;
+    overflow: hidden;
     background: transparent;
     color: inherit;
     font: inherit;
     cursor: grab;
+  }
+  .tl-seg-body:active {
+    cursor: grabbing;
+  }
+  .tl-seg-body:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .tl-zoom .tl-seg-body,
+  .tl-ann .tl-seg-body {
+    justify-content: flex-start;
   }
 
   .tl-handle {
@@ -551,14 +588,30 @@
     top: 0;
     bottom: 0;
     z-index: 2;
-    width: 9px;
+    width: 12px;
     cursor: ew-resize;
+  }
+  .tl-handle::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    left: -6px;
+    right: -6px;
   }
   .tl-handle.l {
     left: 0;
   }
   .tl-handle.r {
     right: 0;
+  }
+  .tl-seg.narrow.selected .tl-handle.l,
+  .tl-seg.narrow:hover .tl-handle.l {
+    left: -10px;
+  }
+  .tl-seg.narrow.selected .tl-handle.r,
+  .tl-seg.narrow:hover .tl-handle.r {
+    right: -10px;
   }
   .tl-handle::after {
     content: "";
@@ -613,8 +666,8 @@
     top: var(--ruler-h);
     bottom: 0;
     z-index: 6;
-    width: 12px;
-    margin-left: -6px;
+    width: 24px;
+    margin-left: -12px;
     cursor: ew-resize;
   }
   .tl-trim::before {
@@ -622,16 +675,22 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 4px;
+    left: 10px;
     width: 4px;
     border-radius: 3px;
     background: var(--ink);
     opacity: 0.85;
     transition: opacity var(--dur-fast) var(--ease-standard);
   }
-  .tl-trim:hover::before {
+  .tl-trim:hover::before,
+  .tl-trim:focus-visible::before {
     opacity: 1;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 20%, transparent);
+  }
+  .tl-trim:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+    border-radius: var(--r-xs);
   }
 
   .tl-snapline {
@@ -676,14 +735,32 @@
     background: var(--record);
     pointer-events: none;
   }
-  .tl-playhead i {
+  .tl-playhead-cap {
     position: absolute;
     top: 0;
-    left: -5px;
+    left: -11px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: ew-resize;
+    pointer-events: auto;
+  }
+  .tl-playhead-cap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 6px;
     width: 12px;
     height: 12px;
     border-radius: 3px 3px 6px 6px;
     background: var(--record);
     box-shadow: 0 0 0 2px var(--panel);
+  }
+  .tl-playhead-cap:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 0;
+    border-radius: var(--r-xs);
   }
 }

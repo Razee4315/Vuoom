@@ -38,13 +38,11 @@ import { mod } from "./platform";
 function Workspace() {
   return (
     <div class="workspace">
+      <Show when={layout.railOpen()}>
+        <ToolRail />
+      </Show>
       <div class="center">
-        <div class="upper">
-          <Show when={layout.railOpen()}>
-            <ToolRail />
-          </Show>
-          <Stage />
-        </div>
+        <Stage />
         <Timeline />
       </div>
       <Show when={layout.inspectorOpen()}>

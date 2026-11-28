@@ -143,6 +143,19 @@ export function annBarMenu(ed: Editor, e: MouseEvent, kind: Kind, id: number): v
   openContextMenu(e, [{ heading: ed.inspTitle() }, ...annotationItems(ed)]);
 }
 
+/** Right-click on a caption cue bar. */
+export function captionMenu(ed: Editor, e: MouseEvent, id: number): void {
+  ed.selectCaption(id);
+  const c = ed.captions.list().find((x) => x.id === id);
+  if (!c) return;
+  openContextMenu(e, [
+    { heading: c.text.trim() || t("Empty caption") },
+    { label: t("Jump to start"), onSelect: () => ed.scrub(c.range.start + 0.01) },
+    { separator: true },
+    { label: t("Delete caption"), icon: "trash", kbd: "Del", danger: true, onSelect: () => void ed.deleteSelectedCaption() },
+  ]);
+}
+
 /** Right-click on empty timeline space: seek there, then offer inserts. */
 export function timelineMenu(ed: Editor, e: MouseEvent): void {
   if (!ed.hasClip()) return;

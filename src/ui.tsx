@@ -650,17 +650,27 @@ function MenuPopup(props: {
     window.addEventListener("blur", close);
     queueMicrotask(() => {
       if (!menuEl) return;
+      const pad = 8;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
       const w = menuEl.offsetWidth;
-      const h = menuEl.offsetHeight;
-      const left = props.align === "end" ? props.x - w : props.x;
+      const naturalH = menuEl.scrollHeight;
+      const roomBelow = Math.max(0, vh - props.y - pad);
+      const anchorTop = props.flipAbove !== undefined ? props.flipAbove - 6 : props.y - 6;
+      const roomAbove = Math.max(0, anchorTop - pad);
+      const openBelow = naturalH <= roomBelow || roomBelow >= roomAbove;
+      const maxH = Math.max(120, Math.min(vh - pad * 2, openBelow ? roomBelow : roomAbove));
+      const finalH = Math.min(naturalH, maxH);
+      const rawTop = openBelow ? props.y : anchorTop - finalH;
+      const top = Math.max(pad, Math.min(vh - finalH - pad, rawTop));
+      const rawLeft = props.align === "end" ? props.x - w : props.x;
+      const clampedLeft = Math.max(pad, Math.min(vw - w - pad, rawLeft));
+      const targetX = props.align === "end" ? clampedLeft + w : clampedLeft;
+      menuEl.style.maxHeight = `${maxH}px`;
+      menuEl.style.overflowY = naturalH > maxH ? "auto" : "";
       setShift({
-        x: left + w > window.innerWidth - 8 ? window.innerWidth - 8 - (left + w) : 0,
-        y:
-          props.y + h > window.innerHeight - 8
-            ? props.flipAbove !== undefined
-              ? props.flipAbove - 6 - h - props.y
-              : -(h + 12)
-            : 0,
+        x: targetX - props.x,
+        y: top - props.y,
       });
       menuEl.querySelector<HTMLButtonElement>(".menu-item:not(:disabled)")?.focus();
     });

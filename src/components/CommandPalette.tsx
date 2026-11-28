@@ -1,5 +1,5 @@
 // Ctrl+K: every action in the app, searchable by name, runnable from the keyboard.
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { dialogA11y } from "../dialog";
 import { useEditor } from "../editor/context";
 import { t } from "../i18n";
@@ -8,7 +8,8 @@ import { layout, prefs, resetLayout } from "../prefs";
 import { FPS_CHOICES } from "../recordOptions";
 import { TOOLS } from "../shortcuts";
 import { applyTheme, THEMES } from "../themes";
-import { keyText } from "../platform";
+import type { Tool } from "../types";
+import { Kbd } from "../ui";
 
 interface Command {
   id: string;
@@ -20,16 +21,29 @@ interface Command {
   when?: () => boolean;
 }
 
+const TOOL_ICON: Record<Tool, IconName> = {
+  select: "cursor",
+  zoom: "zoomIn",
+  text: "text",
+  arrow: "arrow",
+  step: "step",
+  pen: "pen",
+  shape: "shape",
+  highlight: "highlight",
+  spotlight: "spotlight",
+  mask: "eyeOff",
+};
+
 /** Subsequence match; lower score is better, -1 means no match. */
 function score(text: string, q: string): number {
   if (!q) return 0;
-  const t = text.toLowerCase();
-  const direct = t.indexOf(q);
+  const lower = text.toLowerCase();
+  const direct = lower.indexOf(q);
   if (direct >= 0) return direct;
   let ti = 0;
   let gaps = 0;
   for (const ch of q) {
-    const at = t.indexOf(ch, ti);
+    const at = lower.indexOf(ch, ti);
     if (at < 0) return -1;
     gaps += at - ti;
     ti = at + 1;
@@ -41,7 +55,7 @@ function score(text: string, q: string): number {
 export default function CommandPalette() {
   const ed = useEditor();
   const [q, setQ] = createSignal("");
-  const [active, setActive] = createSignal(0);
+  const [activeId, setActiveId] = createSignal<string | null>(null);
   const close = () => ed.setShowPalette(false);
   const clip = () => ed.hasClip();
 
@@ -94,7 +108,7 @@ export default function CommandPalette() {
         id: `tool-${tool.id}`,
         label: t("{label} tool", { label: tool.label }),
         group: t("Tools"),
-        icon: "cursor",
+        icon: TOOL_ICON[tool.id] ?? "cursor",
         kbd: tool.key,
         run: () => ed.setTool(tool.id),
         when: clip,
@@ -148,6 +162,25 @@ export default function CommandPalette() {
       .map((r) => r.c);
   });
 
+  // Reconcile active option whenever filtered results change; clear on zero matches.
+  createEffect(() => {
+    const list = results();
+    if (list.length === 0) {
+      setActiveId(null);
+      return;
+    }
+    const cur = activeId();
+    if (!cur || !list.some((c) => c.id === cur)) {
+      setActiveId(list[0].id);
+    }
+  });
+
+  const activeIndex = () => {
+    const cur = activeId();
+    if (!cur) return -1;
+    return results().findIndex((c) => c.id === cur);
+  };
+
   const run = (c: Command | undefined) => {
     if (!c) return;
     close();
@@ -155,11 +188,17 @@ export default function CommandPalette() {
   };
 
   let listEl: HTMLDivElement | undefined;
-  const move = (d: number) => {
-    const n = results().length;
-    if (!n) return;
-    setActive((a) => (a + d + n) % n);
+  let lastPointerX = -1;
+  let lastPointerY = -1;
+  const scrollActiveIntoView = () =>
     queueMicrotask(() => listEl?.querySelector(".pal-item.on")?.scrollIntoView({ block: "nearest" }));
+  const move = (d: number) => {
+    const list = results();
+    if (!list.length) return;
+    const cur = Math.max(0, activeIndex());
+    const next = list[(cur + d + list.length) % list.length];
+    setActiveId(next.id);
+    scrollActiveIntoView();
   };
 
   let inputEl: HTMLInputElement | undefined;
@@ -167,18 +206,24 @@ export default function CommandPalette() {
 
   return (
     <div class="modal-backdrop palette-backdrop" onClick={close}>
-      <div class="palette" ref={(el) => dialogA11y(el, t("Command palette"), close)} onClick={(e) => e.stopPropagation()}>
+      <div
+        class="palette"
+        ref={(el) => dialogA11y(el, t("Command palette"), close, { initialFocus: () => inputEl ?? null })}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div class="pal-search">
           <Icon name="search" size={16} />
           <input
             ref={inputEl}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="true"
+            aria-controls="pal-listbox"
+            aria-activedescendant={activeId() ? `pal-opt-${activeId()}` : undefined}
             placeholder={t("Type a command…")}
             aria-label={t("Search commands")}
             value={q()}
-            onInput={(e) => {
-              setQ(e.currentTarget.value);
-              setActive(0);
-            }}
+            onInput={(e) => setQ(e.currentTarget.value)}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") {
                 e.preventDefault();
@@ -186,36 +231,69 @@ export default function CommandPalette() {
               } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 move(-1);
+              } else if (e.key === "Home") {
+                const first = results()[0];
+                if (first) {
+                  e.preventDefault();
+                  setActiveId(first.id);
+                  scrollActiveIntoView();
+                }
+              } else if (e.key === "End") {
+                const last = results()[results().length - 1];
+                if (last) {
+                  e.preventDefault();
+                  setActiveId(last.id);
+                  scrollActiveIntoView();
+                }
               } else if (e.key === "Enter") {
-                e.preventDefault();
-                run(results()[active()]);
+                const idx = activeIndex();
+                if (idx >= 0) {
+                  e.preventDefault();
+                  run(results()[idx]);
+                }
               }
             }}
           />
-          <kbd>Esc</kbd>
+          <Kbd keys="Esc" />
         </div>
-        <div class="pal-list" ref={listEl} role="listbox">
+        <div id="pal-listbox" class="pal-list" ref={listEl} role="listbox" aria-label={t("Commands")}>
           <For each={results()} fallback={<div class="pal-empty">{t("No matching command")}</div>}>
-            {(c, i) => (
+            {(c) => (
               <button
+                id={`pal-opt-${c.id}`}
                 type="button"
                 role="option"
+                tabindex={-1}
                 class="pal-item"
-                classList={{ on: i() === active() }}
-                aria-selected={i() === active()}
-                onPointerMove={() => setActive(i())}
+                classList={{ on: c.id === activeId() }}
+                aria-selected={c.id === activeId()}
+                onPointerMove={(e) => {
+                  if (e.clientX === lastPointerX && e.clientY === lastPointerY) return;
+                  lastPointerX = e.clientX;
+                  lastPointerY = e.clientY;
+                  setActiveId(c.id);
+                }}
                 onClick={() => run(c)}
               >
                 <Icon name={c.icon} size={15} />
                 <span class="pal-label">{c.label}</span>
                 <span class="pal-group">{c.group}</span>
-                <Show when={c.kbd}>
-                  <span class="pal-kbd">{keyText(c.kbd ?? "")}</span>
-                </Show>
+                <Show when={c.kbd}>{(k) => <Kbd keys={k()} />}</Show>
               </button>
             )}
           </For>
         </div>
+        <footer class="pal-foot" aria-hidden="true">
+          <span>
+            <kbd>↑</kbd> <kbd>↓</kbd> {t("Navigate")}
+          </span>
+          <span>
+            <kbd>Enter</kbd> {t("Run")}
+          </span>
+          <span>
+            <kbd>Esc</kbd> {t("Close")}
+          </span>
+        </footer>
       </div>
     </div>
   );

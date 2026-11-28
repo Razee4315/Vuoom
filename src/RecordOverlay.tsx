@@ -1,11 +1,12 @@
 import { createEffect, createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke, listen } from "./bridge";
+import { dialogA11y } from "./dialog";
 import { friendlyError } from "./format";
 import { t } from "./i18n";
 import { Icon } from "./icons";
 import { stopKeys, zoomKeys } from "./hotkeys";
 import { layout, prefs } from "./prefs";
-import { Menu, Rich, toast } from "./ui";
+import { Menu, type MenuItem, Rich, toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import type { RecordTarget } from "./editor/recordFlow";
 import {
@@ -24,7 +25,9 @@ import {
   cameraMenuItems,
   cameraName,
   createCameras,
+  pushCameraChoice,
   useCameraPreview,
+  waitForCameraChoice,
 } from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
@@ -223,6 +226,8 @@ export default function RecordOverlay(props: {
     setCount(prefs.countdown());
     setPhase("preparing"); // instant acknowledgment on the HUD button; panel waits until resized
     try {
+      await waitForCameraChoice();
+      if (control() !== "open") return;
       if (windowMode) {
         // Window capture records the whole client area; the backdrop (when captured) is
         // already cropped to that window's client rect.
@@ -391,6 +396,7 @@ export default function RecordOverlay(props: {
     if (control() !== "open") return;
     setControl("committed");
     try {
+      await waitForCameraChoice();
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording");
       setPhase("recording");
@@ -487,15 +493,17 @@ export default function RecordOverlay(props: {
     return h.hx !== 0 ? "ew-resize" : "ns-resize";
   };
 
-  // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Preserves
-  // size, sliding the rect back in bounds, used when moving and after a resize.
+  // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Clamps
+  // dimensions to viewport bounds and slides the rect back in bounds.
   const clampToView = (r: Rect): Rect => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const w = Math.min(r.w, vw);
+    const h = Math.min(r.h, vh);
     let { x, y } = r;
-    if (x + r.w > vw) x = vw - r.w;
-    if (y + r.h > vh) y = vh - r.h;
-    return { x: Math.max(0, x), y: Math.max(0, y), w: r.w, h: r.h };
+    if (x + w > vw) x = vw - w;
+    if (y + h > vh) y = vh - h;
+    return { x: Math.max(0, x), y: Math.max(0, y), w, h };
   };
 
   // Minimum region in CSS px (>= 64 physical px, above the Rust MIN_PX=8 sliver guard).
@@ -617,7 +625,90 @@ export default function RecordOverlay(props: {
     drag = null;
   };
 
+  const [vp, setVp] = createSignal({ w: window.innerWidth, h: window.innerHeight });
+  const [liveStatus, setLiveStatus] = createSignal("");
+  let selRootEl: HTMLDivElement | undefined;
+  let tagEl: HTMLDivElement | undefined;
+  const [tagSize, setTagSize] = createSignal({ w: 120, h: 26 });
+
+  createEffect(() => {
+    const ph = phase();
+    if (ph === "countdown") {
+      const c = count();
+      setLiveStatus(c > 0 ? t("Recording in {n}", { n: c }) : t("Recording started"));
+    } else if (ph === "finalizing") {
+      setLiveStatus(t("Saving take…"));
+    } else {
+      setLiveStatus("");
+    }
+  });
+
+  createEffect(() => {
+    void sel();
+    queueMicrotask(() => {
+      if (!tagEl) return;
+      const r = tagEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) setTagSize({ w: r.width, h: r.height });
+    });
+  });
+
+  const clampedTag = (r: Rect) => {
+    const pad = 8;
+    const { w: vw, h: vh } = vp();
+    const tw = Math.min(tagSize().w, Math.max(80, vw - pad * 2));
+    const th = tagSize().h;
+    const x = Math.max(pad, Math.min(vw - tw - pad, r.x));
+    const preferTop = r.y - th - 6;
+    const y = preferTop >= pad ? preferTop : Math.max(pad, Math.min(vh - th - pad, r.y + 8));
+    return { x, y };
+  };
+
+  /** Flip the selector HUD to the top edge whenever a low selection would collide with it. */
+  const hudAtTop = () => {
+    const r = sel();
+    if (!r || preset().ratio === "full" || windowMode()) return false;
+    return r.y + r.h > vp().h - 76;
+  };
+
+  /** Commit physical pixel W or H entered in the HUD numeric inputs through the same bounds/ratio path. */
+  const commitPhysDim = (axis: "w" | "h", raw: string, inputEl?: HTMLInputElement) => {
+    const r = sel();
+    if (!r) return;
+    const { sx, sy } = toPhysical();
+    const scaleX = Math.max(sx, 0.1);
+    const scaleY = Math.max(sy, 0.1);
+    const val = Number(raw);
+    if (!Number.isFinite(val) || val <= 0) {
+      if (inputEl) inputEl.value = String(Math.round(axis === "w" ? r.w * sx : r.h * sy));
+      return;
+    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const { w: minW, h: minH } = minCss();
+    const ratio = preset().ratio;
+    let w = r.w;
+    let h = r.h;
+    if (typeof ratio === "number") {
+      const loW = Math.min(vw, Math.max(minW, minH * ratio));
+      const hiW = Math.max(loW, Math.min(vw, vh * ratio));
+      const desiredW = axis === "w" ? val / scaleX : (val / scaleY) * ratio;
+      w = Math.max(loW, Math.min(hiW, desiredW));
+      h = w / ratio;
+    } else if (axis === "w") {
+      w = Math.max(minW, Math.min(vw, val / scaleX));
+    } else {
+      h = Math.max(minH, Math.min(vh, val / scaleY));
+    }
+    const next = clampToView({ x: r.x, y: r.y, w, h });
+    setSel(next);
+    if (inputEl) {
+      inputEl.value = String(Math.round(axis === "w" ? next.w * sx : next.h * sy));
+    }
+  };
+
   const onKey = (e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    const inInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
     // Esc aborts while picking, preparing, and during the 3-2-1 countdown.
     if (
       e.key === "Escape" &&
@@ -626,12 +717,48 @@ export default function RecordOverlay(props: {
       cancel();
       return;
     }
+    if (inInput) return;
     if (phase() === "countdown" && e.key === "Enter" && control() === "open") {
       startNow();
       return;
     }
     if (phase() !== "select") return;
-    if (e.key === "Enter") {
+    // Arrow keys move the active region by 1 physical pixel; Shift+Arrow resizes the trailing edge.
+    if (
+      (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") &&
+      (e.target === selRootEl || e.target === document.body)
+    ) {
+      const r = sel();
+      if (r && preset().ratio !== "full" && !windowMode()) {
+        e.preventDefault();
+        touched = true;
+        const { sx, sy } = toPhysical();
+        const stepX = 1 / Math.max(sx, 0.1);
+        const stepY = 1 / Math.max(sy, 0.1);
+        const dx = e.key === "ArrowLeft" ? -stepX : e.key === "ArrowRight" ? stepX : 0;
+        const dy = e.key === "ArrowUp" ? -stepY : e.key === "ArrowDown" ? stepY : 0;
+        if (!e.shiftKey) {
+          setSel(clampToView({ ...r, x: r.x + dx, y: r.y + dy }));
+        } else {
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          const { w: minW, h: minH } = minCss();
+          const ratio = preset().ratio;
+          let w = Math.max(minW, Math.min(vw, r.w + dx));
+          let h = Math.max(minH, Math.min(vh, r.h + dy));
+          if (typeof ratio === "number") {
+            const loW = Math.min(vw, Math.max(minW, minH * ratio));
+            const hiW = Math.max(loW, Math.min(vw, vh * ratio));
+            const desiredW = dx !== 0 ? w : h * ratio;
+            w = Math.max(loW, Math.min(hiW, desiredW));
+            h = w / ratio;
+          }
+          setSel(clampToView({ x: r.x, y: r.y, w, h }));
+        }
+        return;
+      }
+    }
+    if (e.key === "Enter" && tag !== "BUTTON") {
       const p = preset();
       const r = sel();
       if (props.target?.kind === "window") {
@@ -648,8 +775,12 @@ export default function RecordOverlay(props: {
     if (props.backdrop) queueMicrotask(offerLastRegion);
   });
   onMount(() => {
-    window.addEventListener("resize", offerLastRegion);
-    onCleanup(() => window.removeEventListener("resize", offerLastRegion));
+    const onResize = () => {
+      setVp({ w: window.innerWidth, h: window.innerHeight });
+      offerLastRegion();
+    };
+    window.addEventListener("resize", onResize);
+    onCleanup(() => window.removeEventListener("resize", onResize));
     window.addEventListener("keydown", onKey);
     const onVisibility = () => {
       if (document.hidden) {
@@ -744,11 +875,61 @@ export default function RecordOverlay(props: {
 
   const ringOffset = () => RING_CIRC * (1 - Math.max(0, count()) / Math.max(1, prefs.countdown()));
 
+  const optionsMenuItems = (): MenuItem[] => [
+    { heading: t("Zoom") },
+    {
+      label: t("Auto zoom where I click"),
+      checked: prefs.recordAutoZoom(),
+      onSelect: () => {
+        prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
+        pushTakeDefaults();
+      },
+    },
+    ...ZOOM_CHOICES().map((z) => ({
+      label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
+      checked: Math.abs(props.zoom - z.value) < 0.001,
+      onSelect: () => props.onZoomChange(z.value),
+    })),
+    { heading: t("Frame rate") },
+    ...FPS_CHOICES().map((f) => ({
+      label: f.label,
+      checked: prefs.captureFps() === f.value,
+      onSelect: () => {
+        prefs.captureFps.set(f.value);
+        void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
+      },
+    })),
+    { heading: t("Mouse pointer") },
+    ...CURSOR_MODES().map((c) => ({
+      label: c.menu,
+      checked: prefs.cursorMode() === c.value,
+      onSelect: () => {
+        prefs.cursorMode.set(c.value);
+        pushCursorMode(c.value);
+      },
+    })),
+    { heading: t("Recording panel") },
+    {
+      label: t("Show live preview"),
+      checked: prefs.livePreview(),
+      onSelect: () => setLivePreview(!prefs.livePreview()),
+    },
+    { heading: t("Countdown") },
+    ...COUNTDOWN_CHOICES().map((c) => ({
+      label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
+      checked: prefs.countdown() === c.value,
+      onSelect: () => prefs.countdown.set(c.value),
+    })),
+  ];
+
   return (
     <Show
       when={phase() === "select" || phase() === "preparing"}
       fallback={
         <div class="rec-panel-root">
+          <span class="sr-only" role="status" aria-live="polite">
+            {liveStatus()}
+          </span>
           <div
             class="rec-panel"
             classList={{
@@ -1068,6 +1249,10 @@ export default function RecordOverlay(props: {
       <div
         class="sel-root"
         classList={{ full: preset().ratio === "full" || windowMode() }}
+        ref={(el) => {
+          selRootEl = el;
+          dialogA11y(el, t("Select recording area"), cancel, { initialFocus: () => el });
+        }}
         style={preset().ratio === "full" ? undefined : { cursor: cursor() }}
         onPointerDown={onDown}
         onPointerMove={onMove}
@@ -1076,44 +1261,75 @@ export default function RecordOverlay(props: {
           drag = null;
         }}
       >
+        <span class="sr-only" role="status" aria-live="polite">
+          {liveStatus()}
+        </span>
         <Show when={props.backdrop}>
           <img class="sel-shot" ref={(el) => (shotEl = el)} src={props.backdrop!} alt="" draggable={false} />
         </Show>
 
-        {/* Dim everything; the selection rect punches a bright hole via a huge box-shadow.
-            The 8 handles + dims tag ride on top for adjustment (hit-tested in JS, so they
-            stay pointer-events:none and never block a drag). */}
+        {/* Four bounded dim rectangles around the selection (zero 100vmax spread shadow). */}
         <Show when={preset().ratio !== "full" && !windowMode() && sel()}>
-          {(r) => (
-            <>
-              <div
-                class="sel-rect"
-                style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
-              />
-              <div class="sel-dimtag" style={{ left: `${Math.max(4, r().x)}px`, top: `${Math.max(4, r().y - 30)}px` }}>
-                {dims()}
-              </div>
-              <For each={HANDLES}>
-                {(hnd) => (
-                  <div
-                    class="sel-handle"
-                    style={{
-                      left: `${r().x + ((hnd.hx + 1) / 2) * r().w}px`,
-                      top: `${r().y + ((hnd.hy + 1) / 2) * r().h}px`,
-                    }}
-                  />
-                )}
-              </For>
-            </>
-          )}
+          {(r) => {
+            const tp = () => clampedTag(r());
+            return (
+              <>
+                <div class="sel-dim" style={{ left: "0", top: "0", right: "0", height: `${r().y}px` }} />
+                <div class="sel-dim" style={{ left: "0", top: `${r().y + r().h}px`, right: "0", bottom: "0" }} />
+                <div class="sel-dim" style={{ left: "0", top: `${r().y}px`, width: `${r().x}px`, height: `${r().h}px` }} />
+                <div
+                  class="sel-dim"
+                  style={{ left: `${r().x + r().w}px`, top: `${r().y}px`, right: "0", height: `${r().h}px` }}
+                />
+                <div
+                  class="sel-rect"
+                  style={{ left: `${r().x}px`, top: `${r().y}px`, width: `${r().w}px`, height: `${r().h}px` }}
+                />
+                <div ref={tagEl} class="sel-dimtag" style={{ left: `${tp().x}px`, top: `${tp().y}px` }}>
+                  {dims()}
+                </div>
+                <For each={HANDLES}>
+                  {(hnd) => (
+                    <div
+                      class="sel-handle"
+                      style={{
+                        left: `${r().x + ((hnd.hx + 1) / 2) * r().w}px`,
+                        top: `${r().y + ((hnd.hy + 1) / 2) * r().h}px`,
+                      }}
+                    />
+                  )}
+                </For>
+              </>
+            );
+          }}
         </Show>
         <Show when={beforeTake() && prefs.recordCamera() && bubbleSpot()}>
           {(b) => (
-            <CameraBubble
-              url={camera.url()}
-              starting={camera.starting()}
-              style={{ left: `${b().left}px`, top: `${b().top}px`, width: `${b().size}px`, height: `${b().size}px` }}
-            />
+            <Show
+              when={camera.url() || camera.starting()}
+              fallback={
+                <div class="sel-cam-error" role="alert" onPointerDown={(e) => e.stopPropagation()}>
+                  <Icon name="cameraOff" size={14} />
+                  <span>{t("Camera unavailable")}</span>
+                  <button
+                    type="button"
+                    class="hud-heavy"
+                    onClick={() => {
+                      prefs.recordCamera.set(false);
+                      void pushCameraChoice();
+                    }}
+                  >
+                    {t("Continue without camera")}
+                  </button>
+                </div>
+              }
+            >
+              <CameraBubble
+                url={camera.url()}
+                starting={camera.starting()}
+                style={{ left: `${b().left}px`, top: `${b().top}px`, width: `${b().size}px`, height: `${b().size}px` }}
+              />
+            </Show>
           )}
         </Show>
         <Show when={preset().ratio === "full" || windowMode()}>
@@ -1131,7 +1347,11 @@ export default function RecordOverlay(props: {
           </div>
         </Show>
 
-        <div class="hud" onPointerDown={(e) => e.stopPropagation()}>
+        <div
+          class="hud"
+          classList={{ "hud-top": hudAtTop(), "hud-compact": vp().w < 1040 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <Show when={!windowMode()}>
             <div class="hud-group">
               <span class="hud-label">{t("Area")}</span>
@@ -1154,114 +1374,101 @@ export default function RecordOverlay(props: {
             </div>
             <span class="hud-sep" />
           </Show>
-          <Menu
-            class="hud-menu"
-            items={() => audioMenuItems(audioDevices())}
-            trigger={(m) => (
-              <button
-                type="button"
-                class="hud-options hud-audio"
-                classList={{ on: m.open, off: !prefs.recordMic() && !prefs.recordSystem() }}
-                ref={m.ref}
-                data-tip={prefs.recordMic() ? micName(audioDevices()) : t("Record your voice or the computer's sound")}
-                onClick={m.toggle}
-              >
-                <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />
-                <span>{audioSummary()}</span>
-                <Show when={prefs.recordMic()}>
-                  <LevelMeter level={levels.mic()} class="hud-meter" />
-                </Show>
-                <Icon name="chevronUp" size={12} />
-              </button>
-            )}
-          />
-          <Menu
-            class="hud-menu"
-            items={() => cameraMenuItems(cameras())}
-            trigger={(m) => (
-              <button
-                type="button"
-                class="hud-options hud-audio hud-camera"
-                classList={{ on: m.open, off: !prefs.recordCamera() }}
-                ref={m.ref}
-                aria-label={prefs.recordCamera() ? t("Camera: {name}", { name: cameraName(cameras()) }) : t("Camera off")}
-                data-tip={prefs.recordCamera() ? cameraName(cameras()) : t("Add your webcam as a bubble")}
-                onClick={m.toggle}
-              >
-                <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
-                <span>{prefs.recordCamera() ? t("Camera") : t("No camera")}</span>
-                <Icon name="chevronUp" size={12} />
-              </button>
-            )}
-          />
-          <Menu
-            class="hud-menu"
-            items={() => [
-              { heading: t("Zoom") },
-              {
-                label: t("Auto zoom where I click"),
-                checked: prefs.recordAutoZoom(),
-                onSelect: () => {
-                  prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
-                  pushTakeDefaults();
-                },
-              },
-              ...ZOOM_CHOICES().map((z) => ({
-                label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
-                checked: Math.abs(props.zoom - z.value) < 0.001,
-                onSelect: () => props.onZoomChange(z.value),
-              })),
-              { heading: t("Frame rate") },
-              ...FPS_CHOICES().map((f) => ({
-                label: f.label,
-                checked: prefs.captureFps() === f.value,
-                onSelect: () => {
-                  prefs.captureFps.set(f.value);
-                  void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
-                },
-              })),
-              { heading: t("Mouse pointer") },
-              ...CURSOR_MODES().map((c) => ({
-                label: c.menu,
-                checked: prefs.cursorMode() === c.value,
-                onSelect: () => {
-                  prefs.cursorMode.set(c.value);
-                  pushCursorMode(c.value);
-                },
-              })),
-              { heading: t("Recording panel") },
-              {
-                label: t("Show live preview"),
-                checked: prefs.livePreview(),
-                onSelect: () => setLivePreview(!prefs.livePreview()),
-              },
-              { heading: t("Countdown") },
-              ...COUNTDOWN_CHOICES().map((c) => ({
-                label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
-                checked: prefs.countdown() === c.value,
-                onSelect: () => prefs.countdown.set(c.value),
-              })),
-            ]}
-            trigger={(m) => (
-              <button
-                type="button"
-                class="hud-options"
-                classList={{ on: m.open }}
-                ref={m.ref}
-                data-tip={[
-                  props.zoom > 1 ? t("{keys} zooms {amount}×", { keys: zoomKeys(), amount: props.zoom }) : t("No zoom"),
-                  `${prefs.captureFps()} fps`,
-                  cursorSummary(),
-                  prefs.countdown() === 0 ? t("no countdown") : t("{countdown}s countdown", { countdown: prefs.countdown() }),
-                ].join(" · ")}
-                onClick={m.toggle}
-              >
-                <Icon name="sliders" size={14} />
-                <span>{t("Options")}</span>
-                <Icon name="chevronUp" size={12} />
-              </button>
-            )}
-          />
+          <Show
+            when={vp().w >= 1040}
+            fallback={
+              <Menu
+                class="hud-menu"
+                items={() => [
+                  { heading: t("Audio") },
+                  ...audioMenuItems(audioDevices()),
+                  { separator: true },
+                  { heading: t("Camera") },
+                  ...cameraMenuItems(cameras()),
+                  { separator: true },
+                  ...optionsMenuItems(),
+                ]}
+                trigger={(m) => (
+                  <button
+                    type="button"
+                    class="hud-options"
+                    classList={{ on: m.open }}
+                    ref={m.ref}
+                    aria-label={t("Recording setup")}
+                    onClick={m.toggle}
+                  >
+                    <Icon name="sliders" size={14} />
+                    <span>{t("Setup")}</span>
+                    <Icon name="chevronUp" size={12} />
+                  </button>
+                )}
+              />
+            }
+          >
+            <Menu
+              class="hud-menu"
+              items={() => audioMenuItems(audioDevices())}
+              trigger={(m) => (
+                <button
+                  type="button"
+                  class="hud-options hud-audio"
+                  classList={{ on: m.open, off: !prefs.recordMic() && !prefs.recordSystem() }}
+                  ref={m.ref}
+                  data-tip={prefs.recordMic() ? micName(audioDevices()) : t("Record your voice or the computer's sound")}
+                  onClick={m.toggle}
+                >
+                  <Icon name={prefs.recordMic() ? "mic" : prefs.recordSystem() ? "volume" : "micOff"} size={14} />
+                  <span>{audioSummary()}</span>
+                  <Show when={prefs.recordMic()}>
+                    <LevelMeter level={levels.mic()} class="hud-meter" />
+                  </Show>
+                  <Icon name="chevronUp" size={12} />
+                </button>
+              )}
+            />
+            <Menu
+              class="hud-menu"
+              items={() => cameraMenuItems(cameras())}
+              trigger={(m) => (
+                <button
+                  type="button"
+                  class="hud-options hud-camera"
+                  classList={{ on: m.open, off: !prefs.recordCamera() }}
+                  ref={m.ref}
+                  aria-label={prefs.recordCamera() ? t("Camera: {name}", { name: cameraName(cameras()) }) : t("Camera off")}
+                  data-tip={prefs.recordCamera() ? cameraName(cameras()) : t("Add your webcam as a bubble")}
+                  onClick={m.toggle}
+                >
+                  <Icon name={prefs.recordCamera() ? "camera" : "cameraOff"} size={14} />
+                  <span>{prefs.recordCamera() ? t("Camera") : t("No camera")}</span>
+                  <Icon name="chevronUp" size={12} />
+                </button>
+              )}
+            />
+            <Menu
+              class="hud-menu"
+              items={optionsMenuItems}
+              trigger={(m) => (
+                <button
+                  type="button"
+                  class="hud-options"
+                  classList={{ on: m.open }}
+                  ref={m.ref}
+                  data-tip={[
+                    props.zoom > 1 ? t("{keys} zooms {amount}×", { keys: zoomKeys(), amount: props.zoom }) : t("No zoom"),
+                    `${prefs.captureFps()} fps`,
+                    cursorSummary(),
+                    prefs.countdown() === 0 ? t("no countdown") : t("{countdown}s countdown", { countdown: prefs.countdown() }),
+                  ].join(" · ")}
+                  onClick={m.toggle}
+                >
+                  <Icon name="sliders" size={14} />
+                  <span>{t("Options")}</span>
+                  <Icon name="chevronUp" size={12} />
+                </button>
+              )}
+            />
+          </Show>
           <span class="hud-sep" />
           <div class="hud-actions">
             <Show when={heavyTake()}>
@@ -1277,8 +1484,59 @@ export default function RecordOverlay(props: {
                 {t("Use 30 fps")}
               </button>
             </Show>
-            <span class="hud-dims">{windowMode() ? t("Window") : dims()}</span>
-            <button type="button" class="hud-cancel" disabled={phase() === "preparing" || control() !== "open"} onClick={cancel} data-tip={t("Cancel")} data-kbd="Esc">
+            <Show
+              when={!windowMode() && preset().ratio !== "full" && sel()}
+              fallback={<span class="hud-dims">{windowMode() ? t("Window") : dims()}</span>}
+            >
+              {(r) => {
+                const phys = () => {
+                  const { sx, sy } = toPhysical();
+                  return { w: Math.round(r().w * sx), h: Math.round(r().h * sy) };
+                };
+                return (
+                  <div class="hud-dims-inputs">
+                    <input
+                      type="number"
+                      class="hud-dim-input"
+                      aria-label={t("Region width in pixels")}
+                      value={phys().w}
+                      onBlur={(e) => commitPhysDim("w", e.currentTarget.value, e.currentTarget)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitPhysDim("w", e.currentTarget.value, e.currentTarget);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                    <span class="hud-dim-x" aria-hidden="true">×</span>
+                    <input
+                      type="number"
+                      class="hud-dim-input"
+                      aria-label={t("Region height in pixels")}
+                      value={phys().h}
+                      onBlur={(e) => commitPhysDim("h", e.currentTarget.value, e.currentTarget)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitPhysDim("h", e.currentTarget.value, e.currentTarget);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              }}
+            </Show>
+            <button
+              type="button"
+              class="hud-cancel"
+              aria-label={t("Cancel")}
+              disabled={phase() === "preparing" || control() !== "open"}
+              onClick={cancel}
+              data-tip={t("Cancel")}
+              data-kbd="Esc"
+            >
               <Icon name="close" size={14} />
             </button>
             <button

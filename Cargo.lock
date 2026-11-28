@@ -6099,7 +6099,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -6148,7 +6148,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-audio"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "block2",
  "cpal",
@@ -6169,7 +6169,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-camera"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -6188,7 +6188,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-captions"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "vuoom-audio",
  "whisper-rs",
@@ -6196,7 +6196,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-capture"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -6216,7 +6216,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-encode"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "color_quant",
  "gif",
@@ -6230,7 +6230,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-input"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "glam",
  "libc",
@@ -6246,7 +6246,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-preview"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "futures-util",
  "getrandom 0.2.17",
@@ -6257,7 +6257,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-project"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "glam",
  "serde",
@@ -6267,7 +6267,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-render"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -6281,7 +6281,7 @@ dependencies = [
 
 [[package]]
 name = "vuoom-zoom"
-version = "2.4.0"
+version = "2.5.0"
 dependencies = [
  "glam",
  "serde",

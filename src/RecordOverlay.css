@@ -59,13 +59,16 @@
   .sel-root.full .sel-shot {
     filter: brightness(0.62);
   }
+  .sel-dim {
+    position: absolute;
+    background: rgba(8, 7, 6, 0.58);
+    pointer-events: none;
+  }
   .sel-rect {
     position: absolute;
     border: 1.5px solid var(--rec);
     border-radius: 3px;
-    box-shadow:
-      0 0 0 100vmax rgba(8, 7, 6, 0.58),
-      0 0 0 3px rgba(198, 47, 56, 0.22);
+    box-shadow: 0 0 0 2px rgba(198, 47, 56, 0.28);
     pointer-events: none;
   }
   .sel-handle {
@@ -83,6 +86,9 @@
   .sel-dimtag {
     position: absolute;
     z-index: 2;
+    max-width: calc(100vw - 16px);
+    overflow: hidden;
+    text-overflow: ellipsis;
     padding: 4px 9px;
     border-radius: 7px;
     background: var(--rec);
@@ -92,6 +98,25 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     pointer-events: none;
+  }
+  .sel-cam-error {
+    position: absolute;
+    right: 16px;
+    bottom: 76px;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--r-md);
+    background: var(--glass);
+    border: 1px solid var(--rec-text);
+    color: #f6efe5;
+    font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  .sel-cam-error > svg {
+    color: var(--rec-text);
   }
   .sel-drawhint,
   .sel-fullhint {
@@ -126,21 +151,22 @@
     }
   }
 
-  /* The HUD: opaque darkroom bar holding every pre-flight choice and the Record button. */
+  /* The HUD: single-row opaque 44px darkroom bar holding pre-flight choices and Record. */
   .hud {
     position: absolute;
     left: 50%;
-    bottom: 36px;
+    bottom: 16px;
     z-index: 5;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: center;
-    gap: 8px 10px;
+    gap: 8px;
+    height: 44px;
     width: max-content;
-    max-width: calc(100vw - 32px);
-    padding: 8px 8px 8px 16px;
-    border-radius: 16px;
+    max-width: calc(100vw - 16px);
+    padding: 0 6px 0 12px;
+    border-radius: var(--r-md);
     background: var(--glass);
     border: 1px solid var(--glass-line);
     box-shadow:
@@ -150,10 +176,19 @@
     transform: translateX(-50%);
     animation: hud-in var(--dur-slow) var(--ease-enter);
   }
+  .hud.hud-top {
+    top: 16px;
+    bottom: auto;
+  }
+  .hud button:focus-visible,
+  .hud input:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
   @keyframes hud-in {
     from {
       opacity: 0;
-      transform: translate(-50%, 14px);
+      transform: translate(-50%, 10px);
     }
   }
   .hud-group {
@@ -168,7 +203,7 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
-  @media (max-width: 1100px) {
+  @media (max-width: 1180px) {
     .hud-label {
       display: none;
     }
@@ -177,22 +212,19 @@
     display: flex;
     gap: 2px;
     padding: 2px;
-    border-radius: 10px;
+    border-radius: var(--r-sm);
     background: var(--chip);
   }
   .hud-chip {
     height: 28px;
-    min-width: 34px;
-    padding: 0 9px;
+    min-width: 32px;
+    padding: 0 8px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 4px;
     background: transparent;
     color: rgba(246, 239, 229, 0.78);
     font-size: 12px;
     font-weight: 600;
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
   }
   .hud-chip:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -204,17 +236,18 @@
   }
   .hud-sep {
     width: 1px;
-    height: 22px;
+    height: 20px;
+    flex: none;
     background: rgba(130, 118, 106, 0.4);
   }
   .hud-options {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     height: 32px;
     padding: 0 10px;
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     background: var(--chip);
     color: #f6efe5;
     font-size: 12px;
@@ -232,10 +265,13 @@
   .hud-audio > svg:first-child {
     color: var(--t-audio);
   }
-  .hud-audio.off > svg:first-child {
-    color: var(--muted);
+  .hud-camera:not(.off) > svg:first-child {
+    color: #f6efe5;
   }
-  .hud-audio.off > span {
+  .hud-audio.off > svg:first-child,
+  .hud-camera.off > svg:first-child,
+  .hud-audio.off > span,
+  .hud-camera.off > span {
     color: var(--muted);
   }
   .hud-meter {
@@ -244,22 +280,51 @@
   .hud-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    flex: none;
   }
   .hud-dims {
-    min-width: 96px;
+    min-width: 84px;
     color: var(--muted);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     text-align: right;
+    white-space: nowrap;
+  }
+  .hud-dims-inputs {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .hud-dim-input {
+    width: 54px;
+    height: 28px;
+    padding: 0 5px;
+    border: 1px solid rgba(130, 118, 106, 0.45);
+    border-radius: var(--r-xs);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f6efe5;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .hud-dim-input::-webkit-inner-spin-button,
+  .hud-dim-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .hud-dim-x {
+    color: var(--muted);
+    font-size: 11px;
   }
   .hud-cancel {
     display: grid;
     place-items: center;
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--r-sm);
     background: var(--chip);
     color: #f6efe5;
   }
@@ -270,18 +335,17 @@
   .hud-record {
     display: flex;
     align-items: center;
-    gap: 9px;
-    height: 38px;
-    padding: 0 18px 0 15px;
+    gap: 8px;
+    height: 32px;
+    padding: 0 14px 0 12px;
     border: 0;
-    border-radius: 11px;
+    border-radius: var(--r-sm);
     background: var(--rec);
     color: var(--on-record);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      transform var(--dur-instant) var(--ease-standard);
+    white-space: nowrap;
+    transition: transform var(--dur-instant) var(--ease-standard);
   }
   .hud-record:hover:not(:disabled) {
     background: var(--rec-hover);
@@ -882,7 +946,10 @@
 
   /* Offers a lighter frame rate before a heavy take. */
   .hud-heavy {
-    padding: 4px 9px;
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 10px;
     border: 1px solid color-mix(in srgb, #f4c36f 45%, transparent);
     border-radius: 999px;
     background: color-mix(in srgb, #f4c36f 14%, transparent);

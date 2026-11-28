@@ -271,7 +271,7 @@
     --gutter: 8px;
 
     font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
-    font-feature-settings: "cv11", "ss01", "tnum" 0;
+    font-feature-settings: "cv11", "ss01";
     color: var(--text);
   }
 

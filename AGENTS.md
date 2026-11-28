@@ -17,7 +17,15 @@ These rules govern all future work on Vuoom so performance, binary size, power d
 - **Keep Tauri JS and Rust packages in lockstep** (`@tauri-apps/*` in `package.json` matched to `tauri` / `tauri-plugin-*` in `Cargo.toml` / `src-tauri/Cargo.toml`), and keep `[workspace.package]` version synchronized across `Cargo.toml`, `package.json`, and `src-tauri/tauri.conf.json`.
 - **Do not silence `cargo-deny` or `clippy` lightly.** Any `deny.toml` exception must be narrow, temporary, and justified by why the vulnerable code path is unreachable or unexploitable.
 
-## 3. Performance Budgets & Verification Gates
+## 3. UI Design System, Motion & Accessibility (`v2.5.0+`)
+
+- **Use design tokens and shared primitives only.** Never introduce hardcoded hex/rgba palette colors, ad-hoc shadows, raw radii, or one-off control styles outside [`src/styles/tokens.css`](./src/styles/tokens.css) and [`src/ui.tsx`](./src/ui.tsx) (see [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md)). Preserve the Tungsten Darkroom & Daylight Archival Studio language, neutral matte Stage framing, zero purple, and semantic Record Crimson exclusively for capture actions.
+- **No `backdrop-filter: blur()`, `100vmax` spread shadows, or `!important`.** Elevated overlays, floating toolbars, and modals must use opaque `.island` surfaces (`inset 0 1px 0 var(--rim)`), bounded dim rectangles, and explicit `@layer` cascade ordering.
+- **Follow [`MOTION.md`](./MOTION.md) & respect reduced motion.** Animate only compositor-safe properties (`transform`, `opacity`), keep all idle states completely still (`0` infinite idle animations), and gate every non-essential transition/keyframe behind `@media (prefers-reduced-motion: no-preference)` and `:root:not([data-motion="reduced"])`.
+- **Meet WCAG 2.2 AA & keyboard standards.** Maintain `>= 4.5:1` text contrast across all 6 themes, `>= 3.0:1` UI boundary contrast, `>= 24×24px` hit targets, `dialogA11y` focus trapping/restoration on every modal/overlay, WAI-ARIA roles (`tablist`, `combobox`, `slider`, `alert`, `status`), and tabular numerals (`tabular-nums`) for all timecodes, byte counts, and dimensions.
+- **Keep local verification lightweight.** On constrained dev machines, run `pnpm run typecheck`, `pnpm run lint`, and `node scripts/check-i18n.mjs` locally; offload full Rust/Tauri release builds and cross-platform checks to GitHub Actions CI and verify downloaded artifacts live via WebView2 CDP.
+
+## 4. Performance Budgets & Verification Gates
 
 Every change must stay within the budgets in [`PERFORMANCE.md`](./PERFORMANCE.md) (`Cold start <= 2,050 ms`, `Warm <= 400 ms`, `First usable UI <= 500 ms`, `Rust idle CPU <= 0.50% / 0.10%`, `dist/ <= 1,478 KB raw / 694 KB gz`, `perf_4k` non-regression, `0` leaked DOM nodes/listeners). Measure before and after any performance-sensitive edit.
 

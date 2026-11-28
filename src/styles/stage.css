@@ -25,15 +25,21 @@
     container-type: size;
     overflow: hidden;
   }
+  .stage-wrap.cropping {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+  }
   .stage-wrap.zoomed .stage-viewport {
     overflow: auto;
     padding: 28px;
   }
   .stage-wrap.cropping .stage-viewport {
-    padding-bottom: 52px;
+    padding: 16px;
   }
   .stage {
     --ar: 1.7778;
+    --stage-actual-w: 1280px;
     position: relative;
     margin: auto;
     flex: none;
@@ -44,10 +50,11 @@
     overflow: hidden;
   }
   .stage-wrap.zoomed .stage {
-    width: calc(min(100cqw - 56px, (100cqh - 56px) * var(--ar)) * 2);
+    width: var(--stage-actual-w);
   }
   .stage-wrap.cropping .stage {
-    width: min(100cqw - 56px, (100cqh - 128px) * var(--ar));
+    width: max(64px, min(100cqw - 32px, (100cqh - 32px) * var(--ar)));
+    overflow: visible;
   }
   .stage-zoom {
     position: absolute;
@@ -72,23 +79,22 @@
     font-size: var(--fs-xs);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
   }
-  .stage-zoom-btn:hover {
+  .stage-zoom-btn:hover:not(.on) {
     background: var(--hover);
     color: var(--text);
   }
   .stage-zoom-btn.on {
-    background: var(--active);
-    color: var(--text);
+    background: var(--ink);
+    color: var(--ink-text);
+    font-weight: 600;
   }
   .stage-canvas {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
+    border-radius: inherit;
     display: block;
   }
 
@@ -303,7 +309,7 @@
     position: absolute;
     inset: 0;
     z-index: 4;
-    overflow: hidden;
+    overflow: visible;
     touch-action: none;
   }
   .crop-dim {
@@ -399,21 +405,19 @@
     outline-offset: -2px;
   }
   .crop-bar {
-    position: absolute;
-    bottom: 12px;
-    left: 50%;
+    position: relative;
     z-index: 6;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    max-width: calc(100% - 24px);
+    width: fit-content;
+    max-width: calc(100% - 20px);
     min-height: 36px;
-    padding: 3px 5px 3px 10px;
+    margin: 0 auto 10px;
+    padding: 3px 6px 3px 10px;
     border-radius: var(--r-md);
-    transform: translateX(-50%);
-    animation: hint-in var(--dur-normal) var(--ease-enter);
   }
   .crop-bar > svg {
     color: var(--muted);
@@ -421,21 +425,30 @@
   }
   .crop-bar .crop-seg .seg-btn {
     height: 24px;
-    padding: 0 7px;
+    padding: 0 6px;
     font-size: var(--fs-xs);
+  }
+  .crop-bounds-btn {
+    display: none;
+    height: 26px;
+    padding: 0 8px;
+  }
+  .crop-bounds-btn.on {
+    background: var(--active);
+    color: var(--text);
   }
   .crop-fields {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 6px;
+    gap: 5px;
+    padding: 0 5px;
     border-left: 1px solid var(--hairline);
     border-right: 1px solid var(--hairline);
   }
   .crop-field {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
   }
   .crop-field-label {
     color: var(--muted);
@@ -445,26 +458,29 @@
   }
   .crop-field .scrub,
   .crop-field .scrub-input {
-    min-width: 50px;
-    width: 50px;
+    min-width: 44px;
+    width: 44px;
     height: 26px;
-    padding: 0 6px;
+    padding: 0 4px;
     line-height: 24px;
     font-size: var(--fs-xs);
   }
   .crop-actions {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
   }
-  @container stage-wrap (max-width: 720px) {
-    .crop-fields {
+  @container stage-wrap (max-width: 760px) {
+    .crop-bounds-btn {
+      display: inline-flex;
+    }
+    .crop-bar:not(.bounds-open) .crop-fields {
       display: none;
     }
-  }
-  @container stage-wrap (max-width: 560px) {
-    .stage-wrap.cropping .stage-viewport {
-      padding-bottom: 84px;
+    .crop-bar.bounds-open .crop-fields {
+      border-left: 0;
+      border-right: 0;
+      padding: 2px 0 0;
     }
   }
 

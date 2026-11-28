@@ -1,8 +1,9 @@
 // The inspector: a resizable, collapsible right panel with two tabs.
-//  - Selection: every property of whatever is selected (annotation, zoom, speed, cut), or
-//    the armed tool's card, in collapsible sections that remember their state.
-//  - Clip: whole-recording settings: frame + backdrop, crop, camera (auto zooms), pacing
-//    (skim idle), click ripples + keystrokes, and clip facts.
+//  - Selection: every property of whatever is selected (single or multi-selected
+//    annotations, zoom, speed, cut, caption), the armed tool's card + clip annotation
+//    list, or a calm empty state.
+//  - Clip: pinned search + clip summary + grouped whole-recording settings (Framing,
+//    Motion, Sound & Text, Presentation, Clip facts).
 import { createEffect, createSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { trackLabel } from "../editor/audio";
 import {
@@ -12,17 +13,33 @@ import {
   jobFraction,
   jobLabel,
 } from "../editor/captions";
-import { useEditor } from "../editor/context";
 import { PRESET_COLORS, TEXT_FONTS } from "../editor/constants";
-import { fmt, hexRgb, rgbHex } from "../format";
+import { useEditor } from "../editor/context";
 import { isMarker, PEN_LOOKS } from "../editor/strokes";
-import { outputDuration } from "../geometry";
+import { fmt, hexRgb, rgbHex } from "../format";
+import { clamp01, outputDuration } from "../geometry";
 import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
+import { mod } from "../platform";
 import { layout, prefs, setInspectorW } from "../prefs";
 import ScrubField from "../ScrubField";
 import { TOOLS } from "../shortcuts";
-import type { CameraCorner, ClickEffect, CropRect, PointerLook } from "../types";
+import type { BoxAnn, CameraCorner, ClickEffect, CropRect, Kind, PointerLook, TextAnn, Tool } from "../types";
+import {
+  createRovingTabindex,
+  Field,
+  IconButton,
+  Rich,
+  Section,
+  Seg,
+  sectionQuery,
+  setSectionQuery,
+  Slider,
+  Switch,
+} from "../ui";
+import { SelectionHandlesArt } from "./StudioArt";
+
+type InspectorTab = "selection" | "clip";
 
 /** The webcam bubble's corners, in reading order for the 2×2 picker. */
 const CAMERA_CORNERS = (): { value: CameraCorner; label: string }[] => [
@@ -31,16 +48,91 @@ const CAMERA_CORNERS = (): { value: CameraCorner; label: string }[] => [
   { value: "bottom-left", label: t("Bottom left") },
   { value: "bottom-right", label: t("Bottom right") },
 ];
-import { Field, IconButton, Rich, Section, Seg, sectionQuery, setSectionQuery, Slider, Switch } from "../ui";
-import { mod } from "../platform";
+
+/** Matches ToolRail's icon mapping so armed tool cards show the actual tool glyph. */
+const TOOL_ICON: Record<Tool, IconName> = {
+  select: "cursor",
+  zoom: "zoomIn",
+  text: "text",
+  arrow: "arrow",
+  step: "step",
+  pen: "pen",
+  shape: "shape",
+  highlight: "highlight",
+  spotlight: "spotlight",
+  mask: "eyeOff",
+};
 
 export default function Inspector() {
   const ed = useEditor();
-  const [tab, setTab] = createSignal<"selection" | "clip">("clip");
-  const busy = () => ed.somethingSelected() || ed.drawingToolActive();
-  // Follow the user's focus: selecting something (or arming a tool) shows its properties,
-  // clearing it returns to the clip settings.
-  createEffect(on(busy, (b) => setTab(b ? "selection" : "clip")));
+  // Manual tab lock: clicking or keyboard-activating a tab pins that choice until the
+  // user picks the other tab or opens a different clip.
+  const [manualTab, setManualTab] = createSignal<InspectorTab | null>(null);
+  const suggestedTab = (): InspectorTab => (ed.somethingSelected() || ed.drawingToolActive() ? "selection" : "clip");
+  const tab = (): InspectorTab => manualTab() ?? suggestedTab();
+
+  // Roving tabindex for the Selection / Clip tablist.
+  let tablistEl: HTMLDivElement | undefined;
+  const [rovingTab, setRovingTab] = createSignal<InspectorTab | null>(null);
+  const tabTarget = (): InspectorTab => rovingTab() ?? tab();
+  const onRovingKey = createRovingTabindex(() => tablistEl, '[role="tab"]', { orientation: "horizontal" });
+
+  // Settings search (Clip tab): pinned outside .insp-scroll; Ctrl+F jumps here.
+  let searchEl: HTMLInputElement | undefined;
+  let searchRaf = 0;
+  const [query, setQuery] = createSignal("");
+  const [noMatch, setNoMatch] = createSignal(false);
+
+  const checkSearchMatches = () => {
+    cancelAnimationFrame(searchRaf);
+    if (!sectionQuery()) {
+      setNoMatch(false);
+      return;
+    }
+    searchRaf = requestAnimationFrame(() => {
+      searchRaf = 0;
+      const shown = document.querySelectorAll(".insp-scroll .sect[data-sect^='clip-']:not(.sect-miss)");
+      setNoMatch(!!sectionQuery() && shown.length === 0);
+    });
+  };
+  const search = (q: string) => {
+    setQuery(q);
+    setSectionQuery(q);
+    checkSearchMatches();
+  };
+
+  // Reset manual tab lock & search only when a different clip opens or closes.
+  createEffect(
+    on(
+      () => [ed.clipId(), ed.hasClip()] as const,
+      () => {
+        setManualTab(null);
+        search("");
+      },
+      { defer: true },
+    ),
+  );
+
+  // Re-evaluate search matches whenever returning to the Clip tab with an active query.
+  createEffect(() => {
+    if (tab() === "clip" && sectionQuery()) checkSearchMatches();
+  });
+
+  const onFind = (e: KeyboardEvent) => {
+    if (mod(e) && !e.shiftKey && !e.altKey && e.code === "KeyF" && tab() === "clip" && searchEl && !ed.isModal()) {
+      e.preventDefault();
+      searchEl.focus();
+      searchEl.select();
+    }
+  };
+  // In the capture phase, next to the editor's own key guard: that guard swallows Ctrl+F as
+  // a browser shortcut and stops it there, so a listener later in the path never hears it.
+  onMount(() => window.addEventListener("keydown", onFind, true));
+  onCleanup(() => {
+    window.removeEventListener("keydown", onFind, true);
+    cancelAnimationFrame(searchRaf);
+    setSectionQuery("");
+  });
 
   let dragging = false;
   const onResizeDown = (e: PointerEvent) => {
@@ -56,6 +148,14 @@ export default function Inspector() {
     document.body.classList.remove("resizing-x");
   };
 
+  const onTabKeyDown = (target: InspectorTab) => (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      setManualTab(target);
+    }
+  };
+
   return (
     <aside class="inspector panel" style={{ width: `min(${layout.inspectorW()}px, 36vw)` }} aria-label={t("Inspector")}>
       <div
@@ -67,27 +167,49 @@ export default function Inspector() {
         onDblClick={() => layout.inspectorW.reset()}
       />
       <header class="insp-head">
-        <div class="insp-tabs" role="tablist">
+        <div
+          ref={tablistEl}
+          class="insp-tabs"
+          role="tablist"
+          aria-label={t("Inspector")}
+          onKeyDown={(e) => {
+            onRovingKey(e);
+            if (e.defaultPrevented) e.stopPropagation();
+          }}
+          onFocusOut={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRovingTab(null);
+          }}
+        >
           <button
             type="button"
+            id="insp-tab-selection"
             role="tab"
             class="insp-tab"
             classList={{ on: tab() === "selection" }}
             aria-selected={tab() === "selection"}
-            onClick={() => setTab("selection")}
+            aria-controls="insp-panel-selection"
+            tabindex={tabTarget() === "selection" ? 0 : -1}
+            onFocus={() => setRovingTab("selection")}
+            onClick={() => setManualTab("selection")}
+            onKeyDown={onTabKeyDown("selection")}
           >
             {t("Selection")}
             <Show when={ed.selCount() > 1}>
-              <span class="badge">{ed.selCount()}</span>
+              <span class="badge tabular">{ed.selCount()}</span>
             </Show>
           </button>
           <button
             type="button"
+            id="insp-tab-clip"
             role="tab"
             class="insp-tab"
             classList={{ on: tab() === "clip" }}
             aria-selected={tab() === "clip"}
-            onClick={() => setTab("clip")}
+            aria-controls="insp-panel-clip"
+            tabindex={tabTarget() === "clip" ? 0 : -1}
+            onFocus={() => setRovingTab("clip")}
+            onClick={() => setManualTab("clip")}
+            onKeyDown={onTabKeyDown("clip")}
           >
             {t("Clip")}
           </button>
@@ -100,8 +222,62 @@ export default function Inspector() {
           onClick={() => layout.inspectorOpen.set(false)}
         />
       </header>
-      <div class="insp-scroll">
-        <Show when={tab() === "selection"} fallback={<ClipPanel />}>
+      <Show when={tab() === "clip"}>
+        <div class="clip-search">
+          <div class="input-wrap">
+            <Icon name="search" size={14} />
+            <input
+              ref={searchEl}
+              class="input"
+              type="search"
+              placeholder={t("Search settings")}
+              aria-label={t("Search clip settings")}
+              spellcheck={false}
+              value={query()}
+              onInput={(e) => search(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && query()) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  search("");
+                }
+              }}
+            />
+            <Show when={query()}>
+              <button
+                type="button"
+                class="clip-search-x"
+                aria-label={t("Clear search")}
+                onClick={() => {
+                  search("");
+                  searchEl?.focus();
+                }}
+              >
+                <Icon name="close" size={12} stroke={2.2} />
+              </button>
+            </Show>
+          </div>
+        </div>
+      </Show>
+      <div
+        id={tab() === "selection" ? "insp-panel-selection" : "insp-panel-clip"}
+        class="insp-scroll"
+        role="tabpanel"
+        aria-labelledby={tab() === "selection" ? "insp-tab-selection" : "insp-tab-clip"}
+      >
+        <Show
+          when={tab() === "selection"}
+          fallback={
+            <ClipPanel
+              query={query}
+              noMatch={noMatch}
+              onClear={() => {
+                search("");
+                searchEl?.focus();
+              }}
+            />
+          }
+        >
           <SelectionPanel />
         </Show>
       </div>
@@ -130,8 +306,6 @@ function PanelTitle(props: { icon: IconName; title: string; sub?: string; action
   );
 }
 
-/** Quick picks for the re-drawn pointer's color; the first is the classic white. */
-const POINTER_COLORS = ["#ffffff", "#0e0e0f", "#e5484d", "#ffd23f", "#30a46c", "#6ea8ff"];
 /** The pointer's looks, in the order of their cards. */
 const POINTER_LOOKS = (): { value: PointerLook; label: string; tip: string }[] => [
   { value: "classic", label: t("Classic"), tip: t("Vuoom's pointer: an arrow, a hand over links, a beam over text") },
@@ -145,8 +319,8 @@ const CLICK_EFFECTS = (): { value: ClickEffect; label: string; tip: string }[] =
   { value: "pulse", label: t("Pulse"), tip: t("A soft disc that swells and fades") },
   { value: "burst", label: t("Burst"), tip: t("Dots that fly outward") },
 ];
-/** Click colors: white (the default), then the pointer's palette without its black. */
-const CLICK_COLORS = ["#ffffff", "#ffd23f", "#e5484d", "#30a46c", "#6ea8ff", "#b48cff"];
+/** Click colors: shared preset palette without black. */
+const CLICK_COLORS = PRESET_COLORS.filter((c) => c !== "#0e0e0f");
 
 /** A click effect for its card: still at rest, playing while the card is hovered and
  *  twice when it is chosen (see .fx-art in inspector.css). */
@@ -185,7 +359,11 @@ function ClickEffectArt(props: { effect: ClickEffect }): JSX.Element {
   );
 }
 const pointerHex = (c: [number, number, number] | null | undefined) =>
-  c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : POINTER_COLORS[0];
+  c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : PRESET_COLORS[0];
+const isDarkHex = (hex: string) => {
+  const { r, g, b } = hexRgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2;
+};
 /** The look a pointer is drawn with: a picture look without a picture is the classic one. */
 const pointerLook = (c: { look?: PointerLook; image?: unknown }): PointerLook =>
   c.look === "image" && !c.image ? "classic" : (c.look ?? "classic");
@@ -207,22 +385,31 @@ const KIND_ICON: Record<string, IconName> = {
   Marker: "pen",
 };
 
+function barIcon(ed: ReturnType<typeof useEditor>, kind: Kind, id: number): IconName {
+  if (kind === "text") {
+    const tx = ed.anns().texts.find((x) => x.id === id) as TextAnn | undefined;
+    return tx?.badge ? "step" : "text";
+  }
+  if (kind === "arrow") {
+    const ar = ed.anns().arrows.find((x) => x.id === id);
+    return ar?.style === "Line" ? "line" : "arrow";
+  }
+  if (kind === "stroke") return "pen";
+  const b = ed.anns().highlights.find((x) => x.id === id);
+  if (!b) return "shape";
+  if (b.shape === "Mask") return "eyeOff";
+  if (b.shape === "Spotlight") return "spotlight";
+  if (b.filled && (b.color.a ?? 1) < 0.6) return "highlight";
+  return "shape";
+}
+
 function SelectionPanel() {
   const ed = useEditor();
   return (
     <>
       <Show when={ed.selected()}>
         <Show when={ed.selCount() > 1} fallback={<AnnotationProps />}>
-          <PanelTitle
-            icon="layers"
-            title={t("{count} annotations", { count: ed.selCount() })}
-            sub={t("Drag any one on the canvas to move them together")}
-          />
-          <div class="insp-pad">
-            <button type="button" class="btn danger block" onClick={() => void ed.deleteSelection()}>
-              <Icon name="trash" size={14} /> {t("Delete {count} annotations", { count: ed.selCount() })}
-            </button>
-          </div>
+          <MultiSelectProps />
         </Show>
       </Show>
       <Show when={ed.selZoom() !== null && ed.selectedZoom()}>
@@ -242,9 +429,7 @@ function SelectionPanel() {
       </Show>
       <Show when={!ed.somethingSelected() && !ed.drawingToolActive()}>
         <div class="insp-empty">
-          <span class="insp-empty-icon">
-            <Icon name="cursor" size={20} />
-          </span>
+          <SelectionHandlesArt class="insp-empty-art" />
           <strong>{t("Nothing selected")}</strong>
           <p>{t("Click something on the video or the timeline to edit it, or pick a tool to draw.")}</p>
           <div class="insp-empty-keys">
@@ -267,17 +452,206 @@ function SelectionPanel() {
   );
 }
 
+/** Shared editable controls for a multi-annotation selection. */
+function MultiSelectProps() {
+  const ed = useEditor();
+  const items = () => ed.selectedAnns();
+  const allSupportColor = () =>
+    items().length > 0 && items().every((x) => !(x.kind === "box" && (x.ann as BoxAnn).shape === "Mask"));
+
+  const sharedHex = (): string | null => {
+    const list = items();
+    if (!list.length) return null;
+    const first = rgbHex(list[0].ann.color);
+    return list.every((x) => rgbHex(x.ann.color) === first) ? first : null;
+  };
+  const sharedOpacity = (): number | null => {
+    const list = items();
+    if (!list.length) return null;
+    const first = list[0].ann.color.a ?? 1;
+    return list.every((x) => Math.abs((x.ann.color.a ?? 1) - first) < 0.01) ? first : null;
+  };
+  const avgOpacity = (): number => {
+    const list = items();
+    if (!list.length) return 1;
+    return list.reduce((acc, x) => acc + (x.ann.color.a ?? 1), 0) / list.length;
+  };
+  const sharedStart = (): number | null => {
+    const list = items();
+    if (!list.length) return null;
+    const first = Number(list[0].ann.range.start.toFixed(2));
+    return list.every((x) => Math.abs(x.ann.range.start - first) < 0.01) ? first : null;
+  };
+  const sharedEnd = (): number | null => {
+    const list = items();
+    if (!list.length) return null;
+    const first = Number(list[0].ann.range.end.toFixed(2));
+    return list.every((x) => Math.abs(x.ann.range.end - first) < 0.01) ? first : null;
+  };
+
+  return (
+    <>
+      <PanelTitle
+        icon="layers"
+        title={t("{count} annotations", { count: ed.selCount() })}
+        sub={t("Drag any one on the canvas to move them together")}
+        actions={
+          <>
+            <IconButton icon="copy" tip={t("Copy")} kbd="Ctrl+C" class="sm" onClick={() => void ed.copySelected()} />
+            <IconButton icon="trash" tip={t("Delete")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelection()} />
+          </>
+        }
+      />
+
+      <Show when={allSupportColor()}>
+        <Section id="multi-color" title={t("Color")} icon="palette">
+          <div class="swatches">
+            <For each={PRESET_COLORS}>
+              {(c) => (
+                <button
+                  type="button"
+                  class="swatch"
+                  classList={{ on: sharedHex() === c }}
+                  aria-pressed={sharedHex() === c}
+                  style={{ background: c }}
+                  aria-label={t("Color {color}", { color: c })}
+                  data-tip={c}
+                  onClick={() => ed.setColorMulti(c)}
+                />
+              )}
+            </For>
+            <label class="swatch swatch-custom" data-tip={t("Custom color")}>
+              <input
+                type="color"
+                value={sharedHex() ?? PRESET_COLORS[0]}
+                aria-label={t("Custom color")}
+                onInput={(e) => ed.setColorMulti(e.currentTarget.value)}
+              />
+            </label>
+          </div>
+          <Field label={t("Opacity")}>
+            <Slider
+              value={sharedOpacity() ?? avgOpacity()}
+              min={0.1}
+              max={1}
+              step={0.05}
+              label={t("Opacity")}
+              format={(v) => (sharedOpacity() === null ? t("Mixed") : `${Math.round(v * 100)}%`)}
+              onInput={(v) => ed.setOpacityMulti(v)}
+            />
+          </Field>
+        </Section>
+      </Show>
+
+      <Section id="multi-timing" title={t("Timing")} icon="timer">
+        <Field label={t("Appears")}>
+          <ScrubField
+            value={sharedStart()}
+            min={0}
+            max={ed.duration()}
+            step={0.05}
+            suffix="s"
+            title={t("When this appears. Drag to scrub, click to type")}
+            onCommit={(v) => ed.editRangeMulti({ start: v })}
+          />
+        </Field>
+        <Field label={t("Disappears")}>
+          <ScrubField
+            value={sharedEnd()}
+            min={0}
+            max={ed.duration()}
+            step={0.05}
+            suffix="s"
+            title={t("When this disappears. Drag to scrub, click to type")}
+            onCommit={(v) => ed.editRangeMulti({ end: v })}
+          />
+        </Field>
+        <div class="btn-row">
+          <button
+            type="button"
+            class="btn sm grow"
+            data-tip={t("Start at the playhead")}
+            onClick={() => ed.moveMultiToPlayhead()}
+          >
+            {t("Move to playhead")}
+          </button>
+          <button
+            type="button"
+            class="btn sm grow"
+            data-tip={t("Show until the end of the clip")}
+            onClick={() => ed.editRangeMulti({ end: ed.duration() })}
+          >
+            {t("Until end")}
+          </button>
+        </div>
+      </Section>
+
+      <div class="insp-pad">
+        <button type="button" class="btn danger block" onClick={() => void ed.deleteSelection()}>
+          <Icon name="trash" size={14} /> {t("Delete {count} annotations", { count: ed.selCount() })}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Compact list of existing clip annotations shown under armed tool cards. */
+function AnnotationList() {
+  const ed = useEditor();
+  const bars = () => ed.annBars();
+  return (
+    <Show when={bars().length > 0}>
+      <div class="ann-list">
+        <div class="ann-list-head">
+          <span>{t("On this clip")}</span>
+          <span class="badge tabular">{bars().length}</span>
+        </div>
+        <div class="ann-list-rows">
+          <For each={bars()}>
+            {(bar) => (
+              <button
+                type="button"
+                class="ann-list-row"
+                onClick={(e) => {
+                  ed.setTool("select");
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) ed.toggleSelect(bar.kind, bar.id);
+                  else ed.selectAnnotation(bar.kind, bar.id);
+                  ed.scrub(bar.start);
+                }}
+              >
+                <Icon name={barIcon(ed, bar.kind, bar.id)} size={14} class="ann-list-icon" />
+                <span class="ann-list-label">{bar.label}</span>
+                <span class="ann-list-time tabular">{fmt(bar.start)}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
 function ToolCard() {
   const ed = useEditor();
   const tool = () => TOOLS().find((x) => x.id === ed.tool());
+  const hint = () => tool()?.hint.replace(/\s*[(（].[)）]$/, "");
+  const placeLabel = () => {
+    if (ed.tool() === "shape") return ed.shapeEllipse() ? t("Ellipse") : t("Box");
+    return tool()?.label ?? "";
+  };
   return (
     <Show when={ed.tool() !== "pen"} fallback={<PenCard />}>
-      <PanelTitle icon="wand" title={t("{label} tool", { label: tool()?.label ?? "" })} sub={tool()?.hint} />
+      <PanelTitle
+        icon={TOOL_ICON[ed.tool()]}
+        title={t("{label} tool", { label: tool()?.label ?? "" })}
+        sub={hint()}
+      />
       <div class="insp-pad">
         <Show when={ed.tool() === "shape"}>
           <Field label={t("Draw")}>
             <Seg
               value={ed.shapeEllipse() ? "ellipse" : "box"}
+              label={t("Shape")}
               onChange={(v) => ed.setShapeEllipse(v === "ellipse")}
               options={[
                 { value: "box", label: t("Box") },
@@ -286,16 +660,66 @@ function ToolCard() {
             />
           </Field>
         </Show>
+        <Show when={ed.tool() === "arrow"}>
+          <Field label={t("Weight")}>
+            <ScrubField
+              value={ed.arrowLook().thickness}
+              min={0.002}
+              max={0.05}
+              step={0.001}
+              displayScale={100}
+              suffix="%"
+              title={t("Stroke thickness as a percent of height")}
+              onInput={(v) => ed.setArrowLook((l) => ({ ...l, thickness: v }))}
+              onCommit={(v) => ed.setArrowLook((l) => ({ ...l, thickness: v }))}
+            />
+          </Field>
+          <Field label={t("Color")} stack>
+            <div class="swatches">
+              <For each={PRESET_COLORS}>
+                {(c) => (
+                  <button
+                    type="button"
+                    class="swatch"
+                    classList={{ on: rgbHex(ed.arrowLook().color) === c }}
+                    aria-pressed={rgbHex(ed.arrowLook().color) === c}
+                    style={{ background: c }}
+                    aria-label={t("Color {color}", { color: c })}
+                    data-tip={c}
+                    onClick={() => ed.setArrowLook((l) => ({ ...l, color: { ...hexRgb(c), a: l.color.a } }))}
+                  />
+                )}
+              </For>
+            </div>
+          </Field>
+        </Show>
+        <Show when={ed.tool() === "zoom"}>
+          <Field label={t("Strength")} stack>
+            <Slider
+              value={ed.zoomStrength()}
+              min={1.2}
+              max={3}
+              step={0.1}
+              label={t("Zoom strength")}
+              format={(v) => `${v.toFixed(1)}×`}
+              onInput={(v) => ed.setZoomStrength(v)}
+            />
+          </Field>
+        </Show>
+        <button type="button" class="btn primary block" onClick={() => void ed.placeDefaultForTool()}>
+          <Icon name="plus" size={14} /> {t("Place {label}…", { label: placeLabel() })}
+        </button>
         <p class="note">
           <Rich
             text={t("Options appear here once you place one. Hold {shift} for clean angles and squares, {esc} returns to Select.")}
             parts={{ shift: () => <kbd>Shift</kbd>, esc: () => <kbd>Esc</kbd> }}
           />
         </p>
-        <Field label={t("Draw several")} hint={t("Keep this tool after each one instead of returning to Select")}>
+        <Field label={t("Draw several")} description={t("Keep this tool after each one instead of returning to Select")}>
           <Switch checked={ed.toolLock()} label={t("Draw several")} onChange={(v) => ed.setToolLock(v)} />
         </Field>
       </div>
+      <AnnotationList />
     </Show>
   );
 }
@@ -312,6 +736,7 @@ function PenCard() {
         <Field label={t("Draw with")}>
           <Seg
             value={look().marker ? "marker" : "pen"}
+            label={t("Draw with")}
             onChange={(v) => pick(v === "marker")}
             options={[
               { value: "pen", label: t("Pen"), tip: t("A fine solid line") },
@@ -333,22 +758,26 @@ function PenCard() {
           />
         </Field>
         <Field label={t("Color")} stack>
-          <div class="color-row">
-          <For each={PRESET_COLORS}>
-            {(c) => (
-              <button
-                type="button"
-                class="swatch"
-                classList={{ on: rgbHex(look().color) === c }}
-                style={{ background: c }}
-                aria-label={t("Color {color}", { color: c })}
-                data-tip={c}
-                onClick={() => ed.setPenLook({ ...look(), color: { ...hexRgb(c), a: look().color.a } })}
-              />
-            )}
-          </For>
+          <div class="swatches">
+            <For each={PRESET_COLORS}>
+              {(c) => (
+                <button
+                  type="button"
+                  class="swatch"
+                  classList={{ on: rgbHex(look().color) === c }}
+                  aria-pressed={rgbHex(look().color) === c}
+                  style={{ background: c }}
+                  aria-label={t("Color {color}", { color: c })}
+                  data-tip={c}
+                  onClick={() => ed.setPenLook({ ...look(), color: { ...hexRgb(c), a: look().color.a } })}
+                />
+              )}
+            </For>
           </div>
         </Field>
+        <button type="button" class="btn primary block" onClick={() => void ed.placeDefaultForTool("pen")}>
+          <Icon name="plus" size={14} /> {t("Place {label}…", { label: look().marker ? t("Marker") : t("Pen") })}
+        </button>
         <p class="note">
           <Rich
             text={t("Draw as many lines as you like. {esc} puts the pen down, then click a line to move or change it.")}
@@ -356,6 +785,7 @@ function PenCard() {
           />
         </p>
       </div>
+      <AnnotationList />
     </>
   );
 }
@@ -363,13 +793,14 @@ function PenCard() {
 function ColorRow() {
   const ed = useEditor();
   return (
-    <div class="color-row">
+    <div class="swatches">
       <For each={PRESET_COLORS}>
         {(c) => (
           <button
             type="button"
             class="swatch"
             classList={{ on: rgbHex(ed.selectedColor()!) === c }}
+            aria-pressed={rgbHex(ed.selectedColor()!) === c}
             style={{ background: c }}
             aria-label={t("Color {color}", { color: c })}
             data-tip={c}
@@ -420,39 +851,49 @@ function TimingSection(props: { id: string }) {
         <span class="readout">{(r().end - r().start).toFixed(2)}s</span>
       </Field>
       <Show when={!ed.isMask()}>
-      <Field label={t("Fade in")} hint={t("0 pops in instantly")}>
-        <ScrubField
-          value={Number(r().fade_in.toFixed(2))}
-          min={0}
-          max={2}
-          step={0.05}
-          suffix="s"
-          title={t("Fade-in length. Drag to scrub, click to type")}
-          onInput={(v) => ed.editFades(v, r().fade_out)}
-          onCommit={(v) => ed.editFades(v, r().fade_out)}
-        />
-      </Field>
-      <Field label={t("Fade out")} hint={t("0 disappears instantly")}>
-        <ScrubField
-          value={Number(r().fade_out.toFixed(2))}
-          min={0}
-          max={2}
-          step={0.05}
-          suffix="s"
-          title={t("Fade-out length. Drag to scrub, click to type")}
-          onInput={(v) => ed.editFades(r().fade_in, v)}
-          onCommit={(v) => ed.editFades(r().fade_in, v)}
-        />
-      </Field>
+        <Field label={t("Fade in")} description={t("0 pops in instantly")}>
+          <ScrubField
+            value={Number(r().fade_in.toFixed(2))}
+            min={0}
+            max={2}
+            step={0.05}
+            suffix="s"
+            title={t("Fade-in length. Drag to scrub, click to type")}
+            onInput={(v) => ed.editFades(v, r().fade_out)}
+            onCommit={(v) => ed.editFades(v, r().fade_out)}
+          />
+        </Field>
+        <Field label={t("Fade out")} description={t("0 disappears instantly")}>
+          <ScrubField
+            value={Number(r().fade_out.toFixed(2))}
+            min={0}
+            max={2}
+            step={0.05}
+            suffix="s"
+            title={t("Fade-out length. Drag to scrub, click to type")}
+            onInput={(v) => ed.editFades(r().fade_in, v)}
+            onCommit={(v) => ed.editFades(r().fade_in, v)}
+          />
+        </Field>
       </Show>
       <div class="btn-row">
-        <button type="button" class="btn sm" data-tip={t("Start at the playhead")} onClick={() => {
-          const len = r().end - r().start;
-          ed.editRange(ed.playhead(), Math.min(ed.duration(), ed.playhead() + len));
-        }}>
+        <button
+          type="button"
+          class="btn sm grow"
+          data-tip={t("Start at the playhead")}
+          onClick={() => {
+            const len = r().end - r().start;
+            ed.editRange(ed.playhead(), Math.min(ed.duration(), ed.playhead() + len));
+          }}
+        >
           {t("Move to playhead")}
         </button>
-        <button type="button" class="btn sm" data-tip={t("Show until the end of the clip")} onClick={() => ed.editRange(r().start, ed.duration())}>
+        <button
+          type="button"
+          class="btn sm grow"
+          data-tip={t("Show until the end of the clip")}
+          onClick={() => ed.editRange(r().start, ed.duration())}
+        >
           {t("Until end")}
         </button>
       </div>
@@ -473,20 +914,46 @@ function ArrangeSection() {
   return (
     <Section id="ann-arrange" title={t("Arrange")} icon="layers" defaultOpen={false}>
       <div class="btn-grid">
-        <button type="button" class="btn sm" data-kbd="Ctrl+]" data-tip={t("Bring forward")} onClick={() => void ed.reorderSelected("forward")}>
+        <button
+          type="button"
+          class="btn sm"
+          data-kbd="Ctrl+]"
+          data-tip={t("Bring forward")}
+          onClick={() => void ed.reorderSelected("forward")}
+        >
           <Icon name="bringForward" size={14} /> {t("Forward")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+[" data-tip={t("Send backward")} onClick={() => void ed.reorderSelected("backward")}>
+        <button
+          type="button"
+          class="btn sm"
+          data-kbd="Ctrl+["
+          data-tip={t("Send backward")}
+          onClick={() => void ed.reorderSelected("backward")}
+        >
           <Icon name="sendBackward" size={14} /> {t("Backward")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+]" data-tip={t("Bring to front")} onClick={() => void ed.reorderSelected("front")}>
+        <button
+          type="button"
+          class="btn sm"
+          data-kbd="Ctrl+Shift+]"
+          data-tip={t("Bring to front")}
+          onClick={() => void ed.reorderSelected("front")}
+        >
           {t("To front")}
         </button>
-        <button type="button" class="btn sm" data-kbd="Ctrl+Shift+[" data-tip={t("Send to back")} onClick={() => void ed.reorderSelected("back")}>
+        <button
+          type="button"
+          class="btn sm"
+          data-kbd="Ctrl+Shift+["
+          data-tip={t("Send to back")}
+          onClick={() => void ed.reorderSelected("back")}
+        >
           {t("To back")}
         </button>
       </div>
-      <p class="note">{t("Stacking applies within a kind: boxes sit under pen lines, lines under arrows, arrows under text.")}</p>
+      <p class="note">
+        {t("Stacking applies within a kind: boxes sit under pen lines, lines under arrows, arrows under text.")}
+      </p>
     </Section>
   );
 }
@@ -545,14 +1012,35 @@ function AnnotationProps() {
                 />
               </Field>
               <Field label={t("Style")}>
-                <div class="toggle-group">
-                  <button type="button" class="tgl" classList={{ on: ann().bold }} data-tip={t("Bold")} aria-pressed={ann().bold} onClick={() => ed.editTextStyle({ bold: !ann().bold })}>
+                {/* biome-ignore lint/a11y/useSemanticElements: compact horizontal toggle strip matching Seg grammar. */}
+                <div class="fmt-group" role="group" aria-label={t("Style")}>
+                  <button
+                    type="button"
+                    class="fmt-btn"
+                    aria-label={t("Bold")}
+                    data-tip={t("Bold")}
+                    aria-pressed={ann().bold}
+                    onClick={() => ed.editTextStyle({ bold: !ann().bold })}
+                  >
                     <b>B</b>
                   </button>
-                  <button type="button" class="tgl" classList={{ on: ann().italic }} data-tip={t("Italic")} aria-pressed={ann().italic} onClick={() => ed.editTextStyle({ italic: !ann().italic })}>
+                  <button
+                    type="button"
+                    class="fmt-btn"
+                    aria-label={t("Italic")}
+                    data-tip={t("Italic")}
+                    aria-pressed={ann().italic}
+                    onClick={() => ed.editTextStyle({ italic: !ann().italic })}
+                  >
                     <i>I</i>
                   </button>
-                  <button type="button" class="tgl wide" classList={{ on: ann().background }} data-tip={t("Legible plate behind the text")} aria-pressed={ann().background} onClick={() => ed.editTextStyle({ background: !ann().background })}>
+                  <button
+                    type="button"
+                    class="fmt-btn"
+                    data-tip={t("Legible plate behind the text")}
+                    aria-pressed={ann().background}
+                    onClick={() => ed.editTextStyle({ background: !ann().background })}
+                  >
                     {t("Plate")}
                   </button>
                 </div>
@@ -566,6 +1054,7 @@ function AnnotationProps() {
                       type="button"
                       class="font-card"
                       classList={{ on: (ann().font || "") === f.id }}
+                      aria-pressed={(ann().font || "") === f.id}
                       style={{ "font-family": f.css }}
                       onClick={() => ed.editTextStyle({ font: f.id })}
                     >
@@ -582,7 +1071,10 @@ function AnnotationProps() {
 
       <Show when={ed.isSpotlight()}>
         <Section id="ann-spotlight" title={t("Spotlight")} icon="spotlight">
-          <Field label={t("Corners")} hint={t("Round the lit area's corners. All the way up, its short ends become half circles")}>
+          <Field
+            label={t("Corners")}
+            description={t("Round the lit area's corners. All the way up, its short ends become half circles")}
+          >
             <Slider
               value={ed.selectedBox()?.radius ?? 0}
               min={0}
@@ -604,6 +1096,7 @@ function AnnotationProps() {
           <Field label={t("Shape")}>
             <Seg
               value={ed.selectedBox()!.shape === "Ellipse" ? "ellipse" : "rect"}
+              label={t("Shape")}
               onChange={(v) => ed.setShape(v === "ellipse")}
               options={[
                 { value: "rect", label: t("Rectangle") },
@@ -614,6 +1107,7 @@ function AnnotationProps() {
           <Field label={t("Fill")}>
             <Seg
               value={ed.selectedBox()!.filled ? "filled" : "outline"}
+              label={t("Fill")}
               onChange={(v) => ed.editStyle({ filled: v === "filled" })}
               options={[
                 { value: "outline", label: t("Outline") },
@@ -644,6 +1138,7 @@ function AnnotationProps() {
           <Field label={t("Cover")}>
             <Seg
               value={ed.selectedBox()!.pixelate ? "pixelate" : "black"}
+              label={t("Cover")}
               onChange={(v) => ed.setMaskPixelate(v === "pixelate")}
               options={[
                 { value: "black", label: t("Black"), tip: t("Solid black. Nothing of what's under it remains") },
@@ -663,6 +1158,7 @@ function AnnotationProps() {
             <Field label={t("Ends")}>
               <Seg
                 value={a().style === "Line" ? "line" : a().style === "DoubleArrow" ? "double" : "arrow"}
+                label={t("Ends")}
                 onChange={(v) => ed.setArrowStyle(v)}
                 options={[
                   { value: "arrow", label: t("Arrow") },
@@ -684,7 +1180,7 @@ function AnnotationProps() {
                 onCommit={(v) => ed.editStyle({ thickness: v })}
               />
             </Field>
-            <Field label={t("Curve")} hint={t("Bow the arrow to either side, to swing around something")}>
+            <Field label={t("Curve")} description={t("Bow the arrow to either side, to swing around something")}>
               <ScrubField
                 value={a().curve ?? 0}
                 min={-0.6}
@@ -707,6 +1203,7 @@ function AnnotationProps() {
             <Field label={t("Look")}>
               <Seg
                 value={isMarker(st()) ? "marker" : "pen"}
+                label={t("Look")}
                 onChange={(v) => ed.setStrokeLook(v === "marker")}
                 options={[
                   { value: "pen", label: t("Pen") },
@@ -760,13 +1257,21 @@ function ZoomProps() {
   const ed = useEditor();
   const z = () => ed.selectedZoom()!;
   const i = () => ed.selZoom()!;
+  // Live crosshair drags update both numeric readouts immediately.
+  const liveFocus = () => ed.focusDrag() ?? ed.selZoomFocus();
   return (
     <>
       <PanelTitle
         icon="zoomIn"
         title={t("Zoom")}
-        sub={t("{amount}× from {start}s to {end}s", { amount: z().amount.toFixed(1), start: z().start.toFixed(1), end: z().end.toFixed(1) })}
-        actions={<IconButton icon="trash" tip={t("Delete zoom")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedZoom()} />}
+        sub={t("{amount}× from {start}s to {end}s", {
+          amount: z().amount.toFixed(1),
+          start: z().start.toFixed(1),
+          end: z().end.toFixed(1),
+        })}
+        actions={
+          <IconButton icon="trash" tip={t("Delete zoom")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedZoom()} />
+        }
       />
       <Section id="zoom-aim" title={t("Strength and aim")} icon="zoomIn">
         <Field label={t("Strength")} stack>
@@ -783,6 +1288,7 @@ function ZoomProps() {
         <Field label={t("Aim")} stack>
           <Seg
             full
+            label={t("Aim")}
             value={ed.selZoomFocus() ? "fixed" : "follow"}
             onChange={(v) => void ed.applyZoomFocus(v === "fixed" ? (ed.selZoomFocus() ?? { x: 0.5, y: 0.5 }) : null)}
             options={[
@@ -791,12 +1297,49 @@ function ZoomProps() {
             ]}
           />
         </Field>
-        <Show when={ed.selZoomFocus()}>
-          <p class="note">{t("Drag the crosshair on the video to aim this zoom.")}</p>
+        <Show when={liveFocus()}>
+          {(f) => (
+            <>
+              <div class="focus-xy">
+                <div class="focus-axis">
+                  <span class="field-label">{t("Focus X")}</span>
+                  <ScrubField
+                    value={Math.round(f().x * 100)}
+                    min={0}
+                    max={100}
+                    step={1}
+                    suffix="%"
+                    title={t("Focus X position (percent from left)")}
+                    onCommit={(v) => {
+                      const cur = ed.selZoomFocus() ?? { x: 0.5, y: 0.5 };
+                      void ed.applyZoomFocus({ x: clamp01(v / 100), y: cur.y });
+                    }}
+                  />
+                </div>
+                <div class="focus-axis">
+                  <span class="field-label">{t("Focus Y")}</span>
+                  <ScrubField
+                    value={Math.round(f().y * 100)}
+                    min={0}
+                    max={100}
+                    step={1}
+                    suffix="%"
+                    title={t("Focus Y position (percent from top)")}
+                    onCommit={(v) => {
+                      const cur = ed.selZoomFocus() ?? { x: 0.5, y: 0.5 };
+                      void ed.applyZoomFocus({ x: cur.x, y: clamp01(v / 100) });
+                    }}
+                  />
+                </div>
+              </div>
+              <p class="note">{t("Drag the crosshair on the video to aim this zoom.")}</p>
+            </>
+          )}
         </Show>
         <Field label={t("Motion")} stack>
           <Seg
             full
+            label={t("Motion")}
             value={z().style}
             onChange={(v) => void ed.applyZoomStyle(v)}
             options={[
@@ -849,8 +1392,13 @@ function SpeedProps() {
       <PanelTitle
         icon="speed"
         title={t("Speed up")}
-        sub={t("{length}s plays in {played}s", { length: (r().end - r().start).toFixed(1), played: ((r().end - r().start) / r().factor).toFixed(1) })}
-        actions={<IconButton icon="trash" tip={t("Delete speed region")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedSpeed()} />}
+        sub={t("{length}s plays in {played}s", {
+          length: (r().end - r().start).toFixed(1),
+          played: ((r().end - r().start) / r().factor).toFixed(1),
+        })}
+        actions={
+          <IconButton icon="trash" tip={t("Delete speed region")} kbd="Del" class="sm danger" onClick={() => void ed.deleteSelectedSpeed()} />
+        }
       />
       <Section id="speed-rate" title={t("Rate")} icon="speed">
         <Field label={t("Rate")} stack>
@@ -1034,7 +1582,7 @@ const CROPS = (): { id: string; label: string; ratio: number | null }[] => [
 
 const SKIMS = [2, 3, 4, 6, 8];
 
-function ClipPanel() {
+function ClipPanel(props: { query: () => string; noMatch: () => boolean; onClear: () => void }) {
   const ed = useEditor();
   const cropMatches = (c: CropRect | null, ratio: number | null) => {
     if (!ratio) return !c;
@@ -1066,828 +1614,859 @@ function ClipPanel() {
     return `linear-gradient(${fi.bg_angle + 90}deg,${bgHex(fi.bg_from)},${bgHex(fi.bg_to)})`;
   };
   const frameName = () => FRAMES().find((f) => f.id === framePresetExact())?.label ?? t("Custom");
-  const cropName = () => CROPS().find((c) => cropMatches(ed.crop(), c.ratio))?.label ?? t("Custom");
+  const matchedCrop = () => CROPS().find((c) => cropMatches(ed.crop(), c.ratio));
+  const cropPresetId = () => matchedCrop()?.id ?? "";
+  const cropName = () => matchedCrop()?.label ?? t("Custom");
   const pictureName = () => (ed.frameInfo()?.bg_image ?? "").split(/[\\/]/).pop() ?? "";
 
-  // Settings search: filters the sections below as you type. Ctrl+F jumps here.
-  let searchEl: HTMLInputElement | undefined;
-  const [query, setQuery] = createSignal("");
-  const [noMatch, setNoMatch] = createSignal(false);
-  const search = (q: string) => {
-    setQuery(q);
-    setSectionQuery(q);
-    requestAnimationFrame(() => {
-      const shown = document.querySelectorAll(".insp-scroll .sect[data-sect^='clip-']:not(.sect-miss)");
-      setNoMatch(!!sectionQuery() && shown.length === 0);
-    });
+  const audioBadge = () => {
+    if (!ed.audio.hasAudio()) return t("Silent");
+    const active = ed.audio.tracks().filter((tr) => !tr.muted).length;
+    if (active === 0) return t("Muted");
+    return active === 1 ? t("1 track") : t("{n} tracks", { n: active });
   };
-  const onFind = (e: KeyboardEvent) => {
-    if (mod(e) && !e.shiftKey && !e.altKey && e.code === "KeyF" && searchEl && !ed.isModal()) {
-      e.preventDefault();
-      searchEl.focus();
-      searchEl.select();
-    }
+  const overlaysBadge = () => {
+    const parts = [ed.showClicks() && t("Clicks"), ed.showKeys() && t("Keys")].filter(Boolean);
+    return parts.length > 0 ? parts.join(" · ") : t("Off");
   };
-  // In the capture phase, next to the editor's own key guard: that guard swallows Ctrl+F as
-  // a browser shortcut and stops it there, so a listener later in the path never hears it.
-  onMount(() => window.addEventListener("keydown", onFind, true));
-  onCleanup(() => {
-    window.removeEventListener("keydown", onFind, true);
-    setSectionQuery("");
-  });
 
   return (
     <>
-      <div class="clip-search">
-        <div class="input-wrap">
-          <Icon name="search" size={14} />
-          <input
-            ref={searchEl}
-            class="input"
-            type="search"
-            placeholder={t("Search settings")}
-            aria-label={t("Search clip settings")}
-            spellcheck={false}
-            value={query()}
-            onInput={(e) => search(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && query()) {
-                e.preventDefault();
-                e.stopPropagation();
-                search("");
-              }
-            }}
-          />
-          <Show when={query()}>
-            <button type="button" class="clip-search-x" aria-label={t("Clear search")} onClick={() => search("")}>
-              <Icon name="close" size={12} stroke={2.2} />
-            </button>
-          </Show>
+      <Show when={!sectionQuery()}>
+        <div class="clip-summary">
+          <strong class="clip-summary-name">{ed.projectName()}</strong>
+          <div class="clip-summary-meta tabular">
+            <Show when={ed.outSize()}>
+              {(s) => (
+                <span>
+                  {s().w}×{s().h}
+                </span>
+              )}
+            </Show>
+            <span>{outDur().toFixed(1)}s</span>
+          </div>
         </div>
-      </div>
-      <Show when={noMatch()}>
+      </Show>
+
+      <Show when={props.noMatch()}>
         <div class="clip-search-empty">
           <Icon name="search" size={18} />
-          <span>{t('Nothing matches "{query}".', { query: query() })}</span>
-          <button type="button" class="btn sm ghost" onClick={() => search("")}>
+          <strong>{t("No matching settings")}</strong>
+          <span>{t('Nothing matches "{query}".', { query: props.query() })}</span>
+          <button type="button" class="btn sm" onClick={props.onClear}>
             {t("Clear search")}
           </button>
         </div>
       </Show>
 
-      <Section
-        id="clip-frame"
-        title={t("Frame")}
-        icon="frame"
-        defaultOpen={false}
-        keywords={t("padding corners rounded radius shadow backdrop background wallpaper picture image photo color gradient border")}
-        aside={<span class="badge">{isCustomFrame() ? t("Custom") : frameName()}</span>}
-      >
-        <div class="frame-cards" style={{ "--bd": backdropCss() }}>
-          <For each={FRAMES()}>
-            {(f) => (
-              <button
-                type="button"
-                class="frame-card"
-                classList={{ on: framePresetExact() === f.id, [f.id]: true }}
-                aria-pressed={framePresetExact() === f.id}
-                data-tip={f.tip}
-                onClick={() => ed.applyFramePreset(f.id)}
-              >
-                <span class="frame-card-art">
-                  <span class="frame-card-shot">
-                    <i />
+      <div class="insp-group">
+        <div class="insp-group-label">{t("Framing")}</div>
+        <Section
+          id="clip-frame"
+          title={t("Frame")}
+          icon="frame"
+          defaultOpen={true}
+          keywords={t("padding corners rounded radius shadow backdrop background wallpaper picture image photo color gradient border")}
+          aside={<span class="badge">{isCustomFrame() ? t("Custom") : frameName()}</span>}
+        >
+          <div class="frame-cards" style={{ "--bd": backdropCss() }}>
+            <For each={FRAMES()}>
+              {(f) => (
+                <button
+                  type="button"
+                  class="frame-card"
+                  classList={{ on: framePresetExact() === f.id, [f.id]: true }}
+                  aria-pressed={framePresetExact() === f.id}
+                  data-tip={f.tip}
+                  onClick={() => ed.applyFramePreset(f.id)}
+                >
+                  <span class="frame-card-art">
+                    <span class="frame-card-shot">
+                      <i />
+                    </span>
                   </span>
-                </span>
-                <span class="frame-card-label">{f.label}</span>
-              </button>
-            )}
-          </For>
-        </div>
-        <Show when={ed.frameInfo()}>
-          {(fi) => (
-            <>
-              <Field label={t("Padding")}>
-                <Slider
-                  value={fi().padding}
-                  min={0}
-                  max={0.2}
-                  step={0.005}
-                  label={t("Padding")}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onInput={(v) => ed.applyFrameStyle({ padding: v })}
-                />
-              </Field>
-              <Field label={t("Corners")}>
-                <Slider
-                  value={fi().corner_radius}
-                  min={0}
-                  max={0.08}
-                  step={0.002}
-                  label={t("Corner radius")}
-                  format={(v) => `${(v * 100).toFixed(1)}%`}
-                  onInput={(v) => ed.applyFrameStyle({ radius: v })}
-                />
-              </Field>
-              <Field label={t("Shadow")}>
-                <Slider
-                  value={fi().shadow}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  label={t("Shadow strength")}
-                  disabled={fi().padding <= 0}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onInput={(v) => ed.applyFrameStyle({ shadow: v })}
-                />
-              </Field>
-            </>
-          )}
-        </Show>
-        <Show when={ed.framePreset() !== "none"}>
-          <Field label={t("Backdrop")} stack>
-            <div class="swatches">
-              <For each={ed.BG_SWATCHES()}>
-                {(sw) => (
-                  <button
-                    type="button"
-                    class="swatch"
-                    style={{ background: sw.css }}
-                    aria-label={t("Backdrop: {label}", { label: sw.label })}
-                    aria-pressed={ed.bgPreset() === sw.name}
-                    data-tip={sw.label}
-                    onClick={() => ed.applyBackground(sw.name)}
-                  />
-                )}
-              </For>
-              <button
-                type="button"
-                class="swatch swatch-custom"
-                aria-label={t("Custom backdrop")}
-                aria-pressed={ed.bgPreset() === "" && !isPicture()}
-                data-tip={t("Your own colors")}
-                onClick={() => {
-                  const fi = ed.frameInfo();
-                  if (fi && (ed.bgPreset() !== "" || isPicture()))
-                    ed.applyBackgroundCustom(bgHex(fi.bg_from), fi.bg_kind === "gradient" ? bgHex(fi.bg_to) : null, fi.bg_angle);
-                }}
-              />
-              <button
-                type="button"
-                class="swatch swatch-picture"
-                aria-label={t("Picture backdrop")}
-                aria-pressed={isPicture()}
-                data-tip={t("Your own picture")}
-                onClick={() => void ed.chooseBackdropPicture()}
-              >
-                <Icon name="image" size={14} />
-              </button>
-            </div>
-          </Field>
-          <Show when={isPicture()}>
-            <div class="bg-picture">
-              <span class="bg-picture-icon">
-                <Icon name="image" size={16} />
-              </span>
-              <span class="bg-picture-name" data-tip={ed.frameInfo()?.bg_image ?? ""}>
-                {pictureName() || t("Picture")}
-              </span>
-              <button type="button" class="btn sm" onClick={() => void ed.chooseBackdropPicture()}>
-                {t("Change")}
-              </button>
-            </div>
-          </Show>
-          <Show when={ed.bgPreset() === "" && !isPicture() && ed.frameInfo()}>
+                  <span class="frame-card-label">{f.label}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={ed.frameInfo()}>
             {(fi) => (
-              <div class="bg-custom">
-                <Seg
-                  full
-                  value={fi().bg_kind}
-                  onChange={(k) =>
-                    ed.applyBackgroundCustom(bgHex(fi().bg_from), k === "gradient" ? bgHex(fi().bg_to) : null, fi().bg_angle)
-                  }
-                  options={[
-                    { value: "solid", label: t("Solid") },
-                    { value: "gradient", label: t("Gradient") },
-                  ]}
-                />
-                <div class="bg-colors">
-                  <label class="color-well" data-tip={fi().bg_kind === "gradient" ? t("Start color") : t("Color")}>
-                    <span style={{ background: bgHex(fi().bg_from) }} />
-                    <input
-                      type="color"
-                      value={bgHex(fi().bg_from)}
-                      aria-label={t("Backdrop color")}
-                      onInput={(e) =>
-                        ed.applyBackgroundCustom(
-                          e.currentTarget.value,
-                          fi().bg_kind === "gradient" ? bgHex(fi().bg_to) : null,
-                          fi().bg_angle,
-                        )
-                      }
+              <>
+                <Field label={t("Padding")}>
+                  <Slider
+                    value={fi().padding}
+                    min={0}
+                    max={0.2}
+                    step={0.005}
+                    label={t("Padding")}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onInput={(v) => ed.applyFrameStyle({ padding: v })}
+                  />
+                </Field>
+                <Field label={t("Corners")}>
+                  <Slider
+                    value={fi().corner_radius}
+                    min={0}
+                    max={0.08}
+                    step={0.002}
+                    label={t("Corner radius")}
+                    format={(v) => `${(v * 100).toFixed(1)}%`}
+                    onInput={(v) => ed.applyFrameStyle({ radius: v })}
+                  />
+                </Field>
+                <Field label={t("Shadow")}>
+                  <Slider
+                    value={fi().shadow}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    label={t("Shadow strength")}
+                    disabled={fi().padding <= 0}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onInput={(v) => ed.applyFrameStyle({ shadow: v })}
+                  />
+                </Field>
+              </>
+            )}
+          </Show>
+          <Show when={ed.framePreset() !== "none"}>
+            <Field label={t("Backdrop")} stack>
+              <div class="swatches">
+                <For each={ed.BG_SWATCHES()}>
+                  {(sw) => (
+                    <button
+                      type="button"
+                      class="swatch"
+                      style={{ background: sw.css }}
+                      aria-label={t("Backdrop: {label}", { label: sw.label })}
+                      aria-pressed={ed.bgPreset() === sw.name}
+                      data-tip={sw.label}
+                      onClick={() => ed.applyBackground(sw.name)}
                     />
-                  </label>
-                  <Show when={fi().bg_kind === "gradient"}>
-                    <label class="color-well" data-tip={t("End color")}>
-                      <span style={{ background: bgHex(fi().bg_to) }} />
+                  )}
+                </For>
+                <button
+                  type="button"
+                  class="swatch swatch-custom"
+                  aria-label={t("Custom backdrop")}
+                  aria-pressed={ed.bgPreset() === "" && !isPicture()}
+                  data-tip={t("Your own colors")}
+                  onClick={() => {
+                    const fi = ed.frameInfo();
+                    if (fi && (ed.bgPreset() !== "" || isPicture()))
+                      ed.applyBackgroundCustom(bgHex(fi.bg_from), fi.bg_kind === "gradient" ? bgHex(fi.bg_to) : null, fi.bg_angle);
+                  }}
+                />
+                <button
+                  type="button"
+                  class="swatch swatch-picture"
+                  aria-label={t("Picture backdrop")}
+                  aria-pressed={isPicture()}
+                  data-tip={t("Your own picture")}
+                  onClick={() => void ed.chooseBackdropPicture()}
+                >
+                  <Icon name="image" size={14} />
+                </button>
+              </div>
+            </Field>
+            <Show when={isPicture()}>
+              <div class="bg-picture">
+                <span class="bg-picture-icon">
+                  <Icon name="image" size={16} />
+                </span>
+                <span class="bg-picture-name" data-tip={ed.frameInfo()?.bg_image ?? ""}>
+                  {pictureName() || t("Picture")}
+                </span>
+                <button type="button" class="btn sm" onClick={() => void ed.chooseBackdropPicture()}>
+                  {t("Change")}
+                </button>
+              </div>
+            </Show>
+            <Show when={ed.bgPreset() === "" && !isPicture() && ed.frameInfo()}>
+              {(fi) => (
+                <div class="bg-custom">
+                  <Seg
+                    full
+                    label={t("Backdrop")}
+                    value={fi().bg_kind}
+                    onChange={(k) =>
+                      ed.applyBackgroundCustom(bgHex(fi().bg_from), k === "gradient" ? bgHex(fi().bg_to) : null, fi().bg_angle)
+                    }
+                    options={[
+                      { value: "solid", label: t("Solid") },
+                      { value: "gradient", label: t("Gradient") },
+                    ]}
+                  />
+                  <div class="bg-colors">
+                    <label class="color-well" data-tip={fi().bg_kind === "gradient" ? t("Start color") : t("Color")}>
+                      <span style={{ background: bgHex(fi().bg_from) }} />
                       <input
                         type="color"
-                        value={bgHex(fi().bg_to)}
-                        aria-label={t("Backdrop end color")}
-                        onInput={(e) => ed.applyBackgroundCustom(bgHex(fi().bg_from), e.currentTarget.value, fi().bg_angle)}
+                        value={bgHex(fi().bg_from)}
+                        aria-label={t("Backdrop color")}
+                        onInput={(e) =>
+                          ed.applyBackgroundCustom(
+                            e.currentTarget.value,
+                            fi().bg_kind === "gradient" ? bgHex(fi().bg_to) : null,
+                            fi().bg_angle,
+                          )
+                        }
                       />
                     </label>
-                    <Slider
-                      value={fi().bg_angle}
-                      min={0}
-                      max={360}
-                      step={5}
-                      label={t("Gradient angle")}
-                      format={(v) => `${Math.round(v)}°`}
-                      onInput={(v) => ed.applyBackgroundCustom(bgHex(fi().bg_from), bgHex(fi().bg_to), v)}
-                    />
-                  </Show>
+                    <Show when={fi().bg_kind === "gradient"}>
+                      <label class="color-well" data-tip={t("End color")}>
+                        <span style={{ background: bgHex(fi().bg_to) }} />
+                        <input
+                          type="color"
+                          value={bgHex(fi().bg_to)}
+                          aria-label={t("Backdrop end color")}
+                          onInput={(e) => ed.applyBackgroundCustom(bgHex(fi().bg_from), e.currentTarget.value, fi().bg_angle)}
+                        />
+                      </label>
+                      <Slider
+                        value={fi().bg_angle}
+                        min={0}
+                        max={360}
+                        step={5}
+                        label={t("Gradient angle")}
+                        format={(v) => `${Math.round(v)}°`}
+                        onInput={(v) => ed.applyBackgroundCustom(bgHex(fi().bg_from), bgHex(fi().bg_to), v)}
+                      />
+                    </Show>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </Show>
           </Show>
-        </Show>
-      </Section>
+        </Section>
 
-      <Section
-        id="clip-crop"
-        title={t("Crop")}
-        icon="crop"
-        defaultOpen={false}
-        keywords={t("aspect ratio 16:9 square vertical portrait 9:16 reel shorts tiktok edges")}
-        aside={<span class="badge">{cropName()}</span>}
-      >
-        <div class="crop-grid">
-          <For each={CROPS()}>
-            {(c) => (
-              <button
-                type="button"
-                class="chip"
-                aria-pressed={cropMatches(ed.crop(), c.ratio)}
-                onClick={() => void ed.applyCrop(c.ratio ? ed.centeredCrop(c.ratio) : null)}
-              >
-                {c.label}
-              </button>
-            )}
-          </For>
-        </div>
-        <button
-          type="button"
-          class="btn sm block"
-          data-tip={t("Drag a crop rectangle on the video")}
-          onClick={() => void ed.beginCropEdit()}
+        <Section
+          id="clip-crop"
+          title={t("Crop")}
+          icon="crop"
+          defaultOpen={false}
+          keywords={t("aspect ratio 16:9 square vertical portrait 9:16 reel shorts tiktok edges")}
+          aside={<span class="badge">{cropName()}</span>}
         >
-          <Icon name="crop" size={14} /> {t("Adjust on canvas…")}
-        </button>
-        <Show when={ed.crop()} fallback={<p class="note">{t("Centered crops re-frame the whole clip. Annotations keep their on-screen spot.")}</p>}>
-          <p class="note">
-            {t("Showing {w}% × {h}% of the recording.", {
-              w: Math.round(ed.crop()!.w * 100),
-              h: Math.round(ed.crop()!.h * 100),
-            })}
-          </p>
-        </Show>
-      </Section>
-
-      <Section
-        id="clip-zoom"
-        title={t("Zooms")}
-        icon="zoomIn"
-        defaultOpen={false}
-        keywords={t("zoom auto camera motion blur strength close magnify")}
-        aside={<span class="badge">{ed.zooms().length === 1 ? t("1 zoom") : t("{n} zooms", { n: ed.zooms().length })}</span>}
-      >
-        <Field label={t("Auto zoom strength")} stack>
-          <Slider
-            value={ed.zoomStrength()}
-            min={1.2}
-            max={3}
-            step={0.1}
-            label={t("Auto zoom strength")}
-            format={(v) => `${v.toFixed(1)}×`}
-            onInput={(v) => ed.setZoomStrength(v)}
-          />
-        </Field>
-        <div class="btn-row">
-          <button
-            type="button"
-            class="btn sm grow"
-            data-tip={t("Rebuild zooms from your recorded clicks. Ctrl+Z restores your own")}
-            onClick={() => void ed.planZoomAuto()}
-          >
-            <Icon name="sparkle" size={14} /> {t("Auto zooms")}
-          </button>
-          <button type="button" class="btn sm grow" data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")} onClick={() => void ed.addZoomAt()}>
-            <Icon name="plus" size={14} /> {t("Zoom here")}
-          </button>
-        </div>
-        <Field label={t("Motion blur")} hint={t("Softens fast zooms and pans the way a camera's shutter does")}>
-          <Switch checked={ed.motionBlur()} label={t("Motion blur")} onChange={() => ed.toggleMotionBlur()} />
-        </Field>
-      </Section>
-
-      <Section
-        id="clip-pacing"
-        title={t("Pacing")}
-        icon="speed"
-        defaultOpen={false}
-        keywords={t("speed skim idle fast faster silence cut length duration")}
-        aside={<span class="badge">{outDur().toFixed(1)}s</span>}
-      >
-        <Field label={t("Skim idle stretches")} hint={t("Plays the moments where nothing happens faster")}>
-          <Switch checked={ed.speed().length > 0} label={t("Skim idle stretches")} onChange={() => ed.toggleSkim()} />
-        </Field>
-        <Field label={t("Skim speed")} stack>
           <Seg
             full
-            value={ed.skimFactor()}
-            onChange={(v) => ed.setSkimFactor(v)}
-            options={SKIMS.map((f) => ({ value: f, label: `${f}×` }))}
+            class={cropPresetId() ? "crop-seg" : "crop-seg seg-none"}
+            label={t("Aspect ratio")}
+            value={cropPresetId()}
+            onChange={(id) => {
+              const found = CROPS().find((c) => c.id === id);
+              if (found) void ed.applyCrop(found.ratio ? ed.centeredCrop(found.ratio) : null);
+            }}
+            options={CROPS().map((c) => ({ value: c.id, label: c.label }))}
           />
-        </Field>
-        <div class="btn-row">
-          <button type="button" class="btn sm grow" data-kbd="X" data-tip={t("Speed up 2s at the playhead")} onClick={() => void ed.addSpeedAtPlayhead()}>
-            <Icon name="speed" size={14} /> {t("Speed up")}
+          <button
+            type="button"
+            class="btn sm block"
+            data-tip={t("Drag a crop rectangle on the video")}
+            onClick={() => void ed.beginCropEdit()}
+          >
+            <Icon name="crop" size={14} /> {t("Adjust on canvas…")}
           </button>
-          <button type="button" class="btn sm grow" data-kbd="C" data-tip={t("Remove 1s at the playhead")} onClick={() => void ed.addCutAtPlayhead()}>
-            <Icon name="cut" size={14} /> {t("Cut")}
-          </button>
-        </div>
-        <Field label={t("Final length")}>
-          <span class="readout">
-            {outDur().toFixed(1)}s
-            <Show when={Math.abs(outDur() - ed.duration()) > 0.05}>
-              <span class="readout-sub"> {t("of {total}s", { total: ed.duration().toFixed(1) })}</span>
-            </Show>
-          </span>
-        </Field>
-      </Section>
-
-      <Section
-        id="clip-audio"
-        title={t("Audio")}
-        icon="waves"
-        defaultOpen={false}
-        keywords={t("sound microphone mic system volume mute noise voice narration")}
-        aside={<span class="badge">{ed.audio.hasAudio() ? ed.audio.tracks().length === 1 ? t("1 track") : t("{n} tracks", { n: ed.audio.tracks().length }) : t("Silent")}</span>}
-      >
-        <Show
-          when={ed.audio.hasAudio()}
-          fallback={
+          <Show when={ed.crop()} fallback={<p class="note">{t("Centered crops re-frame the whole clip. Annotations keep their on-screen spot.")}</p>}>
             <p class="note">
-              {t("This take is silent. Turn on the microphone or system sound before recording to add narration.")}
+              {t("Showing {w}% × {h}% of the recording.", {
+                w: Math.round(ed.crop()!.w * 100),
+                h: Math.round(ed.crop()!.h * 100),
+              })}
             </p>
+          </Show>
+        </Section>
+      </div>
+
+      <div class="insp-group">
+        <div class="insp-group-label">{t("Motion")}</div>
+        <Section
+          id="clip-zoom"
+          title={t("Zooms")}
+          icon="zoomIn"
+          defaultOpen={false}
+          keywords={t("zoom auto camera motion blur strength close magnify")}
+          aside={
+            <span class="badge tabular">
+              {ed.zooms().length === 1 ? t("1 zoom") : t("{n} zooms", { n: ed.zooms().length })}
+            </span>
           }
         >
-          <Index each={ed.audio.tracks()}>
-            {(track) => (
-              <div class="audio-row" classList={{ muted: track().muted }}>
-                <div class="audio-row-head">
-                  <Icon name={track().kind === "mic" ? "mic" : "volume"} size={14} />
-                  <span>{trackLabel(track().kind)}</span>
-                  <IconButton
-                    icon={track().muted ? "volumeOff" : "volume"}
-                    tip={track().muted ? t("Unmute") : t("Mute")}
-                    active={track().muted}
-                    onClick={() => ed.audio.toggleMute(track().kind)}
+          <Field label={t("Auto zoom strength")} stack>
+            <Slider
+              value={ed.zoomStrength()}
+              min={1.2}
+              max={3}
+              step={0.1}
+              label={t("Auto zoom strength")}
+              format={(v) => `${v.toFixed(1)}×`}
+              onInput={(v) => ed.setZoomStrength(v)}
+            />
+          </Field>
+          <div class="btn-row">
+            <button
+              type="button"
+              class="btn sm grow"
+              data-tip={t("Rebuild zooms from your recorded clicks. Ctrl+Z restores your own")}
+              onClick={() => void ed.planZoomAuto()}
+            >
+              <Icon name="sparkle" size={14} /> {t("Auto zooms")}
+            </button>
+            <button
+              type="button"
+              class="btn sm grow"
+              data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")}
+              onClick={() => void ed.addZoomAt()}
+            >
+              <Icon name="plus" size={14} /> {t("Zoom here")}
+            </button>
+          </div>
+          <Field label={t("Motion blur")} description={t("Softens fast zooms and pans the way a camera's shutter does")}>
+            <Switch checked={ed.motionBlur()} label={t("Motion blur")} onChange={() => ed.toggleMotionBlur()} />
+          </Field>
+        </Section>
+
+        <Section
+          id="clip-pacing"
+          title={t("Pacing")}
+          icon="speed"
+          defaultOpen={false}
+          keywords={t("speed skim idle fast faster silence cut length duration")}
+          aside={<span class="badge tabular">{outDur().toFixed(1)}s</span>}
+        >
+          <Field label={t("Skim idle stretches")} description={t("Plays the moments where nothing happens faster")}>
+            <Switch checked={ed.speed().length > 0} label={t("Skim idle stretches")} onChange={() => ed.toggleSkim()} />
+          </Field>
+          <Field label={t("Skim speed")} stack>
+            <Seg
+              full
+              label={t("Skim speed")}
+              value={ed.skimFactor()}
+              onChange={(v) => ed.setSkimFactor(v)}
+              options={SKIMS.map((f) => ({ value: f, label: `${f}×` }))}
+            />
+          </Field>
+          <div class="btn-row">
+            <button
+              type="button"
+              class="btn sm grow"
+              data-kbd="X"
+              data-tip={t("Speed up 2s at the playhead")}
+              onClick={() => void ed.addSpeedAtPlayhead()}
+            >
+              <Icon name="speed" size={14} /> {t("Speed up")}
+            </button>
+            <button
+              type="button"
+              class="btn sm grow"
+              data-kbd="C"
+              data-tip={t("Remove 1s at the playhead")}
+              onClick={() => void ed.addCutAtPlayhead()}
+            >
+              <Icon name="cut" size={14} /> {t("Cut")}
+            </button>
+          </div>
+          <Field label={t("Final length")}>
+            <span class="readout">
+              {outDur().toFixed(1)}s
+              <Show when={Math.abs(outDur() - ed.duration()) > 0.05}>
+                <span class="readout-sub"> {t("of {total}s", { total: ed.duration().toFixed(1) })}</span>
+              </Show>
+            </span>
+          </Field>
+        </Section>
+      </div>
+
+      <div class="insp-group">
+        <div class="insp-group-label">{t("Sound & Text")}</div>
+        <Section
+          id="clip-audio"
+          title={t("Audio")}
+          icon="waves"
+          defaultOpen={false}
+          keywords={t("sound microphone mic system volume mute noise voice narration")}
+          aside={<span class="badge">{audioBadge()}</span>}
+        >
+          <Show
+            when={ed.audio.hasAudio()}
+            fallback={
+              <p class="note">
+                {t("This take is silent. Turn on the microphone or system sound before recording to add narration.")}
+              </p>
+            }
+          >
+            <Index each={ed.audio.tracks()}>
+              {(track) => (
+                <div class="audio-row" classList={{ muted: track().muted }}>
+                  <div class="audio-row-head">
+                    <Icon name={track().kind === "mic" ? "mic" : "volume"} size={14} />
+                    <span>{trackLabel(track().kind)}</span>
+                    <IconButton
+                      icon={track().muted ? "volumeOff" : "volume"}
+                      tip={track().muted ? t("Unmute") : t("Mute")}
+                      active={track().muted}
+                      onClick={() => ed.audio.toggleMute(track().kind)}
+                    />
+                  </div>
+                  <Slider
+                    value={track().gain}
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    disabled={track().muted}
+                    label={t("{track} volume", { track: trackLabel(track().kind) })}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onInput={(v) => void ed.audio.setGain(track().kind, v)}
                   />
-                </div>
-                <Slider
-                  value={track().gain}
-                  min={0}
-                  max={2}
-                  step={0.05}
-                  disabled={track().muted}
-                  label={t("{track} volume", { track: trackLabel(track().kind) })}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onInput={(v) => void ed.audio.setGain(track().kind, v)}
-                />
-                <Show when={track().kind === "mic"}>
-                  <Field label={t("Remove noise")} hint={t("Filters out fans, hum and hiss while keeping your voice")}>
-                    <Switch
-                      checked={!!track().denoise}
-                      label={t("Remove noise")}
-                      onChange={(v) => void ed.audio.setDenoise(track().kind, v)}
-                    />
-                  </Field>
-                  <Field label={t("Even out volume")} hint={t("Brings quiet and loud passages to one steady level")}>
-                    <Switch
-                      checked={!!track().level}
-                      label={t("Even out volume")}
-                      onChange={(v) => void ed.audio.setLevel(track().kind, v)}
-                    />
-                  </Field>
-                  <Show when={ed.audio.cleaning()[track().kind]}>
-                    <p class="note audio-cleaning" role="status">
-                      {t("Cleaning up the voice…")}
-                    </p>
+                  <Show when={track().kind === "mic"}>
+                    <Field label={t("Remove noise")} description={t("Filters out fans, hum and hiss while keeping your voice")}>
+                      <Switch
+                        checked={!!track().denoise}
+                        label={t("Remove noise")}
+                        onChange={(v) => void ed.audio.setDenoise(track().kind, v)}
+                      />
+                    </Field>
+                    <Field label={t("Even out volume")} description={t("Brings quiet and loud passages to one steady level")}>
+                      <Switch
+                        checked={!!track().level}
+                        label={t("Even out volume")}
+                        onChange={(v) => void ed.audio.setLevel(track().kind, v)}
+                      />
+                    </Field>
+                    <Show when={ed.audio.cleaning()[track().kind]}>
+                      <p class="note audio-cleaning" role="status">
+                        {t("Cleaning up the voice…")}
+                      </p>
+                    </Show>
                   </Show>
+                </div>
+              )}
+            </Index>
+            <p class="note">
+              {t("Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIF and WebP are always silent.")}
+            </p>
+          </Show>
+        </Section>
+
+        <CaptionsSection />
+      </div>
+
+      <div class="insp-group">
+        <div class="insp-group-label">{t("Presentation")}</div>
+        <Section
+          id="clip-pointer"
+          title={t("Pointer")}
+          icon="cursor"
+          defaultOpen={false}
+          keywords={t("cursor mouse arrow size smooth hide still color colour custom highlight halo picture image upload dot opacity transparent shadow")}
+          aside={
+            <span class="badge">{ed.cursorStyle() ? t("Smooth") : ed.pointerCaptured() ? t("Recorded") : t("Hidden")}</span>
+          }
+        >
+          <Field label={t("Smooth pointer")} description={t("A clean pointer that glides, drawn from your movements")}>
+            <Switch checked={!!ed.cursorStyle()} label={t("Smooth pointer")} onChange={() => ed.toggleCursor()} />
+          </Field>
+          <Show when={ed.cursorStyle()}>
+            {(c) => (
+              <>
+                <Field label={t("Look")} stack>
+                  <div class="look-cards">
+                    <For each={POINTER_LOOKS()}>
+                      {(l) => (
+                        <button
+                          type="button"
+                          class="look-card"
+                          classList={{ on: pointerLook(c()) === l.value }}
+                          aria-pressed={pointerLook(c()) === l.value}
+                          data-tip={l.tip}
+                          onClick={() => ed.setCursorLook(l.value)}
+                        >
+                          <span class="look-card-art">
+                            <Show when={l.value === "classic"}>
+                              <Icon name="cursor" size={22} />
+                            </Show>
+                            <Show when={l.value === "dot"}>
+                              <span class="look-dot" />
+                            </Show>
+                            <Show when={l.value === "image"}>
+                              <Show when={c().image && ed.pointerPicture()} fallback={<Icon name="image" size={20} />}>
+                                {(pic) => <img src={pic().preview} alt="" draggable={false} />}
+                              </Show>
+                            </Show>
+                          </span>
+                          {l.label}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Field>
+                <Show when={pointerLook(c()) === "image" && c().image}>
+                  {(img) => (
+                    <div class="ptr-picture">
+                      <Show
+                        when={ed.pointerPicture()}
+                        fallback={
+                          <span class="ptr-picture-missing">
+                            <Icon name="image" size={18} />
+                          </span>
+                        }
+                      >
+                        {(pic) => (
+                          <button
+                            type="button"
+                            class="ptr-hotspot"
+                            aria-label={t("Set where the picture points")}
+                            data-tip={t("Click where it should point")}
+                            onClick={(e) => {
+                              // A keyboard "click" has no position: the buttons beside it serve that.
+                              if (e.detail === 0) return;
+                              const r = e.currentTarget.getBoundingClientRect();
+                              ed.setCursorHotspot((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+                            }}
+                          >
+                            <img src={pic().preview} alt="" draggable={false} />
+                            <span
+                              class="ptr-hotspot-track"
+                              style={{ transform: `translate(${img().hotspot[0] * 100}%, ${img().hotspot[1] * 100}%)` }}
+                            >
+                              <span class="ptr-hotspot-mark" />
+                            </span>
+                          </button>
+                        )}
+                      </Show>
+                      <div class="ptr-picture-side">
+                        <span class="ptr-picture-name" data-tip={img().path}>
+                          {img().path.split(/[\\/]/).pop() || t("Picture")}
+                        </span>
+                        <span class="ptr-picture-hint">
+                          {ed.pointerPicture() ? t("Click the picture where it should point") : t("This picture can't be found")}
+                        </span>
+                        <div class="ptr-picture-actions">
+                          <button
+                            type="button"
+                            class="btn sm"
+                            data-tip={t("Points with its top-left corner, like an arrow")}
+                            aria-pressed={img().hotspot[0] === 0 && img().hotspot[1] === 0}
+                            onClick={() => ed.setCursorHotspot(0, 0)}
+                          >
+                            {t("Corner")}
+                          </button>
+                          <button
+                            type="button"
+                            class="btn sm"
+                            data-tip={t("Points with its middle, like a dot or a ring")}
+                            aria-pressed={img().hotspot[0] === 0.5 && img().hotspot[1] === 0.5}
+                            onClick={() => ed.setCursorHotspot(0.5, 0.5)}
+                          >
+                            {t("Center")}
+                          </button>
+                          <button type="button" class="btn sm" onClick={() => void ed.chooseCursorPicture()}>
+                            {t("Change")}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </Show>
-              </div>
+                <Field label={t("Size")} stack>
+                  <Slider
+                    value={c().size}
+                    min={0.5}
+                    max={3}
+                    step={0.05}
+                    label={t("Pointer size")}
+                    format={(v) => `${v.toFixed(1)}×`}
+                    onInput={ed.setCursorSize}
+                  />
+                </Field>
+                <Field label={t("Smoothing")} stack>
+                  <Slider
+                    value={c().smoothing}
+                    min={0}
+                    max={0.2}
+                    step={0.01}
+                    label={t("Pointer smoothing")}
+                    format={(v) => (v === 0 ? t("Off") : v < 0.04 ? t("Light") : v < 0.1 ? t("Medium") : t("Heavy"))}
+                    onInput={ed.setCursorSmoothing}
+                  />
+                </Field>
+                <Field label={t("Hide when still")} description={t("Fades out while the mouse rests and is back before it moves")}>
+                  <Switch
+                    checked={!!c().hide_idle}
+                    label={t("Hide pointer when still")}
+                    onChange={(v) => ed.setCursorHideIdle(v)}
+                  />
+                </Field>
+                <Field label={t("Opacity")} stack>
+                  <Slider
+                    value={c().opacity ?? 1}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    label={t("Pointer opacity")}
+                    format={(v) => `${Math.round(v * 100)}%`}
+                    onInput={ed.setCursorOpacity}
+                  />
+                </Field>
+                <Field label={t("Shadow")} description={t("A soft shadow under the pointer")}>
+                  <Switch checked={c().shadow ?? true} label={t("Pointer shadow")} onChange={(v) => ed.setCursorShadow(v)} />
+                </Field>
+                <Show when={pointerLook(c()) !== "image"}>
+                  <Field label={t("Color")} stack>
+                    <div class="swatches">
+                      <For each={PRESET_COLORS}>
+                        {(hex) => (
+                          <button
+                            type="button"
+                            class="swatch"
+                            classList={{ on: pointerHex(c().color) === hex }}
+                            style={{ background: hex }}
+                            aria-label={t("Pointer color {hex}", { hex })}
+                            aria-pressed={pointerHex(c().color) === hex}
+                            data-tip={hex === PRESET_COLORS[0] ? t("White, the classic pointer") : hex}
+                            onClick={() => ed.setCursorColor(hex === PRESET_COLORS[0] ? null : hex)}
+                          />
+                        )}
+                      </For>
+                      <label class="swatch swatch-custom" data-tip={t("Custom color")}>
+                        <input
+                          type="color"
+                          value={pointerHex(c().color)}
+                          aria-label={t("Custom pointer color")}
+                          onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
+                        />
+                      </label>
+                    </div>
+                  </Field>
+                </Show>
+                <Field label={t("Highlight")} description={t("A soft yellow disc under the pointer, so viewers never lose it")}>
+                  <Switch checked={!!c().halo} label={t("Highlight the pointer")} onChange={(v) => ed.setCursorHalo(v)} />
+                </Field>
+              </>
             )}
-          </Index>
-          <p class="note">{t("Sped-up stretches play silent and cuts remove their sound. MP4 carries the audio; GIF and WebP are always silent.")}</p>
-        </Show>
-      </Section>
+          </Show>
+          <Show when={ed.cursorStyle() && ed.pointerCaptured()}>
+            <p class="note">
+              {t("The real pointer is also in this take, so two show. Set the pointer to Smooth before recording for a clean result.")}
+            </p>
+          </Show>
+          <Show when={!ed.cursorStyle() && !ed.pointerCaptured()}>
+            <p class="note">{t("This take has no visible pointer. Turn on the smooth pointer to show one.")}</p>
+          </Show>
+        </Section>
 
-      <CaptionsSection />
-
-      <Section
-        id="clip-pointer"
-        title={t("Pointer")}
-        icon="cursor"
-        defaultOpen={false}
-        keywords={t("cursor mouse arrow size smooth hide still color colour custom highlight halo picture image upload dot opacity transparent shadow")}
-        aside={<span class="badge">{ed.cursorStyle() ? t("Smooth") : ed.pointerCaptured() ? t("Recorded") : t("Hidden")}</span>}
-      >
-        <Field label={t("Smooth pointer")} hint={t("A clean pointer that glides, drawn from your movements")}>
-          <Switch checked={!!ed.cursorStyle()} label={t("Smooth pointer")} onChange={() => ed.toggleCursor()} />
-        </Field>
-        <Show when={ed.cursorStyle()}>
+        <Show when={ed.cameraOverlay()}>
           {(c) => (
-            <>
-              <Field label={t("Look")} stack>
-                <div class="look-cards">
-                  <For each={POINTER_LOOKS()}>
-                    {(l) => (
+            <Section
+              id="clip-camera"
+              title={t("Camera")}
+              icon="camera"
+              defaultOpen={false}
+              keywords={t("webcam face bubble corner mirror circle")}
+              aside={<span class="badge">{c().visible ? t("On") : t("Hidden")}</span>}
+            >
+              <Field label={t("Show camera")} description={t("Hide the bubble without losing the recording")}>
+                <Switch checked={c().visible} label={t("Show camera")} onChange={(v) => ed.updateCamera({ visible: v })} />
+              </Field>
+              <Field label={t("Corner")}>
+                <div class="corner-pick">
+                  <For each={CAMERA_CORNERS()}>
+                    {(k) => (
                       <button
                         type="button"
-                        class="look-card"
-                        classList={{ on: pointerLook(c()) === l.value }}
-                        aria-pressed={pointerLook(c()) === l.value}
-                        data-tip={l.tip}
-                        onClick={() => ed.setCursorLook(l.value)}
+                        class="corner-cell"
+                        classList={{ on: c().corner === k.value }}
+                        aria-pressed={c().corner === k.value}
+                        aria-label={k.label}
+                        data-tip={k.label}
+                        disabled={!c().visible}
+                        onClick={() => ed.updateCamera({ corner: k.value })}
                       >
-                        <span class="look-card-art">
-                          <Show when={l.value === "classic"}>
-                            <Icon name="cursor" size={22} />
-                          </Show>
-                          <Show when={l.value === "dot"}>
-                            <span class="look-dot" />
-                          </Show>
-                          <Show when={l.value === "image"}>
-                            <Show when={c().image && ed.pointerPicture()} fallback={<Icon name="image" size={20} />}>
-                              {(pic) => <img src={pic().preview} alt="" />}
-                            </Show>
-                          </Show>
-                        </span>
-                        {l.label}
+                        <span class="corner-dot" />
                       </button>
                     )}
                   </For>
                 </div>
               </Field>
-              <Show when={pointerLook(c()) === "image" && c().image}>
-                {(img) => (
-                  <div class="ptr-picture">
-                    <Show
-                      when={ed.pointerPicture()}
-                      fallback={
-                        <span class="ptr-picture-missing">
-                          <Icon name="image" size={18} />
-                        </span>
-                      }
-                    >
-                      {(pic) => (
-                        <button
-                          type="button"
-                          class="ptr-hotspot"
-                          aria-label={t("Set where the picture points")}
-                          data-tip={t("Click where it should point")}
-                          onClick={(e) => {
-                            // A keyboard "click" has no position: the buttons beside it serve that.
-                            if (e.detail === 0) return;
-                            const r = e.currentTarget.getBoundingClientRect();
-                            ed.setCursorHotspot((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
-                          }}
-                        >
-                          <img src={pic().preview} alt="" draggable={false} />
-                          <span
-                            class="ptr-hotspot-track"
-                            style={{ transform: `translate(${img().hotspot[0] * 100}%, ${img().hotspot[1] * 100}%)` }}
-                          >
-                            <span class="ptr-hotspot-mark" />
-                          </span>
-                        </button>
-                      )}
-                    </Show>
-                    <div class="ptr-picture-side">
-                      <span class="ptr-picture-name" data-tip={img().path}>
-                        {img().path.split(/[\\/]/).pop() || t("Picture")}
-                      </span>
-                      <span class="ptr-picture-hint">
-                        {ed.pointerPicture() ? t("Click the picture where it should point") : t("This picture can't be found")}
-                      </span>
-                      <div class="ptr-picture-actions">
-                        <button
-                          type="button"
-                          class="btn sm"
-                          data-tip={t("Points with its top-left corner, like an arrow")}
-                          aria-pressed={img().hotspot[0] === 0 && img().hotspot[1] === 0}
-                          onClick={() => ed.setCursorHotspot(0, 0)}
-                        >
-                          {t("Corner")}
-                        </button>
-                        <button
-                          type="button"
-                          class="btn sm"
-                          data-tip={t("Points with its middle, like a dot or a ring")}
-                          aria-pressed={img().hotspot[0] === 0.5 && img().hotspot[1] === 0.5}
-                          onClick={() => ed.setCursorHotspot(0.5, 0.5)}
-                        >
-                          {t("Center")}
-                        </button>
-                        <button type="button" class="btn sm" onClick={() => void ed.chooseCursorPicture()}>
-                          {t("Change")}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </Show>
               <Field label={t("Size")} stack>
                 <Slider
                   value={c().size}
-                  min={0.5}
-                  max={3}
-                  step={0.05}
-                  label={t("Pointer size")}
-                  format={(v) => `${v.toFixed(1)}×`}
-                  onInput={ed.setCursorSize}
-                />
-              </Field>
-              <Field label={t("Smoothing")} stack>
-                <Slider
-                  value={c().smoothing}
-                  min={0}
-                  max={0.2}
+                  min={0.12}
+                  max={0.6}
                   step={0.01}
-                  label={t("Pointer smoothing")}
-                  format={(v) => (v === 0 ? t("Off") : v < 0.04 ? t("Light") : v < 0.1 ? t("Medium") : t("Heavy"))}
-                  onInput={ed.setCursorSmoothing}
-                />
-              </Field>
-              <Field label={t("Hide when still")} hint={t("Fades out while the mouse rests and is back before it moves")}>
-                <Switch
-                  checked={!!c().hide_idle}
-                  label={t("Hide pointer when still")}
-                  onChange={(v) => ed.setCursorHideIdle(v)}
-                />
-              </Field>
-              <Field label={t("Opacity")} stack>
-                <Slider
-                  value={c().opacity ?? 1}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  label={t("Pointer opacity")}
+                  disabled={!c().visible}
+                  label={t("Camera size")}
                   format={(v) => `${Math.round(v * 100)}%`}
-                  onInput={ed.setCursorOpacity}
+                  onInput={(v) => ed.updateCamera({ size: v })}
                 />
               </Field>
-              <Field label={t("Shadow")} hint={t("A soft shadow under the pointer")}>
-                <Switch checked={c().shadow ?? true} label={t("Pointer shadow")} onChange={(v) => ed.setCursorShadow(v)} />
+              <Field label={t("Shape")} stack>
+                <Seg
+                  full
+                  value={c().shape}
+                  disabled={!c().visible}
+                  label={t("Camera shape")}
+                  onChange={(v) => ed.updateCamera({ shape: v })}
+                  options={[
+                    { value: "circle", label: t("Circle") },
+                    { value: "square", label: t("Square") },
+                    { value: "wide", label: t("Wide"), tip: t("A 16:9 frame") },
+                  ]}
+                />
               </Field>
-              <Show when={pointerLook(c()) !== "image"}>
-                <Field label={t("Color")} stack>
-                  <div class="color-row">
-                    <For each={POINTER_COLORS}>
-                      {(hex) => (
-                        <button
-                          type="button"
-                          class="swatch"
-                          classList={{ on: pointerHex(c().color) === hex }}
-                          style={{ background: hex }}
-                          aria-label={t("Pointer color {hex}", { hex })}
-                          aria-pressed={pointerHex(c().color) === hex}
-                          data-tip={hex === POINTER_COLORS[0] ? t("White, the classic pointer") : hex}
-                          onClick={() => ed.setCursorColor(hex === POINTER_COLORS[0] ? null : hex)}
-                        />
-                      )}
-                    </For>
-                    <label class="swatch swatch-custom" data-tip={t("Custom color")}>
-                      <input
-                        type="color"
-                        value={pointerHex(c().color)}
-                        aria-label={t("Custom pointer color")}
-                        onInput={(e) => ed.setCursorColor(e.currentTarget.value)}
-                      />
-                    </label>
-                  </div>
-                </Field>
-              </Show>
-              <Field label={t("Highlight")} hint={t("A soft yellow disc under the pointer, so viewers never lose it")}>
-                <Switch checked={!!c().halo} label={t("Highlight the pointer")} onChange={(v) => ed.setCursorHalo(v)} />
+              <Field label={t("Mirror")} description={t("Flip the camera the way you see yourself")}>
+                <Switch
+                  checked={c().mirror}
+                  disabled={!c().visible}
+                  label={t("Mirror camera")}
+                  onChange={(v) => ed.updateCamera({ mirror: v })}
+                />
               </Field>
-            </>
+            </Section>
           )}
         </Show>
-        <Show when={ed.cursorStyle() && ed.pointerCaptured()}>
-          <p class="note">
-            {t("The real pointer is also in this take, so two show. Set the pointer to Smooth before recording for a clean result.")}
-          </p>
-        </Show>
-        <Show when={!ed.cursorStyle() && !ed.pointerCaptured()}>
-          <p class="note">{t("This take has no visible pointer. Turn on the smooth pointer to show one.")}</p>
-        </Show>
-      </Section>
 
-      <Show when={ed.cameraOverlay()}>
-        {(c) => (
-          <Section
-            id="clip-camera"
-            title={t("Camera")}
-            icon="camera"
-            defaultOpen={false}
-            keywords={t("webcam face bubble corner mirror circle")}
-            aside={<span class="badge">{c().visible ? t("On") : t("Hidden")}</span>}
-          >
-            <Field label={t("Show camera")} hint={t("Hide the bubble without losing the recording")}>
-              <Switch checked={c().visible} label={t("Show camera")} onChange={(v) => ed.updateCamera({ visible: v })} />
-            </Field>
-            <Field label={t("Corner")}>
-              <div class="corner-pick">
-                <For each={CAMERA_CORNERS()}>
-                  {(k) => (
+        <Section
+          id="clip-overlays"
+          title={t("Overlays")}
+          icon="clicks"
+          defaultOpen={false}
+          keywords={t("clicks ripples keystrokes keys shortcuts keyboard click effect animation rings pulse burst color size speed")}
+          aside={<span class="badge">{overlaysBadge()}</span>}
+        >
+          <Field label={t("Click effect")} description={t("An animation at every recorded click")}>
+            <Switch checked={ed.showClicks()} label={t("Click effect")} onChange={() => ed.toggleClicks()} />
+          </Field>
+          <Show when={ed.showClicks()}>
+            <Field label={t("Animation")} stack>
+              <div class="look-cards four">
+                <For each={CLICK_EFFECTS()}>
+                  {(fx) => (
                     <button
                       type="button"
-                      class="corner-cell"
-                      classList={{ on: c().corner === k.value }}
-                      aria-pressed={c().corner === k.value}
-                      aria-label={k.label}
-                      data-tip={k.label}
-                      disabled={!c().visible}
-                      onClick={() => ed.updateCamera({ corner: k.value })}
+                      class="look-card"
+                      classList={{ on: ed.clickStyle().effect === fx.value }}
+                      aria-pressed={ed.clickStyle().effect === fx.value}
+                      data-tip={fx.tip}
+                      onClick={() => ed.updateClickStyle({ effect: fx.value })}
                     >
-                      <span class="corner-dot" />
+                      <span
+                        class="look-card-art click-fx-art"
+                        classList={{ light: isDarkHex(pointerHex(ed.clickStyle().color)) }}
+                        style={{ color: pointerHex(ed.clickStyle().color) }}
+                      >
+                        <ClickEffectArt effect={fx.value} />
+                      </span>
+                      {fx.label}
                     </button>
                   )}
                 </For>
               </div>
             </Field>
-            <Field label={t("Size")} stack>
-              <Slider
-                value={c().size}
-                min={0.12}
-                max={0.6}
-                step={0.01}
-                disabled={!c().visible}
-                label={t("Camera size")}
-                format={(v) => `${Math.round(v * 100)}%`}
-                onInput={(v) => ed.updateCamera({ size: v })}
-              />
-            </Field>
-            <Field label={t("Shape")} stack>
-              <Seg
-                full
-                value={c().shape}
-                disabled={!c().visible}
-                label={t("Camera shape")}
-                onChange={(v) => ed.updateCamera({ shape: v })}
-                options={[
-                  { value: "circle", label: t("Circle") },
-                  { value: "square", label: t("Square") },
-                  { value: "wide", label: t("Wide"), tip: t("A 16:9 frame") },
-                ]}
-              />
-            </Field>
-            <Field label={t("Mirror")} hint={t("Flip the camera the way you see yourself")}>
-              <Switch
-                checked={c().mirror}
-                disabled={!c().visible}
-                label={t("Mirror camera")}
-                onChange={(v) => ed.updateCamera({ mirror: v })}
-              />
-            </Field>
-          </Section>
-        )}
-      </Show>
-
-      <Section
-        id="clip-overlays"
-        title={t("Overlays")}
-        icon="clicks"
-        defaultOpen={false}
-        keywords={t("clicks ripples keystrokes keys shortcuts keyboard click effect animation rings pulse burst color size speed")}
-        aside={
-          <Show when={ed.showClicks() || ed.showKeys()}>
-            <span class="badge">{[ed.showClicks() && t("Clicks"), ed.showKeys() && t("Keys")].filter(Boolean).join(" · ")}</span>
-          </Show>
-        }
-      >
-        <Field label={t("Click effect")} hint={t("An animation at every recorded click")}>
-          <Switch checked={ed.showClicks()} label={t("Click effect")} onChange={() => ed.toggleClicks()} />
-        </Field>
-        <Show when={ed.showClicks()}>
-          <Field label={t("Animation")} stack>
-            <div class="look-cards four">
-              <For each={CLICK_EFFECTS()}>
-                {(fx) => (
-                  <button
-                    type="button"
-                    class="look-card"
-                    classList={{ on: ed.clickStyle().effect === fx.value }}
-                    aria-pressed={ed.clickStyle().effect === fx.value}
-                    data-tip={fx.tip}
-                    onClick={() => ed.updateClickStyle({ effect: fx.value })}
-                  >
-                    <span class="look-card-art" style={{ color: pointerHex(ed.clickStyle().color) }}>
-                      <ClickEffectArt effect={fx.value} />
-                    </span>
-                    {fx.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Field>
-          <Field label={t("Click color")} stack>
-            <div class="color-row">
-              <For each={CLICK_COLORS}>
-                {(hex) => (
-                  <button
-                    type="button"
-                    class="swatch"
-                    classList={{ on: pointerHex(ed.clickStyle().color) === hex }}
-                    style={{ background: hex }}
-                    aria-label={t("Click color {hex}", { hex })}
-                    aria-pressed={pointerHex(ed.clickStyle().color) === hex}
-                    data-tip={hex === CLICK_COLORS[0] ? t("White") : hex}
-                    onClick={() => ed.setClickColor(hex === CLICK_COLORS[0] ? null : hex)}
+            <Field label={t("Click color")} stack>
+              <div class="swatches">
+                <For each={CLICK_COLORS}>
+                  {(hex) => (
+                    <button
+                      type="button"
+                      class="swatch"
+                      classList={{ on: pointerHex(ed.clickStyle().color) === hex }}
+                      style={{ background: hex }}
+                      aria-label={t("Click color {hex}", { hex })}
+                      aria-pressed={pointerHex(ed.clickStyle().color) === hex}
+                      data-tip={hex === CLICK_COLORS[0] ? t("White") : hex}
+                      onClick={() => ed.setClickColor(hex === CLICK_COLORS[0] ? null : hex)}
+                    />
+                  )}
+                </For>
+                <label class="swatch swatch-custom" data-tip={t("Custom color")}>
+                  <input
+                    type="color"
+                    value={pointerHex(ed.clickStyle().color)}
+                    aria-label={t("Custom click color")}
+                    onInput={(e) => ed.setClickColor(e.currentTarget.value)}
                   />
-                )}
-              </For>
-              <label class="swatch swatch-custom" data-tip={t("Custom color")}>
-                <input
-                  type="color"
-                  value={pointerHex(ed.clickStyle().color)}
-                  aria-label={t("Custom click color")}
-                  onInput={(e) => ed.setClickColor(e.currentTarget.value)}
-                />
-              </label>
-            </div>
+                </label>
+              </div>
+            </Field>
+            <Field label={t("Click size")} stack>
+              <Slider
+                value={ed.clickStyle().size}
+                min={0.5}
+                max={3}
+                step={0.05}
+                label={t("Click effect size")}
+                format={(v) => `${v.toFixed(1)}×`}
+                onInput={(v) => ed.updateClickStyle({ size: v })}
+              />
+            </Field>
+            <Field label={t("Click length")} stack>
+              <Slider
+                value={ed.clickStyle().duration}
+                min={0.2}
+                max={1.5}
+                step={0.05}
+                label={t("Click effect length")}
+                format={(v) => `${Math.round(v * 1000)} ms`}
+                onInput={(v) => ed.updateClickStyle({ duration: v })}
+              />
+            </Field>
+            <Field label={t("Click opacity")} stack>
+              <Slider
+                value={ed.clickStyle().opacity}
+                min={0.1}
+                max={1}
+                step={0.05}
+                label={t("Click effect opacity")}
+                format={(v) => `${Math.round(v * 100)}%`}
+                onInput={(v) => ed.updateClickStyle({ opacity: v })}
+              />
+            </Field>
+          </Show>
+          <Field label={t("Keystrokes")} description={t("Shortcuts you pressed appear as chips. Plain typing never shows")}>
+            <Switch checked={ed.showKeys()} label={t("Keystrokes")} onChange={() => ed.toggleKeys()} />
           </Field>
-          <Field label={t("Click size")} stack>
-            <Slider
-              value={ed.clickStyle().size}
-              min={0.5}
-              max={3}
-              step={0.05}
-              label={t("Click effect size")}
-              format={(v) => `${v.toFixed(1)}×`}
-              onInput={(v) => ed.updateClickStyle({ size: v })}
-            />
-          </Field>
-          <Field label={t("Click length")} stack>
-            <Slider
-              value={ed.clickStyle().duration}
-              min={0.2}
-              max={1.5}
-              step={0.05}
-              label={t("Click effect length")}
-              format={(v) => `${Math.round(v * 1000)} ms`}
-              onInput={(v) => ed.updateClickStyle({ duration: v })}
-            />
-          </Field>
-          <Field label={t("Click opacity")} stack>
-            <Slider
-              value={ed.clickStyle().opacity}
-              min={0.1}
-              max={1}
-              step={0.05}
-              label={t("Click effect opacity")}
-              format={(v) => `${Math.round(v * 100)}%`}
-              onInput={(v) => ed.updateClickStyle({ opacity: v })}
-            />
-          </Field>
-        </Show>
-        <Field label={t("Keystrokes")} hint={t("Shortcuts you pressed appear as chips. Plain typing never shows")}>
-          <Switch checked={ed.showKeys()} label={t("Keystrokes")} onChange={() => ed.toggleKeys()} />
-        </Field>
-      </Section>
+        </Section>
+      </div>
 
-      <Section id="clip-info" title={t("Clip")} icon="info" defaultOpen={false} keywords={t("facts details duration length aspect")}>
-        <dl class="facts">
-          <dt>{t("Recorded")}</dt>
-          <dd>{ed.duration().toFixed(2)}s</dd>
-          <dt>{t("Exports as")}</dt>
-          <dd>{outDur().toFixed(2)}s</dd>
-          <dt>{t("Aspect")}</dt>
-          <dd>{ed.frameAspect().toFixed(3)}</dd>
-          <dt>{t("Zooms")}</dt>
-          <dd>{ed.zooms().length}</dd>
-          <dt>{t("Annotations")}</dt>
-          <dd>
-            {ed.anns().texts.length + ed.anns().arrows.length + ed.anns().highlights.length + ed.anns().strokes.length}
-          </dd>
-          <dt>{t("Cuts")}</dt>
-          <dd>{ed.cuts().length}</dd>
-        </dl>
-      </Section>
+      <div class="insp-group">
+        <Section
+          id="clip-info"
+          title={t("Clip facts")}
+          icon="info"
+          defaultOpen={false}
+          keywords={t("facts details duration length aspect")}
+          aside={<span class="badge tabular">{ed.duration().toFixed(1)}s</span>}
+        >
+          <dl class="facts">
+            <Show when={ed.outSize()}>
+              {(s) => (
+                <>
+                  <dt>{t("Dimensions")}</dt>
+                  <dd>
+                    {s().w}×{s().h}
+                  </dd>
+                </>
+              )}
+            </Show>
+            <dt>{t("Recorded")}</dt>
+            <dd>{ed.duration().toFixed(2)}s</dd>
+            <dt>{t("Exports as")}</dt>
+            <dd>{outDur().toFixed(2)}s</dd>
+            <dt>{t("Aspect")}</dt>
+            <dd>{ed.frameAspect().toFixed(3)}</dd>
+            <dt>{t("Zooms")}</dt>
+            <dd>{ed.zooms().length}</dd>
+            <dt>{t("Annotations")}</dt>
+            <dd>
+              {ed.anns().texts.length + ed.anns().arrows.length + ed.anns().highlights.length + ed.anns().strokes.length}
+            </dd>
+            <dt>{t("Cuts")}</dt>
+            <dd>{ed.cuts().length}</dd>
+          </dl>
+        </Section>
+      </div>
     </>
   );
 }
@@ -1897,9 +2476,10 @@ function CaptionsSection() {
   const c = ed.captions;
   onMount(() => void c.loadStatus());
   const count = () => c.list().length;
+  const checking = () => !c.statusChecked() && !c.status();
   const supported = () => c.status()?.supported ?? true;
   const needsDownload = () => !!c.status() && !c.status()!.model_ready;
-  const canGenerate = () => supported() && ed.audio.hasAudio();
+  const canGenerate = () => !checking() && supported() && ed.audio.hasAudio();
   const style = () => c.style();
   return (
     <Section
@@ -1910,7 +2490,7 @@ function CaptionsSection() {
       keywords={t("subtitles srt words speech transcribe text language")}
       aside={
         <Show when={count() > 0}>
-          <span class="badge">{count()}</span>
+          <span class="badge tabular">{style().visible ? count() : t("Hidden")}</span>
         </Show>
       }
     >
@@ -1918,12 +2498,17 @@ function CaptionsSection() {
         when={c.job()}
         fallback={
           <>
-            <Show when={!supported()}>
+            <Show when={checking()}>
+              <p class="note" role="status">
+                {t("Checking…")}
+              </p>
+            </Show>
+            <Show when={!checking() && !supported()}>
               <p class="note">
                 {t("Making captions needs a newer processor (most PCs from 2015 on). You can still type them in with Add caption.")}
               </p>
             </Show>
-            <Show when={supported() && !ed.audio.hasAudio()}>
+            <Show when={!checking() && supported() && !ed.audio.hasAudio()}>
               <p class="note">
                 {t("This take has no sound to make captions from. You can still type them in with Add caption.")}
               </p>
@@ -1942,16 +2527,18 @@ function CaptionsSection() {
               <button type="button" class="btn primary block" onClick={() => void c.generate()}>
                 <Icon name="captions" size={14} /> {count() > 0 ? t("Make captions again") : t("Make captions")}
               </button>
-              <p class="note">
-                <Show
-                  when={needsDownload()}
-                  fallback={t("Vuoom listens to your narration on this computer. Nothing is uploaded.")}
-                >
-                  {t("The first time, Vuoom downloads its speech model ({mb} MB). After that, captions are made on this computer. Nothing is uploaded.", {
-                    mb: Math.round((c.status()?.model_bytes ?? 0) / 1_000_000),
-                  })}
-                </Show>
-              </p>
+              <Show when={c.status()}>
+                <p class="note">
+                  <Show
+                    when={needsDownload()}
+                    fallback={t("Vuoom listens to your narration on this computer. Nothing is uploaded.")}
+                  >
+                    {t("The first time, Vuoom downloads its speech model ({mb} MB). After that, captions are made on this computer. Nothing is uploaded.", {
+                      mb: Math.round((c.status()?.model_bytes ?? 0) / 1_000_000),
+                    })}
+                  </Show>
+                </p>
+              </Show>
             </Show>
           </>
         }
@@ -1978,7 +2565,7 @@ function CaptionsSection() {
       </Show>
 
       <Show when={count() > 0}>
-        <Field label={t("Show captions")} hint={t("Hide them in the video but keep them, and the .srt file")}>
+        <Field label={t("Show captions")} description={t("Hide them in the video but keep them, and the .srt file")}>
           <Switch checked={style().visible} label={t("Show captions")} onChange={(v) => c.updateStyle({ visible: v })} />
         </Field>
         <Field label={t("Size")} stack>

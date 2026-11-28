@@ -5,8 +5,8 @@ import { useEditor } from "../editor/context";
 import { RECORD_KEYS, zoomKeys } from "../hotkeys";
 import { t } from "../i18n";
 import { Icon, type IconName } from "../icons";
-import { LogoMark } from "../Logo";
 import { Kbd, Rich } from "../ui";
+import { StudioEmblem } from "./StudioArt";
 
 const STEPS = (): { icon: IconName; title: string; text: () => string }[] => [
   {
@@ -29,16 +29,21 @@ const STEPS = (): { icon: IconName; title: string; text: () => string }[] => [
 
 export default function Welcome() {
   const ed = useEditor();
+  let startBtnEl: HTMLButtonElement | undefined;
   return (
     <>
       <Show when={ed.showWelcome()}>
-        <div class="modal-backdrop welcome-backdrop">
+        <div class="modal-backdrop">
           <div
             class="welcome"
-            ref={(el) => dialogA11y(el, t("Welcome to Vuoom"), () => ed.dismissWelcome(true))}
+            ref={(el) =>
+              dialogA11y(el, t("Welcome to Vuoom"), () => ed.dismissWelcome(true), {
+                initialFocus: () => startBtnEl ?? null,
+              })
+            }
           >
             <div class="welcome-mark">
-              <LogoMark size={40} />
+              <StudioEmblem />
             </div>
             <h2>{t("Screen recordings that zoom where it matters.")}</h2>
             <p class="muted">{t("Three steps, one window, no account.")}</p>
@@ -70,6 +75,7 @@ export default function Welcome() {
                 {t("Try a sample clip")}
               </button>
               <button
+                ref={startBtnEl}
                 type="button"
                 class="btn record lg"
                 onClick={() => {

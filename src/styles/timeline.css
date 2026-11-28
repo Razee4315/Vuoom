@@ -201,6 +201,15 @@
     color: var(--text);
     background: var(--active);
   }
+  .tl-transport-extra {
+    display: inline-flex;
+    align-items: center;
+  }
+  .tl-time-total {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+  }
   @container timeline (max-width: 960px) {
     .tl-insert-inline .tl-ins span {
       display: none;
@@ -211,6 +220,13 @@
     }
   }
   @container timeline (max-width: 760px) {
+    .tl-head {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 6px;
+    }
+    .tl-insert {
+      justify-self: center;
+    }
     .tl-insert-inline,
     .tl-view-inline,
     .tl-time-out,
@@ -223,6 +239,27 @@
     }
     .tl-time {
       margin-left: 4px;
+    }
+  }
+  @container timeline (max-width: 560px) {
+    .tl-transport-extra,
+    .tl-time-total {
+      display: none;
+    }
+    .tl-time-now {
+      min-width: 4.5ch;
+      text-align: left;
+    }
+    .tl-ins-menu span {
+      display: none;
+    }
+    .tl-ins-menu {
+      width: 28px;
+      padding: 0;
+      justify-content: center;
+    }
+    .tl-sep {
+      margin: 0 2px;
     }
   }
 
@@ -486,9 +523,7 @@
     font-size: var(--fs-xs);
     font-weight: 600;
     white-space: nowrap;
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      opacity var(--dur-fast) var(--ease-standard);
+    transition: opacity var(--dur-fast) var(--ease-standard);
   }
   .tl-seg:hover {
     background: color-mix(in srgb, var(--c) 32%, var(--panel));

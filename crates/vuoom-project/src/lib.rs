@@ -176,7 +176,7 @@ impl CropRect {
     /// `true` when the crop covers (almost) the whole frame and is a no-op.
     #[must_use]
     pub fn is_full(&self) -> bool {
-        self.x <= 1e-3 && self.y <= 1e-3 && self.w >= 0.999 && self.h >= 0.999
+        self.x <= 1e-5 && self.y <= 1e-5 && self.w >= 1.0 - 1e-5 && self.h >= 1.0 - 1e-5
     }
 
     /// Clamp to a valid, non-degenerate crop inside the frame.

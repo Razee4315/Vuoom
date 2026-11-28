@@ -1,4 +1,4 @@
-/* Inspector: tabs, context title, collapsible sections, property controls. */
+/* Inspector: pinned tabs + search, clip summary, grouped sections, property controls. */
 
 @layer screens {
   .inspector {
@@ -20,28 +20,30 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 46px;
-    padding: 0 8px 0 10px;
+    height: 36px;
+    padding: 0 6px 0 8px;
     border-bottom: 1px solid var(--hairline);
     flex: none;
   }
   .insp-tabs {
     display: flex;
+    align-items: center;
     gap: 2px;
     flex: 1;
+    min-width: 0;
   }
   .insp-tab {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 28px;
-    padding: 0 11px;
+    height: 26px;
+    padding: 0 10px;
     border: 0;
     border-radius: var(--r-sm);
     background: transparent;
     color: var(--muted);
-    font-size: var(--fs-md);
-    font-weight: 600;
+    font-size: var(--fs-sm);
+    font-weight: 500;
   }
   .insp-tab:hover {
     color: var(--text);
@@ -49,6 +51,7 @@
   .insp-tab.on {
     background: var(--hover);
     color: var(--text);
+    font-weight: 600;
   }
   .insp-scroll {
     flex: 1;
@@ -57,20 +60,134 @@
     overflow-x: hidden;
   }
 
+  /* Pinned Clip settings search bar (outside .insp-scroll). */
+  .clip-search {
+    display: flex;
+    align-items: center;
+    flex: none;
+    height: 32px;
+    padding: 0 6px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .clip-search .input-wrap {
+    width: 100%;
+    height: 100%;
+  }
+  .clip-search .input-wrap > svg {
+    left: 6px;
+  }
+  .clip-search .input {
+    height: 26px;
+    padding: 0 28px 0 26px;
+    border: 0;
+    border-radius: var(--r-xs);
+    background: transparent;
+    font-size: var(--fs-sm);
+  }
+  .clip-search .input:focus-visible {
+    outline-offset: -1px;
+  }
+  .clip-search .input::-webkit-search-cancel-button {
+    display: none;
+  }
+  .clip-search-x {
+    position: absolute;
+    right: 2px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    animation: pop-in var(--dur-fast) var(--ease-enter);
+  }
+  .clip-search-x:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .clip-search-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 32px 18px;
+    color: var(--muted);
+    font-size: var(--fs-sm);
+    text-align: center;
+    animation: fade-up var(--dur-normal) var(--ease-enter) both;
+  }
+  .clip-search-empty strong {
+    color: var(--text);
+    font-size: var(--fs-md);
+    font-weight: 600;
+  }
+  .sect-miss {
+    display: none;
+  }
+
+  /* Compact clip summary strip at the top of the Clip panel. */
+  .clip-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--panel-2);
+  }
+  .clip-summary-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+  }
+  .clip-summary-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+  }
+
+  /* Visual section groups inside the Clip panel. */
+  .insp-group + .insp-group {
+    border-top: 1px solid var(--hairline);
+  }
+  .insp-group:not(:has(.sect:not(.sect-miss))) {
+    display: none;
+  }
+  .insp-group-label {
+    padding: 10px 14px 2px;
+    color: var(--faint);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
   .insp-title {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 14px 12px 12px 14px;
+    padding: 12px 10px 11px 14px;
     border-bottom: 1px solid var(--hairline);
   }
   .insp-title-icon {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     flex: none;
-    border-radius: var(--r);
+    border-radius: var(--r-sm);
     background: var(--hover);
     color: var(--text);
   }
@@ -82,7 +199,7 @@
     min-width: 0;
   }
   .insp-title-text strong {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-md);
     font-weight: 600;
   }
   .insp-title-text small {
@@ -104,9 +221,10 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px;
+    padding: 12px 14px;
   }
 
+  /* Calm empty selection state: geometric motif, zero infinite animations. */
   .insp-empty {
     display: flex;
     flex-direction: column;
@@ -115,18 +233,14 @@
     padding: 40px 24px;
     text-align: center;
   }
-  .insp-empty-icon {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--hover);
-    color: var(--muted);
+  .insp-empty-art {
+    display: block;
+    margin-bottom: 4px;
   }
   .insp-empty strong {
-    margin-top: 4px;
+    margin-top: 2px;
     font-size: var(--fs-md);
+    font-weight: 600;
   }
   .insp-empty p {
     margin: 0;
@@ -139,7 +253,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px 16px;
-    margin-top: 14px;
+    margin-top: 12px;
     color: var(--muted);
     font-size: var(--fs-xs);
   }
@@ -147,6 +261,91 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* Compact selectable list of existing clip annotations under armed tool cards. */
+  .ann-list {
+    border-top: 1px solid var(--hairline);
+    padding: 10px 10px 12px;
+  }
+  .ann-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 6px;
+    color: var(--faint);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .ann-list-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ann-list-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 28px;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    text-align: left;
+    transition:
+      background var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
+  }
+  .ann-list-row:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .ann-list-row:active {
+    background: var(--active);
+  }
+  .ann-list-icon {
+    flex: none;
+    color: var(--muted);
+  }
+  .ann-list-row:hover .ann-list-icon {
+    color: var(--text);
+  }
+  .ann-list-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 500;
+  }
+  .ann-list-time {
+    flex: none;
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+
+  /* Fixed-point zoom focus X / Y numeric ScrubField pair. */
+  .focus-xy {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .focus-axis {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+  }
+  .focus-axis .scrub,
+  .focus-axis .scrub-input {
+    min-width: 62px;
+    width: 68px;
   }
 
   .readout {
@@ -177,7 +376,8 @@
     gap: 6px;
   }
 
-  .toggle-group {
+  /* Multi-toggle text formatting strip (Bold / Italic / Plate) matching Seg grammar. */
+  .fmt-group {
     display: inline-flex;
     padding: 2px;
     gap: 2px;
@@ -185,31 +385,34 @@
     background: var(--raised);
     border: 1px solid var(--line);
   }
-  .tgl {
+  .fmt-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     min-width: 28px;
     height: 26px;
-    padding: 0 8px;
+    padding: 0 9px;
     border: 0;
     border-radius: calc(var(--r) - 2px);
     background: transparent;
     color: var(--muted);
     font-size: var(--fs-sm);
-    font-weight: 600;
+    font-weight: 500;
+    transition:
+      background var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
   }
-  .tgl:hover {
+  .fmt-btn:hover {
     color: var(--text);
   }
-  .tgl.on {
+  .fmt-btn[aria-pressed="true"] {
     background: var(--active);
     color: var(--text);
+    font-weight: 600;
+    box-shadow: var(--shadow-raised), 0 0 0 1px var(--line-2);
   }
 
-  .color-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 9px;
-    padding: 3px;
-  }
+  /* Custom color swatch & color well: visible keyboard focus ring via :has(). */
   .swatch-custom {
     position: relative;
     overflow: hidden;
@@ -218,11 +421,15 @@
   .swatch-custom:has(input:focus-visible) {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+    box-shadow: none;
   }
   .swatch-custom input {
     position: absolute;
     inset: 0;
     opacity: 0;
+  }
+  .swatch-custom input:focus-visible {
+    outline: none;
   }
 
   .font-grid {
@@ -343,36 +550,14 @@
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
   }
 
-  /* Crop ratios: one even row, like a segmented control. */
-  .crop-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 2px;
-    padding: 2px;
-    border-radius: var(--r);
-    background: var(--raised);
-    border: 1px solid var(--line);
+  /* Compact 6-option crop Seg so all ratios fit cleanly down to 260px inspector width. */
+  .crop-seg .seg-btn {
+    padding: 0 4px;
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
   }
-  .crop-grid .chip {
-    justify-content: center;
-    min-width: 0;
-    height: 26px;
-    padding: 0;
-    border: 0;
-    border-radius: calc(var(--r) - 2px);
-    background: transparent;
-    color: var(--muted);
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
-  }
-  .crop-grid .chip:hover {
-    background: var(--hover);
-    color: var(--text);
-  }
-  .crop-grid .chip[aria-pressed="true"] {
-    background: var(--ink);
-    color: var(--ink-text);
+  .crop-seg.seg-none .seg-thumb {
+    opacity: 0;
   }
 
   /* The backdrop picture in use, with a way to swap it. */
@@ -404,54 +589,6 @@
     text-overflow: ellipsis;
     font-size: var(--fs-sm);
     font-weight: 500;
-  }
-
-  /* Settings search, pinned above the Clip sections. */
-  .clip-search {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    padding: 10px 12px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--hairline);
-  }
-  .clip-search .input {
-    height: 32px;
-    padding-right: 30px;
-    background: var(--panel-2);
-  }
-  .clip-search .input::-webkit-search-cancel-button {
-    display: none;
-  }
-  .clip-search-x {
-    position: absolute;
-    right: 6px;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--hover);
-    color: var(--muted);
-    animation: pop-in var(--dur-fast) var(--ease-enter);
-  }
-  .clip-search-x:hover {
-    color: var(--text);
-  }
-  .clip-search-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 30px 18px;
-    color: var(--muted);
-    font-size: var(--fs-sm);
-    text-align: center;
-    animation: fade-up var(--dur-normal) var(--ease-enter) both;
-  }
-  .sect-miss {
-    display: none;
   }
 
   .facts {
@@ -499,6 +636,7 @@
   .color-well:has(input:focus-visible) {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+    box-shadow: none;
   }
   .color-well span {
     display: block;
@@ -510,6 +648,9 @@
     position: absolute;
     inset: 0;
     opacity: 0;
+  }
+  .color-well input:focus-visible {
+    outline: none;
   }
 
   /* Multi-line label text in the inspector. */
@@ -607,13 +748,12 @@
     text-decoration-color: var(--faint);
   }
 
-  /* Webcam corner picker (Clip > Camera): miniature frame with four corner targets. */
+  /* Webcam corner picker (Clip > Camera): miniature frame with >= 28x28px corner targets. */
   .corner-pick {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, 1fr);
     gap: 2px;
-    width: 92px;
-    aspect-ratio: 16 / 10;
+    width: 96px;
     padding: 3px;
     border: 1px solid var(--line-2);
     border-radius: 7px;
@@ -621,7 +761,9 @@
   }
   .corner-cell {
     display: flex;
-    padding: 3px;
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px;
     border: 0;
     border-radius: 4px;
     background: transparent;
@@ -640,6 +782,7 @@
   .corner-cell:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: -1px;
+    box-shadow: none;
   }
   .corner-cell:disabled {
     opacity: 0.5;
@@ -703,6 +846,16 @@
     width: 100%;
     height: 30px;
     color: var(--text);
+  }
+  .look-card-art.click-fx-art {
+    width: 38px;
+    height: 30px;
+    border-radius: var(--r-xs);
+    background: #18181b;
+    border: 1px solid var(--hairline);
+  }
+  .look-card-art.click-fx-art.light {
+    background: #e8e8ec;
   }
   .look-card-art img {
     max-width: 30px;
@@ -786,6 +939,7 @@
   .ptr-hotspot:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+    box-shadow: none;
   }
   .ptr-hotspot img {
     display: block;
@@ -844,5 +998,18 @@
   .ptr-picture-actions .btn[aria-pressed="true"] {
     border-color: var(--ink);
     color: var(--text);
+  }
+
+  :root[data-motion="reduced"] .frame-card:active,
+  :root[data-motion="reduced"] .frame-card:hover .frame-card-shot,
+  :root[data-motion="reduced"] .look-card:active {
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .frame-card:active,
+    .frame-card:hover .frame-card-shot,
+    .look-card:active {
+      transform: none;
+    }
   }
 }

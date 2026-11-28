@@ -9,6 +9,33 @@ follow [Semantic Versioning](https://semver.org/). Vuoom updates itself from ins
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-28
+
+### Redesign — Tungsten Darkroom & Daylight Archival Studio
+
+A ground-up desktop UI redesign uniting Vuoom's desktop studio with its brand identity while tightening accessibility (WCAG 2.2 AA), keyboard precision, and startup/bundle performance (before/after captures in [`docs/ui-redesign/screenshots/`](./docs/ui-redesign/screenshots/)).
+
+- **Design System, Themes & Zero-Flicker System Sync (`src/styles/tokens.css`, `src/themes.ts`, `index.html`):**
+  - Introduced **Tungsten Darkroom** (smoked obsidian chrome with warm specular `--rim` highlights) and **Daylight Archival Studio** (warm archival paper chrome), paired with a neutral matte video **Stage** (`#181818` / `#D8D8D8`) so recordings never pick up a color cast.
+  - Added automatic **System** appearance resolution before first splash paint (zero light-mode startup flash) with live OS theme synchronization, alongside calibrated `Mono Dark`, `Mono Light`, `Graphite`, and `Midnight` appearances.
+  - Separated WCAG 2.2 AA Record Crimson button fills (`--record: #C62F38`, `>= 5.4:1`) from text tokens (`--record-text`), calibrated all text/status/border contrast across all 6 themes, subsetted `@fontsource-variable/inter` to Latin only (`-135.5 KB` gzip in `dist/`), and restored `tabular-nums` for every timecode, dimension, and byte readout.
+  - Replaced all 9 `backdrop-filter: blur()` usages and `100vmax` spread shadows with opaque `.island` surfaces and bounded dim rectangles; removed all infinite idle CSS animations and gated motion cleanly behind `prefers-reduced-motion` and Settings -> Reduce motion (`MOTION.md`).
+- **Home, Titlebar & StatusBar (`Home.tsx`, `Titlebar.tsx`, `StatusBar.tsx`, `StudioArt.tsx`):**
+  - Rebuilt Home into a top-aligned 2-column studio layout (capture modes & inline audio/camera/options controls on the left; recent projects contact sheet or bespoke SVG empty-state reel on the right) that fits both `1280×800` and `880×560` without scrolling.
+  - Standardized Titlebar chrome, hid disabled Undo/Redo on Home, aligned `File`/`View` menus, and upgraded StatusBar with semantic recording/save states and quick shortcuts.
+- **3-Column Studio Workspace, Stage, Crop & Timeline (`App.tsx`, `ToolRail.tsx`, `Stage.tsx`, `CropEditor.tsx`, `Timeline.tsx`):**
+  - Promoted `ToolRail` to a full-height left column (`116px` labeled / `48px` compact) so all 11 tools and the collapse toggle fit cleanly even at `880×560` with zero clipping.
+  - Rebuilt `CropEditor` into a 2-row stage grid (`minmax(0, 1fr) auto`) with a single-row `37px` floating bar at `1280×800` (`Free`, ratios, `X/Y/W/H` scrubbers, `Reset`, `Cancel`, `Apply`), automatic `Bounds` disclosure on narrow viewports, 1px/10px source-pixel keyboard stepping, 1-source-pixel crop persistence (`1e-5` full-frame tolerance across frontend & `vuoom-project`), and exact preservation of custom Frame padding/corners/shadow across Crop Apply/Cancel.
+  - Added true 1:1 physical-pixel `"100%"` stage zoom, keyboard-accessible `role="slider"` playhead & trim handles on Timeline, zero-overlap compact Timeline header (`<= 560px`) with viewport-clamped `View` menu, and a static waveform loading baseline.
+- **Inspector, Modals & Recording Overlays (`Inspector.tsx`, `Settings.tsx`, `ExportDialog.tsx`, `CommandPalette.tsx`, `SourcePicker.tsx`, `Permissions.tsx`, `RecordOverlay.tsx`, `WindowPicker.tsx`):**
+  - Pinned Inspector's `36px` WAI-ARIA `tablist` (with roving focus and manual tab lock) and `32px` search bar outside scroll; opened fresh clips with a `.clip-summary` header, `Frame` expanded, grouped disclosures (*Framing*, *Motion*, *Sound & Text*, *Presentation*, *Clip facts*), armed-tool quick placement, multi-select shared edits, Fixed-point X/Y scrubbers, and color-accurate click-effect previews.
+  - Redesigned Settings (`760px` with pinned header, `System` split card, 6 scoped `[data-theme]` miniatures, inline Storage recovery confirmation, keyboard-safe `HotkeyField`), ExportDialog (`640px` with pinned header/footer at `880×560`, balanced 3-up format cards, deduplicated presets, abortable `Fit under`), CommandPalette (WAI-ARIA `combobox`, Raycast footer, `Home`/`End` scroll), SourcePicker (pinned search + Refresh), and macOS Permissions (`Input Monitoring` + persistent retry errors).
+  - Rebuilt `RecordOverlay` into a single-row opaque `44px` HUD with smart top-flip on low selections, compact `Setup` menu (`< 1040px`) matching full `Options`, keyboard 1px move / Shift+resize + display-clamped physical W×H inputs, reliable `"Continue without camera"` engine sync before capture start, 4s camera first-frame timeout, keyboard-navigable `WindowPicker`, and complete `zh-CN` translations (`1,169/1,169` keys).
+- **Verified Budgets (`v2.5.0` vs `v2.4.0`):**
+  - Packaged `dist/` standalone: `1,363.4 KB` raw / `531.5 KB` gzip (**-49.6 KB raw / -135.5 KB gzip** vs `v2.4.0`, under `1,478 KB / 694 KB` budget).
+  - Windows `vuoom.exe`: `31,301,120 B` (**-155 KB** vs `v2.4.0`).
+  - Live WebView2 splash-to-usable: `1,647 ms` (**-437 ms** vs `v2.4.0`'s `2,084 ms`, under `2,050 ms` budget), `4.28 MB` JS heap, `0` console/runtime errors.
+
 ## [2.4.0] - 2026-11-27
 
 ### Performance & Engine Optimizations (Low-End Hardware & OBS-Level Export Pipeline)

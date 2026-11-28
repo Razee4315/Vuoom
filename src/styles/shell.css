@@ -139,7 +139,7 @@
     padding: 1px 2px;
     border-radius: var(--r);
     background: var(--panel-2);
-    border: 1px solid var(--line);
+    border: 1px solid var(--hairline);
   }
   .tb-group .ibtn {
     width: 26px;
@@ -258,7 +258,7 @@
     gap: var(--gutter);
   }
   .center > .timeline {
-    max-height: calc(100% - 180px - var(--gutter) * 2);
+    max-height: clamp(148px, calc(100% - 308px), 560px);
   }
 
   /* Resize handles: a wide invisible hit strip over the gutter with a line that lights up. */
@@ -321,11 +321,11 @@
     flex-direction: column;
     align-items: stretch;
     gap: 2px;
-    width: 104px;
+    width: 116px;
     flex: none;
     min-height: 0;
     margin-bottom: var(--gutter);
-    padding: 6px;
+    padding: 5px;
     border-radius: var(--r-lg);
     background: var(--panel);
     border: 1px solid var(--hairline);
@@ -343,19 +343,19 @@
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
-    gap: 8px;
+    gap: 6px;
     flex: 0 1 32px;
     height: 32px;
     min-height: 30px;
-    padding: 0 8px;
+    padding: 0 7px;
     border: 0;
     border-radius: var(--r-sm);
     background: transparent;
     color: var(--muted);
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard),
-      transform var(--dur-instant) var(--ease-standard);
+    transition: transform var(--dur-instant) var(--ease-standard);
+  }
+  .rail-tool.locked {
+    padding-right: 16px;
   }
   .rail-tool > svg {
     flex: none;
@@ -372,7 +372,7 @@
   .rail.compact .rail-label {
     display: none;
   }
-  .rail-tool:hover:not(:disabled) {
+  .rail-tool:hover:not(.on):not(:disabled) {
     background: var(--hover);
     color: var(--text);
   }

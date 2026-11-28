@@ -235,12 +235,12 @@ export default function Titlebar() {
         <kbd>{isMac ? keyText("Ctrl+K") : "Ctrl K"}</kbd>
       </button>
 
-      <div class="tb-group">
-        <IconButton icon="undo" tip={t("Undo")} kbd="Ctrl+Z" disabled={!ed.canUndo()} onClick={() => void ed.doUndo()} />
-        <IconButton icon="redo" tip={t("Redo")} kbd="Ctrl+Y" disabled={!ed.canRedo()} onClick={() => void ed.doRedo()} />
-      </div>
-
       <Show when={ed.hasClip()}>
+        <div class="tb-group">
+          <IconButton icon="undo" tip={t("Undo")} kbd="Ctrl+Z" disabled={!ed.canUndo()} onClick={() => void ed.doUndo()} />
+          <IconButton icon="redo" tip={t("Redo")} kbd="Ctrl+Y" disabled={!ed.canRedo()} onClick={() => void ed.doRedo()} />
+        </div>
+
         <div class="tb-group tb-panels">
           <IconButton
             icon="panelLeft"

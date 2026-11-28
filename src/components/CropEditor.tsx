@@ -1,6 +1,6 @@
 // Visual crop editing on the stage: drag inside to move, drag a handle to resize, lock an
 // aspect ratio, step with arrow keys or numeric X/Y/W/H fields, then Apply (Enter) or Cancel (Esc).
-import { For, onMount } from "solid-js";
+import { createSignal, For, onMount } from "solid-js";
 import { useEditor } from "../editor/context";
 import type { Editor } from "../editor/createEditor";
 import { t } from "../i18n";
@@ -98,7 +98,7 @@ function applyCropDelta(
 }
 
 /** The draggable and keyboard-steppable crop rect, drawn inside the stage frame. */
-export default function CropEditor(props: { lock: number | null }) {
+export default function CropEditor(props: { lock: number | null; sourcePx: { w: number; h: number } }) {
   const ed = useEditor();
   const r = () => ed.cropDraft();
 
@@ -122,11 +122,14 @@ export default function CropEditor(props: { lock: number | null }) {
   const onArrowKey = (hx: number, hy: number) => (e: KeyboardEvent) => {
     let dx = 0;
     let dy = 0;
-    const step = e.shiftKey ? 0.05 : 0.01;
-    if (e.key === "ArrowLeft") dx = -step;
-    else if (e.key === "ArrowRight") dx = step;
-    else if (e.key === "ArrowUp") dy = -step;
-    else if (e.key === "ArrowDown") dy = step;
+    // Exact 1 source pixel (10 source pixels with Shift) along each axis independently.
+    const px = e.shiftKey ? 10 : 1;
+    const stepX = px / Math.max(1, props.sourcePx.w);
+    const stepY = px / Math.max(1, props.sourcePx.h);
+    if (e.key === "ArrowLeft") dx = -stepX;
+    else if (e.key === "ArrowRight") dx = stepX;
+    else if (e.key === "ArrowUp") dy = -stepY;
+    else if (e.key === "ArrowDown") dy = stepY;
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -194,6 +197,7 @@ export default function CropEditor(props: { lock: number | null }) {
 /** Aspect locks, numeric bounds + Reset / Cancel / Apply, floating under the stage frame. */
 export function CropBar(props: { lock: number | null; onLockChange: (ratio: number | null) => void }) {
   const ed = useEditor();
+  const [boundsOpen, setBoundsOpen] = createSignal(false);
   let barEl: HTMLDivElement | undefined;
   const r = () => ed.cropDraft();
   const lockId = () => LOCKS().find((l) => l.ratio === props.lock)?.id ?? "free";
@@ -253,7 +257,13 @@ export function CropBar(props: { lock: number | null; onLockChange: (ratio: numb
   };
 
   return (
-    <div ref={barEl} class="crop-bar island" role="toolbar" aria-label={t("Crop controls")}>
+    <div
+      ref={barEl}
+      class="crop-bar island"
+      classList={{ "bounds-open": boundsOpen() }}
+      role="toolbar"
+      aria-label={t("Crop controls")}
+    >
       <Icon name="crop" size={15} />
       <Seg
         class="crop-seg"
@@ -266,7 +276,18 @@ export function CropBar(props: { lock: number | null; onLockChange: (ratio: numb
           if (ratio) fitRatio(ed, ratio);
         }}
       />
-      <div class="crop-fields">
+      <button
+        type="button"
+        class="btn sm ghost crop-bounds-btn"
+        classList={{ on: boundsOpen() }}
+        aria-expanded={boundsOpen()}
+        aria-controls="crop-bounds-fields"
+        onKeyDown={keepEnterLocal}
+        onClick={() => setBoundsOpen((v) => !v)}
+      >
+        <Icon name="sliders" size={13} /> {t("Bounds")}
+      </button>
+      <div id="crop-bounds-fields" class="crop-fields">
         <div class="crop-field">
           <span class="crop-field-label" aria-hidden="true">X</span>
           <ScrubField

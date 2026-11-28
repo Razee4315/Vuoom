@@ -2,6 +2,7 @@
 // (select / move / resize / draw), the zoom-focus crosshair, snap guides, and the inline
 // text editor. The overlay mirrors the export renderer so what you see is what ships.
 import { createEffect, createSignal, For, Index, onCleanup, Show } from "solid-js";
+import { invoke } from "../bridge";
 import { useEditor } from "../editor/context";
 import { LINE_HEIGHT, textBox } from "../editor/textMetrics";
 import { mapStroke, strokePath } from "../editor/strokes";
@@ -13,10 +14,9 @@ import { t } from "../i18n";
 import { Icon } from "../icons";
 import { layout } from "../prefs";
 import { TOOLS } from "../shortcuts";
-import type { Color } from "../types";
+import type { ClipState, Color, Vec2 } from "../types";
 import { stageMenu } from "./contextMenus";
 import CropEditor, { CropBar } from "./CropEditor";
-import type { Vec2 } from "../types";
 
 /** The number on a step marker: white on a dark disc, near-black on a light one. */
 function badgeInk(c: Color): string {
@@ -27,13 +27,45 @@ export default function Stage() {
   const ed = useEditor();
   const [stageZoom, setStageZoom] = createSignal<"fit" | "100%">("fit");
   const [cropLock, setCropLock] = createSignal<number | null>(null);
+  const [sourcePx, setSourcePx] = createSignal<{ w: number; h: number }>({ w: 1920, h: 1080 });
   let viewportEl: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    // Track actual composited frame dimensions for true 1:1 100% zoom and 1px crop stepping.
+    const has = ed.hasClip();
+    const aspect = ed.frameAspect();
+    void ed.cropEdit();
+    void ed.crop();
+    void ed.framePreset();
+    if (!has) return;
+    let alive = true;
+    void invoke<ClipState>("clip_state")
+      .then((cs) => {
+        if (!alive) return;
+        const w = cs.out_width ?? Math.round(1080 * aspect);
+        const h = cs.out_height ?? Math.round(w / Math.max(aspect, 0.1));
+        if (w > 0 && h > 0) setSourcePx({ w, h });
+      })
+      .catch(() => {
+        if (!alive) return;
+        const w = Math.max(1, Math.round(1080 * aspect));
+        setSourcePx({ w, h: 1080 });
+      });
+    onCleanup(() => {
+      alive = false;
+    });
+  });
 
   createEffect(() => {
     // Reset crop aspect lock whenever a crop editing session opens or closes.
     ed.cropEdit();
     setCropLock(null);
   });
+
+  const actualCssWidth = () => {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    return `${Math.max(120, Math.round(sourcePx().w / dpr))}px`;
+  };
 
   let zoomRaf = 0;
   onCleanup(() => {
@@ -81,7 +113,15 @@ export default function Stage() {
         </div>
       </Show>
       <div class="stage-viewport" ref={viewportEl}>
-        <div class="stage" ref={ed.refs.stage} style={{ "aspect-ratio": String(ed.frameAspect()), "--ar": String(ed.frameAspect()) }}>
+        <div
+          class="stage"
+          ref={ed.refs.stage}
+          style={{
+            "aspect-ratio": String(ed.frameAspect()),
+            "--ar": String(ed.frameAspect()),
+            "--stage-actual-w": actualCssWidth(),
+          }}
+        >
           <canvas ref={ed.refs.canvas} class="stage-canvas" />
         <Show when={layout.guides() && !ed.cropEdit()}>
           <div class="stage-guides" aria-hidden="true">
@@ -551,7 +591,7 @@ export default function Stage() {
         <InlineTextEditor />
       </Show>
         <Show when={ed.cropEdit()}>
-          <CropEditor lock={cropLock()} />
+          <CropEditor lock={cropLock()} sourcePx={sourcePx()} />
         </Show>
         </div>
       </div>

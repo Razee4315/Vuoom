@@ -23,6 +23,7 @@ const labelOf = (choices: Choice[], v: number) => choices.find((c) => c.value ==
 export default function Home() {
   const ed = useEditor();
   const [more, setMore] = createSignal(false);
+  let searchEl: HTMLInputElement | undefined;
   const filtered = createMemo(() => {
     const q = ed.recentSearch().trim().toLowerCase();
     return q ? ed.recents().filter((r) => r.name.toLowerCase().includes(q)) : ed.recents();
@@ -218,10 +219,11 @@ export default function Home() {
           >
             <header class="home-recents-head">
               <h2>{t("Recent projects")}</h2>
-              <Show when={ed.recents().length > 2}>
+              <Show when={ed.recents().length > 2 || ed.recentSearch().trim().length > 0}>
                 <div class="input-wrap home-search">
                   <Icon name="search" size={14} />
                   <input
+                    ref={searchEl}
                     class="input"
                     type="search"
                     placeholder={t("Search")}
@@ -235,7 +237,10 @@ export default function Home() {
                       size={12}
                       class="sm home-search-clear"
                       tip={t("Clear search")}
-                      onClick={() => ed.setRecentSearch("")}
+                      onClick={() => {
+                        ed.setRecentSearch("");
+                        queueMicrotask(() => searchEl?.focus());
+                      }}
                     />
                   </Show>
                 </div>
@@ -251,7 +256,19 @@ export default function Home() {
               <For
                 each={filtered()}
                 fallback={
-                  <div class="recents-empty">{t('No projects match "{query}".', { query: ed.recentSearch() })}</div>
+                  <div class="recents-empty">
+                    <span>{t('No projects match "{query}".', { query: ed.recentSearch() })}</span>
+                    <button
+                      type="button"
+                      class="btn sm"
+                      onClick={() => {
+                        ed.setRecentSearch("");
+                        queueMicrotask(() => searchEl?.focus());
+                      }}
+                    >
+                      {t("Clear search")}
+                    </button>
+                  </div>
                 }
               >
                 {(r) => (

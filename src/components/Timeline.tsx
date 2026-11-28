@@ -117,7 +117,9 @@ export default function Timeline() {
 
       <header class="tl-head">
         <div class="tl-transport">
-          <IconButton icon="toStart" tip={t("Back to start")} kbd="Home" onClick={ed.restart} />
+          <span class="tl-transport-extra">
+            <IconButton icon="toStart" tip={t("Back to start")} kbd="Home" onClick={ed.restart} />
+          </span>
           <button
             type="button"
             class="tl-play"
@@ -128,15 +130,17 @@ export default function Timeline() {
           >
             <Icon name={ed.playing() ? "pause" : "play"} size={15} />
           </button>
-          <IconButton
-            icon="loop"
-            tip={t("Loop playback")}
-            active={ed.looping()}
-            onClick={() => {
-              ed.setLooping(!ed.looping());
-              prefs.loop.set(ed.looping());
-            }}
-          />
+          <span class="tl-transport-extra">
+            <IconButton
+              icon="loop"
+              tip={t("Loop playback")}
+              active={ed.looping()}
+              onClick={() => {
+                ed.setLooping(!ed.looping());
+                prefs.loop.set(ed.looping());
+              }}
+            />
+          </span>
           <Menu
             items={() =>
               [0.25, 0.5, 1, 1.5, 2].map((r) => ({
@@ -160,8 +164,10 @@ export default function Timeline() {
           />
           <div class="tl-time" aria-live="off">
             <span class="tl-time-now">{fmtT(ed.playhead())}</span>
-            <span class="tl-time-sep">/</span>
-            <span>{fmt(ed.duration())}</span>
+            <span class="tl-time-total">
+              <span class="tl-time-sep">/</span>
+              <span>{fmt(ed.duration())}</span>
+            </span>
             <Show when={ed.trim() || ed.speed().length > 0 || ed.cuts().length > 0}>
               <span class="tl-time-out" data-tip={t("Final length after trim, speed-ups and cuts")}>
                 <Icon name="chevronRight" size={11} />
@@ -173,13 +179,33 @@ export default function Timeline() {
 
         <div class="tl-insert">
           <div class="tl-insert-inline">
-            <button type="button" class="tl-ins zoom" data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")} onClick={() => void ed.addZoomAt()}>
+            <button
+              type="button"
+              class="tl-ins zoom"
+              aria-label={t("Add zoom")}
+              data-tip={t("Add a zoom at the playhead. To aim it, use the Zoom tool (Z)")}
+              onClick={() => void ed.addZoomAt()}
+            >
               <Icon name="zoomIn" size={14} /> <span>{t("Zoom")}</span>
             </button>
-            <button type="button" class="tl-ins speed" data-tip={t("Speed up 2s at {factor}×", { factor: ed.skimFactor() })} data-kbd="X" onClick={() => void ed.addSpeedAtPlayhead()}>
+            <button
+              type="button"
+              class="tl-ins speed"
+              aria-label={t("Add speed region")}
+              data-tip={t("Speed up 2s at {factor}×", { factor: ed.skimFactor() })}
+              data-kbd="X"
+              onClick={() => void ed.addSpeedAtPlayhead()}
+            >
               <Icon name="speed" size={14} /> <span>{t("Speed")}</span>
             </button>
-            <button type="button" class="tl-ins cut" data-tip={t("Remove 1s at the playhead")} data-kbd="C" onClick={() => void ed.addCutAtPlayhead()}>
+            <button
+              type="button"
+              class="tl-ins cut"
+              aria-label={t("Add cut")}
+              data-tip={t("Remove 1s at the playhead")}
+              data-kbd="C"
+              onClick={() => void ed.addCutAtPlayhead()}
+            >
               <Icon name="cut" size={14} /> <span>{t("Cut")}</span>
             </button>
           </div>
@@ -198,6 +224,7 @@ export default function Timeline() {
                   ref={m.ref}
                   aria-label={t("Insert")}
                   aria-expanded={m.open}
+                  data-tip={t("Insert")}
                   onClick={m.toggle}
                 >
                   <Icon name="plus" size={14} /> <span>{t("Insert")}</span>
@@ -232,6 +259,22 @@ export default function Timeline() {
             <Menu
               align="end"
               items={() => [
+                {
+                  label: t("Back to start"),
+                  icon: "toStart",
+                  kbd: "Home",
+                  onSelect: ed.restart,
+                },
+                {
+                  label: t("Loop playback"),
+                  icon: "loop",
+                  checked: ed.looping(),
+                  onSelect: () => {
+                    ed.setLooping(!ed.looping());
+                    prefs.loop.set(ed.looping());
+                  },
+                },
+                { separator: true },
                 {
                   label: t("Magnetic snapping"),
                   icon: "magnet",

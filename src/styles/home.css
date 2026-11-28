@@ -61,14 +61,15 @@
     }
   }
   .home-sub {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 5px;
     margin: 0;
     color: var(--muted);
     font-size: var(--fs-sm);
-    line-height: 1.45;
+    line-height: 1.55;
+  }
+  .home-sub .kbds {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin: 0 2px;
   }
 
   .home-modes {
@@ -84,25 +85,22 @@
     min-height: 64px;
     padding: 10px 14px;
     border-radius: var(--r-md);
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--hairline);
     background: var(--panel-2);
     color: var(--text);
     text-align: left;
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      border-color var(--dur-fast) var(--ease-standard),
-      transform var(--dur-instant) var(--ease-standard);
+    transition: transform var(--dur-instant) var(--ease-standard);
   }
   .home-mode:hover {
     background: var(--raised);
-    border-color: var(--line-strong);
+    border-color: var(--line);
   }
   .home-mode:active {
     background: var(--active);
     transform: scale(0.985);
   }
   .home-mode.primary {
-    border-color: color-mix(in srgb, var(--record-text) 45%, var(--line-2));
+    border-color: var(--line-2);
     background: var(--raised);
     box-shadow: var(--shadow-raised);
   }
@@ -115,9 +113,6 @@
     border-radius: var(--r-sm);
     background: var(--hover);
     color: var(--text);
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
   }
   .home-mode.primary .home-mode-icon,
   .home-mode:hover .home-mode-icon {
@@ -143,26 +138,20 @@
   .home-mode-go {
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     flex: none;
     border-radius: 50%;
-    border: 1px solid var(--line-2);
+    border: 0;
     color: var(--faint);
-    transition:
-      background var(--dur-fast) var(--ease-standard),
-      border-color var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
   }
   .home-mode.primary .home-mode-go,
   .home-mode:hover .home-mode-go {
     background: var(--record);
-    border-color: var(--record);
     color: var(--on-record);
   }
   .home-mode:hover .home-mode-go {
     background: var(--record-hover);
-    border-color: var(--record-hover);
   }
 
   /* 36px pre-flight strip: Audio, Camera, Options side by side without wrapping. */
@@ -302,7 +291,7 @@
 
   .home-empty {
     flex: 1;
-    border: 1px dashed var(--hairline);
+    border: 1px solid var(--hairline);
     border-radius: var(--r-lg);
     background: var(--panel-2);
   }
@@ -342,14 +331,17 @@
   .recents-empty {
     grid-column: 1 / -1;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
     padding: 28px;
-    border: 1px dashed var(--hairline);
+    border: 1px solid var(--hairline);
     border-radius: var(--r-md);
+    background: var(--panel-2);
     color: var(--muted);
     font-size: var(--fs-sm);
+    text-align: center;
   }
   .recent {
     position: relative;
@@ -361,12 +353,10 @@
     padding: 0;
     overflow: hidden;
     border-radius: var(--r-md);
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--hairline);
     background: var(--panel-2);
     text-align: left;
-    transition:
-      transform var(--dur-fast) var(--ease-standard),
-      border-color var(--dur-fast) var(--ease-standard);
+    transition: transform var(--dur-fast) var(--ease-standard);
   }
   .recent-open:hover {
     transform: translateY(-2px);

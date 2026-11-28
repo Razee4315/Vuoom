@@ -21,7 +21,7 @@
     "@tauri-apps/plugin-opener": "^2.7.3",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.1",
-    "solid-js": "^1.9.14"
+    "solid-js": "^1.9.20"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",

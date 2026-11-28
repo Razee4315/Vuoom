@@ -11,14 +11,22 @@ import { Menu, type MenuItem } from "../ui";
 
 const NO_DEVICES: AudioDevices = { inputs: [], has_output: false };
 let devicesCache: Promise<AudioDevices> | null = null;
+const [audioLoadError, setAudioLoadError] = createSignal(false);
+export { audioLoadError };
 
 /** Microphones and system-sound availability (cached; `refresh` re-reads the system). */
 export function loadAudioDevices(refresh = false): Promise<AudioDevices> {
   if (!devicesCache || refresh) {
-    devicesCache = invoke<AudioDevices>("list_audio_devices").catch(() => NO_DEVICES);
+    setAudioLoadError(false);
+    devicesCache = invoke<AudioDevices>("list_audio_devices").catch(() => {
+      setAudioLoadError(true);
+      return NO_DEVICES;
+    });
   }
   return devicesCache;
 }
+
+export const retryAudioDevices = (): Promise<AudioDevices> => loadAudioDevices(true);
 
 /** A signal holding the device list, loaded on mount. */
 export function createAudioDevices() {

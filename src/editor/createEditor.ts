@@ -115,12 +115,17 @@ export function createEditor() {
     setTool(t);
     setToolLock(true);
   };
-  const [status, setStatus] = createSignal(t("Ready"));
+  const [status, setStatusRaw] = createSignal(t("Ready"));
+  const [statusKind, setStatusKind] = createSignal<"ok" | "busy" | "error">("ok");
+  const setStatus = (text: string, kind: "ok" | "busy" | "error" = "ok") => {
+    setStatusKind(kind);
+    setStatusRaw(text);
+  };
   /** Report a failed action where the user will see it: a toast, and the status line for
    *  as long as nothing replaces it. `what` says what failed ("Save failed"). */
   const fail = (what: string, e: unknown, ttl?: number) => {
     const text = t("{what}: {why}", { what, why: friendlyError(e) });
-    setStatus(text);
+    setStatus(text, "error");
     toast(text, "error", ttl);
   };
   const [projectName, setProjectName] = createSignal(t("Untitled"));
@@ -151,8 +156,16 @@ export function createEditor() {
   let persistedVersion = 0;
   // The edit version the last export rendered: those edits made it into a file.
   let exportedVersion = -1;
+  const [undoDepth, setUndoDepth] = createSignal(0);
+  const [redoDepth, setRedoDepth] = createSignal(0);
+  const canUndo = () => hasClip() && undoDepth() > 0;
+  const canRedo = () => hasClip() && redoDepth() > 0;
   const setDirty = (v: boolean) => {
-    if (v) editVersion++;
+    if (v) {
+      editVersion++;
+      setUndoDepth((d) => d + 1);
+      setRedoDepth(0);
+    }
     setDirtyRaw(v);
   };
   const markExported = () => {
@@ -410,7 +423,7 @@ export function createEditor() {
   // Open a project folder. A failed open leaves the current clip as it was; a folder that
   // is gone (moved or deleted) can be dropped from the recents grid.
   const openProjectAt = async (dir: string) => {
-    setStatus(t("Opening project…"));
+    setStatus(t("Opening project…"), "busy");
     setBusy(t("Opening project…"));
     try {
       const summary = await invoke<RecordingSummary>("open_project_bundle", { dir });
@@ -691,14 +704,14 @@ export function createEditor() {
       } catch (e) {
         const msg = String(e);
         if (!msg.includes("engine-starting")) {
-          setStatus(t("Engine error: {why}", { why: friendlyError(msg) }));
+          setStatus(t("Engine error: {why}", { why: friendlyError(msg) }), "error");
           hideSplash();
           return;
         }
         await new Promise((r) => setTimeout(r, 150));
       }
     }
-    setStatus(t("The engine did not start. Try restarting Vuoom."));
+    setStatus(t("The engine did not start. Try restarting Vuoom."), "error");
     hideSplash();
   };
 
@@ -757,7 +770,7 @@ export function createEditor() {
     if (f.step !== "ready") return;
     const u = f.update;
     setUpdateFlow({ step: "installing", update: u });
-    setStatus(t("Downloading update v{version}…", { version: u.version }));
+    setStatus(t("Downloading update v{version}…", { version: u.version }), "busy");
     try {
       let total = 0;
       let got = 0;
@@ -770,9 +783,10 @@ export function createEditor() {
             total > 0
               ? t("Downloading update… {percent}%", { percent: Math.round((got / total) * 100) })
               : t("Downloading update…"),
+            "busy",
           );
         } else if (ev.event === "Finished") {
-          setStatus(t("Update downloaded. Restarting…"));
+          setStatus(t("Update downloaded. Restarting…"), "busy");
           // On Windows the installer ends this process itself, before relaunch() below
           // gets its turn: mark the exit as intended now.
           void markCleanExit();
@@ -2192,9 +2206,12 @@ export function createEditor() {
     if (!hasClip()) return;
     try {
       if (!(await invoke<boolean>("undo"))) {
+        setUndoDepth(0);
         setStatus(t("Nothing to undo"));
         return;
       }
+      setUndoDepth((d) => Math.max(0, d - 1));
+      setRedoDepth((d) => d + 1);
       await refreshAll();
       setStatus(t("Undone"));
     } catch (e) {
@@ -2205,9 +2222,12 @@ export function createEditor() {
     if (!hasClip()) return;
     try {
       if (!(await invoke<boolean>("redo"))) {
+        setRedoDepth(0);
         setStatus(t("Nothing to redo"));
         return;
       }
+      setRedoDepth((d) => Math.max(0, d - 1));
+      setUndoDepth((d) => d + 1);
       await refreshAll();
       setStatus(t("Redone"));
     } catch (e) {
@@ -2627,6 +2647,8 @@ export function createEditor() {
       setProjectDir(null);
       setProjectName(t("Untitled"));
       setDirtyRaw(false);
+      setUndoDepth(0);
+      setRedoDepth(0);
     }
   };
 
@@ -2673,6 +2695,8 @@ export function createEditor() {
     // A freshly loaded clip (new recording / recover / open project) starts clean,
     // reset after the syncs above, which optimistically flag dirty.
     setDirty(false);
+    setUndoDepth(0);
+    setRedoDepth(0);
     void loadThumbs();
     persistedVersion = editVersion; // nothing new for autosave to write
   };
@@ -4215,7 +4239,7 @@ export function createEditor() {
   const saveProjectTo = async (dir: string) => {
     if (saving()) return;
     setSaving(true);
-    setStatus(t("Saving project…"));
+    setStatus(t("Saving project…"), "busy");
     try {
       await invoke("save_project_bundle", { dir });
       setDirty(false);
@@ -4250,7 +4274,7 @@ export function createEditor() {
       t("Discard & recover"),
     );
     if (!ok) return;
-    setStatus(t("Recovering your last session…"));
+    setStatus(t("Recovering your last session…"), "busy");
     try {
       const summary = await invoke<RecordingSummary>("recover_session");
       setRecoverable(null);
@@ -4444,7 +4468,10 @@ export function createEditor() {
     pickTool,
     lockTool,
     status,
+    statusKind,
     setStatus,
+    canUndo,
+    canRedo,
     projectName,
     setProjectName,
     editingText,

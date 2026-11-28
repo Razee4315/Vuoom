@@ -1,205 +1,193 @@
-/* Home: record hero with source cards + quick options, recovery, recents. */
+/* Home: top-aligned 2-column studio launcher with fixed capture column and scrollable library pane. */
 
 @layer screens {
   .home {
     grid-row: 3;
     min-height: 0;
-    overflow-y: auto;
-    margin: 0 var(--gutter);
-    border-radius: var(--r-lg);
-    background:
-      radial-gradient(1200px 520px at 50% -140px, color-mix(in srgb, var(--record-text) 8%, transparent), transparent 70%),
-      var(--panel);
-    border: 1px solid var(--hairline);
-    box-shadow: var(--shadow-panel);
-    isolation: isolate;
-  }
-  .home-inner {
-    position: relative;
-    width: min(880px, 100%);
-    min-height: 100%;
-    margin: 0 auto;
-    padding: clamp(28px, 6vh, 64px) 28px 40px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    gap: 26px;
-  }
-  /* Static subtle background glow (zero continuous blur repaints). */
-  .home-inner::before {
-    content: "";
-    position: absolute;
-    z-index: -1;
-    top: -40px;
-    left: 50%;
-    width: 620px;
-    height: 320px;
-    margin-left: -310px;
-    border-radius: 50%;
-    background: radial-gradient(closest-side, color-mix(in srgb, var(--record-text) 10%, transparent), transparent);
-    pointer-events: none;
+    overflow: hidden;
+    margin: 0 var(--gutter);
+    border-radius: var(--r-lg);
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-panel);
   }
 
+  .home-grid {
+    display: grid;
+    grid-template-columns: 384px minmax(0, 1fr);
+    gap: 24px;
+    padding: 24px 32px;
+    height: 100%;
+    min-height: 0;
+    align-items: stretch;
+  }
+  @media (max-width: 980px) {
+    .home-grid {
+      grid-template-columns: 312px minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+  }
+
+  /* ── Left column: hero + 64px mode cards + 36px setup strip ──────────────── */
+
+  .home-capture {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2px;
+  }
   .home-hero {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    text-align: center;
-    animation: rise var(--dur-normal) var(--ease-enter) both;
-  }
-  .rec-dot.live {
-    width: 7px;
-    height: 7px;
-    color: var(--record-text);
-    box-shadow: 0 0 0 3px var(--record-soft);
+    gap: 6px;
   }
   .home-title {
-    margin: 0 0 10px;
-    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0;
+    font-size: var(--fs-2xl);
     font-weight: 700;
-    letter-spacing: -0.03em;
-    line-height: 1.08;
+    letter-spacing: -0.025em;
+    line-height: 1.18;
+    color: var(--text);
+  }
+  @media (max-width: 980px) {
+    .home-title {
+      font-size: 24px;
+      line-height: 1.2;
+    }
   }
   .home-sub {
-    display: inline-flex;
+    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
+    gap: 5px;
     margin: 0;
     color: var(--muted);
-    font-size: var(--fs-lg);
-    line-height: 1.55;
+    font-size: var(--fs-sm);
+    line-height: 1.45;
   }
 
-  .source-cards {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-    width: 100%;
-    margin-top: 34px;
-  }
-  @media (max-width: 760px) {
-    .source-cards {
-      grid-template-columns: 1fr;
-    }
-  }
-  .source-card {
-    position: relative;
+  .home-modes {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 20px;
-    border-radius: var(--r-lg);
+    gap: 8px;
+  }
+  .home-mode {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 14px;
+    border-radius: var(--r-md);
     border: 1px solid var(--line-2);
     background: var(--panel-2);
+    color: var(--text);
     text-align: left;
-    animation: rise var(--dur-normal) var(--ease-enter) both;
     transition:
-      transform var(--dur-fast) var(--ease-standard),
+      background var(--dur-fast) var(--ease-standard),
       border-color var(--dur-fast) var(--ease-standard),
-      background var(--dur-fast) var(--ease-standard);
+      transform var(--dur-instant) var(--ease-standard);
   }
-  @media (prefers-reduced-motion: no-preference) {
-    :root:not([data-motion="reduced"]) .source-card:nth-child(2) {
-      animation-delay: 40ms;
-    }
-    :root:not([data-motion="reduced"]) .source-card:nth-child(3) {
-      animation-delay: 80ms;
-    }
-  }
-  .source-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--line-strong);
+  .home-mode:hover {
     background: var(--raised);
+    border-color: var(--line-strong);
   }
-  .source-card:active {
-    transform: translateY(0) scale(0.985);
+  .home-mode:active {
+    background: var(--active);
+    transform: scale(0.985);
   }
-  .source-card.primary {
-    border-color: color-mix(in srgb, var(--record-text) 40%, var(--line-2));
+  .home-mode.primary {
+    border-color: color-mix(in srgb, var(--record-text) 45%, var(--line-2));
+    background: var(--raised);
+    box-shadow: var(--shadow-raised);
   }
-  .source-card-icon {
+  .home-mode-icon {
     display: grid;
     place-items: center;
-    width: 46px;
-    height: 46px;
+    width: 36px;
+    height: 36px;
     flex: none;
-    border-radius: var(--r-md);
+    border-radius: var(--r-sm);
     background: var(--hover);
     color: var(--text);
     transition:
-      transform var(--dur-normal) var(--ease-enter),
       background var(--dur-fast) var(--ease-standard),
       color var(--dur-fast) var(--ease-standard);
   }
-  .source-card:hover .source-card-icon {
-    transform: scale(1.06);
-  }
-  .source-card.primary .source-card-icon,
-  .source-card:hover .source-card-icon {
+  .home-mode.primary .home-mode-icon,
+  .home-mode:hover .home-mode-icon {
     background: var(--record-soft);
     color: var(--record-text);
   }
-  .source-card-text {
+  .home-mode-text {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    flex: 1;
     min-width: 0;
   }
-  .source-card-text strong {
-    font-size: var(--fs-lg);
+  .home-mode-text strong {
+    font-size: var(--fs-md);
     font-weight: 600;
   }
-  .source-card-text small {
+  .home-mode-text small {
     color: var(--muted);
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     line-height: 1.35;
   }
-  .source-card-go {
-    position: absolute;
-    top: 18px;
-    right: 18px;
+  .home-mode-go {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
+    flex: none;
     border-radius: 50%;
     border: 1px solid var(--line-2);
     color: var(--faint);
     transition:
       background var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard),
       border-color var(--dur-fast) var(--ease-standard),
-      transform var(--dur-fast) var(--ease-standard);
+      color var(--dur-fast) var(--ease-standard);
   }
-  .source-card:hover .source-card-go,
-  .source-card.primary .source-card-go {
+  .home-mode.primary .home-mode-go,
+  .home-mode:hover .home-mode-go {
     background: var(--record);
     border-color: var(--record);
     color: var(--on-record);
   }
-  .source-card:hover .source-card-go {
+  .home-mode:hover .home-mode-go {
     background: var(--record-hover);
     border-color: var(--record-hover);
-    transform: scale(1.08);
   }
 
-  /* Sound, camera and the folded options: one tidy row under the cards. */
-  .home-bar {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 22px;
+  /* 36px pre-flight strip: Audio, Camera, Options side by side without wrapping. */
+  .home-setup {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+  }
+  .home-setup .audio-picker,
+  .home-more {
+    height: 36px;
+    min-width: 0;
+  }
+  .home-setup .audio-picker > span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .home-more {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    height: 32px;
-    padding: 0 11px;
+    gap: 6px;
+    padding: 0 10px;
     border: 1px solid var(--line);
     border-radius: var(--r);
     background: var(--raised);
@@ -209,11 +197,13 @@
     white-space: nowrap;
     transition:
       border-color var(--dur-fast) var(--ease-standard),
-      color var(--dur-fast) var(--ease-standard);
+      color var(--dur-fast) var(--ease-standard),
+      background var(--dur-fast) var(--ease-standard);
   }
   .home-more:hover,
   .home-more.on {
     border-color: var(--line-strong);
+    background: var(--hover);
     color: var(--text);
   }
   .home-more > svg:first-child {
@@ -226,72 +216,73 @@
   .home-more.on .home-more-chev {
     transform: rotate(180deg);
   }
+
   .home-opts {
-    display: grid;
-    grid-template-columns: auto auto;
-    align-items: center;
-    justify-content: center;
-    gap: 10px 16px;
-    margin-top: 12px;
-    padding: 14px 20px;
-    border-radius: var(--r-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border-radius: var(--r-md);
     border: 1px solid var(--hairline);
     background: var(--panel-2);
     animation: rise var(--dur-normal) var(--ease-enter) both;
   }
   .home-opt {
-    display: contents;
-    color: var(--muted);
-    font-size: var(--fs-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
   }
   .home-opt > span {
     color: var(--muted);
-    font-size: var(--fs-sm);
-    text-align: right;
+    font-size: var(--fs-xs);
+    font-weight: 600;
   }
-  .home-opt > .seg {
-    justify-self: start;
-  }
-  .home-foot {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    margin-top: 6px;
-    animation: rise var(--dur-normal) var(--ease-enter) both;
-  }
+
   .home-keys {
-    display: inline-flex;
+    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: center;
     gap: 6px;
+    margin-top: auto;
+    padding-top: 4px;
     color: var(--faint);
     font-size: var(--fs-xs);
   }
   .home-keys-sep {
-    width: 10px;
+    width: 8px;
+  }
+
+  /* ── Right column: permissions, recovery, recents / empty state ──────────── */
+
+  .home-library {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    height: 100%;
+    overflow-y: auto;
+    padding: 2px;
   }
 
   .recover-card {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 14px 16px;
-    border-radius: var(--r-lg);
-    border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
     background: var(--warn-soft);
     text-align: left;
-    animation: rise var(--dur-normal) var(--ease-enter) both;
   }
   .recover-card:hover {
-    border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 65%, transparent);
   }
   .recover-icon {
     display: grid;
     place-items: center;
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     flex: none;
     border-radius: 50%;
     background: color-mix(in srgb, var(--warn) 22%, transparent);
@@ -302,44 +293,62 @@
     flex-direction: column;
     gap: 2px;
     flex: 1;
+    min-width: 0;
   }
   .recover-text small {
-    color: var(--muted);
+    color: var(--text-2);
+    font-size: var(--fs-xs);
   }
 
-  .home-recents {
-    animation: rise var(--dur-normal) var(--ease-enter) both;
+  .home-empty {
+    flex: 1;
+    border: 1px dashed var(--hairline);
+    border-radius: var(--r-lg);
+    background: var(--panel-2);
   }
+
   .home-recents-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 12px;
+    gap: 8px;
   }
   .home-recents-head h2 {
     flex: 1;
     margin: 0;
-    font-size: var(--fs-md);
+    font-size: var(--fs-lg);
     font-weight: 600;
-    color: var(--text-2);
+    color: var(--text);
+    white-space: nowrap;
   }
   .home-search {
-    width: 200px;
+    width: 190px;
+  }
+  .home-search .input {
+    padding-right: 30px;
+  }
+  .home-search .input::-webkit-search-cancel-button {
+    display: none;
+  }
+  .home-search-clear {
+    position: absolute;
+    right: 4px;
   }
   .recents-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
     gap: 12px;
   }
   .recents-empty {
+    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
     padding: 28px;
-    border: 1px dashed var(--line-2);
-    border-radius: var(--r-lg);
-    color: var(--faint);
+    border: 1px dashed var(--hairline);
+    border-radius: var(--r-md);
+    color: var(--muted);
     font-size: var(--fs-sm);
   }
   .recent {
@@ -394,20 +403,19 @@
   }
   .recent-remove {
     position: absolute;
-    top: 7px;
-    right: 7px;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border: 0;
+    top: 6px;
+    right: 6px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.72);
-    color: #fff;
+    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    color: var(--text);
     opacity: 0;
     transition: opacity var(--dur-fast) var(--ease-standard);
   }
   .recent:hover .recent-remove,
+  .recent:focus-within .recent-remove,
   .recent-remove:focus-visible {
     opacity: 1;
   }
@@ -415,7 +423,7 @@
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(6px);
     }
   }
 
@@ -424,7 +432,6 @@
     display: grid;
     gap: 8px;
     width: 100%;
-    margin-top: 26px;
   }
   .home-perm {
     display: flex;
@@ -433,7 +440,7 @@
     padding: 10px 12px;
     border: 1px solid var(--hairline);
     border-radius: var(--r-md);
-    background: var(--panel);
+    background: var(--panel-2);
     text-align: left;
   }
   .home-perm-text {

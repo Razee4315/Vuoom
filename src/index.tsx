@@ -1,4 +1,5 @@
 /* @refresh reload */
+import "./styles/tokens.css";
 import { render } from "solid-js/web";
 import App from "./App";
 import { isMock } from "./bridge";

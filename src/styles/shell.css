@@ -56,14 +56,17 @@
   .tb-project {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-left: 8px;
-    padding-left: 12px;
+    gap: 4px;
+    flex: 0 1 220px;
+    margin-left: 6px;
+    padding-left: 10px;
     border-left: 1px solid var(--hairline);
     min-width: 0;
   }
   .tb-name {
-    width: clamp(80px, 20vw, 260px);
+    flex: 1;
+    width: auto;
+    min-width: 64px;
     height: 28px;
     padding: 0 7px;
     border: 1px solid transparent;
@@ -83,6 +86,12 @@
     background: var(--raised);
     border-color: var(--line-strong);
   }
+  .tb-dirty-slot {
+    display: grid;
+    place-items: center;
+    width: 12px;
+    flex: none;
+  }
   .tb-dirty {
     width: 7px;
     height: 7px;
@@ -92,16 +101,16 @@
     box-shadow: 0 0 0 3px var(--warn-soft);
   }
   .tb-drag {
-    flex: 1;
+    flex: 1 0 48px;
     align-self: stretch;
-    min-width: 20px;
+    min-width: 48px;
   }
   .tb-search {
     display: flex;
     align-items: center;
     gap: 8px;
     height: 28px;
-    width: clamp(150px, 18vw, 240px);
+    width: clamp(140px, 16vw, 220px);
     padding: 0 6px 0 10px;
     border-radius: var(--r);
     border: 1px solid var(--line-2);
@@ -120,12 +129,14 @@
     border-color: var(--line-strong);
     color: var(--muted);
   }
-  /* The panel toggles: one pill of three, each lit on its own with room between them. */
+  /* The panel toggles: one 28px pill with 24px icon buttons inside. */
   .tb-group {
-    display: flex;
-    gap: 3px;
-    margin: 0 6px;
-    padding: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 28px;
+    margin: 0 4px;
+    padding: 1px 2px;
     border-radius: var(--r);
     background: var(--panel-2);
     border: 1px solid var(--line);
@@ -140,11 +151,15 @@
     background: var(--active);
     color: var(--text);
   }
+  .tb-overflow {
+    display: none;
+  }
   .tb-export {
-    margin-left: 4px;
+    margin-left: 2px;
     height: 28px;
   }
   .tb-update {
+    height: 28px;
     border-color: color-mix(in srgb, var(--ok) 45%, transparent);
     color: var(--ok);
   }
@@ -157,6 +172,16 @@
       width: 28px;
       padding: 0;
       justify-content: center;
+    }
+  }
+  @media (max-width: 960px) {
+    .tb-panels,
+    .tb-settings-btn,
+    .tb-update {
+      display: none;
+    }
+    .tb-overflow {
+      display: inline-grid;
     }
   }
 
@@ -415,6 +440,13 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
+  .sb-status.error {
+    color: var(--record-text);
+  }
+  .sb-err-icon {
+    flex: none;
+    color: var(--record-text);
+  }
   .sb-dot {
     width: 6px;
     height: 6px;
@@ -423,6 +455,7 @@
     background: var(--ok);
   }
   .sb-dot.busy {
+    background: var(--warn);
     animation: pulse 1s var(--ease-standard) infinite;
   }
   .sb-item {

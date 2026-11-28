@@ -1,4 +1,97 @@
-# Morning Report — Vuoom `v2.2.0` (Track 1 Wave 1 Wrap-Up)
+# Morning Report — Vuoom `v2.5.0` (Track 2 UI Redesign)
+
+## Release & Rollback
+
+- **Target Release**: `Vuoom v2.5.0` (Draft release via `.github/workflows/release.yml` on `main`, per `D-002` — inspect Windows + macOS artifacts and click **Publish release** when ready)
+- **Rollback Tag**: `pre-ui-redesign-2026-11-27` (`2c2db09` on `v2.4.0`, pushed to `origin`)
+- **Design & QA Partner**: **Codex GPT-6.2 Astra** co-designed the visual direction, created all 4 custom theme-reactive SVG illustrations (`src/components/StudioArt.tsx`), authored the Chunks 5–7 architecture blueprint, and completed two full headless Edge visual & interactive reviews at `1280×800` and `880×560` (`1x` & `1.5x` DPI, Tungsten & Daylight). All 10 findings from Review #1 (`bc736a7`) and all 3 P1 + 8 P2 findings from Review #2 (`b8e219c`) are resolved and verified.
+
+---
+
+## Chosen Direction & Top References (`D-015`)
+
+**Direction A — Tungsten Darkroom & Daylight Archival Studio**
+
+- **Why this direction**: Unifies the desktop app with Vuoom's warm smoked-obsidian / archival-paper web brand without tinting user recordings: chrome surfaces carry subtle warm obsidian/paper tone and 1px specular `--rim` edges, while the video **Stage** stays perceptually neutral matte (`#181818` dark / `#D8D8D8` light). Record Crimson (`#C62F38` / `#FF9497` / `#9D2733`) is reserved exclusively for capture actions; ink (`--ink`) owns ordinary selection; timeline tracks keep distinct semantic hues; zero purple anywhere.
+- **Top 3 reference patterns adopted** (see [`DESIGN_RESEARCH.md`](./DESIGN_RESEARCH.md)):
+  1. **Raycast / Linear** — compact `32px` row rhythm, fixed-height WAI-ARIA `combobox` Command Palette with footer hint bar, crisp `<Kbd>` keycaps, and pinned modal headers/footers.
+  2. **DaVinci Resolve / Final Cut / Figma** — full-height left ToolRail (`116px` labeled / `48px` compact), neutral matte Stage framing with dedicated `Fit`/`100%` zoom controls, and an Inspector organized by scannable domain groups (*Framing*, *Motion*, *Sound & Text*, *Presentation*, *Clip facts*) with a pinned tablist and search bar.
+  3. **Screen Studio / Cap.so** — calm 2-column Home entry point with clear Region/Full Screen/Window mode cards, inline pre-capture audio/camera/options chips, and a clean single-row recording HUD that gets out of the way of the shot.
+
+---
+
+## Before / After Screenshot Gallery
+
+All screenshots were captured live from the CI-built Windows `vuoom.exe` via WebView2 CDP (Before: `v2.4.0` `2c2db09`; After: `v2.5.0` `b8e219c`).
+
+| Screen / State | Before (`v2.4.0`) | After (`v2.5.0`) |
+|---|---|---|
+| Home (Dark, `1280×800`) | [before/home-empty-dark.png](./docs/ui-redesign/screenshots/before/home-empty-dark.png) | [after/home-empty-dark.png](./docs/ui-redesign/screenshots/after/home-empty-dark.png) |
+| Home (Light, `1280×800`) | [before/home-empty-light.png](./docs/ui-redesign/screenshots/before/home-empty-light.png) | [after/home-empty-light.png](./docs/ui-redesign/screenshots/after/home-empty-light.png) |
+| Home (Options open, Dark / Light) | [before/home-options-dark.png](./docs/ui-redesign/screenshots/before/home-options-dark.png) · [light](./docs/ui-redesign/screenshots/before/home-options-light.png) | [after/home-options-dark.png](./docs/ui-redesign/screenshots/after/home-options-dark.png) · [light](./docs/ui-redesign/screenshots/after/home-options-light.png) |
+| Home (`880×560` & `150% DPI`) | [before/home-small-880x560-dark.png](./docs/ui-redesign/screenshots/before/home-small-880x560-dark.png) · [dpi150](./docs/ui-redesign/screenshots/before/home-dpi150-dark.png) | [after/home-small-880x560-dark.png](./docs/ui-redesign/screenshots/after/home-small-880x560-dark.png) · [dpi150](./docs/ui-redesign/screenshots/after/home-dpi150-dark.png) |
+| Editor — Clip View (Dark / Light) | [before/editor-clip-dark.png](./docs/ui-redesign/screenshots/before/editor-clip-dark.png) · [light](./docs/ui-redesign/screenshots/before/editor-clip-light.png) | [after/editor-clip-dark.png](./docs/ui-redesign/screenshots/after/editor-clip-dark.png) · [light](./docs/ui-redesign/screenshots/after/editor-clip-light.png) |
+| Editor — Tool Armed & Selection | [before/editor-inspector-tool-dark.png](./docs/ui-redesign/screenshots/before/editor-inspector-tool-dark.png) · [sel](./docs/ui-redesign/screenshots/before/editor-inspector-selection-dark.png) | [after/editor-inspector-tool-dark.png](./docs/ui-redesign/screenshots/after/editor-inspector-tool-dark.png) · [sel](./docs/ui-redesign/screenshots/after/editor-inspector-selection-dark.png) |
+| Editor — Crop Mode (Dark / Light) | [before/editor-crop-dark.png](./docs/ui-redesign/screenshots/before/editor-crop-dark.png) · [light](./docs/ui-redesign/screenshots/before/editor-crop-light.png) | [after/editor-crop-dark.png](./docs/ui-redesign/screenshots/after/editor-crop-dark.png) · [light](./docs/ui-redesign/screenshots/after/editor-crop-light.png) |
+| Editor (`880×560` compact) | [before/editor-small-880x560-dark.png](./docs/ui-redesign/screenshots/before/editor-small-880x560-dark.png) | [after/editor-small-880x560-dark.png](./docs/ui-redesign/screenshots/after/editor-small-880x560-dark.png) |
+| Settings — Appearance (Dark / Light) | [before/settings-appearance-dark.png](./docs/ui-redesign/screenshots/before/settings-appearance-dark.png) · [light](./docs/ui-redesign/screenshots/before/settings-appearance-light.png) | [after/settings-appearance-dark.png](./docs/ui-redesign/screenshots/after/settings-appearance-dark.png) · [light](./docs/ui-redesign/screenshots/after/settings-appearance-light.png) |
+| Settings — Rec / Edit / Storage / Shortcuts / About | [rec](./docs/ui-redesign/screenshots/before/settings-recording-dark.png) · [edit](./docs/ui-redesign/screenshots/before/settings-editing-dark.png) · [stor](./docs/ui-redesign/screenshots/before/settings-storage-dark.png) · [keys](./docs/ui-redesign/screenshots/before/settings-shortcuts-dark.png) · [about](./docs/ui-redesign/screenshots/before/settings-about-dark.png) | [rec](./docs/ui-redesign/screenshots/after/settings-recording-dark.png) · [edit](./docs/ui-redesign/screenshots/after/settings-editing-dark.png) · [stor](./docs/ui-redesign/screenshots/after/settings-storage-dark.png) · [keys](./docs/ui-redesign/screenshots/after/settings-shortcuts-dark.png) · [about](./docs/ui-redesign/screenshots/after/settings-about-dark.png) |
+| Export Dialog (MP4 Dark/Light, GIF, WebP) | [mp4](./docs/ui-redesign/screenshots/before/export-mp4-dark.png) · [light](./docs/ui-redesign/screenshots/before/export-mp4-light.png) · [gif](./docs/ui-redesign/screenshots/before/export-gif-dark.png) · [webp](./docs/ui-redesign/screenshots/before/export-webp-dark.png) | [mp4](./docs/ui-redesign/screenshots/after/export-mp4-dark.png) · [light](./docs/ui-redesign/screenshots/after/export-mp4-light.png) · [gif](./docs/ui-redesign/screenshots/after/export-gif-dark.png) · [webp](./docs/ui-redesign/screenshots/after/export-webp-dark.png) |
+| Command Palette (Dark / Light / Empty) | [dark](./docs/ui-redesign/screenshots/before/command-palette-dark.png) · [light](./docs/ui-redesign/screenshots/before/command-palette-light.png) · [empty](./docs/ui-redesign/screenshots/before/command-palette-empty-dark.png) | [dark](./docs/ui-redesign/screenshots/after/command-palette-dark.png) · [light](./docs/ui-redesign/screenshots/after/command-palette-light.png) · [empty](./docs/ui-redesign/screenshots/after/command-palette-empty-dark.png) |
+| Titlebar File Menu | [before/titlebar-file-menu-dark.png](./docs/ui-redesign/screenshots/before/titlebar-file-menu-dark.png) | [after/titlebar-file-menu-dark.png](./docs/ui-redesign/screenshots/after/titlebar-file-menu-dark.png) |
+
+---
+
+## REDESIGN vs. POLISH Breakdown
+
+- **Full Redesigns (structural + visual + interaction architecture)**:
+  - **Tokens, Themes & Motion (`tokens.css`, `themes.ts`, `motion.css`, `index.html`)**: New Tungsten Darkroom & Daylight Archival palette, zero-flicker `System` auto-sync, WCAG 2.2 AA contrast split, Latin-only Inter subset, compositor-only motion with `0` idle animations.
+  - **Home (`Home.tsx`, `home.css`)**: Balanced 2-column studio layout with capture mode cards, inline pre-take pickers, bespoke `EmptyReelArt`, and zero-scroll fit down to `880×560`.
+  - **Workspace Shell, ToolRail & CropEditor (`App.tsx`, `ToolRail.tsx`, `Stage.tsx`, `CropEditor.tsx`, `shell.css`, `stage.css`)**: 3-column full-height ToolRail (`116px` / `48px`), 2-row Crop layout (`minmax(0, 1fr) auto`), single-row `37px` floating CropBar + `Bounds` disclosure, `1e-5` 1px crop precision, and Frame style preservation on Crop Cancel/Apply.
+  - **Inspector (`Inspector.tsx`, `inspector.css`)**: Pinned `36px` WAI-ARIA `tablist` with manual tab lock, pinned `32px` search, `.clip-summary`, `Frame` expanded by default, grouped disclosures, armed-tool placement, multi-select shared edits, Fixed-point X/Y scrubbers, and color-accurate click-effect previews.
+  - **Settings & ExportDialog (`Settings.tsx`, `ExportDialog.tsx`, `dialogs.css`)**: `760px` Settings with pinned header, horizontal `System` split card, 6 scoped `[data-theme]` miniatures, inline Storage recovery confirmation; `640px` ExportDialog with pinned header/footer at `880×560`, 3-up format cards, deduplicated presets, and abortable `Fit under`.
+  - **RecordOverlay (`RecordOverlay.tsx`, `RecordOverlay.css`)**: Single-row opaque `44px` HUD, smart top-flip on low selections, compact `Setup` menu (`< 1040px`), 4 bounded dim rects, 1px keyboard move/resize + display-clamped W×H inputs, reliable `"Continue without camera"` engine sync, and 4s camera first-frame timeout.
+- **Targeted Polish (hardening + accessibility + visual consistency)**:
+  - **Shared Primitives (`ui.tsx`, `dialog.ts`, `base.css`, `icons.tsx`)**: Hardened `dialogA11y` focus trap/restoration, viewport-clamped `MenuPopup`, shared `Seg`/`Toast`/`BusyVeil`, icon deduplication.
+  - **Titlebar & StatusBar (`Titlebar.tsx`, `StatusBar.tsx`)**: Uniform chrome, hidden disabled Undo/Redo on Home, semantic status indicator.
+  - **Timeline & Waveform (`Timeline.tsx`, `Waveform.tsx`, `timeline.css`)**: Zero-overlap compact header (`<= 560px`), keyboard `role="slider"` playhead & trim handles, static loading baseline.
+  - **CommandPalette, SourcePicker, Welcome, Permissions, WindowPicker**: WAI-ARIA `combobox` + `Home`/`End` scroll, pinned search + Refresh, `StudioEmblem`/`WindowOutlineArt`, macOS `Input Monitoring` + persistent retry errors, keyboard-navigable WindowPicker, and `100%` `zh-CN` i18n coverage (`1,169` keys).
+
+---
+
+## Before / After Performance & Quality Metrics (`v2.4.0` vs. `v2.5.0`)
+
+| Metric | `v2.4.0` Baseline (`2c2db09`) | `v2.5.0` Redesign (`b8e219c`) | Budget / Delta |
+|---|---|---|---|
+| Packaged `dist/` (standalone Vite) | `1,446,889 B` (`1,413.0 KB`) raw / `682,987 B` (`667.0 KB`) gz | `1,396,075 B` (`1,363.4 KB`) raw / `544,300 B` (`531.5 KB`) gz | **-49.6 KB raw (-3.5%) / -135.5 KB gz (-20.3%)** (within `<= 1,478 KB / 694 KB`) |
+| Windows release `vuoom.exe` | `31,456,256 B` (`30.00 MiB`) | `31,301,120 B` (`29.85 MiB`) | **-155,136 B (-151.5 KB)** |
+| Live WebView2 splash-to-usable | `2,084 ms` | `1,647 ms` | **-437 ms** (within `<= 2,050 ms`) |
+| Live DOM `backdrop-filter: blur()` count | `9` rules | `0` | **-100%** (zero GPU blur over live video) |
+| Infinite idle CSS animations | `3` (Home glow, live dot, Inspector float) | `0` | **-100%** |
+| Live CDP JS Heap / Listeners (Editor loaded) | — | `4.28 MB` / `115` listeners / `5,321` DOM nodes | `0` console errors, `0` uncaught exceptions, `0` failures |
+| CI verification (`frontend`, `cargo-deny`, `macos`, Windows `ci`) | Green | All 4 jobs Green (`46140889293`: `20s` / `38s` / `1m39s` / `7m2s`) | Zero Clippy/rustfmt/Biome/tsc/i18n errors |
+
+---
+
+## Design Decisions Worth Reviewing Later ([`DECISIONS.md`](./DECISIONS.md))
+
+- **`D-015`**: Adopted **Tungsten Darkroom & Daylight Archival Studio** as the default `System`-resolved look (while keeping `Mono Dark`, `Mono Light`, `Graphite`, and `Midnight` selectable in Settings).
+- **`D-016`**: Separated Record Crimson button fill (`#C62F38`) from text tokens (`#FF9497` / `#9D2733`) for strict WCAG 2.2 AA compliance and subsetted Inter to Latin only.
+- **`D-017`**: Promoted `ToolRail` to full-height 3-column layout and eliminated all `backdrop-filter: blur()` + `100vmax` shadows.
+- **`D-019`**: Two-pass GPT-6.2 Astra review resolution (including `1e-5` 1-source-pixel crop tolerance in `crates/vuoom-project/src/lib.rs` and exact Frame style restoration across Crop Cancel/Apply).
+
+---
+
+## Ideas Not Implemented (For You to Decide)
+
+1. **Custom Accent Color Picker**: Right now all 6 themes use curated studio ink/crimson tokens for guaranteed WCAG 2.2 AA contrast. A user-pickable accent could be layered later with automatic AA contrast clamping.
+2. **Recent Project Hover Scrubbing**: Home's recent-project contact sheet currently shows crisp static thumbnails; adding hover-to-scrub preview frames could be a future polish item if desired without impacting idle CPU.
+3. **Timeline Mini-Map / Multi-Track Reordering**: Timeline currently keeps fixed predictable lanes (*Frames*, *Zooms*, *Notes*, *Speed · Cuts*, *Audio*, *Captions*). Collapsible track lanes or a zoom overview strip could help very long (>10 min) recordings.
+4. **Native macOS Traffic-Light Live Verification**: macOS CI (`macos-15`) passed `tsc`, `biome`, `rustfmt`, `clippy`, and `cargo test`, and `Titlebar.tsx` reserves native macOS traffic-light padding, though live macOS window chrome & Apple Silicon signing remain unverified on this Windows host.
+
+---
+
+# Historical Report — Vuoom `v2.2.0` (Track 1 Wave 1 Wrap-Up)
 
 ## Release & Rollback
 

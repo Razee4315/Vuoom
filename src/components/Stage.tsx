@@ -1,7 +1,7 @@
 // The stage: the composited preview frame with the interactive annotation overlay on top
 // (select / move / resize / draw), the zoom-focus crosshair, snap guides, and the inline
 // text editor. The overlay mirrors the export renderer so what you see is what ships.
-import { For, Index, Show } from "solid-js";
+import { createEffect, createSignal, For, Index, onCleanup, Show } from "solid-js";
 import { useEditor } from "../editor/context";
 import { LINE_HEIGHT, textBox } from "../editor/textMetrics";
 import { mapStroke, strokePath } from "../editor/strokes";
@@ -25,6 +25,37 @@ function badgeInk(c: Color): string {
 
 export default function Stage() {
   const ed = useEditor();
+  const [stageZoom, setStageZoom] = createSignal<"fit" | "100%">("fit");
+  const [cropLock, setCropLock] = createSignal<number | null>(null);
+  let viewportEl: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    // Reset crop aspect lock whenever a crop editing session opens or closes.
+    ed.cropEdit();
+    setCropLock(null);
+  });
+
+  let zoomRaf = 0;
+  onCleanup(() => {
+    if (zoomRaf) cancelAnimationFrame(zoomRaf);
+  });
+
+  const applyStageZoom = (next: "fit" | "100%") => {
+    setStageZoom(next);
+    if (zoomRaf) {
+      cancelAnimationFrame(zoomRaf);
+      zoomRaf = 0;
+    }
+    if (next === "100%") {
+      zoomRaf = requestAnimationFrame(() => {
+        zoomRaf = 0;
+        if (!viewportEl) return;
+        viewportEl.scrollLeft = Math.max(0, (viewportEl.scrollWidth - viewportEl.clientWidth) / 2);
+        viewportEl.scrollTop = Math.max(0, (viewportEl.scrollHeight - viewportEl.clientHeight) / 2);
+      });
+    }
+  };
+
   const hint = () => TOOLS().find((t) => t.id === ed.tool())?.hint;
   const moveFramed = ed.frameCanvas(ed.onPointerMove);
   // The line being drawn with the Pen, in pixels.
@@ -33,7 +64,13 @@ export default function Stage() {
     return d?.mode === "create-stroke" ? d : null;
   };
   return (
-    <main class="stage-wrap" classList={{ cropping: !!ed.cropEdit() }}>
+    <main
+      class="stage-wrap"
+      classList={{
+        cropping: !!ed.cropEdit(),
+        zoomed: stageZoom() === "100%" && !ed.cropEdit(),
+      }}
+    >
       <Show when={ed.tool() !== "select" && !ed.cropEdit()}>
         <div class="stage-hint">
           <Icon name="info" size={13} />
@@ -43,8 +80,9 @@ export default function Stage() {
           </span>
         </div>
       </Show>
-      <div class="stage" ref={ed.refs.stage} style={{ "aspect-ratio": String(ed.frameAspect()), "--ar": String(ed.frameAspect()) }}>
-        <canvas ref={ed.refs.canvas} class="stage-canvas" />
+      <div class="stage-viewport" ref={viewportEl}>
+        <div class="stage" ref={ed.refs.stage} style={{ "aspect-ratio": String(ed.frameAspect()), "--ar": String(ed.frameAspect()) }}>
+          <canvas ref={ed.refs.canvas} class="stage-canvas" />
         <Show when={layout.guides() && !ed.cropEdit()}>
           <div class="stage-guides" aria-hidden="true">
             <i class="g v1" />
@@ -179,6 +217,7 @@ export default function Stage() {
                         stroke-width={Math.max(st.thickness * ed.stage().h, 1)}
                       />
                       <Show when={sel()}>
+                        <rect class="sel-outline-back" x={a().x - 4} y={a().y - 4} width={s().x + 8} height={s().y + 8} />
                         <rect class="sel-outline" x={a().x - 4} y={a().y - 4} width={s().x + 8} height={s().y + 8} />
                         <Handles
                           pts={[
@@ -274,6 +313,7 @@ export default function Stage() {
                           {tx.text}
                         </text>
                         <Show when={sel()}>
+                          <circle class="sel-outline-back" cx={p().x} cy={p().y} r={fs() * 0.92 + 4} />
                           <circle class="sel-outline" cx={p().x} cy={p().y} r={fs() * 0.92 + 4} />
                         </Show>
                       </Show>
@@ -308,6 +348,13 @@ export default function Stage() {
                         </Index>
                       </text>
                       <Show when={sel() && !tx.badge}>
+                        <rect
+                          class="sel-outline-back"
+                          x={p().x - 4}
+                          y={p().y - 4}
+                          width={wbox() + 8}
+                          height={box().h + 8}
+                        />
                         <rect
                           class="sel-outline"
                           x={p().x - 4}
@@ -371,7 +418,7 @@ export default function Stage() {
             const w = Math.abs(d.cur.x - d.start.x) * ed.stage().w;
             const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
             return (
-              <rect x={a.x} y={a.y} width={w} height={h} fill="none" stroke="#ffd23f" stroke-width={2} />
+              <rect x={a.x} y={a.y} width={w} height={h} fill="none" stroke="var(--t-box)" stroke-width={2} />
             );
           })()}
         </Show>
@@ -382,7 +429,15 @@ export default function Stage() {
             const w = Math.abs(d.cur.x - d.start.x) * ed.stage().w;
             const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
             return (
-              <rect x={a.x} y={a.y} width={w} height={h} fill="rgba(255,214,63,0.3)" stroke="#ffd23f" stroke-width={1.5} />
+              <rect
+                x={a.x}
+                y={a.y}
+                width={w}
+                height={h}
+                fill="color-mix(in srgb, var(--t-box) 28%, transparent)"
+                stroke="var(--t-box)"
+                stroke-width={1.5}
+              />
             );
           })()}
         </Show>
@@ -393,7 +448,16 @@ export default function Stage() {
             const w = Math.abs(d.cur.x - d.start.x) * ed.stage().w;
             const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
             return (
-              <rect x={a.x} y={a.y} width={w} height={h} fill="rgba(10,10,13,0.85)" stroke="#e5484d" stroke-width={1.5} stroke-dasharray="5 3" />
+              <rect
+                x={a.x}
+                y={a.y}
+                width={w}
+                height={h}
+                fill="rgba(10,10,13,0.85)"
+                stroke="var(--record-text)"
+                stroke-width={1.5}
+                stroke-dasharray="5 3"
+              />
             );
           })()}
         </Show>
@@ -407,7 +471,7 @@ export default function Stage() {
               <path
                 fill-rule="evenodd"
                 fill="rgba(0,0,0,0.6)"
-                stroke="#ffd23f"
+                stroke="var(--t-box)"
                 stroke-width={1.5}
                 d={`M0 0H${ed.stage().w}V${ed.stage().h}H0Z M${a.x} ${a.y}h${w}v${h}h${-w}Z`}
               />
@@ -421,7 +485,15 @@ export default function Stage() {
             const w = Math.abs(d.cur.x - d.start.x) * ed.stage().w;
             const h = Math.abs(d.cur.y - d.start.y) * ed.stage().h;
             return (
-              <ellipse cx={a.x + w / 2} cy={a.y + h / 2} rx={w / 2} ry={h / 2} fill="none" stroke="#ffd23f" stroke-width={2} />
+              <ellipse
+                cx={a.x + w / 2}
+                cy={a.y + h / 2}
+                rx={w / 2}
+                ry={h / 2}
+                fill="none"
+                stroke="var(--t-box)"
+                stroke-width={2}
+              />
             );
           })()}
         </Show>
@@ -438,6 +510,11 @@ export default function Stage() {
                 onPointerMove={ed.onFocusMove}
                 onPointerUp={() => void ed.onFocusUp()}
               >
+                <circle class="ring-back" cx={p().x} cy={p().y} r={16} />
+                <line class="line-back" x1={p().x - 26} y1={p().y} x2={p().x - 10} y2={p().y} />
+                <line class="line-back" x1={p().x + 10} y1={p().y} x2={p().x + 26} y2={p().y} />
+                <line class="line-back" x1={p().x} y1={p().y - 26} x2={p().x} y2={p().y - 10} />
+                <line class="line-back" x1={p().x} y1={p().y + 10} x2={p().x} y2={p().y + 26} />
                 <circle class="ring" cx={p().x} cy={p().y} r={16} />
                 <circle class="dot" cx={p().x} cy={p().y} r={3} />
                 <line x1={p().x - 26} y1={p().y} x2={p().x - 10} y2={p().y} />
@@ -474,11 +551,35 @@ export default function Stage() {
         <InlineTextEditor />
       </Show>
         <Show when={ed.cropEdit()}>
-          <CropEditor />
+          <CropEditor lock={cropLock()} />
         </Show>
+        </div>
       </div>
+      <Show when={!ed.cropEdit()}>
+        {/* biome-ignore lint/a11y/useSemanticElements: compact floating zoom group pill */}
+        <div class="stage-zoom island" role="group" aria-label={t("Stage zoom")}>
+          <button
+            type="button"
+            class="stage-zoom-btn"
+            classList={{ on: stageZoom() === "fit" }}
+            aria-pressed={stageZoom() === "fit"}
+            onClick={() => applyStageZoom("fit")}
+          >
+            {t("Fit")}
+          </button>
+          <button
+            type="button"
+            class="stage-zoom-btn"
+            classList={{ on: stageZoom() === "100%" }}
+            aria-pressed={stageZoom() === "100%"}
+            onClick={() => applyStageZoom("100%")}
+          >
+            100%
+          </button>
+        </div>
+      </Show>
       <Show when={ed.cropEdit()}>
-        <CropBar />
+        <CropBar lock={cropLock()} onLockChange={setCropLock} />
       </Show>
     </main>
   );

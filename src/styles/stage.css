@@ -4,12 +4,11 @@
 @layer screens {
   .stage-wrap {
     position: relative;
+    container: stage-wrap / inline-size;
     flex: 1;
     min-width: 0;
-    min-height: 0;
-    display: grid;
-    place-items: center;
-    container-type: size;
+    min-height: 180px;
+    display: flex;
     border-radius: var(--r-lg);
     border: 1px solid var(--hairline);
     background:
@@ -18,18 +17,72 @@
     box-shadow: var(--shadow-panel);
     overflow: hidden;
   }
+  .stage-viewport {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    container-type: size;
+    overflow: hidden;
+  }
+  .stage-wrap.zoomed .stage-viewport {
+    overflow: auto;
+    padding: 28px;
+  }
+  .stage-wrap.cropping .stage-viewport {
+    padding-bottom: 52px;
+  }
   .stage {
     --ar: 1.7778;
     position: relative;
+    margin: auto;
+    flex: none;
     width: min(100cqw - 56px, (100cqh - 56px) * var(--ar));
     border-radius: var(--r-md);
     background: var(--stage-bg);
     box-shadow: var(--shadow-stage), 0 0 0 1px var(--hairline);
     overflow: hidden;
   }
+  .stage-wrap.zoomed .stage {
+    width: calc(min(100cqw - 56px, (100cqh - 56px) * var(--ar)) * 2);
+  }
   .stage-wrap.cropping .stage {
     width: min(100cqw - 56px, (100cqh - 128px) * var(--ar));
-    margin-bottom: 48px;
+  }
+  .stage-zoom {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 6;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--r-sm);
+  }
+  .stage-zoom-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    height: 24px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: calc(var(--r-sm) - 2px);
+    background: transparent;
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    transition:
+      background var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard);
+  }
+  .stage-zoom-btn:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .stage-zoom-btn.on {
+    background: var(--active);
+    color: var(--text);
   }
   .stage-canvas {
     position: absolute;
@@ -104,14 +157,14 @@
     fill: rgba(10, 10, 12, 0.7);
   }
   .handle-ring {
-    fill: rgba(0, 0, 0, 0.5);
-    stroke: none;
+    fill: rgba(0, 0, 0, 0.72);
+    stroke: rgba(255, 255, 255, 0.45);
+    stroke-width: 0.75;
   }
   .handle {
     fill: #fff;
     stroke: #111;
-    stroke-width: 1.25;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+    stroke-width: 1.5;
   }
   /* A hide mask is drawn into the frame by the engine; this only marks it and takes clicks. */
   .mask-outline {
@@ -125,12 +178,18 @@
     stroke-opacity: 1;
   }
 
+  .sel-outline-back {
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.78);
+    stroke-width: 3;
+    pointer-events: none;
+  }
   .sel-outline {
     fill: none;
     stroke: #fff;
     stroke-width: 1.25;
     stroke-dasharray: 4 3;
-    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+    pointer-events: none;
   }
   .canvas-snap {
     stroke: var(--t-zoom);
@@ -141,15 +200,28 @@
   .focus-reticle {
     cursor: move;
   }
+  .focus-reticle .ring-back {
+    fill: none;
+    stroke: rgba(0, 0, 0, 0.65);
+    stroke-width: 4;
+  }
+  .focus-reticle .line-back {
+    stroke: rgba(0, 0, 0, 0.65);
+    stroke-width: 4;
+    stroke-linecap: round;
+  }
   .focus-reticle .ring {
-    fill: rgba(239, 107, 97, 0.14);
+    fill: color-mix(in srgb, var(--t-zoom) 14%, transparent);
     stroke: var(--t-zoom);
     stroke-width: 2;
   }
   .focus-reticle .dot {
     fill: var(--t-zoom);
+    stroke: rgba(0, 0, 0, 0.65);
+    stroke-width: 1;
+    paint-order: stroke;
   }
-  .focus-reticle line {
+  .focus-reticle line:not(.line-back) {
     stroke: var(--t-zoom);
     stroke-width: 2;
     stroke-linecap: round;
@@ -231,15 +303,23 @@
     position: absolute;
     inset: 0;
     z-index: 4;
+    overflow: hidden;
     touch-action: none;
+  }
+  .crop-dim {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
   }
   .crop-rect {
     position: absolute;
     border: 1.5px solid #fff;
-    box-shadow:
-      0 0 0 100vmax rgba(0, 0, 0, 0.55),
-      0 0 0 1px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.65);
     cursor: move;
+  }
+  .crop-rect:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
   .crop-third {
     position: absolute;
@@ -275,10 +355,10 @@
     top: 8px;
     left: 8px;
     padding: 3px 8px;
-    border-radius: 6px;
-    background: rgba(0, 0, 0, 0.72);
+    border-radius: var(--r-xs);
+    background: rgba(0, 0, 0, 0.78);
     color: #fff;
-    font-size: var(--fs-2xs);
+    font-size: var(--fs-xs);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
@@ -286,18 +366,37 @@
   }
   .crop-handle {
     position: absolute;
-    width: 14px;
-    height: 14px;
-    margin: -7px 0 0 -7px;
-    border-radius: 4px;
-    background: #fff;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
-  }
-  .crop-handle.edge {
-    width: 10px;
-    height: 10px;
-    margin: -5px 0 0 -5px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    padding: 0;
+    border: 0;
     border-radius: 50%;
+    background: transparent;
+  }
+  .crop-handle::after {
+    content: "";
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: #fff;
+    border: 1.5px solid #111;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+    transition: transform var(--dur-instant) var(--ease-standard);
+  }
+  .crop-handle.edge::after {
+    border-radius: 50%;
+  }
+  .crop-handle:hover::after,
+  .crop-handle:focus-visible::after {
+    transform: scale(1.25);
+  }
+  .crop-handle:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
   }
   .crop-bar {
     position: absolute;
@@ -305,43 +404,68 @@
     left: 50%;
     z-index: 6;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    padding: 6px 6px 6px 12px;
-    border-radius: var(--r-lg);
-    background: var(--panel-2);
-    border: 1px solid var(--line-2);
-    box-shadow: var(--shadow-pop);
+    justify-content: center;
+    gap: 6px;
+    max-width: calc(100% - 24px);
+    min-height: 36px;
+    padding: 3px 5px 3px 10px;
+    border-radius: var(--r-md);
     transform: translateX(-50%);
-    white-space: nowrap;
     animation: hint-in var(--dur-normal) var(--ease-enter);
   }
   .crop-bar > svg {
     color: var(--muted);
+    flex: none;
   }
-  .crop-locks {
-    display: flex;
-    gap: 2px;
-    padding: 2px;
-    border-radius: var(--r);
-    background: var(--raised);
+  .crop-bar .crop-seg .seg-btn {
+    height: 24px;
+    padding: 0 7px;
+    font-size: var(--fs-xs);
   }
-  .crop-lock {
-    height: 26px;
-    padding: 0 9px;
-    border: 0;
-    border-radius: calc(var(--r) - 2px);
-    background: transparent;
+  .crop-fields {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px;
+    border-left: 1px solid var(--hairline);
+    border-right: 1px solid var(--hairline);
+  }
+  .crop-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .crop-field-label {
     color: var(--muted);
     font-size: var(--fs-xs);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
-  .crop-lock:hover {
-    color: var(--text);
+  .crop-field .scrub,
+  .crop-field .scrub-input {
+    min-width: 50px;
+    width: 50px;
+    height: 26px;
+    padding: 0 6px;
+    line-height: 24px;
+    font-size: var(--fs-xs);
   }
-  .crop-lock.on {
-    background: var(--ink);
-    color: var(--ink-text);
+  .crop-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  @container stage-wrap (max-width: 720px) {
+    .crop-fields {
+      display: none;
+    }
+  }
+  @container stage-wrap (max-width: 560px) {
+    .stage-wrap.cropping .stage-viewport {
+      padding-bottom: 84px;
+    }
   }
 
   /* Composition guides (G): rule of thirds + a faint center cross. */

@@ -32,11 +32,21 @@ export default function Waveform(props: {
     if (canvas.height !== h) canvas.height = h;
     ctx.clearRect(0, 0, w, h);
     const dur = props.duration;
-    if (!d || dur <= 0) return;
+    if (dur <= 0) return;
 
     const css = getComputedStyle(canvas);
     const live = css.getPropertyValue("--t-audio").trim() || "#2fbfa8";
     const faint = css.getPropertyValue("--line-strong").trim() || "#444";
+
+    if (!d) {
+      // Static calm baseline while audio peaks are still decoding (zero shimmer).
+      const bh = Math.max(1, Math.round(dpr));
+      ctx.fillStyle = faint;
+      ctx.globalAlpha = 0.45;
+      ctx.fillRect(0, Math.round(h / 2 - bh / 2), w, bh);
+      ctx.globalAlpha = 1;
+      return;
+    }
     const gain = effectiveGain(props.track);
     const muted = gain === 0;
     const t0 = props.trim?.start ?? 0;

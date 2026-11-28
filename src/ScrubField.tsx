@@ -203,6 +203,7 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
           class="scrub-input"
           type="text"
           spellcheck={false}
+          aria-label={props.title}
           value={draft()}
           ref={(el) => queueMicrotask(() => {
             el.focus();
@@ -247,7 +248,7 @@ export default function ScrubField(props: ScrubFieldProps): JSX.Element {
         onLostPointerCapture={onLostPointerCapture}
       >
         <span class="scrub-val">
-          <Show when={shown() !== null} fallback="-">
+          <Show when={shown() !== null} fallback="—">
             {fmt(shown()!)}
           </Show>
         </span>

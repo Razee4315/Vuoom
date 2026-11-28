@@ -147,6 +147,11 @@ export function createEditor() {
     }
   });
   const [hasClip, setHasClip] = createSignal(false);
+  // Increments whenever a different clip opens or closes so UI state scoped to one clip
+  // (such as manual inspector tab lock) resets cleanly without reacting to edits.
+  const [clipId, setClipId] = createSignal(0);
+  // Output picture dimensions reported by the engine (null until clip_state returns them).
+  const [outSize, setOutSize] = createSignal<{ w: number; h: number } | null>(null);
   // True once the loaded clip has edits its project file doesn't hold (annotations, zooms,
   // trim, cuts, speed, frame, click/key overlays). Shown as the dot by the project name.
   // Set wherever an edit lands; cleared on load / save.
@@ -961,6 +966,7 @@ export function createEditor() {
       setPointerCaptured(cs.pointer_captured ?? true);
       setCameraOverlay(cs.camera ?? null);
       captions.adopt(cs.captions, cs.caption_style);
+      if (cs.out_width && cs.out_height) setOutSize({ w: cs.out_width, h: cs.out_height });
       // Covers trim edits and undo/redo, which re-sync clip state through here.
       setDirty(true);
     } catch {
@@ -2186,9 +2192,204 @@ export function createEditor() {
     } catch (e) {
       fail(t("Delete failed"), e);
     }
-    setSelected(null);
-    await refresh();
-    await pushSeek(playhead());
+      setSelected(null);
+      await refresh();
+      await pushSeek(playhead());
+  };
+  /** All currently selected annotations, resolved against the live annotation sets. */
+  const selectedAnns = (): { kind: Kind; ann: AnyAnn }[] =>
+    selectionAll().flatMap((s) => {
+      const ann = annOf(s.kind, s.id);
+      return ann ? [{ kind: s.kind, ann }] : [];
+    });
+  /** Apply a color to every non-mask annotation in the current multi-selection. */
+  const setColorMulti = (hex: string) => {
+    const items = selectedAnns().filter((x) => !(x.kind === "box" && (x.ann as BoxAnn).shape === "Mask"));
+    if (items.length === 0) return;
+    const c = hexRgb(hex);
+    pushEdit(
+      "col:multi",
+      () => {
+        for (const it of items) {
+          patchAnn(it.kind, it.ann.id, (ann) => {
+            (ann as TextAnn).color = { ...(ann as TextAnn).color, ...c };
+          });
+        }
+      },
+      async () => {
+        for (const it of items) {
+          const id = await ensureRealId(it.ann.id);
+          await invoke("set_annotation_color", { id, r: c.r, g: c.g, b: c.b });
+        }
+        await refresh();
+      },
+    );
+  };
+  /** Apply opacity to every non-mask annotation in the current multi-selection. */
+  const setOpacityMulti = (a: number) => {
+    const items = selectedAnns().filter((x) => !(x.kind === "box" && (x.ann as BoxAnn).shape === "Mask"));
+    if (items.length === 0) return;
+    pushEdit(
+      "opa:multi",
+      () => {
+        for (const it of items) {
+          patchAnn(it.kind, it.ann.id, (ann) => {
+            const col = (ann as TextAnn).color;
+            (ann as TextAnn).color = { ...col, a };
+          });
+        }
+      },
+      async () => {
+        for (const it of items) {
+          const id = await ensureRealId(it.ann.id);
+          await invoke("set_annotation_opacity", { id, a });
+        }
+        await refresh();
+      },
+    );
+  };
+  /** Apply shared start and/or end timing bounds to every selected annotation. */
+  const editRangeMulti = (patch: { start?: number; end?: number }) => {
+    const items = selectedAnns();
+    if (items.length === 0) return;
+    const dur = duration();
+    const updates = items.map((it) => {
+      const r = it.ann.range;
+      let start = patch.start !== undefined ? Math.max(0, Math.min(dur, patch.start)) : r.start;
+      let end = patch.end !== undefined ? Math.max(0, Math.min(dur, patch.end)) : r.end;
+      if (patch.start !== undefined && patch.end === undefined) end = Math.max(end, Math.min(dur, start + 0.1));
+      if (patch.end !== undefined && patch.start === undefined) start = Math.min(start, Math.max(0, end - 0.1));
+      if (end < start) [start, end] = [end, start];
+      return { kind: it.kind, id: it.ann.id, start, end };
+    });
+    pushEdit(
+      "range:multi",
+      () => {
+        for (const u of updates) {
+          patchAnn(u.kind, u.id, (ann) => {
+            const r = (ann as TextAnn).range;
+            (ann as TextAnn).range = { ...r, start: u.start, end: u.end };
+          });
+        }
+      },
+      async () => {
+        for (const u of updates) {
+          const id = await ensureRealId(u.id);
+          await invoke("update_annotation_range", { id, start: u.start, end: u.end });
+        }
+        await refresh();
+        await pushSeek(playhead());
+      },
+    );
+  };
+  /** Shift the multi-selection rigidly so its earliest item starts at the playhead. */
+  const moveMultiToPlayhead = () => {
+    const items = selectedAnns();
+    if (items.length === 0) return;
+    const dur = duration();
+    const minStart = Math.min(...items.map((x) => x.ann.range.start));
+    const maxEnd = Math.max(...items.map((x) => x.ann.range.end));
+    const span = Math.max(0, maxEnd - minStart);
+    const targetStart = Math.min(Math.max(0, playhead()), Math.max(0, dur - span));
+    const delta = targetStart - minStart;
+    const updates = items.map((it) => ({
+      kind: it.kind,
+      id: it.ann.id,
+      start: Math.max(0, Math.min(dur, it.ann.range.start + delta)),
+      end: Math.max(0, Math.min(dur, it.ann.range.end + delta)),
+    }));
+    pushEdit(
+      "range:multi",
+      () => {
+        for (const u of updates) {
+          patchAnn(u.kind, u.id, (ann) => {
+            const r = (ann as TextAnn).range;
+            (ann as TextAnn).range = { ...r, start: u.start, end: u.end };
+          });
+        }
+      },
+      async () => {
+        for (const u of updates) {
+          const id = await ensureRealId(u.id);
+          await invoke("update_annotation_range", { id, start: u.start, end: u.end });
+        }
+        await refresh();
+        await pushSeek(playhead());
+      },
+    );
+  };
+  /** Keyboard-accessible placement: insert an editable default item for the armed tool
+   *  at the playhead and center of the frame through the normal creation & undo path. */
+  const placeDefaultForTool = async (which: Tool = tool()) => {
+    if (!hasClip() || which === "select") return;
+    const t0 = playhead();
+    if (which === "zoom") {
+      await addZoomAimed({ x: 0.5, y: 0.5, amount: zoomStrength() });
+      if (!toolLock()) setTool("select");
+      return;
+    }
+    try {
+      if (which === "text") {
+        const id = await invoke<number>("add_text", { text: "Text", x: 0.44, y: 0.47, t: t0 });
+        await refresh();
+        await pushSeek(t0);
+        selectAnnotation("text", id);
+        if (!toolLock()) setTool("select");
+        return;
+      }
+      if (which === "arrow") {
+        const id = await invoke<number>("add_arrow", { fx: 0.36, fy: 0.56, tx: 0.64, ty: 0.42, t: t0 });
+        const look = arrowLook();
+        const { r, g, b } = look.color;
+        await invoke("set_annotation_color", { id, r, g, b });
+        await invoke("set_annotation_style", { id, thickness: look.thickness });
+        await refresh();
+        await pushSeek(t0);
+        selectAnnotation("arrow", id);
+        if (!toolLock()) setTool("select");
+        return;
+      }
+      if (which === "step") {
+        const id = await invoke<number>("add_step", { x: 0.5, y: 0.5, t: t0 });
+        await refresh();
+        await pushSeek(t0);
+        selectAnnotation("text", id);
+        if (!toolLock()) setTool("select");
+        return;
+      }
+      if (which === "pen") {
+        const look = penLook();
+        const id = await invoke<number>("add_stroke", {
+          points: [
+            [0.35, 0.52],
+            [0.5, 0.47],
+            [0.65, 0.52],
+          ],
+          color: look.color,
+          thickness: look.width,
+          t: t0,
+        });
+        await refresh();
+        await pushSeek(t0);
+        selectAnnotation("stroke", id);
+        if (!toolLock()) setTool("select");
+        return;
+      }
+      const boxSpec: Record<"shape" | "highlight" | "spotlight" | "mask", { cmd: string; x: number; y: number; w: number; h: number }> = {
+        shape: { cmd: shapeEllipse() ? "add_ellipse" : "add_box", x: 0.35, y: 0.35, w: 0.3, h: 0.3 },
+        highlight: { cmd: "add_highlighter", x: 0.35, y: 0.42, w: 0.3, h: 0.16 },
+        spotlight: { cmd: "add_spotlight", x: 0.32, y: 0.32, w: 0.36, h: 0.36 },
+        mask: { cmd: "add_mask", x: 0.35, y: 0.42, w: 0.3, h: 0.14 },
+      };
+      const spec = boxSpec[which];
+      const id = await invoke<number>(spec.cmd, { x: spec.x, y: spec.y, w: spec.w, h: spec.h, t: t0 });
+      await refresh();
+      await pushSeek(t0);
+      selectAnnotation("box", id);
+      if (!toolLock()) setTool("select");
+    } catch (err) {
+      fail(t("Could not add the shape"), err);
+    }
   };
   // ── undo / redo ────────────────────────────────────────────────────────────────
   const refreshAll = async () => {
@@ -2644,6 +2845,8 @@ export function createEditor() {
     if (!kept) {
       setPlaying(false);
       setHasClip(false);
+      setClipId((n) => n + 1);
+      setOutSize(null);
       setProjectDir(null);
       setProjectName(t("Untitled"));
       setDirtyRaw(false);
@@ -2678,6 +2881,8 @@ export function createEditor() {
     // Each take opens with the Clip settings folded, so the panel reads as a short list.
     resetSections("clip-");
     setHasClip(true);
+    setClipId((n) => n + 1);
+    setOutSize(null);
     setDuration(summary.duration);
     setSelected(null);
     setSelZoom(null);
@@ -2884,6 +3089,7 @@ export function createEditor() {
         ? await invoke<ClipState>("set_crop", { x: c.x, y: c.y, w: c.w, h: c.h })
         : await invoke<ClipState>("set_crop");
       setCrop(cs.crop);
+      if (cs.out_width && cs.out_height) setOutSize({ w: cs.out_width, h: cs.out_height });
       setDirty(true);
       await pushSeek(playhead());
       setStatus(c ? t("Crop applied. Annotations kept their on-screen placement.") : t("Crop reset to full frame."));
@@ -3173,6 +3379,7 @@ export function createEditor() {
       setFrameInfo(cs.frame ?? null);
       setFramePreset(cs.frame_preset);
       setBgPreset(cs.background_preset);
+      if (cs.out_width && cs.out_height) setOutSize({ w: cs.out_width, h: cs.out_height });
     } catch {
       /* no clip */
     }
@@ -4479,6 +4686,8 @@ export function createEditor() {
     resolvedTheme,
     setTheme,
     hasClip,
+    clipId,
+    outSize,
     dirty,
     markExported,
     duration,
@@ -4545,7 +4754,14 @@ export function createEditor() {
     setSelected,
     clearExtra,
     isSelected,
+    toggleSelect,
     selCount,
+    selectedAnns,
+    setColorMulti,
+    setOpacityMulti,
+    editRangeMulti,
+    moveMultiToPlayhead,
+    placeDefaultForTool,
     drag,
     setDrag,
     stage,

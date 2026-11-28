@@ -54,6 +54,7 @@ export function createCaptions(opts: {
   const [list, setList] = createSignal<Caption[]>([]);
   const [style, setStyle] = createSignal<CaptionStyle>(DEFAULT_CAPTION_STYLE);
   const [status, setStatus] = createSignal<CaptionsStatus | null>(null);
+  const [statusChecked, setStatusChecked] = createSignal(false);
   const [job, setJob] = createSignal<CaptionsJob | null>(null);
 
   /** Take the engine's captions (clip load, undo and redo re-sync through here). */
@@ -67,6 +68,8 @@ export function createCaptions(opts: {
       setStatus(await invoke<CaptionsStatus>("captions_status"));
     } catch {
       /* engine starting */
+    } finally {
+      setStatusChecked(true);
     }
   };
 
@@ -187,6 +190,7 @@ export function createCaptions(opts: {
     list,
     style,
     status,
+    statusChecked,
     job,
     adopt,
     loadStatus,

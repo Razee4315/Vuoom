@@ -847,6 +847,16 @@
     height: 30px;
     color: var(--text);
   }
+  .look-card-art.click-fx-art {
+    width: 38px;
+    height: 30px;
+    border-radius: var(--r-xs);
+    background: #18181b;
+    border: 1px solid var(--hairline);
+  }
+  .look-card-art.click-fx-art.light {
+    background: #e8e8ec;
+  }
   .look-card-art img {
     max-width: 30px;
     max-height: 30px;

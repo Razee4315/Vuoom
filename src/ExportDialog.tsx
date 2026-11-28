@@ -264,7 +264,7 @@ export function ExportDialog(props: {
   };
   onCleanup(cancelFit);
   createEffect(
-    on([format, fps, width, quality, () => prefs.gifDither(), () => prefs.webpLossless()], () => {
+    on([format, fps, width, quality, budgetMb, () => prefs.gifDither(), () => prefs.webpLossless()], () => {
       if (fitAbort) cancelFit();
     }, { defer: true }),
   );
@@ -480,6 +480,7 @@ export function ExportDialog(props: {
             <IconButton icon="close" size={14} tip={t("Close")} onClick={props.onClose} />
           </header>
 
+          <div class="export-body">
           <div class="export-formats">
             <button
               type="button"
@@ -703,6 +704,7 @@ export function ExportDialog(props: {
                 {outWidth()} × {height()} · {fps()} fps · {outDur().toFixed(1)}s
               </span>
             </div>
+          </div>
           </div>
 
           <div class="modal-actions">

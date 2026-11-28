@@ -265,41 +265,6 @@
   .settings-body .field-control {
     flex: none;
   }
-  .theme-card-system {
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    padding: 8px 12px 8px 8px;
-    text-align: left;
-  }
-  .theme-card-system .theme-art {
-    width: 84px;
-    height: 44px;
-    padding: 0;
-    flex: none;
-  }
-  .theme-system-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-  .theme-system-meta strong {
-    font-size: var(--fs-sm);
-    font-weight: 600;
-    color: var(--text);
-  }
-  .theme-system-meta small {
-    font-size: var(--fs-xs);
-    font-weight: 400;
-    color: var(--muted);
-  }
-  .theme-check {
-    color: var(--text);
-    flex: none;
-  }
   .theme-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -343,6 +308,41 @@
     overflow: hidden;
     background: var(--backdrop);
     border: 1px solid color-mix(in srgb, var(--line) 45%, transparent);
+  }
+  .theme-card-system {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 12px 8px 8px;
+    text-align: left;
+  }
+  .theme-card-system .theme-art {
+    width: 84px;
+    height: 44px;
+    padding: 0;
+    flex: none;
+  }
+  .theme-system-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+  .theme-system-meta strong {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .theme-system-meta small {
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .theme-check {
+    color: var(--text);
+    flex: none;
   }
   .theme-art-split {
     display: grid;
@@ -734,7 +734,21 @@
 
   .modal.export {
     width: min(640px, 100%);
-    gap: 16px;
+    gap: 14px;
+    overflow: hidden;
+  }
+  .modal.export .modal-head,
+  .modal.export .modal-actions {
+    flex: none;
+  }
+  .export-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 1px;
   }
   .export-formats {
     display: grid;

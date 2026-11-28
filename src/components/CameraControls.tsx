@@ -43,12 +43,23 @@ export function createCameras() {
   return cameras;
 }
 
+let cameraChoicePending: Promise<void> = Promise.resolve();
+
 /** Hand the camera preference to the engine for the next recording. */
-export function pushCameraChoice(): void {
-  void invoke("set_capture_camera", {
+export function pushCameraChoice(): Promise<void> {
+  const p = invoke("set_capture_camera", {
     on: prefs.recordCamera(),
     device: prefs.cameraDevice(),
-  }).catch(() => undefined);
+  })
+    .then(() => undefined)
+    .catch(() => undefined);
+  cameraChoicePending = p;
+  return p;
+}
+
+/** Resolves once the latest camera preference update has landed in the engine. */
+export function waitForCameraChoice(): Promise<void> {
+  return cameraChoicePending;
 }
 
 /** The chosen camera's name, or a generic one. */
@@ -80,6 +91,9 @@ export function cameraMenuItems(cameras: CameraDevice[]): MenuItem[] {
   return items;
 }
 
+/** Max wait for the first non-empty preview frame before treating the camera as unavailable. */
+const CAMERA_FIRST_FRAME_TIMEOUT_MS = 4000;
+
 /**
  * Keep the chosen camera open while `on()` is true and poll its latest frame. Returns the
  * frame as an object URL (`null` until the camera sends one) and whether it's starting.
@@ -88,6 +102,7 @@ export function useCameraPreview(on: () => boolean) {
   const [url, setUrl] = createSignal<string | null>(null);
   const [starting, setStarting] = createSignal(false);
   let timer = 0;
+  let startTimer = 0;
   let gen = 0;
   const show = (next: string | null) => {
     const prev = url();
@@ -98,6 +113,7 @@ export function useCameraPreview(on: () => boolean) {
     try {
       const bytes = await invoke<ArrayBuffer>("camera_preview_frame");
       if (g !== gen || bytes.byteLength === 0) return;
+      window.clearTimeout(startTimer);
       show(URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })));
       setStarting(false);
     } catch {
@@ -109,6 +125,7 @@ export function useCameraPreview(on: () => boolean) {
     const choice = { on: prefs.recordCamera(), device: prefs.cameraDevice() };
     const g = ++gen;
     window.clearInterval(timer);
+    window.clearTimeout(startTimer);
     if (!active) {
       setStarting(false);
       show(null);
@@ -120,7 +137,11 @@ export function useCameraPreview(on: () => boolean) {
     void invoke("set_capture_camera", choice)
       .then(() => invoke("set_camera_preview", { on: true }))
       .then(() => {
-        if (g === gen) timer = window.setInterval(() => void poll(g), FRAME_POLL_MS);
+        if (g !== gen) return;
+        timer = window.setInterval(() => void poll(g), FRAME_POLL_MS);
+        startTimer = window.setTimeout(() => {
+          if (g === gen && !url()) setStarting(false);
+        }, CAMERA_FIRST_FRAME_TIMEOUT_MS);
       })
       .catch(() => {
         if (g === gen) setStarting(false);
@@ -129,6 +150,7 @@ export function useCameraPreview(on: () => boolean) {
   onCleanup(() => {
     gen++;
     window.clearInterval(timer);
+    window.clearTimeout(startTimer);
     show(null);
     void invoke("set_camera_preview", { on: false }).catch(() => undefined);
   });

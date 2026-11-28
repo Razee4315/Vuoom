@@ -425,7 +425,7 @@
   }
   .crop-bar .crop-seg .seg-btn {
     height: 24px;
-    padding: 0 7px;
+    padding: 0 6px;
     font-size: var(--fs-xs);
   }
   .crop-bounds-btn {
@@ -440,15 +440,15 @@
   .crop-fields {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 6px;
+    gap: 5px;
+    padding: 0 5px;
     border-left: 1px solid var(--hairline);
     border-right: 1px solid var(--hairline);
   }
   .crop-field {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
   }
   .crop-field-label {
     color: var(--muted);
@@ -458,19 +458,19 @@
   }
   .crop-field .scrub,
   .crop-field .scrub-input {
-    min-width: 50px;
-    width: 50px;
+    min-width: 44px;
+    width: 44px;
     height: 26px;
-    padding: 0 6px;
+    padding: 0 4px;
     line-height: 24px;
     font-size: var(--fs-xs);
   }
   .crop-actions {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
   }
-  @container stage-wrap (max-width: 780px) {
+  @container stage-wrap (max-width: 760px) {
     .crop-bounds-btn {
       display: inline-flex;
     }

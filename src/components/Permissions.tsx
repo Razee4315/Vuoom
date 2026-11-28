@@ -15,13 +15,16 @@ interface Permissions {
   input: boolean;
 }
 
+type PermKind = "screen" | "accessibility" | "input";
+
 export default function PermissionsCard() {
   if (!isMac) return null;
 
   const [perms, setPerms] = createSignal<Permissions | null>(null);
   const [checking, setChecking] = createSignal(true);
-  const [error, setError] = createSignal<string | null>(null);
-  const [requesting, setRequesting] = createSignal<string | null>(null);
+  const [checkError, setCheckError] = createSignal<string | null>(null);
+  const [reqError, setReqError] = createSignal<{ kind: PermKind; msg: string } | null>(null);
+  const [requesting, setRequesting] = createSignal<PermKind | null>(null);
 
   // Serialize outstanding checks so window focus + polling never race.
   let inFlight = false;
@@ -39,10 +42,14 @@ export default function PermissionsCard() {
       const next = await invoke<Permissions>("permissions");
       if (!alive) return;
       setPerms(next);
-      setError(null);
+      setCheckError(null);
+      const pendingReq = reqError();
+      if (pendingReq && next[pendingReq.kind]) {
+        setReqError(null);
+      }
     } catch {
       if (!alive) return;
-      setError(t("Couldn't check macOS permissions."));
+      setCheckError(t("Couldn't check macOS permissions."));
     } finally {
       inFlight = false;
       if (alive) {
@@ -58,7 +65,7 @@ export default function PermissionsCard() {
   const missing = () => {
     const p = perms();
     if (!p) return [];
-    const out: { kind: "screen" | "accessibility" | "input"; title: string; why: string }[] = [];
+    const out: { kind: PermKind; title: string; why: string }[] = [];
     if (!p.screen) {
       out.push({
         kind: "screen",
@@ -99,20 +106,20 @@ export default function PermissionsCard() {
 
   createEffect(() => {
     // Only poll while permissions are missing; stop as soon as all required access is granted.
-    if (missing().length === 0 || error()) return;
+    if (missing().length === 0 || checkError()) return;
     const timer = window.setInterval(() => {
       if (!document.hidden) void check();
     }, 4000);
     onCleanup(() => window.clearInterval(timer));
   });
 
-  const ask = async (kind: "screen" | "accessibility" | "input") => {
+  const ask = async (kind: PermKind) => {
     setRequesting(kind);
-    setError(null);
+    setReqError(null);
     try {
       await invoke("request_permission", { kind });
     } catch {
-      if (alive) setError(t("Couldn't open macOS permission settings."));
+      if (alive) setReqError({ kind, msg: t("Couldn't open macOS permission settings.") });
     } finally {
       if (alive) {
         setRequesting(null);
@@ -121,10 +128,12 @@ export default function PermissionsCard() {
     }
   };
 
+  const activeError = () => reqError()?.msg ?? checkError();
+
   return (
-    <Show when={error() || missing().length > 0 || (checking() && perms() === null)}>
+    <Show when={activeError() || missing().length > 0 || (checking() && perms() === null)}>
       <section class="home-perms" aria-label={t("Permissions")}>
-        <Show when={checking() && perms() === null && !error()}>
+        <Show when={checking() && perms() === null && !activeError()}>
           <div class="home-perm" role="status">
             <Icon name="info" size={16} />
             <div class="home-perm-text">
@@ -132,12 +141,20 @@ export default function PermissionsCard() {
             </div>
           </div>
         </Show>
-        <Show when={error()}>
+        <Show when={activeError()}>
           {(msg) => (
             <Banner
               kind="error"
               action={
-                <button type="button" class="btn sm" onClick={() => void check()}>
+                <button
+                  type="button"
+                  class="btn sm"
+                  onClick={() => {
+                    const req = reqError();
+                    if (req) void ask(req.kind);
+                    else void check();
+                  }}
+                >
                   {t("Try again")}
                 </button>
               }

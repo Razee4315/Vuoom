@@ -571,7 +571,7 @@ class MockEngine {
   setCrop(crop: { x: number; y: number; w: number; h: number } | null) {
     this.mutate("crop", () => {
       const full =
-        !crop || (crop.x <= 1e-3 && crop.y <= 1e-3 && crop.w >= 0.999 && crop.h >= 0.999);
+        !crop || (crop.x <= 1e-5 && crop.y <= 1e-5 && crop.w >= 1 - 1e-5 && crop.h >= 1 - 1e-5);
       this.crop = full ? null : { ...crop };
     });
   }

@@ -6,7 +6,7 @@ import { t } from "./i18n";
 import { Icon } from "./icons";
 import { stopKeys, zoomKeys } from "./hotkeys";
 import { layout, prefs } from "./prefs";
-import { Menu, Rich, toast } from "./ui";
+import { Menu, type MenuItem, Rich, toast } from "./ui";
 import { createPreviewClient } from "./preview";
 import type { RecordTarget } from "./editor/recordFlow";
 import {
@@ -25,7 +25,9 @@ import {
   cameraMenuItems,
   cameraName,
   createCameras,
+  pushCameraChoice,
   useCameraPreview,
+  waitForCameraChoice,
 } from "./components/CameraControls";
 import { CURSOR_MODES, cursorSummary, pushCursorMode } from "./cursorMode";
 import { COUNTDOWN_CHOICES, FPS_CHOICES, ZOOM_CHOICES } from "./recordOptions";
@@ -224,6 +226,8 @@ export default function RecordOverlay(props: {
     setCount(prefs.countdown());
     setPhase("preparing"); // instant acknowledgment on the HUD button; panel waits until resized
     try {
+      await waitForCameraChoice();
+      if (control() !== "open") return;
       if (windowMode) {
         // Window capture records the whole client area; the backdrop (when captured) is
         // already cropped to that window's client rect.
@@ -392,6 +396,7 @@ export default function RecordOverlay(props: {
     if (control() !== "open") return;
     setControl("committed");
     try {
+      await waitForCameraChoice();
       await invoke("set_zoom_amount", { amount: props.zoom });
       await invoke("start_recording");
       setPhase("recording");
@@ -488,15 +493,17 @@ export default function RecordOverlay(props: {
     return h.hx !== 0 ? "ew-resize" : "ns-resize";
   };
 
-  // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Preserves
-  // size, sliding the rect back in bounds, used when moving and after a resize.
+  // Keep a rect inside the monitor (the viewport maps 1:1 to the recorded display). Clamps
+  // dimensions to viewport bounds and slides the rect back in bounds.
   const clampToView = (r: Rect): Rect => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const w = Math.min(r.w, vw);
+    const h = Math.min(r.h, vh);
     let { x, y } = r;
-    if (x + r.w > vw) x = vw - r.w;
-    if (y + r.h > vh) y = vh - r.h;
-    return { x: Math.max(0, x), y: Math.max(0, y), w: r.w, h: r.h };
+    if (x + w > vw) x = vw - w;
+    if (y + h > vh) y = vh - h;
+    return { x: Math.max(0, x), y: Math.max(0, y), w, h };
   };
 
   // Minimum region in CSS px (>= 64 physical px, above the Rust MIN_PX=8 sliver guard).
@@ -664,24 +671,39 @@ export default function RecordOverlay(props: {
   };
 
   /** Commit physical pixel W or H entered in the HUD numeric inputs through the same bounds/ratio path. */
-  const commitPhysDim = (axis: "w" | "h", raw: string) => {
+  const commitPhysDim = (axis: "w" | "h", raw: string, inputEl?: HTMLInputElement) => {
     const r = sel();
     if (!r) return;
-    const val = Number(raw);
-    if (!Number.isFinite(val) || val <= 0) return;
     const { sx, sy } = toPhysical();
+    const scaleX = Math.max(sx, 0.1);
+    const scaleY = Math.max(sy, 0.1);
+    const val = Number(raw);
+    if (!Number.isFinite(val) || val <= 0) {
+      if (inputEl) inputEl.value = String(Math.round(axis === "w" ? r.w * sx : r.h * sy));
+      return;
+    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
     const { w: minW, h: minH } = minCss();
     const ratio = preset().ratio;
     let w = r.w;
     let h = r.h;
-    if (axis === "w") {
-      w = Math.max(minW, val / Math.max(sx, 0.1));
-      if (typeof ratio === "number") h = Math.max(minH, w / ratio);
+    if (typeof ratio === "number") {
+      const loW = Math.min(vw, Math.max(minW, minH * ratio));
+      const hiW = Math.max(loW, Math.min(vw, vh * ratio));
+      const desiredW = axis === "w" ? val / scaleX : (val / scaleY) * ratio;
+      w = Math.max(loW, Math.min(hiW, desiredW));
+      h = w / ratio;
+    } else if (axis === "w") {
+      w = Math.max(minW, Math.min(vw, val / scaleX));
     } else {
-      h = Math.max(minH, val / Math.max(sy, 0.1));
-      if (typeof ratio === "number") w = Math.max(minW, h * ratio);
+      h = Math.max(minH, Math.min(vh, val / scaleY));
     }
-    setSel(clampToView({ x: r.x, y: r.y, w, h }));
+    const next = clampToView({ x: r.x, y: r.y, w, h });
+    setSel(next);
+    if (inputEl) {
+      inputEl.value = String(Math.round(axis === "w" ? next.w * sx : next.h * sy));
+    }
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -718,13 +740,18 @@ export default function RecordOverlay(props: {
         if (!e.shiftKey) {
           setSel(clampToView({ ...r, x: r.x + dx, y: r.y + dy }));
         } else {
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
           const { w: minW, h: minH } = minCss();
           const ratio = preset().ratio;
-          let w = Math.max(minW, r.w + dx);
-          let h = Math.max(minH, r.h + dy);
+          let w = Math.max(minW, Math.min(vw, r.w + dx));
+          let h = Math.max(minH, Math.min(vh, r.h + dy));
           if (typeof ratio === "number") {
-            if (dx !== 0) h = Math.max(minH, w / ratio);
-            else w = Math.max(minW, h * ratio);
+            const loW = Math.min(vw, Math.max(minW, minH * ratio));
+            const hiW = Math.max(loW, Math.min(vw, vh * ratio));
+            const desiredW = dx !== 0 ? w : h * ratio;
+            w = Math.max(loW, Math.min(hiW, desiredW));
+            h = w / ratio;
           }
           setSel(clampToView({ x: r.x, y: r.y, w, h }));
         }
@@ -847,6 +874,53 @@ export default function RecordOverlay(props: {
   };
 
   const ringOffset = () => RING_CIRC * (1 - Math.max(0, count()) / Math.max(1, prefs.countdown()));
+
+  const optionsMenuItems = (): MenuItem[] => [
+    { heading: t("Zoom") },
+    {
+      label: t("Auto zoom where I click"),
+      checked: prefs.recordAutoZoom(),
+      onSelect: () => {
+        prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
+        pushTakeDefaults();
+      },
+    },
+    ...ZOOM_CHOICES().map((z) => ({
+      label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
+      checked: Math.abs(props.zoom - z.value) < 0.001,
+      onSelect: () => props.onZoomChange(z.value),
+    })),
+    { heading: t("Frame rate") },
+    ...FPS_CHOICES().map((f) => ({
+      label: f.label,
+      checked: prefs.captureFps() === f.value,
+      onSelect: () => {
+        prefs.captureFps.set(f.value);
+        void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
+      },
+    })),
+    { heading: t("Mouse pointer") },
+    ...CURSOR_MODES().map((c) => ({
+      label: c.menu,
+      checked: prefs.cursorMode() === c.value,
+      onSelect: () => {
+        prefs.cursorMode.set(c.value);
+        pushCursorMode(c.value);
+      },
+    })),
+    { heading: t("Recording panel") },
+    {
+      label: t("Show live preview"),
+      checked: prefs.livePreview(),
+      onSelect: () => setLivePreview(!prefs.livePreview()),
+    },
+    { heading: t("Countdown") },
+    ...COUNTDOWN_CHOICES().map((c) => ({
+      label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
+      checked: prefs.countdown() === c.value,
+      onSelect: () => prefs.countdown.set(c.value),
+    })),
+  ];
 
   return (
     <Show
@@ -1240,7 +1314,10 @@ export default function RecordOverlay(props: {
                   <button
                     type="button"
                     class="hud-heavy"
-                    onClick={() => prefs.recordCamera.set(false)}
+                    onClick={() => {
+                      prefs.recordCamera.set(false);
+                      void pushCameraChoice();
+                    }}
                   >
                     {t("Continue without camera")}
                   </button>
@@ -1309,35 +1386,7 @@ export default function RecordOverlay(props: {
                   { heading: t("Camera") },
                   ...cameraMenuItems(cameras()),
                   { separator: true },
-                  { heading: t("Zoom") },
-                  {
-                    label: t("Auto zoom where I click"),
-                    checked: prefs.recordAutoZoom(),
-                    onSelect: () => {
-                      prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
-                      pushTakeDefaults();
-                    },
-                  },
-                  ...ZOOM_CHOICES().map((z) => ({
-                    label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
-                    checked: Math.abs(props.zoom - z.value) < 0.001,
-                    onSelect: () => props.onZoomChange(z.value),
-                  })),
-                  { heading: t("Frame rate") },
-                  ...FPS_CHOICES().map((f) => ({
-                    label: f.label,
-                    checked: prefs.captureFps() === f.value,
-                    onSelect: () => {
-                      prefs.captureFps.set(f.value);
-                      void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
-                    },
-                  })),
-                  { heading: t("Countdown") },
-                  ...COUNTDOWN_CHOICES().map((c) => ({
-                    label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
-                    checked: prefs.countdown() === c.value,
-                    onSelect: () => prefs.countdown.set(c.value),
-                  })),
+                  ...optionsMenuItems(),
                 ]}
                 trigger={(m) => (
                   <button
@@ -1398,52 +1447,7 @@ export default function RecordOverlay(props: {
             />
             <Menu
               class="hud-menu"
-              items={() => [
-                { heading: t("Zoom") },
-                {
-                  label: t("Auto zoom where I click"),
-                  checked: prefs.recordAutoZoom(),
-                  onSelect: () => {
-                    prefs.recordAutoZoom.set(!prefs.recordAutoZoom());
-                    pushTakeDefaults();
-                  },
-                },
-                ...ZOOM_CHOICES().map((z) => ({
-                  label: z.value === 1 ? t("No zoom") : t("Zoom {label}", { label: z.label }),
-                  checked: Math.abs(props.zoom - z.value) < 0.001,
-                  onSelect: () => props.onZoomChange(z.value),
-                })),
-                { heading: t("Frame rate") },
-                ...FPS_CHOICES().map((f) => ({
-                  label: f.label,
-                  checked: prefs.captureFps() === f.value,
-                  onSelect: () => {
-                    prefs.captureFps.set(f.value);
-                    void invoke("set_capture_fps", { fps: f.value }).catch(() => undefined);
-                  },
-                })),
-                { heading: t("Mouse pointer") },
-                ...CURSOR_MODES().map((c) => ({
-                  label: c.menu,
-                  checked: prefs.cursorMode() === c.value,
-                  onSelect: () => {
-                    prefs.cursorMode.set(c.value);
-                    pushCursorMode(c.value);
-                  },
-                })),
-                { heading: t("Recording panel") },
-                {
-                  label: t("Show live preview"),
-                  checked: prefs.livePreview(),
-                  onSelect: () => setLivePreview(!prefs.livePreview()),
-                },
-                { heading: t("Countdown") },
-                ...COUNTDOWN_CHOICES().map((c) => ({
-                  label: c.value === 0 ? t("Start immediately") : t("{n} seconds", { n: c.value }),
-                  checked: prefs.countdown() === c.value,
-                  onSelect: () => prefs.countdown.set(c.value),
-                })),
-              ]}
+              items={optionsMenuItems}
               trigger={(m) => (
                 <button
                   type="button"
@@ -1496,11 +1500,11 @@ export default function RecordOverlay(props: {
                       class="hud-dim-input"
                       aria-label={t("Region width in pixels")}
                       value={phys().w}
-                      onBlur={(e) => commitPhysDim("w", e.currentTarget.value)}
+                      onBlur={(e) => commitPhysDim("w", e.currentTarget.value, e.currentTarget)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          commitPhysDim("w", e.currentTarget.value);
+                          commitPhysDim("w", e.currentTarget.value, e.currentTarget);
                           e.currentTarget.blur();
                         }
                       }}
@@ -1511,11 +1515,11 @@ export default function RecordOverlay(props: {
                       class="hud-dim-input"
                       aria-label={t("Region height in pixels")}
                       value={phys().h}
-                      onBlur={(e) => commitPhysDim("h", e.currentTarget.value)}
+                      onBlur={(e) => commitPhysDim("h", e.currentTarget.value, e.currentTarget)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          commitPhysDim("h", e.currentTarget.value);
+                          commitPhysDim("h", e.currentTarget.value, e.currentTarget);
                           e.currentTarget.blur();
                         }
                       }}

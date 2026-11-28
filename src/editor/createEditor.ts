@@ -490,7 +490,7 @@ export function createEditor() {
     }
     const t = tlTime(e);
     setHoverT(t);
-    setGhostT((e.target as Element).closest(".tl-zoomlane") ? t : null);
+    setGhostT(e.target instanceof Element && e.target.closest(".tl-zoomlane") ? t : null);
   };
   const onTlHoverLeave = () => {
     setHoverT(null);
@@ -515,12 +515,10 @@ export function createEditor() {
   let stageEl: HTMLDivElement | undefined;
 
   const onContextMenu = (e: MouseEvent) => {
-    const el = e.target as HTMLElement;
-    if (!el.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
+    if (!(e.target instanceof Element && e.target.closest("input, textarea, [contenteditable=true]"))) e.preventDefault();
   };
   const onDragStart = (e: DragEvent) => {
-    const el = e.target as HTMLElement | null;
-    if (!el?.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
+    if (!(e.target instanceof Element && e.target.closest("input, textarea, [contenteditable=true]"))) e.preventDefault();
   };
   let unwatchFocus: (() => void) | undefined;
 
@@ -532,7 +530,7 @@ export function createEditor() {
     "KeyP", "KeyU", "KeyD", "KeyW", "Equal", "Minus", "Digit0",
   ]);
   const onGlobalKey = (e: KeyboardEvent) => {
-    const inField = (e.target as HTMLElement).closest("input, textarea");
+    const inField = e.target instanceof Element ? e.target.closest("input, textarea") : null;
     // While a modal owns the screen, skip the editor accelerators (undo/save/export/…) so
     // they can't mutate the clip behind it, but still swallow browser chords further down.
     const modalOpen = isModal();
@@ -3103,12 +3101,21 @@ export function createEditor() {
   // editor draws the draft rect on top; Apply writes it (or clears it when it covers the
   // whole frame), Cancel restores the previous crop. The frame preset comes back either way.
   const FULL_CROP: CropRect = { x: 0, y: 0, w: 1, h: 1 };
-  const [cropEdit, setCropEdit] = createSignal<{ prevCrop: CropRect | null; prevFrame: string } | null>(null);
+  type CropFrameSnapshot = { padding: number; radius: number; shadow: number };
+  const [cropEdit, setCropEdit] = createSignal<{
+    prevCrop: CropRect | null;
+    prevFrame: string;
+    prevStyle: CropFrameSnapshot | null;
+    prevDirty: boolean;
+  } | null>(null);
   const [cropDraft, setCropDraft] = createSignal<CropRect>(FULL_CROP);
   const beginCropEdit = async () => {
     if (!hasClip() || cropEdit()) return;
     const prevCrop = crop();
     const prevFrame = framePreset();
+    const fi = frameInfo();
+    const prevStyle = fi ? { padding: fi.padding, radius: fi.corner_radius, shadow: fi.shadow } : null;
+    const prevDirty = dirty();
     setPlaying(false);
     setTool("select");
     setSelected(null);
@@ -3116,8 +3123,19 @@ export function createEditor() {
     setSelSpeed(null);
     setSelCut(null);
     setCropDraft(prevCrop ?? FULL_CROP);
-    setCropEdit({ prevCrop, prevFrame });
-    if (prevFrame !== "none") applyFramePreset("none");
+    setCropEdit({ prevCrop, prevFrame, prevStyle, prevDirty });
+    const hasFraming =
+      prevFrame !== "none" || (prevStyle !== null && (prevStyle.padding > 0 || prevStyle.radius > 0 || prevStyle.shadow > 0));
+    if (hasFraming) {
+      setFramePreset("none");
+      try {
+        await invoke("set_frame_style", { padding: 0, cornerRadius: 0, shadow: 0 });
+        await refreshFrame();
+        await pushSeek(playhead());
+      } catch {
+        applyFramePreset("none");
+      }
+    }
     if (prevCrop) await applyCrop(null);
   };
   const finishCropEdit = async (apply: boolean) => {
@@ -3125,10 +3143,27 @@ export function createEditor() {
     if (!st) return;
     setCropEdit(null);
     const r = cropDraft();
-    const whole = r.x < 0.002 && r.y < 0.002 && r.w > 0.996 && r.h > 0.996;
+    const whole = r.x <= 1e-5 && r.y <= 1e-5 && r.w >= 1 - 1e-5 && r.h >= 1 - 1e-5;
     const target = apply ? (whole ? null : r) : st.prevCrop;
     if (target || crop()) await applyCrop(target);
-    if (st.prevFrame !== "none") applyFramePreset(st.prevFrame);
+    const restoreStyle =
+      st.prevStyle !== null && (st.prevStyle.padding > 0 || st.prevStyle.radius > 0 || st.prevStyle.shadow > 0);
+    if (restoreStyle && st.prevStyle) {
+      try {
+        await invoke("set_frame_style", {
+          padding: st.prevStyle.padding,
+          cornerRadius: st.prevStyle.radius,
+          shadow: st.prevStyle.shadow,
+        });
+        await refreshFrame();
+        await pushSeek(playhead());
+      } catch {
+        if (st.prevFrame !== "none") applyFramePreset(st.prevFrame);
+      }
+    } else if (st.prevFrame !== "none") {
+      applyFramePreset(st.prevFrame);
+    }
+    if (!apply && !st.prevDirty) setDirty(false);
   };
 
   // Centered crop presets: shrink the LONGER side to match the target ratio.

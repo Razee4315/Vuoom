@@ -360,6 +360,10 @@ function ClickEffectArt(props: { effect: ClickEffect }): JSX.Element {
 }
 const pointerHex = (c: [number, number, number] | null | undefined) =>
   c ? rgbHex({ r: c[0], g: c[1], b: c[2], a: 1 }) : PRESET_COLORS[0];
+const isDarkHex = (hex: string) => {
+  const { r, g, b } = hexRgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.2;
+};
 /** The look a pointer is drawn with: a picture look without a picture is the classic one. */
 const pointerLook = (c: { look?: PointerLook; image?: unknown }): PointerLook =>
   c.look === "image" && !c.image ? "classic" : (c.look ?? "classic");
@@ -2347,7 +2351,11 @@ function ClipPanel(props: { query: () => string; noMatch: () => boolean; onClear
                       data-tip={fx.tip}
                       onClick={() => ed.updateClickStyle({ effect: fx.value })}
                     >
-                      <span class="look-card-art">
+                      <span
+                        class="look-card-art click-fx-art"
+                        classList={{ light: isDarkHex(pointerHex(ed.clickStyle().color)) }}
+                        style={{ color: pointerHex(ed.clickStyle().color) }}
+                      >
                         <ClickEffectArt effect={fx.value} />
                       </span>
                       {fx.label}

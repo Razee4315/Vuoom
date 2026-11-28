@@ -190,13 +190,15 @@ export default function CommandPalette() {
   let listEl: HTMLDivElement | undefined;
   let lastPointerX = -1;
   let lastPointerY = -1;
+  const scrollActiveIntoView = () =>
+    queueMicrotask(() => listEl?.querySelector(".pal-item.on")?.scrollIntoView({ block: "nearest" }));
   const move = (d: number) => {
     const list = results();
     if (!list.length) return;
     const cur = Math.max(0, activeIndex());
     const next = list[(cur + d + list.length) % list.length];
     setActiveId(next.id);
-    queueMicrotask(() => listEl?.querySelector(".pal-item.on")?.scrollIntoView({ block: "nearest" }));
+    scrollActiveIntoView();
   };
 
   let inputEl: HTMLInputElement | undefined;
@@ -234,12 +236,14 @@ export default function CommandPalette() {
                 if (first) {
                   e.preventDefault();
                   setActiveId(first.id);
+                  scrollActiveIntoView();
                 }
               } else if (e.key === "End") {
                 const last = results()[results().length - 1];
                 if (last) {
                   e.preventDefault();
                   setActiveId(last.id);
+                  scrollActiveIntoView();
                 }
               } else if (e.key === "Enter") {
                 const idx = activeIndex();

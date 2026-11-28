@@ -173,9 +173,10 @@ export default function Settings() {
                   class="settings-tab"
                   classList={{ on: tab() === item.id }}
                   aria-current={tab() === item.id ? "page" : undefined}
-                  onClick={() => {
+                  onClick={(e) => {
                     setConfirmClear(false);
                     ed.setSettingsTab(item.id);
+                    e.currentTarget.focus({ preventScroll: true });
                   }}
                 >
                   <Icon name={item.icon} size={15} />
